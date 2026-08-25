@@ -1,0 +1,242 @@
+# Home Assistant helper entities for Flow.io alarms.
+#
+# This file is meant to be included from Home Assistant configuration.yaml:
+#
+# template: !include docs/integration/home_assistant_alarm_helpers_fio53.yaml
+#
+# Current firmware behavior for Flow.io:
+# - Flow.io auto-discovers `sensor.fio53_alm_pack` for alarm state packing.
+# - Flow.io auto-discovers one global `button.*` reset entity using
+#   the MQTT command path `{"cmd":"alarms.reset_all"}`.
+# - Flow.io auto-discovers one `button.*` per slot `0..7` using
+#   the MQTT command path `{"cmd":"alarms.reset_slot","args":{"slot":N}}`.
+# - The detailed MQTT payload still exists in firmware (`rt/alarms/id<id>`), but the
+#   current HA discovery layer does not expose one state entity per alarm.
+#
+# This helper file decodes `sensor.fio53_alm_pack`, which is built in
+# `AlarmModule::buildPacked_()` with 5 bits per slot:
+# - bit 0: active
+# - bit 1: resettable
+# - bit 2: condition == true
+# - bits 3..4: severity
+#
+# Slot mapping for the current FlowIO profile, based on module init order:
+# - slot 0 -> AlarmId 1000 -> psi_low
+# - slot 1 -> AlarmId 1001 -> psi_high
+# - slot 2 -> AlarmId 1002 -> ph_tank_low
+# - slot 3 -> AlarmId 1003 -> chlorine_tank_low
+# - slot 4 -> AlarmId 1004 -> ph_pump_max_uptime
+# - slot 5 -> AlarmId 1005 -> chlorine_pump_max_uptime
+# - slot 6 -> AlarmId 1006 -> pool_water_level_low
+#
+# `PoolPhPumpMaxUptime` and `PoolChlorinePumpMaxUptime` are latched alarms.
+# Their matching HA reset buttons are:
+# - slot 4 -> button.fio53_alm_reset_slot_4
+# - slot 5 -> button.fio53_alm_reset_slot_5
+#
+# If alarm registration order changes in firmware, this mapping must be updated.
+
+- binary_sensor:
+      - name: fio53_alarm_any_active
+        unique_id: fio53_alarm_any_active
+        icon: mdi:alarm-multiple
+        availability: >
+          {{ states('sensor.fio53_alm_pack') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set pack = states('sensor.fio53_alm_pack') | int(0) %}
+          {% set ns = namespace(active=false) %}
+          {% for slot in range(0, 8) %}
+            {% if ((pack // (32 ** slot)) % 2) == 1 %}
+              {% set ns.active = true %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.active }}
+
+      - name: fio53_psi_low_active
+        unique_id: fio53_psi_low_active
+        icon: mdi:alarm-light
+        availability: >
+          {{ states('sensor.fio53_alm_pack') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set pack = states('sensor.fio53_alm_pack') | int(0) %}
+          {{ ((pack // 1) % 2) == 1 }}
+
+      - name: fio53_psi_low_resettable
+        unique_id: fio53_psi_low_resettable
+        icon: mdi:restart-alert
+        availability: >
+          {{ states('sensor.fio53_alm_pack') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set pack = states('sensor.fio53_alm_pack') | int(0) %}
+          {{ ((pack // 2) % 2) == 1 }}
+
+      - name: fio53_psi_low_condition
+        unique_id: fio53_psi_low_condition
+        icon: mdi:flash-alert
+        availability: >
+          {{ states('sensor.fio53_alm_pack') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set pack = states('sensor.fio53_alm_pack') | int(0) %}
+          {{ ((pack // 4) % 2) == 1 }}
+
+      - name: fio53_psi_high_active
+        unique_id: fio53_psi_high_active
+        icon: mdi:alarm-light
+        availability: >
+          {{ states('sensor.fio53_alm_pack') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set pack = states('sensor.fio53_alm_pack') | int(0) %}
+          {{ ((pack // 32) % 2) == 1 }}
+
+      - name: fio53_psi_high_resettable
+        unique_id: fio53_psi_high_resettable
+        icon: mdi:restart-alert
+        availability: >
+          {{ states('sensor.fio53_alm_pack') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set pack = states('sensor.fio53_alm_pack') | int(0) %}
+          {{ ((pack // 64) % 2) == 1 }}
+
+      - name: fio53_psi_high_condition
+        unique_id: fio53_psi_high_condition
+        icon: mdi:flash-alert
+        availability: >
+          {{ states('sensor.fio53_alm_pack') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set pack = states('sensor.fio53_alm_pack') | int(0) %}
+          {{ ((pack // 128) % 2) == 1 }}
+
+      - name: fio53_ph_tank_low_active
+        unique_id: fio53_ph_tank_low_active
+        icon: mdi:alarm-light
+        availability: >
+          {{ states('sensor.fio53_alm_pack') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set pack = states('sensor.fio53_alm_pack') | int(0) %}
+          {{ ((pack // 1024) % 2) == 1 }}
+
+      - name: fio53_ph_tank_low_resettable
+        unique_id: fio53_ph_tank_low_resettable
+        icon: mdi:restart-alert
+        availability: >
+          {{ states('sensor.fio53_alm_pack') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set pack = states('sensor.fio53_alm_pack') | int(0) %}
+          {{ ((pack // 2048) % 2) == 1 }}
+
+      - name: fio53_ph_tank_low_condition
+        unique_id: fio53_ph_tank_low_condition
+        icon: mdi:flash-alert
+        availability: >
+          {{ states('sensor.fio53_alm_pack') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set pack = states('sensor.fio53_alm_pack') | int(0) %}
+          {{ ((pack // 4096) % 2) == 1 }}
+
+      - name: fio53_chlorine_tank_low_active
+        unique_id: fio53_chlorine_tank_low_active
+        icon: mdi:alarm-light
+        availability: >
+          {{ states('sensor.fio53_alm_pack') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set pack = states('sensor.fio53_alm_pack') | int(0) %}
+          {{ ((pack // 32768) % 2) == 1 }}
+
+      - name: fio53_chlorine_tank_low_resettable
+        unique_id: fio53_chlorine_tank_low_resettable
+        icon: mdi:restart-alert
+        availability: >
+          {{ states('sensor.fio53_alm_pack') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set pack = states('sensor.fio53_alm_pack') | int(0) %}
+          {{ ((pack // 65536) % 2) == 1 }}
+
+      - name: fio53_chlorine_tank_low_condition
+        unique_id: fio53_chlorine_tank_low_condition
+        icon: mdi:flash-alert
+        availability: >
+          {{ states('sensor.fio53_alm_pack') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set pack = states('sensor.fio53_alm_pack') | int(0) %}
+          {{ ((pack // 131072) % 2) == 1 }}
+
+      - name: fio53_ph_pump_max_uptime_active
+        unique_id: fio53_ph_pump_max_uptime_active
+        icon: mdi:alarm-light
+        availability: >
+          {{ states('sensor.fio53_alm_pack') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set pack = states('sensor.fio53_alm_pack') | int(0) %}
+          {{ ((pack // 1048576) % 2) == 1 }}
+
+      - name: fio53_ph_pump_max_uptime_resettable
+        unique_id: fio53_ph_pump_max_uptime_resettable
+        icon: mdi:restart-alert
+        availability: >
+          {{ states('sensor.fio53_alm_pack') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set pack = states('sensor.fio53_alm_pack') | int(0) %}
+          {{ ((pack // 2097152) % 2) == 1 }}
+
+      - name: fio53_ph_pump_max_uptime_condition
+        unique_id: fio53_ph_pump_max_uptime_condition
+        icon: mdi:flash-alert
+        availability: >
+          {{ states('sensor.fio53_alm_pack') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set pack = states('sensor.fio53_alm_pack') | int(0) %}
+          {{ ((pack // 4194304) % 2) == 1 }}
+
+      - name: fio53_chlorine_pump_max_uptime_active
+        unique_id: fio53_chlorine_pump_max_uptime_active
+        icon: mdi:alarm-light
+        availability: >
+          {{ states('sensor.fio53_alm_pack') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set pack = states('sensor.fio53_alm_pack') | int(0) %}
+          {{ ((pack // 33554432) % 2) == 1 }}
+
+      - name: fio53_chlorine_pump_max_uptime_resettable
+        unique_id: fio53_chlorine_pump_max_uptime_resettable
+        icon: mdi:restart-alert
+        availability: >
+          {{ states('sensor.fio53_alm_pack') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set pack = states('sensor.fio53_alm_pack') | int(0) %}
+          {{ ((pack // 67108864) % 2) == 1 }}
+
+      - name: fio53_chlorine_pump_max_uptime_condition
+        unique_id: fio53_chlorine_pump_max_uptime_condition
+        icon: mdi:flash-alert
+        availability: >
+          {{ states('sensor.fio53_alm_pack') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set pack = states('sensor.fio53_alm_pack') | int(0) %}
+          {{ ((pack // 134217728) % 2) == 1 }}
+
+      - name: fio53_water_level_low_active
+        unique_id: fio53_water_level_low_active
+        icon: mdi:waves-arrow-down
+        availability: >
+          {{ states('sensor.fio53_alm_pack') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set pack = states('sensor.fio53_alm_pack') | int(0) %}
+          {{ ((pack // 1073741824) % 2) == 1 }}
+
+      - name: fio53_water_level_low_resettable
+        unique_id: fio53_water_level_low_resettable
+        icon: mdi:restart-alert
+        availability: >
+          {{ states('sensor.fio53_alm_pack') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set pack = states('sensor.fio53_alm_pack') | int(0) %}
+          {{ ((pack // 2147483648) % 2) == 1 }}
+
+      - name: fio53_water_level_low_condition
+        unique_id: fio53_water_level_low_condition
+        icon: mdi:flash-alert
+        availability: >
+          {{ states('sensor.fio53_alm_pack') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set pack = states('sensor.fio53_alm_pack') | int(0) %}
+          {{ ((pack // 4294967296) % 2) == 1 }}

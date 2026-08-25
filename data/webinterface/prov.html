@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" type="image/svg+xml" href="/webinterface/favicon.svg" />
+  <title>flow.io - Réseau</title>
+  <link rel="stylesheet" href="/webinterface/app-core.css" />
+  <style>
+    body.provisioning-page{background:var(--md-bg);color:var(--md-on-surface);}
+    .prov-shell{min-height:100vh;display:grid;grid-template-rows:auto 1fr;gap:18px;padding:18px;}
+    .prov-header{display:flex;align-items:center;justify-content:space-between;gap:14px;max-width:780px;width:100%;margin:0 auto;}
+    .prov-brand{display:inline-flex;align-items:baseline;font-size:30px;line-height:1;font-weight:800;white-space:nowrap;user-select:none;}
+    .prov-brand .brand-flow{color:#FFFFFF;}
+    .prov-card{width:100%;max-width:780px;margin:0 auto;align-self:start;border-radius:18px;}
+    .prov-title{margin:0;color:var(--panel-frame-title);font-size:21px;line-height:1.2;font-weight:800;}
+    .prov-subtitle{margin:6px 0 0;color:var(--panel-frame-text);font-size:13px;line-height:1.45;}
+    .prov-section{display:grid;gap:16px;}
+    .prov-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;}
+    .prov-status{margin-top:0;}
+    .prov-scan-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end;}
+    .prov-scan-button{min-height:42px;white-space:nowrap;}
+    .prov-actions{justify-content:flex-end;}
+    .prov-save{min-width:180px;}
+    @media (max-width:640px){
+      .prov-shell{padding:14px;}
+      .prov-header{align-items:flex-start;flex-direction:column;}
+      .prov-head{display:grid;}
+      .prov-scan-row{grid-template-columns:1fr;}
+      .prov-actions{justify-content:stretch;}
+      .prov-save{width:100%;}
+    }
+  </style>
+</head>
+<body class="provisioning-page web-icons-disabled">
+  <main class="prov-shell">
+    <header class="prov-header">
+      <div class="prov-brand" aria-label="flow.io">
+        <span class="brand-flow">Flow</span><span class="brand-io">.io</span>
+      </div>
+      <span id="provFirmware" class="status-chip">Provisioning</span>
+    </header>
+
+    <section class="card prov-card">
+      <div class="prov-section">
+        <div class="prov-head">
+          <div>
+            <h1 class="prov-title">Configuration réseau</h1>
+            <p class="prov-subtitle">Selectionnez le reseau a utiliser, puis validez pour enregistrer la configuration.</p>
+          </div>
+          <div class="wifi-section-toggle">
+            <span>Activer</span>
+            <label class="md3-switch">
+              <input id="provWifiEnabled" type="checkbox" checked />
+              <span class="md3-track"></span>
+              <span class="md3-thumb"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="field">
+            <label for="provWifiSsid">SSID</label>
+            <input id="provWifiSsid" autocomplete="off" maxlength="32" placeholder="Nom du reseau" />
+          </div>
+          <div class="field">
+            <label for="provWifiSsidList">Reseaux detectes</label>
+            <div class="prov-scan-row">
+              <select id="provWifiSsidList">
+                <option value="">Scan requis...</option>
+              </select>
+              <button id="provWifiScan" class="btn-tonal prov-scan-button" type="button">Rechercher</button>
+            </div>
+          </div>
+          <div class="field full">
+            <label for="provWifiPass">Mot de passe</label>
+            <div class="password-wrap">
+              <input id="provWifiPass" type="password" autocomplete="current-password" maxlength="64" placeholder="Mot de passe reseau" />
+              <button id="provTogglePass" class="password-toggle" type="button" aria-label="Afficher le mot de passe" aria-pressed="false">Voir</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="btn-row prov-actions">
+          <button id="provWifiSave" class="btn-primary prov-save" type="button">Valider</button>
+        </div>
+        <div id="provStatus" class="config-status prov-status">Chargement...</div>
+      </div>
+    </section>
+  </main>
+  <script src="/webinterface/prov.js"></script>
+</body>
+</html>

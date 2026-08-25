@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>flow.io</title>
+  <link rel="stylesheet" href="/webinterface/light.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topinner">
+      <div class="brand-wordmark" id="brand" aria-label="flow.io">
+        <span class="brand-flow" id="brandName">Flow</span><span class="brand-io">.io</span>
+      </div>
+      <div class="subtitle" id="subtitle">Configuration Initiale</div>
+    </div>
+  </header>
+  <main>
+    <div id="status">Chargement...</div>
+
+    <section class="box">
+      <h2>Réseau</h2>
+      <label><input id="wifiEnabled" type="checkbox" />Activer le réseau station</label>
+      <label>Réseaux détectés
+        <select id="wifiSsidList"><option value="">Saisie manuelle</option></select>
+      </label>
+      <div class="actions">
+        <button class="secondary" id="wifiScanBtn" type="button">Rechercher les réseaux</button>
+      </div>
+      <div class="scan-status" id="wifiScanStatus">Scan réseau non lancé.</div>
+      <label>SSID<input id="wifiSsid" autocomplete="off" /></label>
+      <label>Mot de passe<input id="wifiPass" type="password" autocomplete="off" /></label>
+      <button id="wifiSave" type="button">Valider</button>
+    </section>
+  </main>
+  <script src="/webinterface/light.js"></script>
+</body>
+</html>

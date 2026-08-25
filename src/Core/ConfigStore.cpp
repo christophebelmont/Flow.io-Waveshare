@@ -1,0 +1,818 @@
+/**
+ * @file ConfigStore.cpp
+ * @brief Implementation file.
+ */
+#include "Core/ConfigStore.h"
+#include "Core/BufferUsageTracker.h"
+#include "Core/NvsKeys.h"
+#include "Core/Log.h"
+#include "Core/ModuleId.h"
+#include "Core/SnprintfCheck.h"
+#include <Arduino.h>
+#include <ArduinoJson.h>
+#include <esp_heap_caps.h>
+#include <stdio.h>
+
+#define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::CoreConfigStore)
+#undef snprintf
+#define snprintf(OUT, LEN, FMT, ...) \
+    FLOW_SNPRINTF_CHECKED_MODULE(LOG_MODULE_ID, OUT, LEN, FMT, ##__VA_ARGS__)
+
+static bool strEquals(const char* a, const char* b) {
+    if (!a || !b) return false;
+    return strcmp(a, b) == 0;
+}
+
+namespace {
+constexpr uint32_t kApplyJsonDocReportPeriodMs = 5000U;
+
+void reportApplyJsonDocPeak_(size_t usedBytes, size_t capacityBytes)
+{
+    // Keep the highest observed usage since boot so we can validate that
+    // Limits::JsonConfigApplyBuf is sized with enough headroom in real traffic.
+    static std::atomic<size_t> s_applyJsonPeakBytes{0U};
+    static std::atomic<uint32_t> s_applyJsonLastReportMs{0U};
+
+    size_t peakBytes = s_applyJsonPeakBytes.load(std::memory_order_relaxed);
+    while (usedBytes > peakBytes &&
+           !s_applyJsonPeakBytes.compare_exchange_weak(peakBytes,
+                                                       usedBytes,
+                                                       std::memory_order_relaxed,
+                                                       std::memory_order_relaxed)) {
+    }
+    peakBytes = s_applyJsonPeakBytes.load(std::memory_order_relaxed);
+
+    const uint32_t nowMs = millis();
+    const uint32_t stampMs = (nowMs == 0U) ? 1U : nowMs;
+    uint32_t lastReportMs = s_applyJsonLastReportMs.load(std::memory_order_relaxed);
+    if (lastReportMs != 0U && (uint32_t)(nowMs - lastReportMs) < kApplyJsonDocReportPeriodMs) return;
+    if (!s_applyJsonLastReportMs.compare_exchange_strong(lastReportMs,
+                                                         stampMs,
+                                                         std::memory_order_relaxed,
+                                                         std::memory_order_relaxed)) {
+        return;
+    }
+
+    Log::debug(LOG_MODULE_ID,
+               "applyJson doc peak since boot: %lu / %lu bytes",
+               (unsigned long)peakBytes,
+               (unsigned long)capacityBytes);
+}
+}  // namespace
+
+bool ConfigStore::ensureMetaStorage_()
+{
+    if (_meta) return true;
+
+    const size_t bytes = MAX_CONFIG_VARS * sizeof(ConfigMeta);
+    void* mem = nullptr;
+    if (psramFound()) {
+        mem = heap_caps_calloc(MAX_CONFIG_VARS, sizeof(ConfigMeta), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (mem) {
+            Log::info(LOG_MODULE_ID,
+                      "Config meta table allocated in PSRAM bytes=%lu vars=%u",
+                      (unsigned long)bytes,
+                      (unsigned)MAX_CONFIG_VARS);
+        }
+    }
+    if (!mem) {
+        mem = heap_caps_calloc(MAX_CONFIG_VARS, sizeof(ConfigMeta), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (mem) {
+            Log::info(LOG_MODULE_ID,
+                      "Config meta table allocated in internal heap bytes=%lu vars=%u",
+                      (unsigned long)bytes,
+                      (unsigned)MAX_CONFIG_VARS);
+        }
+    }
+    _meta = static_cast<ConfigMeta*>(mem);
+    if (!_meta) {
+        Log::error(LOG_MODULE_ID,
+                   "Config meta table allocation failed bytes=%lu vars=%u",
+                   (unsigned long)bytes,
+                   (unsigned)MAX_CONFIG_VARS);
+    }
+    return _meta != nullptr;
+}
+
+void ConfigStore::ensureMutex_()
+{
+    if (_prefsMutex) return;
+    _prefsMutex = xSemaphoreCreateMutexStatic(&_prefsMutexBuf);
+}
+
+bool ConfigStore::lockPrefs_()
+{
+    if (!_prefs) return false;
+    ensureMutex_();
+    if (!_prefsMutex) return false;
+    return xSemaphoreTake(_prefsMutex, portMAX_DELAY) == pdTRUE;
+}
+
+void ConfigStore::unlockPrefs_()
+{
+    if (_prefsMutex) {
+        (void)xSemaphoreGive(_prefsMutex);
+    }
+}
+
+void ConfigStore::notifyChanged(const char* nvsKey, const char* moduleName, uint8_t moduleId, uint8_t localBranchId)
+{
+    if (!_eventBus || !nvsKey) return;
+
+    ConfigChangedPayload p{};
+    p.moduleId = moduleId;
+    p.localBranchId = localBranchId;
+    strncpy(p.nvsKey, nvsKey, sizeof(p.nvsKey) - 1);
+    p.nvsKey[sizeof(p.nvsKey) - 1] = '\0';
+    if (moduleName && moduleName[0] != '\0') {
+        strncpy(p.module, moduleName, sizeof(p.module) - 1);
+        p.module[sizeof(p.module) - 1] = '\0';
+    }
+
+    _eventBus->post(EventId::ConfigChanged, &p, sizeof(p), ModuleId::ConfigStore);
+}
+
+void ConfigStore::recordNvsWrite_(size_t bytesWritten)
+{
+    if (bytesWritten == 0) return;
+    _nvsWriteTotal.fetch_add(1U, std::memory_order_relaxed);
+    _nvsWriteWindow.fetch_add(1U, std::memory_order_relaxed);
+}
+
+bool ConfigStore::putInt_(const char* key, int32_t value)
+{
+    if (!_prefs || !key) return false;
+    if (!lockPrefs_()) return false;
+    const size_t wrote = _prefs->putInt(key, value);
+    unlockPrefs_();
+    recordNvsWrite_(wrote);
+    return wrote == sizeof(int32_t);
+}
+
+bool ConfigStore::putUShort_(const char* key, uint16_t value)
+{
+    if (!_prefs || !key) return false;
+    if (!lockPrefs_()) return false;
+    const size_t wrote = _prefs->putUShort(key, value);
+    unlockPrefs_();
+    recordNvsWrite_(wrote);
+    return wrote == sizeof(uint16_t);
+}
+
+bool ConfigStore::putUChar_(const char* key, uint8_t value)
+{
+    if (!_prefs || !key) return false;
+    if (!lockPrefs_()) return false;
+    const size_t wrote = _prefs->putUChar(key, value);
+    unlockPrefs_();
+    recordNvsWrite_(wrote);
+    return wrote == sizeof(uint8_t);
+}
+
+bool ConfigStore::putBool_(const char* key, bool value)
+{
+    if (!_prefs || !key) return false;
+    if (!lockPrefs_()) return false;
+    const size_t wrote = _prefs->putBool(key, value);
+    unlockPrefs_();
+    recordNvsWrite_(wrote);
+    return wrote == sizeof(bool);
+}
+
+bool ConfigStore::putFloat_(const char* key, float value)
+{
+    if (!_prefs || !key) return false;
+    if (!lockPrefs_()) return false;
+    const size_t wrote = _prefs->putFloat(key, value);
+    unlockPrefs_();
+    recordNvsWrite_(wrote);
+    return wrote == sizeof(float);
+}
+
+bool ConfigStore::putBytes_(const char* key, const void* value, size_t len)
+{
+    if (!_prefs || !key || !value || len == 0) return false;
+    if (!lockPrefs_()) return false;
+    const size_t wrote = _prefs->putBytes(key, value, len);
+    unlockPrefs_();
+    recordNvsWrite_(wrote);
+    return wrote == len;
+}
+
+bool ConfigStore::putString_(const char* key, const char* value)
+{
+    if (!_prefs || !key || !value) return false;
+    if (!lockPrefs_()) return false;
+    const size_t wrote = _prefs->putString(key, value);
+    unlockPrefs_();
+    recordNvsWrite_(wrote);
+    return (wrote > 0U) || (value[0] == '\0');
+}
+
+bool ConfigStore::readRuntimeBlob(const char* key, void* out, size_t outLen, size_t* actualLen)
+{
+    if (!_prefs || !key || !out || outLen == 0) return false;
+    if (!lockPrefs_()) return false;
+    const size_t storedLen = _prefs->getBytesLength(key);
+    const size_t toRead = (storedLen < outLen) ? storedLen : outLen;
+    const size_t readLen = (toRead > 0U) ? _prefs->getBytes(key, out, toRead) : 0U;
+    unlockPrefs_();
+    if (actualLen) *actualLen = storedLen;
+    return storedLen > 0U && readLen == toRead;
+}
+
+bool ConfigStore::writeRuntimeBlob(const char* key, const void* value, size_t len)
+{
+    return putBytes_(key, value, len);
+}
+
+bool ConfigStore::eraseKey(const char* key)
+{
+    if (!_prefs || !key) return false;
+    if (!lockPrefs_()) return false;
+    const bool existed = _prefs->isKey(key);
+    const bool ok = !existed || _prefs->remove(key);
+    unlockPrefs_();
+    return ok;
+}
+
+bool ConfigStore::persistFloatValue(const char* key, float value)
+{
+    return putFloat_(key, value);
+}
+
+void ConfigStore::notifyStoredValueChanged(const char* nvsKey,
+                                           const char* moduleName,
+                                           uint8_t moduleId,
+                                           uint8_t localBranchId)
+{
+    notifyChanged(nvsKey, moduleName, moduleId, localBranchId);
+}
+
+void ConfigStore::logNvsWriteSummaryIfDue(uint32_t nowMs, uint32_t periodMs)
+{
+    if (periodMs == 0U) return;
+
+    const uint32_t last = _nvsLastSummaryMs.load(std::memory_order_relaxed);
+    if (last == 0U) {
+        _nvsLastSummaryMs.store(nowMs, std::memory_order_relaxed);
+        return;
+    }
+    if ((uint32_t)(nowMs - last) < periodMs) return;
+
+    _nvsLastSummaryMs.store(nowMs, std::memory_order_relaxed);
+    const uint32_t windowWrites = _nvsWriteWindow.exchange(0U, std::memory_order_relaxed);
+    const uint32_t totalWrites = _nvsWriteTotal.load(std::memory_order_relaxed);
+
+    Log::debug(LOG_MODULE_ID, "NVS writes: last_%lus=%lu total=%lu",
+               (unsigned long)(periodMs / 1000U),
+               (unsigned long)windowWrites,
+               (unsigned long)totalWrites);
+}
+
+bool ConfigStore::writePersistent(const ConfigMeta& m)
+{
+    if (!_prefs) return false;
+    if (m.persistence != ConfigPersistence::Persistent) return true;
+    if (!m.nvsKey) return false;
+
+    switch (m.type) {
+        case ConfigType::Int32:
+            return putInt_(m.nvsKey, *(int32_t*)m.valuePtr);
+        case ConfigType::UInt16:
+            return putUShort_(m.nvsKey, *(uint16_t*)m.valuePtr);
+        case ConfigType::UInt8:
+            return putUChar_(m.nvsKey, *(uint8_t*)m.valuePtr);
+        case ConfigType::Bool:
+            return putBool_(m.nvsKey, *(bool*)m.valuePtr);
+        case ConfigType::Float:
+            return putFloat_(m.nvsKey, *(float*)m.valuePtr);
+        case ConfigType::Double:
+            return putBytes_(m.nvsKey, m.valuePtr, sizeof(double));
+        case ConfigType::CharArray:
+            return putString_(m.nvsKey, (const char*)m.valuePtr);
+        default:
+            return false;
+    }
+}
+
+void ConfigStore::loadPersistent()
+{
+    if (!_prefs) return;
+    if (!lockPrefs_()) return;
+
+    Log::debug(LOG_MODULE_ID, "loadPersistent: vars=%u", (unsigned)_metaCount);
+    for (uint16_t i = 0; i < _metaCount; ++i) {
+        ConfigMeta& m = _meta[i];
+        if (m.persistence != ConfigPersistence::Persistent) continue;
+        if (!m.nvsKey) continue;
+
+        switch (m.type) {
+            case ConfigType::Int32:
+                *(int32_t*)m.valuePtr = _prefs->getInt(m.nvsKey, *(int32_t*)m.valuePtr);
+                break;
+            case ConfigType::UInt16:
+                *(uint16_t*)m.valuePtr = _prefs->getUShort(m.nvsKey, *(uint16_t*)m.valuePtr);
+                break;
+            case ConfigType::UInt8:
+                *(uint8_t*)m.valuePtr = _prefs->getUChar(m.nvsKey, *(uint8_t*)m.valuePtr);
+                break;
+            case ConfigType::Bool:
+                *(bool*)m.valuePtr = _prefs->getBool(m.nvsKey, *(bool*)m.valuePtr);
+                break;
+            case ConfigType::Float:
+                *(float*)m.valuePtr = _prefs->getFloat(m.nvsKey, *(float*)m.valuePtr);
+                break;
+            case ConfigType::Double: {
+                double tmp = *(double*)m.valuePtr;
+                _prefs->getBytes(m.nvsKey, &tmp, sizeof(double));
+                *(double*)m.valuePtr = tmp;
+                break;
+            }
+            case ConfigType::CharArray:
+                _prefs->getString(m.nvsKey, (char*)m.valuePtr, m.size);
+                break;
+            default:
+                break;
+        }
+    }
+    unlockPrefs_();
+}
+
+void ConfigStore::savePersistent()
+{
+    if (!_prefs) return;
+
+    Log::debug(LOG_MODULE_ID, "savePersistent: vars=%u", (unsigned)_metaCount);
+    for (uint16_t i = 0; i < _metaCount; ++i) {
+        writePersistent(_meta[i]);
+    }
+}
+
+bool ConfigStore::erasePersistent()
+{
+    if (!_prefs) return false;
+    if (!lockPrefs_()) return false;
+    const bool ok = _prefs->clear();
+    unlockPrefs_();
+    if (!ok) return false;
+
+    _nvsWriteTotal.store(0U, std::memory_order_relaxed);
+    _nvsWriteWindow.store(0U, std::memory_order_relaxed);
+    _nvsLastSummaryMs.store(0U, std::memory_order_relaxed);
+    return true;
+}
+
+const ConfigMeta* ConfigStore::findByJsonName(const char* jsonName) const
+{
+    if (!jsonName) return nullptr;
+    for (uint16_t i = 0; i < _metaCount; ++i) {
+        if (strEquals(_meta[i].name, jsonName)) return &_meta[i];
+    }
+    return nullptr;
+}
+
+ConfigMeta* ConfigStore::findByJsonName(const char* jsonName)
+{
+    return const_cast<ConfigMeta*>(
+        static_cast<const ConfigStore*>(this)->findByJsonName(jsonName)
+    );
+}
+
+static bool isMaskedKey(const char* key) {
+    if (!key) return false;
+    return strcmp(key, "pass") == 0 ||
+           strcmp(key, "token") == 0 ||
+           strcmp(key, "secret") == 0;
+}
+
+void ConfigStore::toJson(char* out, size_t outLen) const
+{
+    if (!out || outLen == 0) return;
+
+    size_t pos = 0;
+    out[pos++] = '{';
+
+    for (uint16_t i = 0; i < _metaCount; ++i) {
+        const ConfigMeta& m = _meta[i];
+
+        if (i > 0) {
+            if (pos + 1 >= outLen) break;
+            out[pos++] = ',';
+        }
+
+        int n = snprintf(out + pos, outLen - pos, "\"%s\":", m.name ? m.name : "");
+        if (n <= 0) break;
+        pos += (size_t)n;
+        if (pos >= outLen) break;
+
+        switch (m.type) {
+            case ConfigType::Int32:
+                n = snprintf(out + pos, outLen - pos, "%ld", (long)*(int32_t*)m.valuePtr);
+                break;
+            case ConfigType::UInt16:
+                n = snprintf(out + pos, outLen - pos, "%u", (unsigned)*(uint16_t*)m.valuePtr);
+                break;
+            case ConfigType::UInt8:
+                n = snprintf(out + pos, outLen - pos, "%u", (unsigned)*(uint8_t*)m.valuePtr);
+                break;
+            case ConfigType::Bool:
+                n = snprintf(out + pos, outLen - pos, "%s", (*(bool*)m.valuePtr) ? "true" : "false");
+                break;
+            case ConfigType::Float:
+                n = snprintf(out + pos, outLen - pos, "%.3f", (double)*(float*)m.valuePtr);
+                break;
+            case ConfigType::Double:
+                n = snprintf(out + pos, outLen - pos, "%.6f", *(double*)m.valuePtr);
+                break;
+            case ConfigType::CharArray:
+                n = snprintf(out + pos, outLen - pos, "\"%s\"", (const char*)m.valuePtr);
+                break;
+            default:
+                n = snprintf(out + pos, outLen - pos, "null");
+                break;
+        }
+
+        if (n <= 0) break;
+        pos += (size_t)n;
+        if (pos >= outLen) break;
+    }
+
+    if (pos + 2 <= outLen) {
+        out[pos++] = '}';
+        out[pos] = '\0';
+    } else {
+        out[outLen - 1] = '\0';
+    }
+}
+
+bool ConfigStore::toJsonModule(const char* module,
+                               char* out,
+                               size_t outLen,
+                               bool* truncated,
+                               bool maskSecrets) const
+{
+    if (!out || outLen == 0) return false;
+    if (!module || module[0] == '\0') {
+        out[0] = '\0';
+        return false;
+    }
+
+    size_t pos = 0;
+    out[pos++] = '{';
+
+    bool any = false;
+    bool truncatedLocal = false;
+    for (uint16_t i = 0; i < _metaCount; ++i) {
+        const ConfigMeta& m = _meta[i];
+        if (!m.module || strcmp(m.module, module) != 0) continue;
+
+        if (any) {
+            if (pos + 1 >= outLen) { truncatedLocal = true; break; }
+            out[pos++] = ',';
+        }
+
+        const char* key = m.name ? m.name : "";
+        const size_t keyLen = strlen(key);
+        if (pos + keyLen + 3 >= outLen) { // quotes + colon + trailing '\0'
+            truncatedLocal = true;
+            break;
+        }
+        out[pos++] = '"';
+        memcpy(out + pos, key, keyLen);
+        pos += keyLen;
+        out[pos++] = '"';
+        out[pos++] = ':';
+        out[pos] = '\0';
+
+        int n = 0;
+
+        switch (m.type) {
+            case ConfigType::Int32:
+                n = snprintf(out + pos, outLen - pos, "%ld", (long)*(int32_t*)m.valuePtr);
+                break;
+            case ConfigType::UInt16:
+                n = snprintf(out + pos, outLen - pos, "%u", (unsigned)*(uint16_t*)m.valuePtr);
+                break;
+            case ConfigType::UInt8:
+                n = snprintf(out + pos, outLen - pos, "%u", (unsigned)*(uint8_t*)m.valuePtr);
+                break;
+            case ConfigType::Bool:
+                n = snprintf(out + pos, outLen - pos, "%s", (*(bool*)m.valuePtr) ? "true" : "false");
+                break;
+            case ConfigType::Float:
+                n = snprintf(out + pos, outLen - pos, "%.3f", (double)*(float*)m.valuePtr);
+                break;
+            case ConfigType::Double:
+                n = snprintf(out + pos, outLen - pos, "%.6f", *(double*)m.valuePtr);
+                break;
+            case ConfigType::CharArray:
+                if (maskSecrets && isMaskedKey(m.name)) {
+                    n = snprintf(out + pos, outLen - pos, "\"***\"");
+                } else {
+                    n = snprintf(out + pos, outLen - pos, "\"%s\"", (const char*)m.valuePtr);
+                }
+                break;
+            default:
+                n = snprintf(out + pos, outLen - pos, "null");
+                break;
+        }
+
+        if (n <= 0) break;
+        pos += (size_t)n;
+        if (pos >= outLen) { truncatedLocal = true; break; }
+
+        any = true;
+    }
+
+    if (pos + 2 <= outLen) {
+        out[pos++] = '}';
+        out[pos] = '\0';
+    } else {
+        truncatedLocal = true;
+        out[outLen - 1] = '\0';
+    }
+
+    if (truncated) *truncated = truncatedLocal;
+    return any;
+}
+
+uint8_t ConfigStore::listModules(const char** out, uint8_t max) const
+{
+    if (!out || max == 0) return 0;
+    uint8_t count = 0;
+
+    for (uint16_t i = 0; i < _metaCount; ++i) {
+        const ConfigMeta& m = _meta[i];
+        if (!m.module || m.module[0] == '\0') continue;
+
+        bool exists = false;
+        for (uint8_t j = 0; j < count; ++j) {
+            if (strcmp(out[j], m.module) == 0) { exists = true; break; }
+        }
+        if (exists) continue;
+
+        if (count < max) {
+            out[count++] = m.module;
+        } else {
+            break;
+        }
+    }
+
+    return count;
+}
+
+bool ConfigStore::applyJson(const char* json)
+{
+    if (!json || json[0] == '\0') return false;
+
+    static constexpr size_t APPLY_JSON_DOC_CAPACITY = Limits::JsonConfigApplyBuf;
+    static StaticJsonDocument<APPLY_JSON_DOC_CAPACITY> doc;
+    doc.clear();
+    const DeserializationError err = deserializeJson(doc, json);
+    const size_t docUsedBytes = doc.memoryUsage();
+    const size_t docCapacityBytes = doc.capacity();
+    reportApplyJsonDocPeak_(docUsedBytes, docCapacityBytes);
+    if (err || !doc.is<JsonObjectConst>()) {
+        BufferUsageTracker::note(TrackedBufferId::ConfigApplyJsonDoc,
+                                 docUsedBytes,
+                                 sizeof(doc),
+                                 "applyJson",
+                                 nullptr);
+        if (err == DeserializationError::NoMemory) {
+            Log::warn(LOG_MODULE_ID,
+                      "applyJson: json exceeds doc capacity (%lu / %lu bytes)",
+                      (unsigned long)docUsedBytes,
+                      (unsigned long)docCapacityBytes);
+        } else if (err) {
+            Log::warn(LOG_MODULE_ID, "applyJson: invalid json (%s)", err.c_str());
+        } else {
+            Log::warn(LOG_MODULE_ID, "applyJson: root is not an object");
+        }
+        return false;
+    }
+    JsonObjectConst root = doc.as<JsonObjectConst>();
+    const char* peakSource = "applyJson";
+    for (JsonPairConst kv : root) {
+        peakSource = kv.key().c_str();
+        break;
+    }
+    BufferUsageTracker::note(TrackedBufferId::ConfigApplyJsonDoc,
+                             docUsedBytes,
+                             sizeof(doc),
+                             peakSource,
+                             "<json>");
+
+    // Warn on unknown module/key pairs to surface malformed patches early.
+    for (JsonPairConst moduleKv : root) {
+        const char* moduleName = moduleKv.key().c_str();
+        JsonVariantConst moduleVar = moduleKv.value();
+        if (!moduleVar.is<JsonObjectConst>()) {
+            Log::warn(LOG_MODULE_ID,
+                      "applyJson: module '%s' has non-object payload",
+                      moduleName ? moduleName : "<null>");
+            continue;
+        }
+
+        bool moduleKnown = false;
+        for (uint16_t i = 0; i < _metaCount; ++i) {
+            const ConfigMeta& m = _meta[i];
+            if (!m.module) continue;
+            if (strcmp(m.module, moduleName) == 0) {
+                moduleKnown = true;
+                break;
+            }
+        }
+        if (!moduleKnown) {
+            Log::warn(LOG_MODULE_ID, "applyJson: unknown module '%s'", moduleName ? moduleName : "<null>");
+            continue;
+        }
+
+        JsonObjectConst moduleObj = moduleVar.as<JsonObjectConst>();
+        for (JsonPairConst valueKv : moduleObj) {
+            const char* keyName = valueKv.key().c_str();
+            bool keyKnown = false;
+            for (uint16_t i = 0; i < _metaCount; ++i) {
+                const ConfigMeta& m = _meta[i];
+                if (!m.module || !m.name) continue;
+                if (strcmp(m.module, moduleName) != 0) continue;
+                if (strcmp(m.name, keyName) != 0) continue;
+                keyKnown = true;
+                break;
+            }
+            if (!keyKnown) {
+                Log::warn(LOG_MODULE_ID,
+                          "applyJson: unknown key '%s.%s'",
+                          moduleName ? moduleName : "<null>",
+                          keyName ? keyName : "<null>");
+            }
+        }
+    }
+
+    Log::debug(LOG_MODULE_ID, "applyJson: start");
+    for (uint16_t i = 0; i < _metaCount; ++i) {
+        auto& m = _meta[i];
+        if (!m.module || !m.name) continue;
+
+        JsonVariantConst moduleVar = root[m.module];
+        if (!moduleVar.is<JsonObjectConst>()) continue;
+        JsonObjectConst moduleObj = moduleVar.as<JsonObjectConst>();
+
+        JsonVariantConst valueVar = moduleObj[m.name];
+        if (valueVar.isNull()) continue;
+
+        bool changed = false;
+
+        switch (m.type) {
+        case ConfigType::Int32: {
+            int32_t v = *(int32_t*)m.valuePtr;
+            if (valueVar.is<int32_t>()) {
+                v = valueVar.as<int32_t>();
+            } else if (valueVar.is<uint32_t>()) {
+                v = (int32_t)valueVar.as<uint32_t>();
+            } else if (valueVar.is<const char*>()) {
+                const char* s = valueVar.as<const char*>();
+                if (!s) break;
+                v = (int32_t)strtol(s, nullptr, 10);
+            } else {
+                break;
+            }
+            if (*(int32_t*)m.valuePtr != v) { *(int32_t*)m.valuePtr = v; changed = true; }
+            break;
+        }
+        case ConfigType::UInt16: {
+            uint16_t v = *(uint16_t*)m.valuePtr;
+            if (valueVar.is<uint16_t>() || valueVar.is<uint32_t>()) {
+                uint32_t u = valueVar.as<uint32_t>();
+                if (u > 65535U) u = 65535U;
+                v = (uint16_t)u;
+            } else if (valueVar.is<int32_t>()) {
+                int32_t n = valueVar.as<int32_t>();
+                if (n < 0) n = 0;
+                if (n > 65535) n = 65535;
+                v = (uint16_t)n;
+            } else if (valueVar.is<const char*>()) {
+                const char* s = valueVar.as<const char*>();
+                if (!s) break;
+                long n = strtol(s, nullptr, 10);
+                if (n < 0) n = 0;
+                if (n > 65535L) n = 65535L;
+                v = (uint16_t)n;
+            } else {
+                break;
+            }
+            if (*(uint16_t*)m.valuePtr != v) { *(uint16_t*)m.valuePtr = v; changed = true; }
+            break;
+        }
+        case ConfigType::UInt8: {
+            uint8_t v = *(uint8_t*)m.valuePtr;
+            if (valueVar.is<uint8_t>()) {
+                v = valueVar.as<uint8_t>();
+            } else if (valueVar.is<uint16_t>()) {
+                uint16_t u = valueVar.as<uint16_t>();
+                if (u > 255U) u = 255U;
+                v = (uint8_t)u;
+            } else if (valueVar.is<int32_t>()) {
+                int32_t n = valueVar.as<int32_t>();
+                if (n < 0) n = 0;
+                if (n > 255) n = 255;
+                v = (uint8_t)n;
+            } else if (valueVar.is<const char*>()) {
+                const char* s = valueVar.as<const char*>();
+                if (!s) break;
+                long n = strtol(s, nullptr, 10);
+                if (n < 0) n = 0;
+                if (n > 255) n = 255;
+                v = (uint8_t)n;
+            } else {
+                break;
+            }
+            if (*(uint8_t*)m.valuePtr != v) { *(uint8_t*)m.valuePtr = v; changed = true; }
+            break;
+        }
+        case ConfigType::Bool: {
+            bool v = *(bool*)m.valuePtr;
+            if (valueVar.is<bool>()) {
+                v = valueVar.as<bool>();
+            } else if (valueVar.is<int32_t>() || valueVar.is<uint32_t>() || valueVar.is<float>()) {
+                v = (valueVar.as<float>() != 0.0f);
+            } else if (valueVar.is<const char*>()) {
+                const char* s = valueVar.as<const char*>();
+                if (!s) break;
+                v = (strcmp(s, "true") == 0 || strcmp(s, "1") == 0);
+            } else {
+                break;
+            }
+            if (*(bool*)m.valuePtr != v) { *(bool*)m.valuePtr = v; changed = true; }
+            break;
+        }
+        case ConfigType::Float: {
+            float v = *(float*)m.valuePtr;
+            if (valueVar.is<float>() || valueVar.is<double>() || valueVar.is<int32_t>() || valueVar.is<uint32_t>()) {
+                v = valueVar.as<float>();
+            } else if (valueVar.is<const char*>()) {
+                const char* s = valueVar.as<const char*>();
+                if (!s) break;
+                v = (float)atof(s);
+            } else {
+                break;
+            }
+            if (*(float*)m.valuePtr != v) { *(float*)m.valuePtr = v; changed = true; }
+            break;
+        }
+        case ConfigType::Double: {
+            double v = *(double*)m.valuePtr;
+            if (valueVar.is<double>() || valueVar.is<float>() || valueVar.is<int32_t>() || valueVar.is<uint32_t>()) {
+                v = valueVar.as<double>();
+            } else if (valueVar.is<const char*>()) {
+                const char* s = valueVar.as<const char*>();
+                if (!s) break;
+                v = atof(s);
+            } else {
+                break;
+            }
+            if (*(double*)m.valuePtr != v) { *(double*)m.valuePtr = v; changed = true; }
+            break;
+        }
+        case ConfigType::CharArray: {
+            if (!valueVar.is<const char*>()) break;
+            const char* s = valueVar.as<const char*>();
+            if (!s) break;
+            size_t len = strlen(s);
+            if (len >= m.size) len = m.size - 1;
+
+            /// compare before writing to avoid unnecessary events
+            if (strncmp((char*)m.valuePtr, s, len) != 0 || ((char*)m.valuePtr)[len] != '\0') {
+                memcpy(m.valuePtr, s, len);
+                ((char*)m.valuePtr)[len] = '\0';
+                changed = true;
+            }
+            break;
+        }
+        }
+
+        if (changed) {
+            Log::debug(LOG_MODULE_ID, "applyJson: changed %s.%s", m.module ? m.module : "-",
+                       m.name ? m.name : "-");
+            /// Save to NVS if needed
+            if (m.persistence == ConfigPersistence::Persistent && m.nvsKey && _prefs) {
+                switch (m.type) {
+                case ConfigType::Int32:     putInt_(m.nvsKey, *(int32_t*)m.valuePtr); break;
+                case ConfigType::UInt16:    putUShort_(m.nvsKey, *(uint16_t*)m.valuePtr); break;
+                case ConfigType::UInt8:     putUChar_(m.nvsKey, *(uint8_t*)m.valuePtr); break;
+                case ConfigType::Bool:      putBool_(m.nvsKey, *(bool*)m.valuePtr); break;
+                case ConfigType::Float:     putFloat_(m.nvsKey, *(float*)m.valuePtr); break;
+                case ConfigType::Double:    putBytes_(m.nvsKey, m.valuePtr, sizeof(double)); break;
+                case ConfigType::CharArray: putString_(m.nvsKey, (char*)m.valuePtr); break;
+                }
+            }
+
+            /// Notify listeners + EventBus
+            if (m.nvsKey) {
+                notifyChanged(m.nvsKey, m.module, m.moduleId, m.localBranchId);
+            }
+        }
+    }
+    Log::debug(LOG_MODULE_ID, "applyJson: done");
+    return true;
+}
