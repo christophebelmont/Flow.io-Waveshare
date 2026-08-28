@@ -1,0 +1,17 @@
+{
+  "translations": {
+    "cfgdocs.alarms.enabled.help": "Active ou désactive l'évaluation des alarmes.",
+    "cfgdocs.alarms.enabled.label": "Alarmes actives",
+    "cfgdocs.alarms.eval_period_ms.help": "Intervalle d'évaluation des conditions d'alarme.",
+    "cfgdocs.alarms.eval_period_ms.label": "Période d'évaluation des alarmes (ms)",
+    "runtimeui.alarms.v01.display.columnLabel": "Act.",
+    "runtimeui.alarms.v01.group": "Alarmes",
+    "runtimeui.alarms.v01.label": "Alarmes actives",
+    "runtimeui.alarms.v02.display.columnLabel": "Reset",
+    "runtimeui.alarms.v02.group": "Alarmes",
+    "runtimeui.alarms.v02.label": "Alarmes rearmables",
+    "runtimeui.alarms.v03.display.columnLabel": "Cond.",
+    "runtimeui.alarms.v03.group": "Alarmes",
+    "runtimeui.alarms.v03.label": "Conditions alarmes"
+  }
+}

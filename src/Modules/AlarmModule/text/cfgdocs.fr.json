@@ -1,0 +1,20 @@
+{
+  "_meta": {
+    "generated": true,
+    "locale": "fr",
+    "version": 1
+  },
+  "docs": {
+    "alarms/enabled": {
+      "type": "Bool",
+      "label_t": "cfgdocs.alarms.enabled.label",
+      "help_t": "cfgdocs.alarms.enabled.help"
+    },
+    "alarms/eval_period_ms": {
+      "type": "Int32",
+      "label_t": "cfgdocs.alarms.eval_period_ms.label",
+      "help_t": "cfgdocs.alarms.eval_period_ms.help",
+      "unit": "ms"
+    }
+  }
+}

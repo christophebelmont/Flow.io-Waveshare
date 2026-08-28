@@ -1,0 +1,137 @@
+{
+  "moduleId": "alarms",
+  "values": [
+    {
+      "valueId": 1,
+      "key": "alarms.active_mask",
+      "type": "uint32",
+      "domain": "alarm",
+      "display": "flags",
+      "flags": [
+        {
+          "mask": 1,
+          "label_t": "runtimeui.poollogic.alarms.flag00.label"
+        },
+        {
+          "mask": 2,
+          "label_t": "runtimeui.poollogic.alarms.flag01.label"
+        },
+        {
+          "mask": 4,
+          "label_t": "runtimeui.poollogic.alarms.flag02.label"
+        },
+        {
+          "mask": 8,
+          "label_t": "runtimeui.poollogic.alarms.flag03.label"
+        },
+        {
+          "mask": 16,
+          "label_t": "runtimeui.poollogic.alarms.flag04.label"
+        },
+        {
+          "mask": 32,
+          "label_t": "runtimeui.poollogic.alarms.flag05.label"
+        },
+        {
+          "mask": 64,
+          "label_t": "runtimeui.poollogic.alarms.flag06.label"
+        }
+      ],
+      "displayConfig": {
+        "flagRole": "active",
+        "columnLabel_t": "runtimeui.alarms.v01.display.columnLabel"
+      },
+      "order": 10,
+      "label_t": "runtimeui.alarms.v01.label",
+      "group_t": "runtimeui.alarms.v01.group"
+    },
+    {
+      "valueId": 2,
+      "key": "alarms.resettable_mask",
+      "type": "uint32",
+      "domain": "alarm",
+      "display": "flags",
+      "flags": [
+        {
+          "mask": 1,
+          "label_t": "runtimeui.poollogic.alarms.flag00.label"
+        },
+        {
+          "mask": 2,
+          "label_t": "runtimeui.poollogic.alarms.flag01.label"
+        },
+        {
+          "mask": 4,
+          "label_t": "runtimeui.poollogic.alarms.flag02.label"
+        },
+        {
+          "mask": 8,
+          "label_t": "runtimeui.poollogic.alarms.flag03.label"
+        },
+        {
+          "mask": 16,
+          "label_t": "runtimeui.poollogic.alarms.flag04.label"
+        },
+        {
+          "mask": 32,
+          "label_t": "runtimeui.poollogic.alarms.flag05.label"
+        },
+        {
+          "mask": 64,
+          "label_t": "runtimeui.poollogic.alarms.flag06.label"
+        }
+      ],
+      "displayConfig": {
+        "flagRole": "resettable",
+        "columnLabel_t": "runtimeui.alarms.v02.display.columnLabel"
+      },
+      "order": 20,
+      "label_t": "runtimeui.alarms.v02.label",
+      "group_t": "runtimeui.alarms.v02.group"
+    },
+    {
+      "valueId": 3,
+      "key": "alarms.condition_mask",
+      "type": "uint32",
+      "domain": "alarm",
+      "display": "flags",
+      "flags": [
+        {
+          "mask": 1,
+          "label_t": "runtimeui.poollogic.alarms.flag00.label"
+        },
+        {
+          "mask": 2,
+          "label_t": "runtimeui.poollogic.alarms.flag01.label"
+        },
+        {
+          "mask": 4,
+          "label_t": "runtimeui.poollogic.alarms.flag02.label"
+        },
+        {
+          "mask": 8,
+          "label_t": "runtimeui.poollogic.alarms.flag03.label"
+        },
+        {
+          "mask": 16,
+          "label_t": "runtimeui.poollogic.alarms.flag04.label"
+        },
+        {
+          "mask": 32,
+          "label_t": "runtimeui.poollogic.alarms.flag05.label"
+        },
+        {
+          "mask": 64,
+          "label_t": "runtimeui.poollogic.alarms.flag06.label"
+        }
+      ],
+      "displayConfig": {
+        "flagRole": "condition",
+        "columnLabel_t": "runtimeui.alarms.v03.display.columnLabel"
+      },
+      "order": 30,
+      "label_t": "runtimeui.alarms.v03.label",
+      "group_t": "runtimeui.alarms.v03.group"
+    }
+  ]
+}

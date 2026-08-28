@@ -1,0 +1,29 @@
+{
+  "_meta": {
+    "generated": true,
+    "locale": "fr",
+    "version": 1
+  },
+  "docs": {
+    "system": {
+      "label_t": "cfgmods.system.label"
+    },
+    "system/lang": {
+      "enum_set": "i18n_languages"
+    }
+  },
+  "meta": {
+    "enum_sets": {
+      "i18n_languages": [
+        {
+          "value": "fr",
+          "label_t": "cfgmods_meta.system.systemmodule.enum_sets.i18n_languages.0.label"
+        },
+        {
+          "value": "en",
+          "label_t": "cfgmods_meta.system.systemmodule.enum_sets.i18n_languages.1.label"
+        }
+      ]
+    }
+  }
+}

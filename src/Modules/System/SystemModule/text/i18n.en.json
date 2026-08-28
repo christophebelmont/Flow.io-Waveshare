@@ -1,0 +1,20 @@
+{
+  "locale": "en",
+  "translations": {
+    "cfgdocs.system.devicename.help": "Name used by the web UI and mDNS announcement.",
+    "cfgdocs.system.devicename.label": "Device name",
+    "cfgdocs.system.lang.help": "Langue of affichage de interface.",
+    "cfgdocs.system.lang.label": "Language",
+    "cfgmods.system.label": "system",
+    "cfgmods_meta.system.systemmodule.enum_sets.i18n_languages.0.label": "French (fr)",
+    "cfgmods_meta.system.systemmodule.enum_sets.i18n_languages.1.label": "English (en)",
+    "runtimeui.system.v01.group": "System",
+    "runtimeui.system.v01.label": "Firmware",
+    "runtimeui.system.v02.group": "System",
+    "runtimeui.system.v02.label": "Uptime",
+    "runtimeui.system.v03.group": "System",
+    "runtimeui.system.v03.label": "Heap libre",
+    "runtimeui.system.v04.group": "System",
+    "runtimeui.system.v04.label": "Heap min"
+  }
+}

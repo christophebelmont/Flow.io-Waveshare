@@ -1,0 +1,40 @@
+#pragma once
+/**
+ * @file GpioDriver.h
+ * @brief ESP32 GPIO in/out driver.
+ */
+
+#include <stdint.h>
+#include "Modules/IOModule/IODrivers/IODriver.h"
+
+class GpioDriver : public IDigitalCounterDriver {
+public:
+    enum InputPullMode : uint8_t {
+        PullNone = 0,
+        PullUp = 1,
+        PullDown = 2
+    };
+
+    GpioDriver(const char* driverId,
+               uint8_t pin,
+               bool output,
+               bool activeHigh,
+               uint8_t inputPullMode = PullNone,
+               bool counterEnabled = false,
+               uint32_t counterDebounceUs = 0);
+
+    const char* id() const override { return driverId_; }
+    bool begin() override;
+    void tick(uint32_t) override {}
+
+    bool write(bool on) override;
+    bool read(bool& on) const override;
+    bool readCount(int32_t& count) const override;
+
+private:
+    const char* driverId_ = nullptr;
+    uint8_t pin_ = 0;
+    bool output_ = false;
+    bool activeHigh_ = true;
+    uint8_t inputPullMode_ = PullNone;
+};

@@ -1,0 +1,70 @@
+#pragma once
+/**
+ * @file PoolDeviceModuleDataModel.h
+ * @brief Pool device runtime data model contribution.
+ */
+
+#include <stdint.h>
+
+#include "Core/SystemLimits.h"
+
+constexpr uint8_t POOL_DEVICE_MAX = Limits::Io::MaxPoolDevices;
+
+enum PoolDeviceRuntimeType : uint8_t {
+    POOL_DEVICE_RT_FILTRATION = 0,
+    POOL_DEVICE_RT_PERISTALTIC = 1,
+    POOL_DEVICE_RT_RELAY_STD = 2
+};
+
+enum PoolDeviceRuntimeBlockReason : uint8_t {
+    POOL_DEVICE_BLOCK_NONE = 0,
+    POOL_DEVICE_BLOCK_DISABLED = 1,
+    POOL_DEVICE_BLOCK_INTERLOCK = 2,
+    POOL_DEVICE_BLOCK_IO_ERROR = 3,
+    POOL_DEVICE_BLOCK_MAX_UPTIME = 4,
+    POOL_DEVICE_BLOCK_UNBOUND = 5,
+    POOL_DEVICE_BLOCK_IO_DISABLED = 6
+};
+
+struct PoolDeviceRuntimeStateEntry {
+    bool valid = false;
+    bool enabled = false;
+    bool desiredOn = false;
+    bool actualOn = false;
+    uint8_t type = POOL_DEVICE_RT_RELAY_STD;
+    uint8_t blockReason = POOL_DEVICE_BLOCK_NONE;
+    uint32_t tsMs = 0;
+};
+
+struct PoolDeviceRuntimeMetricsEntry {
+    bool valid = false;
+    uint32_t runningSecDay = 0;
+    uint32_t runningSecWeek = 0;
+    uint32_t runningSecMonth = 0;
+    uint32_t runningSecTotal = 0;
+    float injectedMlDay = 0.0f;
+    float injectedMlWeek = 0.0f;
+    float injectedMlMonth = 0.0f;
+    float injectedMlTotal = 0.0f;
+    float tankRemainingMl = 0.0f;
+    uint32_t tsMs = 0;
+};
+
+struct PoolDeviceSlotDescriptor {
+    const char* id;
+    const char* configModuleName;
+    const char* enabledKey;
+    const char* dependsKey;
+    const char* flowKey;
+    const char* tankCapKey;
+    const char* tankInitKey;
+    const char* maxUptimeKey;
+    const char* runtimeKey;
+};
+
+struct PoolDeviceRuntimeData {
+    PoolDeviceRuntimeStateEntry state[POOL_DEVICE_MAX];
+    PoolDeviceRuntimeMetricsEntry metrics[POOL_DEVICE_MAX];
+};
+
+// MODULE_DATA_MODEL: PoolDeviceRuntimeData pool

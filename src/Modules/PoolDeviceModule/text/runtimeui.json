@@ -1,0 +1,49 @@
+{
+  "moduleId": "pooldev",
+  "values": [
+    {
+      "valueId": 1,
+      "key": "pool.filtration_on",
+      "type": "bool",
+      "domain": "equipements",
+      "display": "boolean",
+      "displayConfig": {
+        "activeText_t": "runtimeui.pooldev.v01.display.activeText",
+        "inactiveText_t": "runtimeui.pooldev.v01.display.inactiveText"
+      },
+      "order": 70,
+      "label_t": "runtimeui.pooldev.v01.label",
+      "group_t": "runtimeui.pooldev.v01.group"
+    },
+    {
+      "valueId": 2,
+      "key": "pool.ph_pump_on",
+      "type": "bool",
+      "domain": "equipements",
+      "display": "boolean",
+      "order": 80,
+      "label_t": "runtimeui.pooldev.v02.label",
+      "group_t": "runtimeui.pooldev.v02.group"
+    },
+    {
+      "valueId": 3,
+      "key": "pool.chlorine_pump_on",
+      "type": "bool",
+      "domain": "equipements",
+      "display": "boolean",
+      "order": 90,
+      "label_t": "runtimeui.pooldev.v03.label",
+      "group_t": "runtimeui.pooldev.v03.group"
+    },
+    {
+      "valueId": 4,
+      "key": "pool.robot_on",
+      "type": "bool",
+      "domain": "equipements",
+      "display": "boolean",
+      "order": 100,
+      "label_t": "runtimeui.pooldev.v04.label",
+      "group_t": "runtimeui.pooldev.v04.group"
+    }
+  ]
+}

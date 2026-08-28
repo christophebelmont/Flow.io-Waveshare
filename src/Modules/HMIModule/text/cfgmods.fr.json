@@ -1,0 +1,15 @@
+{
+  "_meta": {
+    "generated": true,
+    "locale": "fr",
+    "version": 1
+  },
+  "docs": {
+    "hmi": {
+      "label_t": "cfgmods.hmi.label"
+    },
+    "hmi/leds": {},
+    "hmi/nextion": {},
+    "hmi/venice": {}
+  }
+}

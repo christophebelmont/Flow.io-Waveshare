@@ -1,0 +1,73 @@
+{
+  "moduleId": "mqtt",
+  "values": [
+    {
+      "valueId": 1,
+      "key": "mqtt.ready",
+      "type": "bool",
+      "domain": "mqtt",
+      "display": "boolean",
+      "displayConfig": {
+        "activeText_t": "runtimeui.mqtt.v01.display.activeText",
+        "inactiveText_t": "runtimeui.mqtt.v01.display.inactiveText"
+      },
+      "order": 10,
+      "label_t": "runtimeui.mqtt.v01.label",
+      "group_t": "runtimeui.mqtt.v01.group"
+    },
+    {
+      "valueId": 2,
+      "key": "mqtt.server",
+      "type": "string",
+      "domain": "mqtt",
+      "display": "value",
+      "order": 20,
+      "label_t": "runtimeui.mqtt.v02.label",
+      "group_t": "runtimeui.mqtt.v02.group"
+    },
+    {
+      "valueId": 3,
+      "key": "mqtt.rx_drop",
+      "type": "uint32",
+      "domain": "mqtt",
+      "display": "value",
+      "decimals": 0,
+      "order": 30,
+      "label_t": "runtimeui.mqtt.v03.label",
+      "group_t": "runtimeui.mqtt.v03.group"
+    },
+    {
+      "valueId": 4,
+      "key": "mqtt.parse_fail",
+      "type": "uint32",
+      "domain": "mqtt",
+      "display": "value",
+      "decimals": 0,
+      "order": 40,
+      "label_t": "runtimeui.mqtt.v04.label",
+      "group_t": "runtimeui.mqtt.v04.group"
+    },
+    {
+      "valueId": 5,
+      "key": "mqtt.handler_fail",
+      "type": "uint32",
+      "domain": "mqtt",
+      "display": "value",
+      "decimals": 0,
+      "order": 50,
+      "label_t": "runtimeui.mqtt.v05.label",
+      "group_t": "runtimeui.mqtt.v05.group"
+    },
+    {
+      "valueId": 6,
+      "key": "mqtt.oversize_drop",
+      "type": "uint32",
+      "domain": "mqtt",
+      "display": "value",
+      "decimals": 0,
+      "order": 60,
+      "label_t": "runtimeui.mqtt.v06.label",
+      "group_t": "runtimeui.mqtt.v06.group"
+    }
+  ]
+}

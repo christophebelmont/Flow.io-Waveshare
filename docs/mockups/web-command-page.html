@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>flow.io — Maquette page Commandes</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --surface-soft: #f1f7fb;
+      --border: #dbe5ef;
+      --text: #071a35;
+      --text-muted: #50627a;
+      --primary: #0074e8;
+      --primary-soft: #e7f2ff;
+      --danger: #d6455d;
+      --flow-cyan: #2bb7c6;
+      --flow-cyan-light: #c8e2eb;
+      --radius: 8px;
+      --shadow: 0 10px 28px rgba(7, 26, 53, 0.07);
+      --drawer-width: 224px;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Inter, "Segoe UI", Roboto, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    button, select { font: inherit; }
+    button { cursor: default; }
+
+    .app { min-height: 100vh; display: flex; }
+    .drawer {
+      position: relative;
+      width: var(--drawer-width);
+      flex: 0 0 var(--drawer-width);
+      padding: 20px 14px;
+      border-right: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 4px 0 24px rgba(7, 26, 53, 0.04);
+    }
+    .drawer::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 72px;
+      background:
+        radial-gradient(90% 55px at 80% 100%, #f5fbff 0 65%, transparent 66%),
+        radial-gradient(110% 60px at 15% 110%, #eaf4ff 0 65%, transparent 66%);
+      pointer-events: none;
+    }
+    .drawer-header {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 44px;
+      margin-bottom: 30px;
+    }
+    .menu-toggle {
+      width: 38px;
+      height: 38px;
+      padding: 9px;
+      border: 0;
+      background: transparent;
+      display: grid;
+      gap: 4px;
+      align-content: center;
+    }
+    .menu-toggle span { height: 2px; border-radius: 10px; background: #8d96aa; }
+    .brand-logo { display: block; width: 112px; height: auto; }
+    .menu-group { position: relative; z-index: 1; display: grid; gap: 5px; }
+    .menu-item {
+      min-height: 40px;
+      padding: 9px 13px 9px 10px;
+      border: 0;
+      border-left: 3px solid transparent;
+      border-radius: var(--radius);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: transparent;
+      color: #8d96aa;
+      text-align: left;
+      font-size: 14px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    .menu-item.active {
+      background: var(--flow-cyan-light);
+      border-left-color: #45c9d4;
+      color: var(--flow-cyan);
+      font-weight: 650;
+    }
+    .menu-icon {
+      width: 20px;
+      height: 20px;
+      flex: 0 0 20px;
+      display: grid;
+      place-items: center;
+      font-size: 17px;
+      line-height: 1;
+      font-weight: 750;
+    }
+    .drawer-footer {
+      position: relative;
+      z-index: 1;
+      margin-top: auto;
+      padding: 18px 8px 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+    .switch { width: 34px; height: 20px; padding: 2px; border-radius: 12px; background: #dbe5ef; }
+    .switch::after { content: ""; display: block; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(7, 26, 53, .18); }
+
+    .content { flex: 1; min-width: 0; padding: 24px; }
+    .app-header {
+      min-height: 58px;
+      margin-bottom: 22px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+    }
+    .app-header h1 { margin: 10px 0 0; font-size: 20px; line-height: 1.2; }
+    .header-status { display: flex; gap: 8px; }
+    .status-item {
+      min-height: 46px;
+      padding: 0 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, .92);
+      box-shadow: 0 8px 22px rgba(7, 26, 53, .04);
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+    .status-icon { width: 21px; text-align: center; color: var(--text); font-size: 18px; }
+    .status-copy { display: grid; grid-template-columns: auto auto; align-items: center; gap: 6px; font-size: 13px; }
+    .status-label, .status-value { font-weight: 800; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #17a85a; box-shadow: 0 0 0 2px rgba(23, 168, 90, .14); }
+
+    .mobile-topbar { display: none; }
+    .command-shell {
+      min-height: 450px;
+      padding: 22px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .command-config-row {
+      display: flex;
+      align-items: end;
+      gap: 8px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .command-picker { display: grid; gap: 6px; width: min(100%, 520px); }
+    .command-picker label { font-size: 12px; font-weight: 650; color: var(--text-muted); }
+    .command-picker select {
+      width: 100%;
+      min-height: 44px;
+      padding: 0 40px 0 12px;
+      border: 1px solid #c8d6e5;
+      border-radius: var(--radius);
+      background: var(--surface);
+      color: var(--text);
+      outline: 0;
+    }
+    .add-button {
+      min-width: 112px;
+      min-height: 44px;
+      padding: 0 18px;
+      border: 1px solid #6fb7ff;
+      border-radius: var(--radius);
+      background: #fff;
+      color: var(--primary);
+      font-weight: 800;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+    }
+    .add-button span { font-size: 20px; line-height: 1; }
+
+    .command-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(180px, 1fr));
+      gap: 16px;
+      padding-top: 22px;
+    }
+    .command-card { position: relative; min-width: 0; }
+    .remove-command {
+      position: absolute;
+      z-index: 2;
+      top: -9px;
+      left: -9px;
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      border: 2px solid #fff;
+      border-radius: 50%;
+      background: var(--danger);
+      color: #fff;
+      box-shadow: 0 3px 9px rgba(167, 32, 53, .26);
+      font-size: 19px;
+      line-height: 21px;
+      font-weight: 500;
+    }
+    .command-button {
+      width: 100%;
+      min-height: 108px;
+      padding: 18px 16px 15px;
+      border: 1px solid #6fb7ff;
+      border-radius: var(--radius);
+      background: linear-gradient(180deg, #fff 0%, #f5faff 100%);
+      color: var(--primary);
+      box-shadow: 0 6px 16px rgba(0, 116, 232, .07);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      text-align: center;
+    }
+    .command-button .icon { font-size: 26px; line-height: 1; }
+    .command-button .label { color: var(--text); font-size: 15px; font-weight: 800; }
+    .command-button .code {
+      max-width: 100%;
+      color: var(--text-muted);
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 10px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .mockup-note {
+      margin: 14px 2px 0;
+      color: #718198;
+      font-size: 11px;
+      text-align: right;
+    }
+
+    @media (max-width: 1050px) {
+      .command-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
+      .status-item:first-child { display: none; }
+    }
+    @media (max-width: 760px) {
+      .drawer { display: none; }
+      .content { padding: 14px; }
+      .app-header { display: none; }
+      .mobile-topbar {
+        min-height: 48px;
+        margin-bottom: 14px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .mobile-topbar .menu-toggle { padding-left: 5px; }
+      .mobile-title { font-size: 18px; font-weight: 700; color: #102b4c; }
+      .command-shell { padding: 16px; min-height: calc(100vh - 90px); }
+      .command-config-row { align-items: stretch; }
+      .command-picker { width: 100%; }
+      .add-button { min-width: 46px; width: 46px; padding: 0; }
+      .add-button .add-label { display: none; }
+      .command-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+      .command-button { min-height: 116px; padding-inline: 9px; }
+      .command-button .code { font-size: 9px; }
+      .mockup-note { display: none; }
+    }
+    @media (max-width: 430px) {
+      .command-grid { grid-template-columns: 1fr; }
+      .command-button { min-height: 96px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="drawer">
+      <div class="drawer-header">
+        <button class="menu-toggle" aria-label="Réduire le menu"><span></span><span></span><span></span></button>
+        <img class="brand-logo" src="../../data/webinterface/logo-flowio.png" alt="flow.io" />
+      </div>
+      <nav class="menu-group" aria-label="Navigation principale">
+        <button class="menu-item"><span class="menu-icon">▥</span><span>Tableau de bord</span></button>
+        <button class="menu-item"><span class="menu-icon">≈</span><span>Piscine</span></button>
+        <button class="menu-item"><span class="menu-icon">⌘</span><span>Entrées/Sorties</span></button>
+        <button class="menu-item"><span class="menu-icon">⚗</span><span>Étalonnage</span></button>
+        <button class="menu-item"><span class="menu-icon">◷</span><span>Activité</span></button>
+        <button class="menu-item active"><span class="menu-icon">▶</span><span>Commandes</span></button>
+        <button class="menu-item"><span class="menu-icon">⇩</span><span>Mises à Jour</span></button>
+        <button class="menu-item"><span class="menu-icon">⚙</span><span>Configuration</span></button>
+        <button class="menu-item"><span class="menu-icon">ⓘ</span><span>Informations</span></button>
+      </nav>
+      <div class="drawer-footer"><span>Mode sombre</span><span class="switch" aria-hidden="true"></span></div>
+    </aside>
+
+    <main class="content">
+      <header class="app-header">
+        <h1>Commandes</h1>
+        <div class="header-status">
+          <div class="status-item"><span class="status-icon">⌁</span><span class="status-copy"><span class="status-label">Réseau</span><span class="dot"></span><span></span><span class="status-value">Connecté</span></span></div>
+          <div class="status-item"><span class="status-icon">▣</span><span class="status-copy"><span class="status-label">Appareil</span><span class="dot"></span><span></span><span class="status-value">En ligne</span></span></div>
+          <div class="status-item"><span class="status-icon">◷</span><span class="status-copy"><span class="status-label">Heure</span><span class="status-value">14:32:08</span></span></div>
+        </div>
+      </header>
+
+      <div class="mobile-topbar">
+        <button class="menu-toggle" aria-label="Ouvrir le menu"><span></span><span></span><span></span></button>
+        <span class="mobile-title">Commandes</span>
+      </div>
+
+      <section class="command-shell" aria-label="Maquette de la page Commandes">
+        <div class="command-config-row">
+          <div class="command-picker">
+            <label for="command-select">Ajouter une commande</label>
+            <select id="command-select">
+              <option selected>Sélectionner une commande disponible…</option>
+              <optgroup label="Piscine">
+                <option>Basculer la filtration</option>
+                <option>Basculer le mode automatique</option>
+                <option>Basculer l’éclairage</option>
+                <option>Basculer le robot</option>
+                <option>Recalculer la filtration</option>
+              </optgroup>
+              <optgroup label="Alarmes"><option>Réinitialiser toutes les alarmes</option></optgroup>
+              <optgroup label="Système"><option>Resynchroniser l’heure</option></optgroup>
+            </select>
+          </div>
+          <button class="add-button" aria-label="Ajouter la commande"><span>＋</span><span class="add-label">Ajouter</span></button>
+        </div>
+
+        <div class="command-grid">
+          <div class="command-card">
+            <button class="remove-command" aria-label="Retirer Basculer la filtration">×</button>
+            <button class="command-button"><span class="icon">⏻</span><span class="label">Filtration</span><span class="code">poollogic.filtration.toggle</span></button>
+          </div>
+          <div class="command-card">
+            <button class="remove-command" aria-label="Retirer Basculer le mode automatique">×</button>
+            <button class="command-button"><span class="icon">A</span><span class="label">Mode automatique</span><span class="code">poollogic.auto_mode.toggle</span></button>
+          </div>
+          <div class="command-card">
+            <button class="remove-command" aria-label="Retirer Basculer l’éclairage">×</button>
+            <button class="command-button"><span class="icon">☀</span><span class="label">Éclairage</span><span class="code">poollogic.lights.toggle</span></button>
+          </div>
+          <div class="command-card">
+            <button class="remove-command" aria-label="Retirer Basculer le robot">×</button>
+            <button class="command-button"><span class="icon">◆</span><span class="label">Robot</span><span class="code">poollogic.robot.toggle</span></button>
+          </div>
+          <div class="command-card">
+            <button class="remove-command" aria-label="Retirer Recalculer la filtration">×</button>
+            <button class="command-button"><span class="icon">↻</span><span class="label">Recalcul filtration</span><span class="code">poollogic.filtration.recalc</span></button>
+          </div>
+          <div class="command-card">
+            <button class="remove-command" aria-label="Retirer Réinitialiser les alarmes">×</button>
+            <button class="command-button"><span class="icon">✓</span><span class="label">Réinitialiser les alarmes</span><span class="code">alarms.reset_all</span></button>
+          </div>
+        </div>
+      </section>
+      <p class="mockup-note">Maquette statique — aucun bouton n’exécute de commande.</p>
+    </main>
+  </div>
+</body>
+</html>

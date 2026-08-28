@@ -1,0 +1,49 @@
+{
+  "_meta": {
+    "generated": true,
+    "locale": "fr",
+    "version": 1
+  },
+  "docs": {
+    "network": {
+      "label_t": "cfgmods.network.label"
+    },
+    "network/ethernet": {
+      "label_t": "cfgmods.network.ethernet.label"
+    },
+    "network/wifi": {
+      "label_t": "cfgmods.network.wifi.label"
+    }
+  },
+  "meta": {
+    "cfg_tree_aliases": [
+      {
+        "display": "network/wifi",
+        "store": "wifi"
+      },
+      {
+        "display": "network/ethernet",
+        "store": "ethernet"
+      },
+      {
+        "display": "network/time",
+        "store": "time"
+      },
+      {
+        "display": "network/mqtt",
+        "store": "mqtt"
+      }
+    ],
+    "cfg_tree_virtual_branches": [
+      {
+        "display": "network",
+        "children": [
+          "ethernet",
+          "wifi",
+          "time",
+          "mqtt"
+        ]
+      }
+    ]
+  }
+}

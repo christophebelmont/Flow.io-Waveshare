@@ -1,0 +1,206 @@
+{
+  "_meta": {
+    "generated": true,
+    "locale": "fr",
+    "version": 1
+  },
+  "docs": {
+    "poollogic/filtr_start_clc": {
+      "enum_set": "hours_of_day"
+    },
+    "poollogic/filtr_start_min": {
+      "enum_set": "hours_of_day"
+    },
+    "poollogic/filtr_stop_clc": {
+      "enum_set": "hours_of_day"
+    },
+    "poollogic/filtr_stop_max": {
+      "enum_set": "hours_of_day"
+    },
+    "poollogic/filtration/filtr_start_clc": {
+      "enum_set": "hours_of_day"
+    },
+    "poollogic/filtration/filtr_start_min": {
+      "enum_set": "hours_of_day"
+    },
+    "poollogic/filtration/filtr_stop_clc": {
+      "enum_set": "hours_of_day"
+    },
+    "poollogic/filtration/filtr_stop_max": {
+      "enum_set": "hours_of_day"
+    },
+    "poollogic/modes/disinfection_type": {
+      "enum_set": "poollogic_disinfection_type"
+    },
+    "poollogic/o2/main_hour": {
+      "enum_set": "hours_of_day"
+    },
+    "poollogic/swg/swg_control_mode": {
+      "enum_set": "poollogic_swg_control_mode"
+    }
+  },
+  "meta": {
+    "enum_sets": {
+      "hours_of_day": [
+        {
+          "value": 0,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.0.label"
+        },
+        {
+          "value": 1,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.1.label"
+        },
+        {
+          "value": 2,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.2.label"
+        },
+        {
+          "value": 3,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.3.label"
+        },
+        {
+          "value": 4,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.4.label"
+        },
+        {
+          "value": 5,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.5.label"
+        },
+        {
+          "value": 6,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.6.label"
+        },
+        {
+          "value": 7,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.7.label"
+        },
+        {
+          "value": 8,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.8.label"
+        },
+        {
+          "value": 9,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.9.label"
+        },
+        {
+          "value": 10,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.10.label"
+        },
+        {
+          "value": 11,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.11.label"
+        },
+        {
+          "value": 12,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.12.label"
+        },
+        {
+          "value": 13,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.13.label"
+        },
+        {
+          "value": 14,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.14.label"
+        },
+        {
+          "value": 15,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.15.label"
+        },
+        {
+          "value": 16,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.16.label"
+        },
+        {
+          "value": 17,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.17.label"
+        },
+        {
+          "value": 18,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.18.label"
+        },
+        {
+          "value": 19,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.19.label"
+        },
+        {
+          "value": 20,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.20.label"
+        },
+        {
+          "value": 21,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.21.label"
+        },
+        {
+          "value": 22,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.22.label"
+        },
+        {
+          "value": 23,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.hours_of_day.23.label"
+        }
+      ],
+      "poollogic_device_slot": [
+        {
+          "value": 0,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.poollogic_device_slot.0.label"
+        },
+        {
+          "value": 1,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.poollogic_device_slot.1.label"
+        },
+        {
+          "value": 2,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.poollogic_device_slot.2.label"
+        },
+        {
+          "value": 3,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.poollogic_device_slot.3.label"
+        },
+        {
+          "value": 4,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.poollogic_device_slot.4.label"
+        },
+        {
+          "value": 5,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.poollogic_device_slot.5.label"
+        },
+        {
+          "value": 6,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.poollogic_device_slot.6.label"
+        },
+        {
+          "value": 7,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.poollogic_device_slot.7.label"
+        }
+      ],
+      "poollogic_disinfection_type": [
+        {
+          "value": 0,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.poollogic_disinfection_type.0.label"
+        },
+        {
+          "value": 1,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.poollogic_disinfection_type.1.label"
+        },
+        {
+          "value": 2,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.poollogic_disinfection_type.2.label"
+        },
+        {
+          "value": 3,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.poollogic_disinfection_type.3.label"
+        }
+      ],
+      "poollogic_swg_control_mode": [
+        {
+          "value": 0,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.poollogic_swg_control_mode.0.label"
+        },
+        {
+          "value": 1,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.poollogic_swg_control_mode.1.label"
+        }
+      ]
+    }
+  }
+}

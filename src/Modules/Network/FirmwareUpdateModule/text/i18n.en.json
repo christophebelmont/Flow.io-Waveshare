@@ -1,0 +1,9 @@
+{
+  "locale": "en",
+  "translations": {
+    "cfgdocs.fwupdate.update_host.help": "Address of the HTTP server hosting firmware files.",
+    "cfgdocs.fwupdate.update_host.label": "Hôte server MAJ",
+    "cfgdocs.fwupdate.update_path.help": "Base path for the update manifest on the HTTP server.",
+    "cfgdocs.fwupdate.update_path.label": "Répertoire MAJ"
+  }
+}

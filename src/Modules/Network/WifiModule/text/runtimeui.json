@@ -1,0 +1,40 @@
+{
+  "moduleId": "wifi",
+  "values": [
+    {
+      "valueId": 1,
+      "key": "wifi.ready",
+      "type": "bool",
+      "domain": "wifi",
+      "display": "boolean",
+      "displayConfig": {
+        "activeText_t": "runtimeui.wifi.v01.display.activeText",
+        "inactiveText_t": "runtimeui.wifi.v01.display.inactiveText"
+      },
+      "order": 10,
+      "label_t": "runtimeui.wifi.v01.label",
+      "group_t": "runtimeui.wifi.v01.group"
+    },
+    {
+      "valueId": 2,
+      "key": "wifi.ip",
+      "type": "string",
+      "domain": "wifi",
+      "display": "value",
+      "order": 20,
+      "label_t": "runtimeui.wifi.v02.label",
+      "group_t": "runtimeui.wifi.v02.group"
+    },
+    {
+      "valueId": 3,
+      "key": "wifi.rssi",
+      "type": "int32",
+      "unit": "dBm",
+      "domain": "wifi",
+      "display": "horiz-gauge",
+      "order": 30,
+      "label_t": "runtimeui.wifi.v03.label",
+      "group_t": "runtimeui.wifi.v03.group"
+    }
+  ]
+}

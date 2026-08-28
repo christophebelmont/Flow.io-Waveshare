@@ -1,0 +1,8 @@
+{
+  "translations": {
+    "cfgdocs.fwupdate.update_host.help": "Adresse du serveur HTTP hébergeant les firmwares.",
+    "cfgdocs.fwupdate.update_host.label": "Hôte serveur MAJ",
+    "cfgdocs.fwupdate.update_path.help": "Chemin de base du manifest des mises à jour sur le serveur HTTP.",
+    "cfgdocs.fwupdate.update_path.label": "Répertoire MAJ"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "_meta": {
+    "generated": true,
+    "locale": "fr",
+    "version": 1
+  },
+  "docs": {
+    "hmi/nextion_udp/enabled": {
+      "type": "Bool",
+      "label_t": "cfgdocs.hmi.nextion_udp.enabled.label",
+      "help_t": "cfgdocs.hmi.nextion_udp.enabled.help"
+    },
+    "hmi/nextion_udp/token": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.hmi.nextion_udp.token.label",
+      "help_t": "cfgdocs.hmi.nextion_udp.token.help"
+    }
+  }
+}

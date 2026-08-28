@@ -1,0 +1,24 @@
+{
+  "_meta": {
+    "generated": true,
+    "locale": "fr",
+    "version": 1
+  },
+  "docs": {
+    "wifi/enabled": {
+      "type": "Bool",
+      "label_t": "cfgdocs.wifi.enabled.label",
+      "help_t": "cfgdocs.wifi.enabled.help"
+    },
+    "wifi/pass": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.wifi.pass.label",
+      "help_t": "cfgdocs.wifi.pass.help"
+    },
+    "wifi/ssid": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.wifi.ssid.label",
+      "help_t": "cfgdocs.wifi.ssid.help"
+    }
+  }
+}

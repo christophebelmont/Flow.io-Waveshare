@@ -1,0 +1,144 @@
+{
+  "_meta": {
+    "generated": true,
+    "locale": "fr",
+    "version": 1
+  },
+  "docs": {
+    "network/time": {
+      "label_t": "cfgmods.network.time.label"
+    },
+    "time/scheduler": {
+      "hidden": true
+    },
+    "time/tz": {
+      "enum_set": "timezones_world"
+    }
+  },
+  "meta": {
+    "enum_sets": {
+      "timezones_world": [
+        {
+          "value": "UTC12",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.0.label"
+        },
+        {
+          "value": "SST11",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.1.label"
+        },
+        {
+          "value": "HST10",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.2.label"
+        },
+        {
+          "value": "AKST9AKDT,M3.2.0/2,M11.1.0/2",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.3.label"
+        },
+        {
+          "value": "PST8PDT,M3.2.0/2,M11.1.0/2",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.4.label"
+        },
+        {
+          "value": "MST7MDT,M3.2.0/2,M11.1.0/2",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.5.label"
+        },
+        {
+          "value": "CST6CDT,M3.2.0/2,M11.1.0/2",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.6.label"
+        },
+        {
+          "value": "EST5EDT,M3.2.0/2,M11.1.0/2",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.7.label"
+        },
+        {
+          "value": "AST4ADT,M3.2.0/2,M11.1.0/2",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.8.label"
+        },
+        {
+          "value": "NST3:30",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.9.label"
+        },
+        {
+          "value": "BRT3",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.10.label"
+        },
+        {
+          "value": "UTC2",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.11.label"
+        },
+        {
+          "value": "AZOT1AZOST,M3.5.0/0,M10.5.0/1",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.12.label"
+        },
+        {
+          "value": "GMT0BST,M3.5.0/1,M10.5.0",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.13.label"
+        },
+        {
+          "value": "CET-1CEST,M3.5.0/2,M10.5.0/3",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.14.label"
+        },
+        {
+          "value": "EET-2EEST,M3.5.0/3,M10.5.0/4",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.15.label"
+        },
+        {
+          "value": "MSK-3",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.16.label"
+        },
+        {
+          "value": "UTC-4",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.17.label"
+        },
+        {
+          "value": "UTC-5",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.18.label"
+        },
+        {
+          "value": "UTC-5:30",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.19.label"
+        },
+        {
+          "value": "UTC-6",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.20.label"
+        },
+        {
+          "value": "UTC-7",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.21.label"
+        },
+        {
+          "value": "UTC-8",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.22.label"
+        },
+        {
+          "value": "JST-9",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.23.label"
+        },
+        {
+          "value": "ACST-9:30ACDT,M10.1.0/2,M4.1.0/3",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.24.label"
+        },
+        {
+          "value": "AEST-10AEDT,M10.1.0/2,M4.1.0/3",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.25.label"
+        },
+        {
+          "value": "UTC-11",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.26.label"
+        },
+        {
+          "value": "NZST-12NZDT,M9.5.0/2,M4.1.0/3",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.27.label"
+        },
+        {
+          "value": "UTC-13",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.28.label"
+        },
+        {
+          "value": "UTC-14",
+          "label_t": "cfgmods_meta.network.timemodule.enum_sets.timezones_world.29.label"
+        }
+      ]
+    }
+  }
+}

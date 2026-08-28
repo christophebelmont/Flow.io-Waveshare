@@ -1,0 +1,18 @@
+{
+  "translations": {
+    "cfgdocs.sysmon.trace_period_ms.help": "Période entre deux traces système.",
+    "cfgdocs.sysmon.trace_period_ms.label": "Période trace système (ms)",
+    "cfgdocs.sysmon.web_watchdog_auto_reboot.help": "Autorise le reboot automatique quand le watchdog détecte un blocage web persistant.",
+    "cfgdocs.sysmon.web_watchdog_auto_reboot.label": "Watchdog Web reboot auto",
+    "cfgdocs.sysmon.web_watchdog_boot_grace_ms.help": "Délai de grâce après boot avant d'activer la surveillance web.",
+    "cfgdocs.sysmon.web_watchdog_boot_grace_ms.label": "Watchdog Web grâce boot (ms)",
+    "cfgdocs.sysmon.web_watchdog_check_period_ms.help": "Intervalle entre deux vérifications du serveur web.",
+    "cfgdocs.sysmon.web_watchdog_check_period_ms.label": "Watchdog Web période check (ms)",
+    "cfgdocs.sysmon.web_watchdog_enabled.help": "Active la surveillance du serveur web supervisor.",
+    "cfgdocs.sysmon.web_watchdog_enabled.label": "Watchdog Web activé",
+    "cfgdocs.sysmon.web_watchdog_max_failures.help": "Nombre d'échecs consécutifs avant action watchdog.",
+    "cfgdocs.sysmon.web_watchdog_max_failures.label": "Watchdog Web échecs max",
+    "cfgdocs.sysmon.web_watchdog_stale_ms.help": "Âge max toléré du heartbeat web avant échec watchdog.",
+    "cfgdocs.sysmon.web_watchdog_stale_ms.label": "Watchdog Web seuil blocage (ms)"
+  }
+}

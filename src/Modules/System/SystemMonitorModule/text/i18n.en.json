@@ -1,0 +1,19 @@
+{
+  "locale": "en",
+  "translations": {
+    "cfgdocs.sysmon.trace_period_ms.help": "Period between two traces system.",
+    "cfgdocs.sysmon.trace_period_ms.label": "Period trace system (ms)",
+    "cfgdocs.sysmon.web_watchdog_auto_reboot.help": "Allow automatic reboot quand the watchdog dDSTcte one blocage web persistant.",
+    "cfgdocs.sysmon.web_watchdog_auto_reboot.label": "Watchdog Web reboot auto",
+    "cfgdocs.sysmon.web_watchdog_boot_grace_ms.help": "Délai de grace après boot avant of activer the monitoring web.",
+    "cfgdocs.sysmon.web_watchdog_boot_grace_ms.label": "Watchdog Web grace boot (ms)",
+    "cfgdocs.sysmon.web_watchdog_check_period_ms.help": "Interval between two vérifications of server web.",
+    "cfgdocs.sysmon.web_watchdog_check_period_ms.label": "Watchdog Web période check (ms)",
+    "cfgdocs.sysmon.web_watchdog_enabled.help": "Enable of server web supervisor.",
+    "cfgdocs.sysmon.web_watchdog_enabled.label": "Watchdog Web enabled",
+    "cfgdocs.sysmon.web_watchdog_max_failures.help": "Nombre of consecutive failures avant action watchdog.",
+    "cfgdocs.sysmon.web_watchdog_max_failures.label": "Watchdog Web max failures",
+    "cfgdocs.sysmon.web_watchdog_stale_ms.help": "Âge max toléré of heartbeat web avant échec watchdog.",
+    "cfgdocs.sysmon.web_watchdog_stale_ms.label": "Watchdog Web stall threshold (ms)"
+  }
+}

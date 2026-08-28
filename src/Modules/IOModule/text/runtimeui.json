@@ -1,0 +1,212 @@
+{
+  "moduleId": "io",
+  "values": [
+    {
+      "valueId": 1,
+      "key": "pool.water_temp",
+      "type": "float",
+      "domain": "sondes",
+      "display": "circ-gauge",
+      "displayConfig": {
+        "bands": {
+          "min": 0,
+          "criticalLowEnd": 8,
+          "warningLowEnd": 14,
+          "warningHighStart": 30,
+          "criticalHighStart": 34,
+          "max": 40
+        }
+      },
+      "unit": "°C",
+      "decimals": 1,
+      "order": 10,
+      "label_t": "runtimeui.io.v01.label",
+      "group_t": "runtimeui.io.v01.group"
+    },
+    {
+      "valueId": 2,
+      "key": "pool.air_temp",
+      "type": "float",
+      "domain": "sondes",
+      "display": "circ-gauge",
+      "displayConfig": {
+        "bands": {
+          "min": -10,
+          "criticalLowEnd": 0,
+          "warningLowEnd": 8,
+          "warningHighStart": 28,
+          "criticalHighStart": 35,
+          "max": 45
+        }
+      },
+      "unit": "°C",
+      "decimals": 1,
+      "order": 20,
+      "label_t": "runtimeui.io.v02.label",
+      "group_t": "runtimeui.io.v02.group"
+    },
+    {
+      "valueId": 3,
+      "key": "pool.ph",
+      "type": "float",
+      "domain": "sondes",
+      "display": "circ-gauge",
+      "displayConfig": {
+        "bands": {
+          "min": 6.4,
+          "criticalLowEnd": 6.8,
+          "warningLowEnd": 7.0,
+          "warningHighStart": 7.6,
+          "criticalHighStart": 7.8,
+          "max": 8.4
+        }
+      },
+      "decimals": 2,
+      "order": 30,
+      "label_t": "runtimeui.io.v03.label",
+      "group_t": "runtimeui.io.v03.group"
+    },
+    {
+      "valueId": 4,
+      "key": "pool.orp",
+      "type": "float",
+      "domain": "sondes",
+      "display": "circ-gauge",
+      "displayConfig": {
+        "bands": {
+          "min": 350,
+          "criticalLowEnd": 500,
+          "warningLowEnd": 620,
+          "warningHighStart": 760,
+          "criticalHighStart": 820,
+          "max": 900
+        }
+      },
+      "unit": "mV",
+      "decimals": 0,
+      "order": 40,
+      "label_t": "runtimeui.io.v04.label",
+      "group_t": "runtimeui.io.v04.group"
+    },
+    {
+      "valueId": 5,
+      "key": "pool.water_counter",
+      "type": "float",
+      "domain": "sondes",
+      "display": "value",
+      "unit": "L",
+      "decimals": 1,
+      "order": 50,
+      "label_t": "runtimeui.io.v05.label",
+      "group_t": "runtimeui.io.v05.group"
+    },
+    {
+      "valueId": 6,
+      "key": "pool.psi",
+      "type": "float",
+      "domain": "sondes",
+      "display": "value",
+      "unit": "PSI",
+      "decimals": 2,
+      "order": 60,
+      "label_t": "runtimeui.io.v06.label",
+      "group_t": "runtimeui.io.v06.group"
+    },
+    {
+      "valueId": 7,
+      "key": "io.bmp280_temp",
+      "type": "float",
+      "domain": "sondes",
+      "display": "value",
+      "unit": "°C",
+      "decimals": 1,
+      "order": 70,
+      "label_t": "runtimeui.io.v07.label",
+      "group_t": "runtimeui.io.v07.group"
+    },
+    {
+      "valueId": 8,
+      "key": "io.bme680_temp",
+      "type": "float",
+      "domain": "sondes",
+      "display": "value",
+      "unit": "°C",
+      "decimals": 1,
+      "order": 80,
+      "label_t": "runtimeui.io.v08.label",
+      "group_t": "runtimeui.io.v08.group"
+    },
+    {
+      "valueId": 9,
+      "key": "bmp280.pressure",
+      "type": "float",
+      "domain": "sondes",
+      "display": "value",
+      "unit": "hPa",
+      "decimals": 1,
+      "order": 90,
+      "label_t": "runtimeui.io.v09.label",
+      "group_t": "runtimeui.io.v09.group"
+    },
+    {
+      "valueId": 10,
+      "key": "sht40.temperature",
+      "type": "float",
+      "domain": "sondes",
+      "display": "value",
+      "unit": "°C",
+      "decimals": 1,
+      "order": 100,
+      "label_t": "runtimeui.io.v10.label",
+      "group_t": "runtimeui.io.v10.group"
+    },
+    {
+      "valueId": 11,
+      "key": "sht40.humidity",
+      "type": "float",
+      "domain": "sondes",
+      "display": "value",
+      "unit": "%",
+      "decimals": 1,
+      "order": 110,
+      "label_t": "runtimeui.io.v11.label",
+      "group_t": "runtimeui.io.v11.group"
+    },
+    {
+      "valueId": 12,
+      "key": "bme680.humidity",
+      "type": "float",
+      "domain": "sondes",
+      "display": "value",
+      "unit": "%",
+      "decimals": 1,
+      "order": 120,
+      "label_t": "runtimeui.io.v12.label",
+      "group_t": "runtimeui.io.v12.group"
+    },
+    {
+      "valueId": 13,
+      "key": "bme680.pressure",
+      "type": "float",
+      "domain": "sondes",
+      "display": "value",
+      "unit": "hPa",
+      "decimals": 1,
+      "order": 130,
+      "label_t": "runtimeui.io.v13.label",
+      "group_t": "runtimeui.io.v13.group"
+    },
+    {
+      "valueId": 14,
+      "key": "bme680.gaz",
+      "type": "float",
+      "domain": "sondes",
+      "display": "value",
+      "unit": "Ohm",
+      "decimals": 0,
+      "order": 140,
+      "label_t": "runtimeui.io.v14.label",
+      "group_t": "runtimeui.io.v14.group"
+    }
+  ]
+}

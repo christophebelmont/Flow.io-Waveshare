@@ -1,0 +1,298 @@
+{
+  "_meta": {
+    "generated": true,
+    "locale": "fr",
+    "version": 1
+  },
+  "docs": {
+    "hmi/tft": {},
+    "hmi/tft/sensors": {
+      "label_t": "cfgmods.hmi.tft.sensors.label"
+    },
+    "hmi/tft/alarms": {
+      "label_t": "cfgmods.hmi.tft.alarms.label"
+    }
+  },
+  "meta": {
+    "cfg_tree_aliases": [
+      {
+        "display": "hmi/tft",
+        "store": "tft/s3"
+      }
+    ],
+    "cfg_tree_virtual_branches": [
+      {
+        "display": "hmi",
+        "children": [
+          "leds",
+          "buzzer",
+          "nextion",
+          "nextion_udp",
+          "tft",
+          "venice"
+        ]
+      }
+    ],
+    "enum_sets": {
+      "tft_s3_dashboard_color": [
+        {
+          "value": 0,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_color.0.label",
+          "color": "#4A90E2"
+        },
+        {
+          "value": 1,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_color.1.label",
+          "color": "#20C5D8"
+        },
+        {
+          "value": 2,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_color.2.label",
+          "color": "#54C27A"
+        },
+        {
+          "value": 3,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_color.3.label",
+          "color": "#A97CF4"
+        },
+        {
+          "value": 4,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_color.4.label",
+          "color": "#27B7C8"
+        },
+        {
+          "value": 5,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_color.5.label",
+          "color": "#39B8F2"
+        },
+        {
+          "value": 6,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_color.6.label",
+          "color": "#79C7F2"
+        },
+        {
+          "value": 7,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_color.7.label",
+          "color": "#F29B6B"
+        },
+        {
+          "value": 8,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_color.8.label",
+          "color": "#E96AAE"
+        },
+        {
+          "value": 9,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_color.9.label",
+          "color": "#F3A65A"
+        },
+        {
+          "value": 10,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_color.10.label",
+          "color": "#E9CF54"
+        },
+        {
+          "value": 11,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_color.11.label",
+          "color": "#7BC47F"
+        },
+        {
+          "value": 12,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_color.12.label",
+          "color": "#9CCC4A"
+        },
+        {
+          "value": 13,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_color.13.label",
+          "color": "#B388FF"
+        },
+        {
+          "value": 14,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_color.14.label",
+          "color": "#8C9EFF"
+        },
+        {
+          "value": 15,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_color.15.label",
+          "color": "#6EC6FF"
+        },
+        {
+          "value": 16,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_color.16.label",
+          "color": "#B7D64A"
+        },
+        {
+          "value": 17,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_color.17.label",
+          "color": "#F28B82"
+        },
+        {
+          "value": 18,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_color.18.label",
+          "color": "#D7A184"
+        },
+        {
+          "value": 19,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_color.19.label",
+          "color": "#A8B2BF"
+        },
+        {
+          "value": 20,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_color.20.label",
+          "color": "#FFFFFF"
+        }
+      ],
+      "tft_s3_dashboard_runtime_ui": [
+        {
+          "value": 2101,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.0.label"
+        },
+        {
+          "value": 2103,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.1.label"
+        },
+        {
+          "value": 2104,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.2.label"
+        },
+        {
+          "value": 2105,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.3.label"
+        },
+        {
+          "value": 2106,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.4.label"
+        },
+        {
+          "value": 2201,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.5.label"
+        },
+        {
+          "value": 2202,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.6.label"
+        },
+        {
+          "value": 2203,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.7.label"
+        },
+        {
+          "value": 2204,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.8.label"
+        },
+        {
+          "value": 2205,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.9.label"
+        },
+        {
+          "value": 2206,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.10.label"
+        },
+        {
+          "value": 2207,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.11.label"
+        },
+        {
+          "value": 2208,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.12.label"
+        },
+        {
+          "value": 2209,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.13.label"
+        },
+        {
+          "value": 2210,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.14.label"
+        },
+        {
+          "value": 2211,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.15.label"
+        },
+        {
+          "value": 2212,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.16.label"
+        },
+        {
+          "value": 2213,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.17.label"
+        },
+        {
+          "value": 2214,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.18.label"
+        },
+        {
+          "value": 2301,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.19.label"
+        },
+        {
+          "value": 2302,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.20.label"
+        },
+        {
+          "value": 2303,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.21.label"
+        },
+        {
+          "value": 2304,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.22.label"
+        },
+        {
+          "value": 1801,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.23.label"
+        },
+        {
+          "value": 1802,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.24.label"
+        },
+        {
+          "value": 1803,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.25.label"
+        },
+        {
+          "value": 1804,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.26.label"
+        },
+        {
+          "value": 1001,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.27.label"
+        },
+        {
+          "value": 1002,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.28.label"
+        },
+        {
+          "value": 1003,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_dashboard_runtime_ui.29.label"
+        }
+      ],
+      "tft_s3_alarm_id": [
+        {
+          "value": 1000,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_alarm_id.0.label"
+        },
+        {
+          "value": 1001,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_alarm_id.1.label"
+        },
+        {
+          "value": 1002,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_alarm_id.2.label"
+        },
+        {
+          "value": 1003,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_alarm_id.3.label"
+        },
+        {
+          "value": 1004,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_alarm_id.4.label"
+        },
+        {
+          "value": 1005,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_alarm_id.5.label"
+        },
+        {
+          "value": 1006,
+          "label_t": "cfgmods_meta.tftmodules3.enum_sets.tft_s3_alarm_id.6.label"
+        }
+      ]
+    }
+  }
+}

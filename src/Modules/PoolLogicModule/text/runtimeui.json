@@ -1,0 +1,61 @@
+{
+  "moduleId": "poollogic",
+  "values": [
+    {
+      "valueId": 1,
+      "key": "pool.auto_mode",
+      "type": "bool",
+      "domain": "mode",
+      "display": "boolean",
+      "displayConfig": {
+        "activeText_t": "runtimeui.poollogic.v01.display.activeText",
+        "inactiveText_t": "runtimeui.poollogic.v01.display.inactiveText"
+      },
+      "order": 50,
+      "label_t": "runtimeui.poollogic.v01.label",
+      "group_t": "runtimeui.poollogic.v01.group"
+    },
+    {
+      "valueId": 2,
+      "key": "pool.winter_mode",
+      "type": "bool",
+      "domain": "mode",
+      "display": "boolean",
+      "displayConfig": {
+        "activeText_t": "runtimeui.poollogic.v02.display.activeText",
+        "inactiveText_t": "runtimeui.poollogic.v02.display.inactiveText"
+      },
+      "order": 60,
+      "label_t": "runtimeui.poollogic.v02.label",
+      "group_t": "runtimeui.poollogic.v02.group"
+    },
+    {
+      "valueId": 3,
+      "key": "pool.ph_auto_mode",
+      "type": "bool",
+      "domain": "mode",
+      "display": "boolean",
+      "displayConfig": {
+        "activeText_t": "runtimeui.poollogic.v03.display.activeText",
+        "inactiveText_t": "runtimeui.poollogic.v03.display.inactiveText"
+      },
+      "order": 70,
+      "label_t": "runtimeui.poollogic.v03.label",
+      "group_t": "runtimeui.poollogic.v03.group"
+    },
+    {
+      "valueId": 4,
+      "key": "pool.dis_auto_mode",
+      "type": "bool",
+      "domain": "mode",
+      "display": "boolean",
+      "displayConfig": {
+        "activeText_t": "runtimeui.poollogic.v04.display.activeText",
+        "inactiveText_t": "runtimeui.poollogic.v04.display.inactiveText"
+      },
+      "order": 80,
+      "label_t": "runtimeui.poollogic.v04.label",
+      "group_t": "runtimeui.poollogic.v04.group"
+    }
+  ]
+}

@@ -1,0 +1,2414 @@
+/**
+ * @file TimeModule.cpp
+ * @brief Implementation file.
+ */
+#include "TimeModule.h"
+#include "Core/ErrorCodes.h"
+#include "Core/ModuleId.h"
+#include "Core/Runtime.h"
+#include "Core/CommandRegistry.h"
+#include "Core/SystemLimits.h"
+#include "Core/I2cGlobalMutex.h"
+#if FLOW_RTC_PCF85063
+#include "Board/BoardCatalog.h"
+#include "Board/BoardSpec.h"
+#include <Wire.h>
+#endif
+#include <ArduinoJson.h>
+#include <time.h>
+#include <cstdlib>
+#include <cstring>
+#include <cstdio>
+#include <cctype>
+#include <new>
+#include <sys/time.h>
+#define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::TimeModule)
+#include "Core/ModuleLog.h"
+
+#ifndef FLOW_TIME_MIN_YEAR
+#define FLOW_TIME_MIN_YEAR 0
+#endif
+
+#ifndef TIME_LARGE_JUMP_SECONDS
+#define TIME_LARGE_JUMP_SECONDS 300
+#endif
+
+namespace {
+static constexpr uint8_t kTimeCfgProducerId = 43;
+static constexpr uint8_t kTimeCfgBranch = 1;
+static constexpr uint8_t kTimeSchedulerCfgBranch = 2;
+static constexpr MqttConfigRouteProducer::Route kTimeCfgRoutes[] = {
+    {1, {(uint8_t)ConfigModuleId::Time, kTimeCfgBranch}, "time", "time", (uint8_t)MqttPublishPriority::Normal, nullptr},
+    {2, {(uint8_t)ConfigModuleId::Time, kTimeSchedulerCfgBranch}, "time/scheduler", "time/scheduler", (uint8_t)MqttPublishPriority::Normal, nullptr},
+};
+static constexpr uint16_t kTimeMaxPlausibleYear = 2100;
+static constexpr uint64_t kTimeMaxPlausibleEpochSec = 4102444800ULL; // 2100-01-01T00:00:00Z
+static constexpr uint32_t kTimeLargeJumpSeconds = (uint32_t)TIME_LARGE_JUMP_SECONDS;
+static constexpr uint32_t kTimeMetaMagic = 0x54494D45UL; // "TIME"
+static constexpr uint16_t kTimeMetaVersion = 1U;
+static constexpr uint32_t kExternalRtcNtpRetryMs = 60000UL;
+static constexpr uint32_t kNextionRtcFallbackDelayMs = 30000U;
+static constexpr uint32_t kNextionRtcFallbackRetryMs = 10000U;
+static constexpr uint32_t kNextionRtcWriteRetryMs = 60000U;
+static constexpr uint16_t kNextionRtcReadTimeoutMs = 500U;
+#if FLOW_RTC_PCF85063
+static constexpr uint8_t kPcf85063Addr = 0x51;
+static constexpr uint8_t kPcf85063RegCtrl1 = 0x00;
+static constexpr uint8_t kPcf85063RegSeconds = 0x04;
+static constexpr uint8_t kPcf85063Ctrl1CapSel = 0x01;
+static constexpr int kPcf85063YearOffset = 1970;
+static constexpr uint32_t kInternalRtcFallbackDelayMs = 0U;
+static constexpr uint32_t kInternalRtcFallbackRetryMs = 10000U;
+static constexpr uint32_t kInternalRtcWriteRetryMs = 60000U;
+static constexpr uint32_t kInternalRtcDailyResyncMs = 24UL * 60UL * 60UL * 1000UL;
+#endif
+}
+
+// Fast-clock test mode:
+// Uncomment the line below to simulate time from 2026-01-01 00:00:00.
+// In this mode, 5 minutes of real time == 1 simulated month.
+//#define TIME_TEST_FAST_CLOCK
+
+static uint32_t clampU32(uint32_t v, uint32_t minV, uint32_t maxV) {
+    if (v < minV) return minV;
+    if (v > maxV) return maxV;
+    return v;
+}
+
+static const char* schedulerEdgeStr(uint8_t edge)
+{
+    if (edge == (uint8_t)SchedulerEdge::Start) return "start";
+    if (edge == (uint8_t)SchedulerEdge::Stop) return "stop";
+    return "trigger";
+}
+
+#if FLOW_RTC_PCF85063
+static uint8_t decToBcd_(uint8_t val)
+{
+    return (uint8_t)(((val / 10U) << 4) | (val % 10U));
+}
+
+static uint8_t bcdToDec_(uint8_t val)
+{
+    return (uint8_t)(((val >> 4) * 10U) + (val & 0x0FU));
+}
+#endif
+
+static bool isLeapYearUtc_(uint16_t year)
+{
+    if ((year % 400U) == 0U) return true;
+    if ((year % 100U) == 0U) return false;
+    return (year % 4U) == 0U;
+}
+
+static uint8_t daysInMonthUtc_(uint16_t year, uint8_t month)
+{
+    static const uint8_t days[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    if (month < 1U || month > 12U) return 0U;
+    if (month == 2U && isLeapYearUtc_(year)) return 29U;
+    return days[month - 1U];
+}
+
+static uint16_t compileYear_()
+{
+#if FLOW_TIME_MIN_YEAR > 0
+    return (uint16_t)FLOW_TIME_MIN_YEAR;
+#else
+    const char* date = __DATE__;
+    if (!date || strlen(date) < 11U) return 2024U;
+    return (uint16_t)(((date[7] - '0') * 1000) +
+                      ((date[8] - '0') * 100) +
+                      ((date[9] - '0') * 10) +
+                      (date[10] - '0'));
+#endif
+}
+
+static uint64_t utcFieldsToEpochUnchecked_(uint16_t year, uint8_t month, uint8_t day,
+                                           uint8_t hour, uint8_t minute, uint8_t second)
+{
+    uint64_t days = 0ULL;
+    for (uint16_t y = 1970U; y < year; ++y) {
+        days += isLeapYearUtc_(y) ? 366ULL : 365ULL;
+    }
+    for (uint8_t m = 1U; m < month; ++m) {
+        days += (uint64_t)daysInMonthUtc_(year, m);
+    }
+    days += (uint64_t)(day - 1U);
+    return (days * 86400ULL) + ((uint64_t)hour * 3600ULL) + ((uint64_t)minute * 60ULL) + (uint64_t)second;
+}
+
+static uint64_t minPlausibleEpochSec_()
+{
+    static const uint64_t minEpoch = utcFieldsToEpochUnchecked_(compileYear_(), 1U, 1U, 0U, 0U, 0U);
+    return minEpoch;
+}
+
+static bool isValidRtcDate_(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute, uint8_t second)
+{
+    return year >= compileYear_() &&
+           year < kTimeMaxPlausibleYear &&
+           month >= 1U &&
+           month <= 12U &&
+           day >= 1U &&
+           day <= daysInMonthUtc_(year, month) &&
+           hour <= 23U &&
+           minute <= 59U &&
+           second <= 59U;
+}
+
+static bool utcFieldsToEpoch_(uint16_t year,
+                              uint8_t month,
+                              uint8_t day,
+                              uint8_t hour,
+                              uint8_t minute,
+                              uint8_t second,
+                              uint64_t& epoch)
+{
+    epoch = 0ULL;
+    if (!isValidRtcDate_(year, month, day, hour, minute, second)) return false;
+    epoch = utcFieldsToEpochUnchecked_(year, month, day, hour, minute, second);
+    return epoch >= minPlausibleEpochSec_() && epoch < kTimeMaxPlausibleEpochSec;
+}
+
+static bool localFieldsToEpoch_(uint16_t year,
+                                uint8_t month,
+                                uint8_t day,
+                                uint8_t hour,
+                                uint8_t minute,
+                                uint8_t second,
+                                uint64_t& epoch)
+{
+    epoch = 0ULL;
+    if (!isValidRtcDate_(year, month, day, hour, minute, second)) return false;
+
+    struct tm local{};
+    local.tm_year = (int)year - 1900;
+    local.tm_mon = (int)month - 1;
+    local.tm_mday = (int)day;
+    local.tm_hour = (int)hour;
+    local.tm_min = (int)minute;
+    local.tm_sec = (int)second;
+    local.tm_isdst = -1;
+    const time_t converted = mktime(&local);
+    if (converted < 0) return false;
+    if ((uint16_t)(local.tm_year + 1900) != year ||
+        (uint8_t)(local.tm_mon + 1) != month ||
+        (uint8_t)local.tm_mday != day ||
+        (uint8_t)local.tm_hour != hour ||
+        (uint8_t)local.tm_min != minute ||
+        (uint8_t)local.tm_sec != second) {
+        return false;
+    }
+
+    epoch = (uint64_t)converted;
+    return epoch >= minPlausibleEpochSec_() && epoch < kTimeMaxPlausibleEpochSec;
+}
+
+static uint32_t dayStampFromEpochLocal_(uint64_t epochSec)
+{
+    const time_t t = (time_t)epochSec;
+    struct tm local{};
+    if (!localtime_r(&t, &local)) return 0xFFFFFFFFUL;
+    return ((uint32_t)(local.tm_year + 1900) * 1000UL) + (uint32_t)local.tm_yday;
+}
+
+static bool parseCmdArgsObject_(const CommandRequest& req, JsonObjectConst& outObj)
+{
+    static constexpr size_t CMD_DOC_CAPACITY = Limits::JsonCmdTimeBuf;
+    static StaticJsonDocument<CMD_DOC_CAPACITY> doc;
+    doc.clear();
+    const char* json = req.args ? req.args : req.json;
+    if (!json || json[0] == '\0') return false;
+
+    DeserializationError err = deserializeJson(doc, json);
+    if (!err && doc.is<JsonObject>()) {
+        outObj = doc.as<JsonObjectConst>();
+        return true;
+    }
+
+    if (req.json && req.json[0] != '\0' && req.args != req.json) {
+        doc.clear();
+        err = deserializeJson(doc, req.json);
+        if (err || !doc.is<JsonObjectConst>()) return false;
+        JsonVariantConst argsVar = doc["args"];
+        if (argsVar.is<JsonObjectConst>()) {
+            outObj = argsVar.as<JsonObjectConst>();
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static void writeCmdError_(char* reply, size_t replyLen, const char* where, ErrorCode code)
+{
+    if (!writeErrorJson(reply, replyLen, code, where)) {
+        snprintf(reply, replyLen, "{\"ok\":false}");
+    }
+}
+
+static bool parseBoolField_(JsonObjectConst obj, const char* key, bool& out, bool required)
+{
+    if (!obj.containsKey(key)) return !required;
+    JsonVariantConst v = obj[key];
+    if (v.is<bool>()) {
+        out = v.as<bool>();
+        return true;
+    }
+    if (v.is<int32_t>() || v.is<uint32_t>() || v.is<float>()) {
+        out = (v.as<float>() != 0.0f);
+        return true;
+    }
+    if (v.is<const char*>()) {
+        const char* s = v.as<const char*>();
+        if (!s) return false;
+        if (strcmp(s, "true") == 0) {
+            out = true;
+            return true;
+        }
+        if (strcmp(s, "false") == 0) {
+            out = false;
+            return true;
+        }
+        char* end = nullptr;
+        long num = strtol(s, &end, 10);
+        if (end == s) return false;
+        out = (num != 0);
+        return true;
+    }
+    return false;
+}
+
+static bool parseU32Field_(JsonObjectConst obj, const char* key, uint32_t& out, bool required)
+{
+    if (!obj.containsKey(key)) return !required;
+    JsonVariantConst v = obj[key];
+    if (v.is<uint32_t>()) {
+        out = v.as<uint32_t>();
+        return true;
+    }
+    if (v.is<int32_t>()) {
+        const int32_t n = v.as<int32_t>();
+        if (n < 0) return false;
+        out = (uint32_t)n;
+        return true;
+    }
+    if (v.is<const char*>()) {
+        const char* s = v.as<const char*>();
+        if (!s) return false;
+        char* end = nullptr;
+        unsigned long n = strtoul(s, &end, 10);
+        if (end == s) return false;
+        out = (uint32_t)n;
+        return true;
+    }
+    return false;
+}
+
+static bool parseU64Field_(JsonObjectConst obj, const char* key, uint64_t& out, bool required)
+{
+    if (!obj.containsKey(key)) return !required;
+    JsonVariantConst v = obj[key];
+    if (v.is<uint64_t>()) {
+        out = v.as<uint64_t>();
+        return true;
+    }
+    if (v.is<uint32_t>()) {
+        out = (uint64_t)v.as<uint32_t>();
+        return true;
+    }
+    if (v.is<int32_t>()) {
+        const int32_t n = v.as<int32_t>();
+        if (n < 0) return false;
+        out = (uint64_t)n;
+        return true;
+    }
+    if (v.is<const char*>()) {
+        const char* s = v.as<const char*>();
+        if (!s) return false;
+        char* end = nullptr;
+        unsigned long long n = strtoull(s, &end, 10);
+        if (end == s) return false;
+        out = (uint64_t)n;
+        return true;
+    }
+    return false;
+}
+
+#ifdef TIME_TEST_FAST_CLOCK
+static constexpr uint32_t FASTCLK_REAL_MS_PER_MONTH = 5UL * 60UL * 1000UL;
+static constexpr int FASTCLK_START_YEAR = 2026;
+static constexpr time_t FASTCLK_START_EPOCH_FALLBACK = (time_t)1767225600; // 2026-01-01T00:00:00Z
+
+static bool isLeapYearFastClock(int year)
+{
+    if ((year % 400) == 0) return true;
+    if ((year % 100) == 0) return false;
+    return (year % 4) == 0;
+}
+
+static uint8_t daysInMonthFastClock(int year, int month1to12)
+{
+    static const uint8_t DAYS[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    if (month1to12 < 1 || month1to12 > 12) return 30;
+    if (month1to12 == 2 && isLeapYearFastClock(year)) return 29;
+    return DAYS[month1to12 - 1];
+}
+#endif
+
+void TimeModule::setState(TimeSyncState s) {
+    const TimeSyncState prev = state;
+    state = s;
+    stateTs = millis();
+
+    if (dataStore) {
+        setTimeReady(*dataStore, s == TimeSyncState::Synced);
+    }
+
+    if (prev != TimeSyncState::Synced && s == TimeSyncState::Synced) {
+        // Re-evaluate and replay active slots when time becomes valid.
+        schedInitialized_ = false;
+        lastSchedulerEvalEpochSec_ = 0;
+    } else if (prev == TimeSyncState::Synced && s != TimeSyncState::Synced) {
+        // Invalidate runtime active states until next sync.
+        portENTER_CRITICAL(&schedMux_);
+        for (uint8_t i = 0; i < TIME_SCHED_MAX_SLOTS; ++i) {
+            sched_[i].active = false;
+            sched_[i].lastTriggerMinuteKey = INVALID_MINUTE_KEY;
+        }
+        activeMaskValue_ = 0;
+        schedInitialized_ = false;
+        portEXIT_CRITICAL(&schedMux_);
+        lastSchedulerEvalEpochSec_ = 0;
+    }
+}
+
+const char* TimeModule::sourceName_(TimeSource source)
+{
+    switch (source) {
+        case TimeSource::Ntp: return "ntp";
+        case TimeSource::InternalRtc: return "internal_rtc";
+        case TimeSource::NextionManual: return "manual";
+        case TimeSource::None:
+        default: return "none";
+    }
+}
+
+const char* TimeModule::qualityName_(TimeQuality quality)
+{
+    switch (quality) {
+        case TimeQuality::NtpSynced: return "ntp_synced";
+        case TimeQuality::RtcTrusted: return "rtc_trusted";
+        case TimeQuality::Manual: return "manual";
+        case TimeQuality::RtcUntrusted: return "rtc_untrusted";
+        case TimeQuality::Invalid:
+        default: return "invalid";
+    }
+}
+
+const char* TimeModule::shortStatusFr_(TimeQuality quality, TimeSource source)
+{
+    (void)source;
+    switch (quality) {
+        case TimeQuality::NtpSynced: return "NTP";
+        case TimeQuality::RtcTrusted: return "RTC";
+        case TimeQuality::Manual: return "manuel";
+        case TimeQuality::RtcUntrusted: return "RTC?";
+        case TimeQuality::Invalid:
+        default: return "non sync";
+    }
+}
+
+const char* TimeModule::shortStatusEn_(TimeQuality quality, TimeSource source)
+{
+    (void)source;
+    switch (quality) {
+        case TimeQuality::NtpSynced: return "NTP";
+        case TimeQuality::RtcTrusted: return "RTC";
+        case TimeQuality::Manual: return "manual";
+        case TimeQuality::RtcUntrusted: return "RTC?";
+        case TimeQuality::Invalid:
+        default: return "unsynced";
+    }
+}
+
+bool TimeModule::isTimePlausible_(uint64_t epochSec)
+{
+    if (epochSec == 0ULL) return false;
+    if (epochSec < minPlausibleEpochSec_()) return false;
+    if (epochSec >= kTimeMaxPlausibleEpochSec) return false;
+
+    const time_t t = (time_t)epochSec;
+    if ((uint64_t)t != epochSec) return false;
+    struct tm utc{};
+    if (!gmtime_r(&t, &utc)) return false;
+    const uint16_t year = (uint16_t)(utc.tm_year + 1900);
+    if (year < compileYear_() || year >= kTimeMaxPlausibleYear) return false;
+    uint64_t roundtrip = 0ULL;
+    if (!utcFieldsToEpoch_(year,
+                           (uint8_t)(utc.tm_mon + 1),
+                           (uint8_t)utc.tm_mday,
+                           (uint8_t)utc.tm_hour,
+                           (uint8_t)utc.tm_min,
+                           (uint8_t)utc.tm_sec,
+                           roundtrip)) {
+        return false;
+    }
+    return roundtrip == epochSec;
+}
+
+bool TimeModule::isTimePlausibleSvc_(uint64_t epochSec)
+{
+    return isTimePlausible_(epochSec);
+}
+
+void TimeModule::updateRuntimeStatus_()
+{
+    if (!dataStore) return;
+    setTimeStatus(*dataStore,
+                  activeSource_,
+                  sourceName_(activeSource_),
+                  activeQuality_,
+                  qualityName_(activeQuality_),
+                  timeState_.lastNtpSyncUtc,
+                  timeState_.lastRtcSyncUtc);
+}
+
+void TimeModule::setActiveSource_(TimeSource source, TimeQuality quality)
+{
+    if (activeSource_ == source && activeQuality_ == quality) {
+        updateRuntimeStatus_();
+        return;
+    }
+    activeSource_ = source;
+    activeQuality_ = quality;
+    updateRuntimeStatus_();
+    LOGI("Time source active: %s quality=%s", sourceName_(source), qualityName_(quality));
+}
+
+const char* TimeModule::activeSourceName_() const
+{
+    return sourceName_(activeSource_);
+}
+
+void TimeModule::logTimeJump_(uint64_t oldEpochSec, uint64_t newEpochSec, TimeSource source, TimeQuality quality)
+{
+    if (!isTimePlausible_(oldEpochSec) || !isTimePlausible_(newEpochSec)) return;
+    const int64_t delta = (int64_t)newEpochSec - (int64_t)oldEpochSec;
+    const uint64_t absDelta = (delta < 0) ? (uint64_t)(-delta) : (uint64_t)delta;
+    if (absDelta < (uint64_t)kTimeLargeJumpSeconds && delta >= 0) return;
+    if (delta < 0) {
+        LOGW("Time moved backwards source=%s quality=%s delta_s=%lld old=%llu new=%llu",
+             sourceName_(source),
+             qualityName_(quality),
+             (long long)delta,
+             (unsigned long long)oldEpochSec,
+             (unsigned long long)newEpochSec);
+    } else {
+        LOGW("Large time jump source=%s quality=%s delta_s=%lld old=%llu new=%llu",
+             sourceName_(source),
+             qualityName_(quality),
+             (long long)delta,
+             (unsigned long long)oldEpochSec,
+             (unsigned long long)newEpochSec);
+    }
+}
+
+void TimeModule::recordSource_(TimeSource source, bool available, bool valid, uint64_t epochSec, uint32_t sampledAtMs)
+{
+    SourceSnapshot* snapshot = nullptr;
+    switch (source) {
+        case TimeSource::Ntp: snapshot = &ntpSource_; break;
+        case TimeSource::InternalRtc: snapshot = &internalRtcSource_; break;
+        case TimeSource::NextionManual: snapshot = &nextionSource_; break;
+        case TimeSource::None:
+        default: break;
+    }
+    if (!snapshot) return;
+    snapshot->available = available;
+    snapshot->valid = valid;
+    snapshot->epochSec = valid ? epochSec : 0ULL;
+    snapshot->sampledAtMs = sampledAtMs;
+}
+
+void TimeModule::loadPersistentMeta_()
+{
+    persistentMetaLoaded_ = true;
+    persistentMeta_ = PersistentMeta{};
+    persistentMeta_.magic = kTimeMetaMagic;
+    persistentMeta_.version = kTimeMetaVersion;
+    lastPersistedMeta_ = persistentMeta_;
+    if (!cfgStore) return;
+
+    PersistentMeta stored{};
+    size_t actualLen = 0U;
+    if (!cfgStore->readRuntimeBlob(NvsKeys::Time::MetaBlob, &stored, sizeof(stored), &actualLen) ||
+        actualLen != sizeof(stored) ||
+        stored.magic != kTimeMetaMagic ||
+        stored.version != kTimeMetaVersion) {
+        LOGI("Time metadata absent or incompatible");
+        return;
+    }
+
+    persistentMeta_ = stored;
+    lastPersistedMeta_ = stored;
+    timeState_.lastNtpSyncUtc = stored.lastNtpSyncUtc;
+    LOGI("Time metadata loaded rtc_initialized=%u last_ntp=%lu last_source=%u last_good=%lu",
+         (unsigned)stored.rtcInitialized,
+         (unsigned long)stored.lastNtpSyncUtc,
+         (unsigned)stored.lastKnownGoodSource,
+         (unsigned long)stored.lastKnownGoodTimeUtc);
+}
+
+void TimeModule::persistMetaIfChanged_()
+{
+    if (!cfgStore || !persistentMetaLoaded_) return;
+    persistentMeta_.magic = kTimeMetaMagic;
+    persistentMeta_.version = kTimeMetaVersion;
+    if (memcmp(&persistentMeta_, &lastPersistedMeta_, sizeof(persistentMeta_)) == 0) return;
+    if (cfgStore->writeRuntimeBlob(NvsKeys::Time::MetaBlob, &persistentMeta_, sizeof(persistentMeta_))) {
+        lastPersistedMeta_ = persistentMeta_;
+        LOGI("Time metadata persisted rtc_initialized=%u last_ntp=%lu last_source=%u last_good=%lu",
+             (unsigned)persistentMeta_.rtcInitialized,
+             (unsigned long)persistentMeta_.lastNtpSyncUtc,
+             (unsigned)persistentMeta_.lastKnownGoodSource,
+             (unsigned long)persistentMeta_.lastKnownGoodTimeUtc);
+    } else {
+        LOGW("Time metadata persist failed");
+    }
+}
+
+void TimeModule::noteGoodTime_(TimeSource source, TimeQuality quality, uint64_t epochSec)
+{
+    if (!isTimePlausible_(epochSec)) return;
+    if (quality == TimeQuality::NtpSynced) {
+        timeState_.lastNtpSyncUtc = epochSec;
+        persistentMeta_.lastNtpSyncUtc = (uint32_t)epochSec;
+    }
+    if (source == TimeSource::InternalRtc) {
+        timeState_.lastRtcSyncUtc = epochSec;
+    }
+    if (quality == TimeQuality::NtpSynced || quality == TimeQuality::RtcTrusted || quality == TimeQuality::Manual) {
+        persistentMeta_.lastKnownGoodSource = (uint8_t)source;
+        persistentMeta_.lastKnownGoodTimeUtc = (uint32_t)epochSec;
+        if (source == TimeSource::InternalRtc) {
+            persistentMeta_.rtcInitialized = 1U;
+        }
+    }
+    persistMetaIfChanged_();
+    updateRuntimeStatus_();
+}
+
+TimeSyncState TimeModule::stateSvc_() const {
+    return state;
+}
+
+bool TimeModule::isSynced_() const {
+    return state == TimeSyncState::Synced;
+}
+
+bool TimeModule::isExternalRtc_() const {
+    return state == TimeSyncState::Synced && syncedFromExternalRtc_;
+}
+
+TimeSource TimeModule::sourceSvc_() const {
+    return activeSource_;
+}
+
+const char* TimeModule::sourceNameSvc_() const {
+    return activeSourceName_();
+}
+
+TimeQuality TimeModule::qualitySvc_() const {
+    return activeQuality_;
+}
+
+const char* TimeModule::qualityNameSvc_() const {
+    return qualityName_(activeQuality_);
+}
+
+bool TimeModule::currentStateSvc_(TimeState* out) const {
+    if (!out) return false;
+    *out = timeState_;
+    out->currentTimeUtc = (uint64_t)nowEpoch_();
+    return true;
+}
+
+bool TimeModule::weekStartMondaySvc_() const {
+    return cfgData.weekStartMonday;
+}
+
+uint64_t TimeModule::epoch_() const {
+    return (uint64_t)nowEpoch_();
+}
+
+bool TimeModule::formatLocalTime_(char* out, size_t len) const {
+    struct tm t;
+    const time_t now = nowEpoch_();
+    if (!localtime_r(&now, &t)) return false;
+    snprintf(out, len, "%04d-%02d-%02d %02d:%02d:%02d",
+             t.tm_year + 1900, t.tm_mon + 1, t.tm_mday,
+             t.tm_hour, t.tm_min, t.tm_sec);
+    return true;
+}
+
+bool TimeModule::setRtcEpoch_(uint64_t epochSec, TimeSource source, TimeQuality quality, const char* sourceTag)
+{
+    if (!isTimePlausible_(epochSec)) {
+        LOGW("Time rejected from %s: implausible epoch=%llu min=%llu max=%llu",
+             sourceTag ? sourceTag : sourceName_(source),
+             (unsigned long long)epochSec,
+             (unsigned long long)minPlausibleEpochSec_(),
+             (unsigned long long)kTimeMaxPlausibleEpochSec);
+        return false;
+    }
+
+    setenv("TZ", cfgData.tz, 1);
+    tzset();
+
+    const uint64_t oldEpoch = (uint64_t)nowEpoch_();
+    logTimeJump_(oldEpoch, epochSec, source, quality);
+
+    struct timeval tv{};
+    tv.tv_sec = (time_t)epochSec;
+    tv.tv_usec = 0;
+    if (settimeofday(&tv, nullptr) != 0) {
+        return false;
+    }
+
+    _retryCount = 0;
+    _retryDelayMs = 2000;
+    syncedFromExternalRtc_ = (source != TimeSource::Ntp);
+    syncedFromInternalRtc_ = (source == TimeSource::InternalRtc);
+    recordSource_(source, true, true, epochSec, millis());
+    timeState_.valid = true;
+    timeState_.quality = quality;
+    timeState_.source = source;
+    timeState_.currentTimeUtc = epochSec;
+    timeState_.lastUpdateMonotonicMs = (int64_t)millis();
+    setActiveSource_(source, quality);
+    noteGoodTime_(source, quality, epochSec);
+    setState(TimeSyncState::Synced);
+#if FLOW_RTC_PCF85063
+    if (source == TimeSource::InternalRtc) {
+        lastInternalRtcResyncMs_ = millis();
+    }
+    if (source == TimeSource::Ntp || source == TimeSource::NextionManual) {
+        internalRtcWritePending_ = true;
+    }
+#endif
+    if (source == TimeSource::InternalRtc || source == TimeSource::Ntp || source == TimeSource::NextionManual) {
+        nextionRtcWritePending_ = true;
+    }
+    LOGI("Time set from %s epoch=%llu source=%s quality=%s",
+         sourceTag ? sourceTag : sourceName_(source),
+         (unsigned long long)epochSec,
+         sourceName_(source),
+         qualityName_(quality));
+    return true;
+}
+
+bool TimeModule::setExternalEpoch_(uint64_t epochSec)
+{
+#if FLOW_RTC_PCF85063
+    // On Waveshare target, the on-board PCF85063 is authoritative when available.
+    if (syncedFromInternalRtc_) {
+        LOGW("Ignoring external RTC update while internal RTC is active (epoch=%llu)",
+             (unsigned long long)epochSec);
+        return false;
+    }
+#endif
+    return setRtcEpoch_(epochSec, TimeSource::NextionManual, TimeQuality::Manual, "external");
+}
+
+bool TimeModule::setManualEpoch_(uint64_t epochSec)
+{
+    return setManualTimeUtc(epochSec);
+}
+
+bool TimeModule::setManualTimeUtc(uint64_t epochSec)
+{
+    if (!isTimePlausible_(epochSec)) {
+        LOGW("Manual time rejected: implausible epoch=%llu", (unsigned long long)epochSec);
+        return false;
+    }
+    const bool applied = setRtcEpoch_(epochSec, TimeSource::NextionManual, TimeQuality::Manual, "manual");
+    if (!applied) return false;
+#if FLOW_RTC_PCF85063
+    if (ensureInternalRtcInit_()) {
+        if (internalRtcWriteEpoch_(epochSec)) {
+            recordSource_(TimeSource::InternalRtc, true, true, epochSec, millis());
+            persistentMeta_.rtcInitialized = 1U;
+            persistMetaIfChanged_();
+            LOGI("Internal RTC updated from manual time epoch=%llu", (unsigned long long)epochSec);
+        } else {
+            LOGW("Internal RTC update from manual time failed");
+        }
+    }
+#endif
+    if (nextionRtcWriteEpoch_(epochSec)) {
+        nextionRtcWritePending_ = false;
+    } else {
+        LOGW("Nextion RTC update from manual time failed");
+    }
+    LOGI("Manual time accepted epoch=%llu", (unsigned long long)epochSec);
+    return true;
+}
+
+#if FLOW_RTC_PCF85063
+bool TimeModule::internalRtcReadRegs_(uint8_t reg, uint8_t* data, uint8_t len)
+{
+    if (!data || len == 0) return false;
+    if (!flowI2cGlobalLock(50U)) return false;
+
+    Wire.beginTransmission(kPcf85063Addr);
+    Wire.write(reg);
+    const uint8_t txStatus = Wire.endTransmission(false);
+    if (txStatus != 0) {
+        flowI2cGlobalUnlock();
+        return false;
+    }
+
+    const uint8_t read = Wire.requestFrom((int)kPcf85063Addr, (int)len);
+    if (read != len) {
+        while (Wire.available()) (void)Wire.read();
+        flowI2cGlobalUnlock();
+        return false;
+    }
+
+    for (uint8_t i = 0; i < len; ++i) {
+        data[i] = (uint8_t)Wire.read();
+    }
+    flowI2cGlobalUnlock();
+    return true;
+}
+
+bool TimeModule::internalRtcWriteRegs_(uint8_t reg, const uint8_t* data, uint8_t len)
+{
+    if (!data || len == 0) return false;
+    if (!flowI2cGlobalLock(50U)) return false;
+
+    Wire.beginTransmission(kPcf85063Addr);
+    Wire.write(reg);
+    for (uint8_t i = 0; i < len; ++i) {
+        Wire.write(data[i]);
+    }
+    const uint8_t txStatus = Wire.endTransmission();
+    flowI2cGlobalUnlock();
+    return txStatus == 0;
+}
+
+bool TimeModule::ensureInternalRtcInit_()
+{
+    if (internalRtcInitDone_) return internalRtcReady_;
+    internalRtcInitDone_ = true;
+
+    const BoardSpec& board = BoardCatalog::activeBoard();
+    const I2cBusSpec* ioBus = boardFindI2cBus(board, "io");
+    if (!ioBus) {
+        LOGW("PCF85063 init skipped: io I2C bus missing");
+        return false;
+    }
+    internalRtcSda_ = ioBus->sdaPin;
+    internalRtcScl_ = ioBus->sclPin;
+    internalRtcFreqHz_ = ioBus->frequencyHz ? ioBus->frequencyHz : 400000U;
+    if (!Wire.begin(internalRtcSda_, internalRtcScl_, internalRtcFreqHz_)) {
+        LOGW("PCF85063 init failed: Wire.begin(sda=%d scl=%d hz=%lu)",
+             internalRtcSda_,
+             internalRtcScl_,
+             (unsigned long)internalRtcFreqHz_);
+        return false;
+    }
+
+    uint8_t ctrl1 = kPcf85063Ctrl1CapSel;
+    if (!internalRtcWriteRegs_(kPcf85063RegCtrl1, &ctrl1, 1)) {
+        LOGW("PCF85063 init failed: ctrl1 write");
+        return false;
+    }
+    if (!internalRtcReadRegs_(kPcf85063RegCtrl1, &ctrl1, 1)) {
+        LOGW("PCF85063 init failed: ctrl1 read");
+        return false;
+    }
+    if ((ctrl1 & 0x20U) != 0U) {
+        LOGW("PCF85063 clock stop bit still set (ctrl1=0x%02X)", (unsigned)ctrl1);
+        return false;
+    }
+
+    internalRtcReady_ = true;
+    LOGI("PCF85063 ready on I2C io bus (sda=%d scl=%d hz=%lu)",
+         internalRtcSda_,
+         internalRtcScl_,
+         (unsigned long)internalRtcFreqHz_);
+    return true;
+}
+
+bool TimeModule::internalRtcReadEpoch_(uint64_t& epochSec)
+{
+    epochSec = 0ULL;
+    if (!ensureInternalRtcInit_()) return false;
+
+    uint8_t buf[7] = {0};
+    if (!internalRtcReadRegs_(kPcf85063RegSeconds, buf, sizeof(buf))) return false;
+    if ((buf[0] & 0x80U) != 0U) {
+        LOGW("PCF85063 RTC invalid: seconds OS bit set");
+        return false;
+    }
+
+    const uint8_t second = bcdToDec_(buf[0] & 0x7FU);
+    const uint8_t minute = bcdToDec_(buf[1] & 0x7FU);
+    const uint8_t hour = bcdToDec_(buf[2] & 0x3FU);
+    const uint8_t day = bcdToDec_(buf[3] & 0x3FU);
+    const uint8_t month = bcdToDec_(buf[5] & 0x1FU);
+    const uint16_t year = (uint16_t)bcdToDec_(buf[6]) + (uint16_t)kPcf85063YearOffset;
+
+    if (!utcFieldsToEpoch_(year, month, day, hour, minute, second, epochSec)) {
+        LOGW("PCF85063 RTC implausible UTC %u-%02u-%02u %02u:%02u:%02u",
+             (unsigned)year,
+             (unsigned)month,
+             (unsigned)day,
+             (unsigned)hour,
+             (unsigned)minute,
+             (unsigned)second);
+        return false;
+    }
+    return true;
+}
+
+bool TimeModule::internalRtcWriteEpoch_(uint64_t epochSec)
+{
+    if (!ensureInternalRtcInit_()) return false;
+    if (!isTimePlausible_(epochSec)) return false;
+
+    const time_t t = (time_t)epochSec;
+    struct tm utc{};
+    if (!gmtime_r(&t, &utc)) return false;
+
+    const uint16_t year = (uint16_t)(utc.tm_year + 1900);
+    if (year < (uint16_t)kPcf85063YearOffset || year > (uint16_t)(kPcf85063YearOffset + 99)) return false;
+
+    uint8_t payload[7] = {
+        decToBcd_((uint8_t)utc.tm_sec),
+        decToBcd_((uint8_t)utc.tm_min),
+        decToBcd_((uint8_t)utc.tm_hour),
+        decToBcd_((uint8_t)utc.tm_mday),
+        decToBcd_((uint8_t)utc.tm_wday),
+        decToBcd_((uint8_t)(utc.tm_mon + 1)),
+        decToBcd_((uint8_t)(year - (uint16_t)kPcf85063YearOffset))
+    };
+    return internalRtcWriteRegs_(kPcf85063RegSeconds, payload, sizeof(payload));
+}
+
+bool TimeModule::internalRtcBatteryPresent_()
+{
+    // TODO hardware: wire this to a real board-specific VBAT/battery-present bit
+    // if the target exposes one. PCF85063 OS=0 only proves the clock did not
+    // report an oscillator stop; it is not a physical battery detector.
+    return true;
+}
+
+void TimeModule::serviceInternalRtcFallback_(uint32_t nowMs)
+{
+    if (!ensureInternalRtcInit_()) return;
+    if (activeSource_ == TimeSource::InternalRtc) return;
+    if (state == TimeSyncState::Synced && activeSource_ == TimeSource::Ntp) return;
+
+    bool immediateFallback = false;
+    if (state == TimeSyncState::Disabled) immediateFallback = true;
+    if (state == TimeSyncState::Synced && activeSource_ == TimeSource::NextionManual) immediateFallback = true;
+
+    if (!immediateFallback && nowMs < kInternalRtcFallbackDelayMs) return;
+    if (lastInternalRtcReadAttemptMs_ != 0U &&
+        (int32_t)(nowMs - lastInternalRtcReadAttemptMs_) < (int32_t)kInternalRtcFallbackRetryMs) {
+        return;
+    }
+    lastInternalRtcReadAttemptMs_ = nowMs;
+
+    uint64_t rtcEpoch = 0ULL;
+    if (!internalRtcReadEpoch_(rtcEpoch)) {
+        recordSource_(TimeSource::InternalRtc, internalRtcReady_, false, 0ULL, nowMs);
+        LOGW("Internal RTC read rejected: invalid or implausible");
+        return;
+    }
+    if (!internalRtcBatteryPresent_()) {
+        recordSource_(TimeSource::InternalRtc, true, false, rtcEpoch, nowMs);
+        LOGW("Internal RTC refused: battery/power-retention not present");
+        return;
+    }
+    recordSource_(TimeSource::InternalRtc, true, true, rtcEpoch, nowMs);
+    if (setRtcEpoch_(rtcEpoch, TimeSource::InternalRtc, TimeQuality::RtcTrusted, "internal")) {
+        char localBuf[32] = {0};
+        (void)formatLocalTime_(localBuf, sizeof(localBuf));
+        LOGI("Internal RTC fallback applied at %s", localBuf);
+    }
+}
+
+void TimeModule::serviceInternalRtcWriteBack_(uint32_t nowMs)
+{
+    if (!ensureInternalRtcInit_()) return;
+    if (state != TimeSyncState::Synced || activeSource_ != TimeSource::Ntp) return;
+
+    const uint64_t epoch = (uint64_t)nowEpoch_();
+    const uint32_t dayStamp = dayStampFromEpochLocal_(epoch);
+    if (dayStamp == 0xFFFFFFFFUL) return;
+
+    const bool dayChanged = (dayStamp != lastInternalRtcWriteDayStamp_);
+    if (!internalRtcWritePending_ && !dayChanged) return;
+    if (lastInternalRtcWriteAttemptMs_ != 0U &&
+        (int32_t)(nowMs - lastInternalRtcWriteAttemptMs_) < (int32_t)kInternalRtcWriteRetryMs) {
+        return;
+    }
+    lastInternalRtcWriteAttemptMs_ = nowMs;
+
+    if (internalRtcWriteEpoch_(epoch)) {
+        lastInternalRtcWriteDayStamp_ = dayStamp;
+        internalRtcWritePending_ = false;
+        recordSource_(TimeSource::InternalRtc, true, true, epoch, nowMs);
+        timeState_.lastRtcSyncUtc = epoch;
+        persistentMeta_.rtcInitialized = 1U;
+        persistMetaIfChanged_();
+        updateRuntimeStatus_();
+        LOGI("Internal RTC updated from ESP epoch=%llu", (unsigned long long)epoch);
+    } else {
+        LOGW("Internal RTC update from ESP failed epoch=%llu", (unsigned long long)epoch);
+    }
+}
+
+void TimeModule::serviceInternalRtcDailyResync_(uint32_t nowMs)
+{
+    if (!ensureInternalRtcInit_()) return;
+    if (!syncedFromInternalRtc_ || state != TimeSyncState::Synced) return;
+    if (lastInternalRtcResyncMs_ != 0U &&
+        (int32_t)(nowMs - lastInternalRtcResyncMs_) < (int32_t)kInternalRtcDailyResyncMs) {
+        return;
+    }
+    lastInternalRtcResyncMs_ = nowMs;
+
+    uint64_t rtcEpoch = 0ULL;
+    if (!internalRtcReadEpoch_(rtcEpoch)) {
+        recordSource_(TimeSource::InternalRtc, internalRtcReady_, false, 0ULL, nowMs);
+        return;
+    }
+    if (!internalRtcBatteryPresent_()) {
+        recordSource_(TimeSource::InternalRtc, true, false, rtcEpoch, nowMs);
+        LOGW("Internal RTC daily re-sync refused: battery/power-retention not present");
+        return;
+    }
+    recordSource_(TimeSource::InternalRtc, true, true, rtcEpoch, nowMs);
+    (void)setRtcEpoch_(rtcEpoch, TimeSource::InternalRtc, TimeQuality::RtcTrusted, "internal");
+    LOGI("Internal RTC daily re-sync applied epoch=%llu", (unsigned long long)rtcEpoch);
+}
+#endif
+
+bool TimeModule::ensureHmiService_()
+{
+    if (hmiSvc_ && hmiSvc_->readRtc && hmiSvc_->writeRtc) return true;
+    if (!services_) return false;
+    hmiSvc_ = services_->get<HmiService>(ServiceId::Hmi);
+    return hmiSvc_ && hmiSvc_->readRtc && hmiSvc_->writeRtc;
+}
+
+bool TimeModule::epochToHmiRtc_(uint64_t epochSec, HmiRtcDateTime& out)
+{
+    out = HmiRtcDateTime{};
+    if (!isTimePlausible_(epochSec)) return false;
+    const time_t t = (time_t)epochSec;
+    struct tm local{};
+    if (!localtime_r(&t, &local)) return false;
+    out.year = (uint16_t)(local.tm_year + 1900);
+    out.month = (uint8_t)(local.tm_mon + 1);
+    out.day = (uint8_t)local.tm_mday;
+    out.hour = (uint8_t)local.tm_hour;
+    out.minute = (uint8_t)local.tm_min;
+    out.second = (uint8_t)local.tm_sec;
+    return isValidRtcDate_(out.year, out.month, out.day, out.hour, out.minute, out.second);
+}
+
+bool TimeModule::nextionRtcReadEpoch_(uint64_t& epochSec)
+{
+    epochSec = 0ULL;
+    if (!ensureHmiService_() || !hmiSvc_->readRtc) return false;
+    if (hmiSvc_->isDisplaySleeping && hmiSvc_->isDisplaySleeping(hmiSvc_->ctx)) return false;
+
+    HmiRtcDateTime rtc{};
+    if (!hmiSvc_->readRtc(hmiSvc_->ctx, &rtc, kNextionRtcReadTimeoutMs)) return false;
+    if (!localFieldsToEpoch_(rtc.year, rtc.month, rtc.day, rtc.hour, rtc.minute, rtc.second, epochSec)) {
+        LOGW("Nextion manual RTC invalid %u-%02u-%02u %02u:%02u:%02u",
+             (unsigned)rtc.year,
+             (unsigned)rtc.month,
+             (unsigned)rtc.day,
+             (unsigned)rtc.hour,
+             (unsigned)rtc.minute,
+             (unsigned)rtc.second);
+        return false;
+    }
+    recordSource_(TimeSource::NextionManual, true, true, epochSec, millis());
+    return true;
+}
+
+bool TimeModule::nextionRtcWriteEpoch_(uint64_t epochSec)
+{
+    if (!ensureHmiService_() || !hmiSvc_->writeRtc) return false;
+    if (hmiSvc_->isDisplaySleeping && hmiSvc_->isDisplaySleeping(hmiSvc_->ctx)) return false;
+
+    HmiRtcDateTime rtc{};
+    if (!epochToHmiRtc_(epochSec, rtc)) return false;
+    if (!hmiSvc_->writeRtc(hmiSvc_->ctx, &rtc)) return false;
+    recordSource_(TimeSource::NextionManual, true, true, epochSec, millis());
+    LOGI("Nextion RTC updated %u-%02u-%02u %02u:%02u:%02u",
+         (unsigned)rtc.year,
+         (unsigned)rtc.month,
+         (unsigned)rtc.day,
+         (unsigned)rtc.hour,
+         (unsigned)rtc.minute,
+         (unsigned)rtc.second);
+    return true;
+}
+
+bool TimeModule::parseManualTime_(const char* text, uint64_t& epochSec)
+{
+    epochSec = 0ULL;
+    if (!text || text[0] == '\0') return false;
+
+    unsigned year = 0;
+    unsigned month = 0;
+    unsigned day = 0;
+    unsigned hour = 0;
+    unsigned minute = 0;
+    unsigned second = 0;
+    if (sscanf(text, "%u-%u-%u %u:%u:%u", &year, &month, &day, &hour, &minute, &second) != 6) {
+        if (sscanf(text, "%u-%u-%uT%u:%u:%u", &year, &month, &day, &hour, &minute, &second) != 6) {
+            return false;
+        }
+    }
+    if (year > 2099U || month > 255U || day > 255U || hour > 255U || minute > 255U || second > 255U) return false;
+    return localFieldsToEpoch_((uint16_t)year,
+                               (uint8_t)month,
+                               (uint8_t)day,
+                               (uint8_t)hour,
+                               (uint8_t)minute,
+                               (uint8_t)second,
+                               epochSec);
+}
+
+void TimeModule::serviceManualTimeConfig_(uint32_t nowMs)
+{
+    if (strncmp(manualTimeApplied_, cfgData.manualTime, sizeof(manualTimeApplied_)) == 0) return;
+    if (cfgData.manualTime[0] == '\0') {
+        manualTimeApplied_[0] = '\0';
+        return;
+    }
+    if (lastManualTimeAttemptMs_ != 0U &&
+        (uint32_t)(nowMs - lastManualTimeAttemptMs_) < kNextionRtcWriteRetryMs) {
+        return;
+    }
+    lastManualTimeAttemptMs_ = nowMs;
+
+    uint64_t epoch = 0ULL;
+    if (!parseManualTime_(cfgData.manualTime, epoch)) {
+        LOGW("manual_time invalid, expected YYYY-MM-DD HH:MM:SS value=%s", cfgData.manualTime);
+        return;
+    }
+    if (!setManualTimeUtc(epoch)) {
+        LOGW("manual_time rejected value=%s", cfgData.manualTime);
+        return;
+    }
+
+    snprintf(manualTimeApplied_, sizeof(manualTimeApplied_), "%s", cfgData.manualTime);
+}
+
+void TimeModule::serviceNextionFallback_(uint32_t nowMs)
+{
+    if (state == TimeSyncState::Synced &&
+        (activeSource_ == TimeSource::Ntp || activeSource_ == TimeSource::InternalRtc || activeSource_ == TimeSource::NextionManual)) {
+        return;
+    }
+
+    if (nowMs < kNextionRtcFallbackDelayMs) return;
+    if (lastNextionRtcReadAttemptMs_ != 0U &&
+        (uint32_t)(nowMs - lastNextionRtcReadAttemptMs_) < kNextionRtcFallbackRetryMs) {
+        return;
+    }
+    lastNextionRtcReadAttemptMs_ = nowMs;
+
+    uint64_t rtcEpoch = 0ULL;
+    if (!nextionRtcReadEpoch_(rtcEpoch)) {
+        recordSource_(TimeSource::NextionManual, hmiSvc_ != nullptr, false, 0ULL, nowMs);
+        return;
+    }
+    if (setRtcEpoch_(rtcEpoch, TimeSource::NextionManual, TimeQuality::Manual, "nextion-manual")) {
+        char localBuf[32] = {0};
+        (void)formatLocalTime_(localBuf, sizeof(localBuf));
+        LOGI("Nextion manual RTC fallback applied at %s", localBuf);
+    }
+}
+
+void TimeModule::serviceNextionWriteBack_(uint32_t nowMs)
+{
+    if (state != TimeSyncState::Synced) return;
+    if (activeSource_ != TimeSource::Ntp && activeSource_ != TimeSource::InternalRtc) return;
+
+    const uint64_t epoch = (uint64_t)nowEpoch_();
+    const uint32_t dayStamp = dayStampFromEpochLocal_(epoch);
+    if (dayStamp == 0xFFFFFFFFUL) return;
+
+    const bool dayChanged = (dayStamp != lastNextionRtcWriteDayStamp_);
+    if (!nextionRtcWritePending_ && !dayChanged) return;
+    if (lastNextionRtcWriteAttemptMs_ != 0U &&
+        (uint32_t)(nowMs - lastNextionRtcWriteAttemptMs_) < kNextionRtcWriteRetryMs) {
+        return;
+    }
+    lastNextionRtcWriteAttemptMs_ = nowMs;
+
+    if (nextionRtcWriteEpoch_(epoch)) {
+        lastNextionRtcWriteDayStamp_ = dayStamp;
+        nextionRtcWritePending_ = false;
+    }
+}
+
+bool TimeModule::setSlotSvc_(const TimeSchedulerSlot* slotDef)
+{
+    if (!slotDef) return false;
+    return setSlot_(*slotDef);
+}
+
+bool TimeModule::getSlotSvc_(uint8_t slot, TimeSchedulerSlot* outDef) const
+{
+    if (!outDef) return false;
+    return getSlot_(slot, *outDef);
+}
+
+bool TimeModule::isSystemSlot_(uint8_t slot) const
+{
+    return slot < TIME_SLOT_SYS_RESERVED_COUNT;
+}
+
+void TimeModule::sanitizeLabel_(char* label)
+{
+    if (!label) return;
+    for (size_t i = 0; i < TIME_SCHED_LABEL_MAX; ++i) {
+        if (label[i] == '\0') break;
+        const unsigned char c = (unsigned char)label[i];
+        const bool ok =
+            ((c >= 'a' && c <= 'z') ||
+             (c >= 'A' && c <= 'Z') ||
+             (c >= '0' && c <= '9') ||
+             c == '_' || c == '-' || c == '.');
+        if (!ok || !isprint(c)) {
+            label[i] = '_';
+        }
+    }
+    label[TIME_SCHED_LABEL_MAX - 1] = '\0';
+}
+
+bool TimeModule::isMonthStartEvent_(const SchedulerSlotRuntime& slotRt, const tm& localNow) const
+{
+    if (slotRt.def.mode != TimeSchedulerMode::RecurringClock) return false;
+    if (slotRt.def.hasEnd) return false;
+    if (slotRt.def.slot != TIME_SLOT_SYS_MONTH_START) return false;
+    if (slotRt.def.eventId != TIME_EVENT_SYS_MONTH_START) return false;
+    return localNow.tm_mday == 1;
+}
+
+void TimeModule::applySystemSlots_(SchedulerSlotRuntime* slots, size_t count) const
+{
+    if (!slots || count < TIME_SLOT_SYS_RESERVED_COUNT) return;
+
+    auto setRecurringEvent = [&](uint8_t slot, uint16_t eventId, uint8_t weekdayMask, const char* label) {
+        SchedulerSlotRuntime& s = slots[slot];
+        s.used = true;
+        s.active = false;
+        s.lastTriggerMinuteKey = INVALID_MINUTE_KEY;
+        s.def.slot = slot;
+        s.def.eventId = eventId;
+        s.def.enabled = true;
+        s.def.hasEnd = false;
+        s.def.replayStartOnBoot = false;
+        s.def.mode = TimeSchedulerMode::RecurringClock;
+        s.def.weekdayMask = weekdayMask;
+        s.def.startHour = 0;
+        s.def.startMinute = 0;
+        s.def.endHour = 0;
+        s.def.endMinute = 0;
+        s.def.startEpochSec = 0;
+        s.def.endEpochSec = 0;
+        s.def.label[0] = '\0';
+        if (label && label[0] != '\0') {
+            strncpy(s.def.label, label, sizeof(s.def.label) - 1);
+            s.def.label[sizeof(s.def.label) - 1] = '\0';
+            sanitizeLabel_(s.def.label);
+        }
+    };
+
+    setRecurringEvent(TIME_SLOT_SYS_DAY_START, TIME_EVENT_SYS_DAY_START, TIME_WEEKDAY_ALL, "sys_day_start");
+    setRecurringEvent(
+        TIME_SLOT_SYS_WEEK_START,
+        TIME_EVENT_SYS_WEEK_START,
+        cfgData.weekStartMonday ? TIME_WEEKDAY_MON : TIME_WEEKDAY_SUN,
+        "sys_week_start");
+    setRecurringEvent(TIME_SLOT_SYS_MONTH_START, TIME_EVENT_SYS_MONTH_START, TIME_WEEKDAY_ALL, "sys_month_start");
+}
+
+void TimeModule::init(ConfigStore& cfg, ServiceRegistry& services) {
+    constexpr uint8_t kCfgModuleId = (uint8_t)ConfigModuleId::Time;
+    constexpr uint8_t kCfgBranchId = kTimeCfgBranch;
+    constexpr uint8_t kSchedCfgBranchId = kTimeSchedulerCfgBranch;
+    cfgStore = &cfg;
+    services_ = &services;
+
+    cfg.registerVar(server1Var, kCfgModuleId, kCfgBranchId);
+    cfg.registerVar(server2Var, kCfgModuleId, kCfgBranchId);
+    cfg.registerVar(tzVar, kCfgModuleId, kCfgBranchId);
+    cfg.registerVar(enabledVar, kCfgModuleId, kCfgBranchId);
+    cfg.registerVar(manualTimeVar, kCfgModuleId, kCfgBranchId);
+    cfg.registerVar(weekStartMondayVar, kCfgModuleId, kCfgBranchId);
+    cfg.registerVar(scheduleBlobVar, kCfgModuleId, kSchedCfgBranchId);
+
+    logHub = services.get<LogHubService>(ServiceId::LogHub);
+
+    auto* ebSvc = services.get<EventBusService>(ServiceId::EventBus);
+    eventBus = ebSvc ? ebSvc->bus : nullptr;
+
+    const DataStoreService* dsSvc = services.get<DataStoreService>(ServiceId::DataStore);
+    dataStore = dsSvc ? dsSvc->store : nullptr;
+
+    if (eventBus) {
+        eventBus->subscribe(EventId::DataChanged, &TimeModule::onEventStatic, this);
+        eventBus->subscribe(EventId::ConfigChanged, &TimeModule::onEventStatic, this);
+    }
+
+    cmdSvc = services.get<CommandService>(ServiceId::Command);
+    if (cmdSvc) {
+        cmdSvc->registerHandler(cmdSvc->ctx, "time.resync", cmdResync, this);
+        cmdSvc->registerHandler(cmdSvc->ctx, "time.scheduler.info", cmdSchedInfo, this);
+        cmdSvc->registerHandler(cmdSvc->ctx, "time.scheduler.get", cmdSchedGet, this);
+        cmdSvc->registerHandler(cmdSvc->ctx, "time.scheduler.set", cmdSchedSet, this);
+        cmdSvc->registerHandler(cmdSvc->ctx, "time.scheduler.clear", cmdSchedClear, this);
+        cmdSvc->registerHandler(cmdSvc->ctx, "time.scheduler.clear_all", cmdSchedClearAll, this);
+    }
+
+    if (!services.add(ServiceId::Time, &timeSvc_)) {
+        LOGE("service registration failed: %s", toString(ServiceId::Time));
+    }
+
+    if (!services.add(ServiceId::TimeScheduler, &schedSvc_)) {
+        LOGE("service registration failed: %s", toString(ServiceId::TimeScheduler));
+    }
+
+    LOGI("Time services registered (time, time.scheduler)");
+
+    _netReady = false;
+    _netReadyTs = 0;
+    _retryCount = 0;
+    _retryDelayMs = 2000;
+    syncedFromExternalRtc_ = false;
+    syncedFromInternalRtc_ = false;
+    activeSource_ = TimeSource::None;
+    activeQuality_ = TimeQuality::Invalid;
+    timeState_ = TimeState{};
+    timeState_.lastUpdateMonotonicMs = (int64_t)millis();
+    persistentMetaLoaded_ = false;
+    loadPersistentMeta_();
+    ntpSource_ = SourceSnapshot{};
+    internalRtcSource_ = SourceSnapshot{};
+    nextionSource_ = SourceSnapshot{};
+    lastNextionRtcReadAttemptMs_ = 0;
+    lastNextionRtcWriteAttemptMs_ = 0;
+    lastNextionRtcWriteDayStamp_ = 0xFFFFFFFFUL;
+    nextionRtcWritePending_ = false;
+    manualTimeApplied_[0] = '\0';
+    lastManualTimeAttemptMs_ = 0;
+    updateRuntimeStatus_();
+    LOGI("Boot without valid time yet quality=%s", qualityName_(activeQuality_));
+#if FLOW_RTC_PCF85063
+    internalRtcInitDone_ = false;
+    internalRtcReady_ = false;
+    lastInternalRtcReadAttemptMs_ = 0;
+    lastInternalRtcWriteAttemptMs_ = 0;
+    lastInternalRtcResyncMs_ = 0;
+    lastInternalRtcWriteDayStamp_ = 0xFFFFFFFFUL;
+    internalRtcWritePending_ = true;
+#endif
+#ifdef TIME_TEST_FAST_CLOCK
+    simBootMs_ = millis();
+    setenv("TZ", cfgData.tz, 1);
+    tzset();
+    LOGW("FAST CLOCK test mode enabled: start=2026-01-01, 1 month=5 minutes");
+#endif
+
+    resetScheduleRuntime_();
+    schedNeedsReload_ = true;
+
+    setState(cfgData.enabled ? TimeSyncState::WaitingNetwork : TimeSyncState::Disabled);
+}
+
+void TimeModule::onConfigLoaded(ConfigStore&, ServiceRegistry& services)
+{
+    setenv("TZ", cfgData.tz, 1);
+    tzset();
+    snprintf(manualTimeApplied_, sizeof(manualTimeApplied_), "%s", cfgData.manualTime);
+    if (cfgData.manualTime[0] != '\0') {
+        LOGI("Persisted manual_time ignored at boot; waiting for a new manual update");
+    }
+
+    if (!cfgMqttPub_) {
+        cfgMqttPub_ = new (std::nothrow) MqttConfigRouteProducer();
+    }
+    if (cfgMqttPub_) {
+        cfgMqttPub_->configure(this,
+                               kTimeCfgProducerId,
+                               kTimeCfgRoutes,
+                               (uint8_t)(sizeof(kTimeCfgRoutes) / sizeof(kTimeCfgRoutes[0])),
+                               services);
+    }
+
+    // Ensure runtime scheduler table mirrors persisted blob before other modules
+    // start mutating slots in their own onConfigLoaded hooks.
+    (void)loadScheduleFromBlob_();
+}
+
+void TimeModule::loop() {
+    const uint32_t nowMs = millis();
+
+    if (schedNeedsReload_) {
+        (void)loadScheduleFromBlob_();
+    }
+
+#ifdef TIME_TEST_FAST_CLOCK
+    if (cfgData.enabled) {
+        if (state != TimeSyncState::Synced) {
+            setState(TimeSyncState::Synced);
+        }
+        tickScheduler_();
+        vTaskDelay(pdMS_TO_TICKS(250));
+        return;
+    }
+#endif
+
+    if (!cfgData.enabled) {
+        if (state != TimeSyncState::Synced && state != TimeSyncState::Disabled) {
+            setState(TimeSyncState::Disabled);
+        }
+#if FLOW_RTC_PCF85063
+        {
+            const uint32_t rtcNowMs = millis();
+            serviceInternalRtcFallback_(rtcNowMs);
+            serviceInternalRtcDailyResync_(rtcNowMs);
+        }
+#endif
+        {
+            const uint32_t rtcNowMs = millis();
+            serviceManualTimeConfig_(rtcNowMs);
+            serviceNextionFallback_(rtcNowMs);
+            serviceNextionWriteBack_(rtcNowMs);
+        }
+        tickScheduler_();
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        return;
+    }
+
+    switch (state) {
+
+    case TimeSyncState::WaitingNetwork:
+        // If network becomes ready, onEvent() updates _netReady and _netReadyTs.
+        if (_netReady) {
+            constexpr uint32_t WARMUP_MS = 2000;
+            if (nowMs - _netReadyTs >= WARMUP_MS) {
+                LOGI("Network warmup done -> start syncing");
+                setState(TimeSyncState::Syncing);
+            }
+        }
+        break;
+
+    case TimeSyncState::Syncing: {
+        LOGI("Syncing via NTP...");
+
+        configTzTime(cfgData.tz, cfgData.server1, cfgData.server2);
+
+        struct tm timeinfo;
+        if (getLocalTime(&timeinfo, 4000)) {
+            char buf[32];
+            formatLocalTime_(buf, sizeof(buf));
+            LOGI("Synced ok: %s", buf);
+
+            const uint64_t ntpEpoch = (uint64_t)nowEpoch_();
+            if (!setRtcEpoch_(ntpEpoch, TimeSource::Ntp, TimeQuality::NtpSynced, "ntp")) {
+                LOGW("NTP time rejected epoch=%llu", (unsigned long long)ntpEpoch);
+                recordSource_(TimeSource::Ntp, true, false, 0ULL, millis());
+                setState(syncedFromExternalRtc_ ? TimeSyncState::Synced : TimeSyncState::ErrorWait);
+            } else {
+                LOGI("NTP sync succeeded epoch=%llu", (unsigned long long)ntpEpoch);
+            }
+        } else {
+            LOGW("Sync failed -> retry in %lu ms", (unsigned long)_retryDelayMs);
+            recordSource_(TimeSource::Ntp, _netReady, false, 0ULL, millis());
+            if (syncedFromExternalRtc_) {
+                LOGW("Keeping RTC time after NTP failure");
+                setState(TimeSyncState::Synced);
+            } else {
+                setState(TimeSyncState::ErrorWait);
+            }
+        }
+        break;
+    }
+
+    case TimeSyncState::ErrorWait:
+        if (!_netReady) {
+            setState(TimeSyncState::WaitingNetwork);
+            break;
+        }
+
+        if (nowMs - stateTs >= _retryDelayMs) {
+            _retryCount++;
+            uint32_t next = _retryDelayMs;
+
+            if      (next < 5000)   next = 5000;
+            else if (next < 10000)  next = 10000;
+            else if (next < 30000)  next = 30000;
+            else if (next < 60000)  next = 60000;
+            else                    next = 300000;
+
+            _retryDelayMs = clampU32(next, 2000, 300000);
+            setState(TimeSyncState::Syncing);
+        }
+        break;
+
+    case TimeSyncState::Synced:
+        if (_netReady &&
+            syncedFromExternalRtc_ &&
+            (uint32_t)(nowMs - stateTs) > kExternalRtcNtpRetryMs) {
+            setState(TimeSyncState::Syncing);
+        } else if (_netReady && (nowMs - stateTs > 6UL * 3600UL * 1000UL)) {
+            setState(TimeSyncState::Syncing);
+        }
+        break;
+
+    case TimeSyncState::Disabled:
+        if (cfgData.enabled) setState(TimeSyncState::WaitingNetwork);
+        break;
+    }
+
+#if FLOW_RTC_PCF85063
+    // Refresh the tick before RTC services because fallback can update internal
+    // timestamps during the same loop iteration.
+    const uint32_t rtcNowMs = millis();
+    serviceInternalRtcFallback_(rtcNowMs);
+    serviceInternalRtcWriteBack_(rtcNowMs);
+    serviceInternalRtcDailyResync_(rtcNowMs);
+#endif
+    {
+        const uint32_t rtcNowMs = millis();
+        serviceManualTimeConfig_(rtcNowMs);
+        serviceNextionFallback_(rtcNowMs);
+        serviceNextionWriteBack_(rtcNowMs);
+    }
+
+    tickScheduler_();
+    vTaskDelay(pdMS_TO_TICKS(250));
+}
+
+void TimeModule::forceResync() {
+    if (!cfgData.enabled) return;
+    if (!_netReady) {
+        setState(TimeSyncState::WaitingNetwork);
+        return;
+    }
+
+    _retryCount = 0;
+    _retryDelayMs = 2000;
+    _netReadyTs = millis();
+    setState(TimeSyncState::WaitingNetwork);
+}
+
+bool TimeModule::cmdResync(void* userCtx,
+                           const CommandRequest&,
+                           char* reply,
+                           size_t replyLen)
+{
+    TimeModule* self = (TimeModule*)userCtx;
+    self->forceResync();
+    snprintf(reply, replyLen, "{\"ok\":true}");
+    return true;
+}
+
+bool TimeModule::cmdSchedInfo(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen)
+{
+    TimeModule* self = (TimeModule*)userCtx;
+    if (!self) return false;
+    return self->handleCmdSchedInfo_(req, reply, replyLen);
+}
+
+bool TimeModule::cmdSchedGet(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen)
+{
+    TimeModule* self = (TimeModule*)userCtx;
+    if (!self) return false;
+    return self->handleCmdSchedGet_(req, reply, replyLen);
+}
+
+bool TimeModule::cmdSchedSet(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen)
+{
+    TimeModule* self = (TimeModule*)userCtx;
+    if (!self) return false;
+    return self->handleCmdSchedSet_(req, reply, replyLen);
+}
+
+bool TimeModule::cmdSchedClear(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen)
+{
+    TimeModule* self = (TimeModule*)userCtx;
+    if (!self) return false;
+    return self->handleCmdSchedClear_(req, reply, replyLen);
+}
+
+bool TimeModule::cmdSchedClearAll(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen)
+{
+    TimeModule* self = (TimeModule*)userCtx;
+    if (!self) return false;
+    return self->handleCmdSchedClearAll_(req, reply, replyLen);
+}
+
+bool TimeModule::handleCmdSchedInfo_(const CommandRequest&, char* reply, size_t replyLen)
+{
+    char now[32] = {0};
+    if (!formatLocalTime_(now, sizeof(now))) {
+        strncpy(now, "n/a", sizeof(now) - 1);
+        now[sizeof(now) - 1] = '\0';
+    }
+    const uint16_t mask = activeMask_();
+    const uint8_t used = usedCount_();
+    snprintf(reply, replyLen,
+             "{\"ok\":true,\"state\":%u,\"synced\":%s,\"used\":%u,\"active_mask\":%u,"
+             "\"active_mask_hex\":\"0x%04X\",\"week_start\":\"%s\",\"source\":\"%s\",\"now\":\"%s\"}",
+             (unsigned)state,
+             (state == TimeSyncState::Synced) ? "true" : "false",
+             (unsigned)used,
+             (unsigned)mask,
+             (unsigned)mask,
+             cfgData.weekStartMonday ? "monday" : "sunday",
+             activeSourceName_(),
+             now);
+    return true;
+}
+
+bool TimeModule::handleCmdSchedGet_(const CommandRequest& req, char* reply, size_t replyLen)
+{
+    JsonObjectConst args;
+    if (!parseCmdArgsObject_(req, args)) {
+        writeCmdError_(reply, replyLen, "time.scheduler.get", ErrorCode::MissingArgs);
+        return false;
+    }
+
+    uint32_t slot = 0;
+    if (!parseU32Field_(args, "slot", slot, true) || slot >= TIME_SCHED_MAX_SLOTS) {
+        writeCmdError_(reply, replyLen, "time.scheduler.get", ErrorCode::InvalidSlot);
+        return false;
+    }
+
+    TimeSchedulerSlot def{};
+    if (!getSlot_((uint8_t)slot, def)) {
+        writeCmdError_(reply, replyLen, "time.scheduler.get", ErrorCode::UnusedSlot);
+        return false;
+    }
+
+    const char* mode = (def.mode == TimeSchedulerMode::OneShotEpoch) ? "one_shot_epoch" : "recurring_clock";
+    snprintf(reply, replyLen,
+             "{\"ok\":true,\"slot\":%u,\"event_id\":%u,\"label\":\"%s\",\"enabled\":%s,"
+             "\"mode\":\"%s\",\"has_end\":%s,\"replay_on_boot\":%s,"
+             "\"weekday_mask\":%u,\"start\":{\"hour\":%u,\"minute\":%u,\"epoch\":%llu},"
+             "\"end\":{\"hour\":%u,\"minute\":%u,\"epoch\":%llu}}",
+             (unsigned)def.slot,
+             (unsigned)def.eventId,
+             def.label,
+             def.enabled ? "true" : "false",
+             mode,
+             def.hasEnd ? "true" : "false",
+             def.replayStartOnBoot ? "true" : "false",
+             (unsigned)def.weekdayMask,
+             (unsigned)def.startHour,
+             (unsigned)def.startMinute,
+             (unsigned long long)def.startEpochSec,
+             (unsigned)def.endHour,
+             (unsigned)def.endMinute,
+             (unsigned long long)def.endEpochSec);
+    return true;
+}
+
+bool TimeModule::handleCmdSchedSet_(const CommandRequest& req, char* reply, size_t replyLen)
+{
+    JsonObjectConst args;
+    if (!parseCmdArgsObject_(req, args)) {
+        writeCmdError_(reply, replyLen, "time.scheduler.set", ErrorCode::MissingArgs);
+        return false;
+    }
+
+    uint32_t slot = 0;
+    if (!parseU32Field_(args, "slot", slot, true) || slot >= TIME_SCHED_MAX_SLOTS) {
+        writeCmdError_(reply, replyLen, "time.scheduler.set", ErrorCode::InvalidSlot);
+        return false;
+    }
+    if (isSystemSlot_((uint8_t)slot)) {
+        writeCmdError_(reply, replyLen, "time.scheduler.set", ErrorCode::ReservedSlot);
+        return false;
+    }
+
+    TimeSchedulerSlot def{};
+    if (!getSlot_((uint8_t)slot, def)) {
+        def = TimeSchedulerSlot{};
+        def.slot = (uint8_t)slot;
+        def.enabled = true;
+        def.hasEnd = false;
+        def.replayStartOnBoot = true;
+        def.mode = TimeSchedulerMode::RecurringClock;
+        def.weekdayMask = TIME_WEEKDAY_ALL;
+    }
+    def.slot = (uint8_t)slot;
+
+    uint32_t eventId = 0;
+    const bool hasEventId = args.containsKey("event_id");
+    if (hasEventId) {
+        if (!parseU32Field_(args, "event_id", eventId, true)) {
+            writeCmdError_(reply, replyLen, "time.scheduler.set", ErrorCode::InvalidEventId);
+            return false;
+        }
+        def.eventId = (uint16_t)eventId;
+    } else if (def.eventId == 0) {
+        writeCmdError_(reply, replyLen, "time.scheduler.set", ErrorCode::MissingEventId);
+        return false;
+    }
+
+    if (args.containsKey("mode")) {
+        JsonVariantConst modeVar = args["mode"];
+        if (modeVar.is<const char*>()) {
+            const char* modeBuf = modeVar.as<const char*>();
+            if (!modeBuf) {
+                writeCmdError_(reply, replyLen, "time.scheduler.set", ErrorCode::InvalidMode);
+                return false;
+            }
+            if (strcmp(modeBuf, "one_shot_epoch") == 0 ||
+                strcmp(modeBuf, "oneshot_epoch") == 0 ||
+                strcmp(modeBuf, "oneshot") == 0 ||
+                strcmp(modeBuf, "epoch") == 0) {
+                def.mode = TimeSchedulerMode::OneShotEpoch;
+            } else if (strcmp(modeBuf, "recurring_clock") == 0 ||
+                       strcmp(modeBuf, "recurring") == 0 ||
+                       strcmp(modeBuf, "clock") == 0) {
+                def.mode = TimeSchedulerMode::RecurringClock;
+            } else {
+                writeCmdError_(reply, replyLen, "time.scheduler.set", ErrorCode::InvalidMode);
+                return false;
+            }
+        } else {
+            uint32_t modeNum = 0;
+            if (!parseU32Field_(args, "mode", modeNum, true)) {
+                writeCmdError_(reply, replyLen, "time.scheduler.set", ErrorCode::InvalidMode);
+                return false;
+            }
+            def.mode = (modeNum == 0) ? TimeSchedulerMode::RecurringClock : TimeSchedulerMode::OneShotEpoch;
+        }
+    }
+
+    if (!parseBoolField_(args, "enabled", def.enabled, false) ||
+        !parseBoolField_(args, "has_end", def.hasEnd, false)) {
+        writeCmdError_(reply, replyLen, "time.scheduler.set", ErrorCode::InvalidBool);
+        return false;
+    }
+    if (!parseBoolField_(args, "replay_on_boot", def.replayStartOnBoot, false)) {
+        writeCmdError_(reply, replyLen, "time.scheduler.set", ErrorCode::InvalidBool);
+        return false;
+    }
+    if (!args.containsKey("replay_on_boot") &&
+        !parseBoolField_(args, "replay_start_on_boot", def.replayStartOnBoot, false)) {
+        writeCmdError_(reply, replyLen, "time.scheduler.set", ErrorCode::InvalidBool);
+        return false;
+    }
+
+    uint32_t value = 0;
+    if (args.containsKey("weekday_mask")) {
+        if (!parseU32Field_(args, "weekday_mask", value, true)) {
+            writeCmdError_(reply, replyLen, "time.scheduler.set", ErrorCode::InvalidWeekdayMask);
+            return false;
+        }
+        def.weekdayMask = (uint8_t)value;
+    }
+    if (args.containsKey("start_hour")) {
+        if (!parseU32Field_(args, "start_hour", value, true)) {
+            writeCmdError_(reply, replyLen, "time.scheduler.set", ErrorCode::InvalidStartHour);
+            return false;
+        }
+        def.startHour = (uint8_t)value;
+    }
+    if (args.containsKey("start_minute")) {
+        if (!parseU32Field_(args, "start_minute", value, true)) {
+            writeCmdError_(reply, replyLen, "time.scheduler.set", ErrorCode::InvalidStartMinute);
+            return false;
+        }
+        def.startMinute = (uint8_t)value;
+    }
+    if (args.containsKey("end_hour")) {
+        if (!parseU32Field_(args, "end_hour", value, true)) {
+            writeCmdError_(reply, replyLen, "time.scheduler.set", ErrorCode::InvalidEndHour);
+            return false;
+        }
+        def.endHour = (uint8_t)value;
+    }
+    if (args.containsKey("end_minute")) {
+        if (!parseU32Field_(args, "end_minute", value, true)) {
+            writeCmdError_(reply, replyLen, "time.scheduler.set", ErrorCode::InvalidEndMinute);
+            return false;
+        }
+        def.endMinute = (uint8_t)value;
+    }
+
+    uint64_t value64 = 0;
+    if (args.containsKey("start_epoch_sec")) {
+        if (!parseU64Field_(args, "start_epoch_sec", value64, true)) {
+            writeCmdError_(reply, replyLen, "time.scheduler.set", ErrorCode::InvalidStartEpoch);
+            return false;
+        }
+        def.startEpochSec = value64;
+    }
+    if (args.containsKey("end_epoch_sec")) {
+        if (!parseU64Field_(args, "end_epoch_sec", value64, true)) {
+            writeCmdError_(reply, replyLen, "time.scheduler.set", ErrorCode::InvalidEndEpoch);
+            return false;
+        }
+        def.endEpochSec = value64;
+    }
+
+    if (args.containsKey("label")) {
+        JsonVariantConst labelVar = args["label"];
+        if (!labelVar.is<const char*>()) {
+            writeCmdError_(reply, replyLen, "time.scheduler.set", ErrorCode::InvalidLabel);
+            return false;
+        }
+        const char* label = labelVar.as<const char*>();
+        if (!label) {
+            writeCmdError_(reply, replyLen, "time.scheduler.set", ErrorCode::InvalidLabel);
+            return false;
+        }
+        strncpy(def.label, label, sizeof(def.label) - 1);
+        def.label[sizeof(def.label) - 1] = '\0';
+    }
+
+    if (!setSlot_(def)) {
+        writeCmdError_(reply, replyLen, "time.scheduler.set", ErrorCode::SetFailed);
+        return false;
+    }
+
+    snprintf(reply, replyLen, "{\"ok\":true,\"slot\":%u,\"event_id\":%u}", (unsigned)def.slot, (unsigned)def.eventId);
+    return true;
+}
+
+bool TimeModule::handleCmdSchedClear_(const CommandRequest& req, char* reply, size_t replyLen)
+{
+    JsonObjectConst args;
+    if (!parseCmdArgsObject_(req, args)) {
+        writeCmdError_(reply, replyLen, "time.scheduler.clear", ErrorCode::MissingArgs);
+        return false;
+    }
+
+    uint32_t slot = 0;
+    if (!parseU32Field_(args, "slot", slot, true) || slot >= TIME_SCHED_MAX_SLOTS) {
+        writeCmdError_(reply, replyLen, "time.scheduler.clear", ErrorCode::InvalidSlot);
+        return false;
+    }
+    if (isSystemSlot_((uint8_t)slot)) {
+        writeCmdError_(reply, replyLen, "time.scheduler.clear", ErrorCode::ReservedSlot);
+        return false;
+    }
+    if (!clearSlot_((uint8_t)slot)) {
+        writeCmdError_(reply, replyLen, "time.scheduler.clear", ErrorCode::ClearFailed);
+        return false;
+    }
+    snprintf(reply, replyLen, "{\"ok\":true,\"slot\":%u}", (unsigned)slot);
+    return true;
+}
+
+bool TimeModule::handleCmdSchedClearAll_(const CommandRequest&, char* reply, size_t replyLen)
+{
+    if (!clearAllSlots_()) {
+        writeCmdError_(reply, replyLen, "time.scheduler.clear_all", ErrorCode::ClearAllFailed);
+        return false;
+    }
+    snprintf(reply, replyLen, "{\"ok\":true}");
+    return true;
+}
+
+void TimeModule::onEventStatic(const Event& e, void* user)
+{
+    static_cast<TimeModule*>(user)->onEvent(e);
+}
+
+void TimeModule::onEvent(const Event& e)
+{
+    if (e.id == EventId::DataChanged) {
+        if (!e.payload || e.len < sizeof(DataChangedPayload)) return;
+        const DataChangedPayload* p = (const DataChangedPayload*)e.payload;
+        if (p->id != DATAKEY_NETWORK_READY) return;
+        if (!dataStore) return;
+
+        bool ready = networkReady(*dataStore);
+        if (ready == _netReady) return;
+
+        _netReady = ready;
+        _netReadyTs = millis();
+
+        if (_netReady) {
+            LOGI("DataStore networkReady=true -> warmup");
+            if (state == TimeSyncState::Synced) return;
+            setState(TimeSyncState::WaitingNetwork);
+        } else {
+            LOGI("DataStore networkReady=false -> stop and wait");
+            if (state == TimeSyncState::Synced) return;
+            setState(TimeSyncState::WaitingNetwork);
+        }
+        return;
+    }
+
+    if (e.id == EventId::ConfigChanged) {
+        if (!e.payload || e.len < sizeof(ConfigChangedPayload)) return;
+        const ConfigChangedPayload* p = (const ConfigChangedPayload*)e.payload;
+        if (p->moduleId == (uint8_t)ConfigModuleId::Time &&
+            (p->localBranchId == kTimeSchedulerCfgBranch || p->localBranchId == kTimeCfgBranch)) {
+            schedNeedsReload_ = true;
+            if (p->localBranchId == kTimeCfgBranch) {
+                setenv("TZ", cfgData.tz, 1);
+                tzset();
+                lastManualTimeAttemptMs_ = 0;
+            }
+        }
+        return;
+    }
+
+}
+
+void TimeModule::resetScheduleRuntime_()
+{
+    portENTER_CRITICAL(&schedMux_);
+    for (uint8_t i = 0; i < TIME_SCHED_MAX_SLOTS; ++i) {
+        sched_[i] = SchedulerSlotRuntime{};
+        sched_[i].def.slot = i;
+    }
+    activeMaskValue_ = 0;
+    schedInitialized_ = false;
+    portEXIT_CRITICAL(&schedMux_);
+}
+
+time_t TimeModule::nowEpoch_() const
+{
+#ifdef TIME_TEST_FAST_CLOCK
+    const uint64_t elapsedMs = (uint32_t)(millis() - simBootMs_);
+    const uint64_t monthIndex = elapsedMs / FASTCLK_REAL_MS_PER_MONTH;
+    const uint64_t remMs = elapsedMs % FASTCLK_REAL_MS_PER_MONTH;
+
+    const int year = FASTCLK_START_YEAR + (int)(monthIndex / 12ULL);
+    const int month1 = 1 + (int)(monthIndex % 12ULL);
+    const uint32_t secInMonth = (uint32_t)daysInMonthFastClock(year, month1) * 86400UL;
+    const uint64_t secIntoMonth = (remMs * (uint64_t)secInMonth) / (uint64_t)FASTCLK_REAL_MS_PER_MONTH;
+
+    const time_t startEpoch = (time_t)utcFieldsToEpochUnchecked_((uint16_t)year, (uint8_t)month1, 1U, 0U, 0U, 0U);
+    if (startEpoch <= 0) return FASTCLK_START_EPOCH_FALLBACK;
+    return startEpoch + (time_t)secIntoMonth;
+#else
+    time_t now;
+    time(&now);
+    return now;
+#endif
+}
+
+uint8_t TimeModule::weekBitFromTm_(const tm& localNow)
+{
+    return (localNow.tm_wday == 0) ? 6u : (uint8_t)(localNow.tm_wday - 1);
+}
+
+uint32_t TimeModule::minuteOfDay_(const tm& localNow)
+{
+    return (uint32_t)localNow.tm_hour * 60u + (uint32_t)localNow.tm_min;
+}
+
+bool TimeModule::isWeekdayEnabled_(uint8_t mask, uint8_t weekBit)
+{
+    if (mask == 0) mask = TIME_WEEKDAY_ALL;
+    return (mask & (uint8_t)(1u << weekBit)) != 0;
+}
+
+bool TimeModule::isRecurringTriggerNow_(const TimeSchedulerSlot& def, uint8_t weekBit, uint32_t minuteOfDay)
+{
+    if (def.mode != TimeSchedulerMode::RecurringClock) return false;
+    if (!isWeekdayEnabled_(def.weekdayMask, weekBit)) return false;
+    const uint32_t startMin = (uint32_t)def.startHour * 60u + (uint32_t)def.startMinute;
+    return minuteOfDay == startMin;
+}
+
+bool TimeModule::isRecurringActiveNow_(const TimeSchedulerSlot& def, uint8_t weekBit, uint8_t prevWeekBit,
+                                       uint32_t minuteOfDay)
+{
+    if (def.mode != TimeSchedulerMode::RecurringClock) return false;
+    if (!def.hasEnd) return false;
+
+    const uint32_t startMin = (uint32_t)def.startHour * 60u + (uint32_t)def.startMinute;
+    const uint32_t endMin = (uint32_t)def.endHour * 60u + (uint32_t)def.endMinute;
+
+    if (startMin == endMin) return false;
+
+    if (startMin < endMin) {
+        if (!isWeekdayEnabled_(def.weekdayMask, weekBit)) return false;
+        return (minuteOfDay >= startMin && minuteOfDay < endMin);
+    }
+
+    if (minuteOfDay >= startMin) {
+        return isWeekdayEnabled_(def.weekdayMask, weekBit);
+    }
+
+    return isWeekdayEnabled_(def.weekdayMask, prevWeekBit);
+}
+
+bool TimeModule::loadScheduleFromBlob_()
+{
+    // Build directly in live scheduler table to avoid large stack allocations
+    // in the time task (ESP32 stack is tight and this path runs at boot).
+    portENTER_CRITICAL(&schedMux_);
+    for (uint8_t i = 0; i < TIME_SCHED_MAX_SLOTS; ++i) {
+        sched_[i] = SchedulerSlotRuntime{};
+        sched_[i].def.slot = i;
+    }
+
+    const char* p = scheduleBlob_;
+    while (p && *p) {
+        while (*p == ';' || *p == ' ' || *p == '\n' || *p == '\r' || *p == '\t') ++p;
+        if (*p == '\0') break;
+
+        char token[160] = {0};
+        size_t t = 0;
+        while (*p && *p != ';') {
+            if (t + 1 < sizeof(token)) token[t++] = *p;
+            ++p;
+        }
+        if (*p == ';') ++p;
+        token[t] = '\0';
+
+        unsigned slot = 0, eventId = 0, flags = 0, weekdayMask = 0;
+        unsigned startH = 0, startM = 0, endH = 0, endM = 0;
+        unsigned long long startEpoch = 0, endEpoch = 0;
+        char label[TIME_SCHED_LABEL_MAX] = {0};
+
+        int n = sscanf(token, "%u,%u,%u,%u,%u,%u,%u,%u,%llu,%llu,%23[^;]",
+                       &slot, &eventId, &flags, &weekdayMask,
+                       &startH, &startM, &endH, &endM,
+                       &startEpoch, &endEpoch, label);
+        if (n < 10) continue;
+        if (slot >= TIME_SCHED_MAX_SLOTS) continue;
+
+        TimeSchedulerSlot def{};
+        def.slot = (uint8_t)slot;
+        def.eventId = (uint16_t)eventId;
+        def.enabled = (flags & 0x01u) != 0;
+        def.hasEnd = (flags & 0x04u) != 0;
+        def.mode = ((flags & 0x08u) != 0) ? TimeSchedulerMode::OneShotEpoch : TimeSchedulerMode::RecurringClock;
+        def.replayStartOnBoot = (flags & 0x10u) != 0;
+
+        def.weekdayMask = (uint8_t)(weekdayMask & TIME_WEEKDAY_ALL);
+        if (def.weekdayMask == 0) def.weekdayMask = TIME_WEEKDAY_ALL;
+
+        def.startHour = (uint8_t)startH;
+        def.startMinute = (uint8_t)startM;
+        def.endHour = (uint8_t)endH;
+        def.endMinute = (uint8_t)endM;
+        def.startEpochSec = (uint64_t)startEpoch;
+        def.endEpochSec = (uint64_t)endEpoch;
+        def.label[0] = '\0';
+        if (n >= 11 && label[0] != '\0') {
+            strncpy(def.label, label, sizeof(def.label) - 1);
+            def.label[sizeof(def.label) - 1] = '\0';
+            sanitizeLabel_(def.label);
+        }
+
+        bool valid = true;
+        if (def.mode == TimeSchedulerMode::RecurringClock) {
+            if (def.startHour > 23 || def.startMinute > 59) valid = false;
+            if (def.hasEnd && (def.endHour > 23 || def.endMinute > 59)) valid = false;
+        } else {
+            if (def.startEpochSec < 1609459200ULL) valid = false;
+            if (def.hasEnd && def.endEpochSec <= def.startEpochSec) valid = false;
+        }
+
+        if (!valid) continue;
+
+        SchedulerSlotRuntime& s = sched_[def.slot];
+        s.used = true;
+        s.def = def;
+        s.active = false;
+        s.lastTriggerMinuteKey = INVALID_MINUTE_KEY;
+    }
+
+    // Ensure the first 3 slots are always reserved for system cadence events.
+    applySystemSlots_(sched_, TIME_SCHED_MAX_SLOTS);
+    activeMaskValue_ = 0;
+    schedInitialized_ = false;
+    schedNeedsReload_ = false;
+    portEXIT_CRITICAL(&schedMux_);
+
+    LOGI("Scheduler loaded from NVS blob");
+    return true;
+}
+
+bool TimeModule::serializeSchedule_(char* out, size_t outLen) const
+{
+    if (!out || outLen == 0) return false;
+    out[0] = '\0';
+
+    size_t pos = 0;
+    for (uint8_t i = 0; i < TIME_SCHED_MAX_SLOTS; ++i) {
+        SchedulerSlotRuntime s{};
+        portENTER_CRITICAL(&schedMux_);
+        s = sched_[i];
+        portEXIT_CRITICAL(&schedMux_);
+        if (!s.used) continue;
+
+        const uint32_t flags =
+            (s.def.enabled ? 0x01u : 0u) |
+            (s.def.hasEnd ? 0x04u : 0u) |
+            ((s.def.mode == TimeSchedulerMode::OneShotEpoch) ? 0x08u : 0u) |
+            (s.def.replayStartOnBoot ? 0x10u : 0u);
+
+        char label[TIME_SCHED_LABEL_MAX] = {0};
+        strncpy(label, s.def.label, sizeof(label) - 1);
+        label[sizeof(label) - 1] = '\0';
+        sanitizeLabel_(label);
+
+        int n = snprintf(out + pos, outLen - pos,
+                         "%u,%u,%u,%u,%u,%u,%u,%u,%llu,%llu,%s;",
+                         (unsigned)s.def.slot,
+                         (unsigned)s.def.eventId,
+                         (unsigned)flags,
+                         (unsigned)s.def.weekdayMask,
+                         (unsigned)s.def.startHour,
+                         (unsigned)s.def.startMinute,
+                         (unsigned)s.def.endHour,
+                         (unsigned)s.def.endMinute,
+                         (unsigned long long)s.def.startEpochSec,
+                         (unsigned long long)s.def.endEpochSec,
+                         label);
+        if (n <= 0 || (size_t)n >= (outLen - pos)) {
+            out[outLen - 1] = '\0';
+            return false;
+        }
+        pos += (size_t)n;
+    }
+
+    return true;
+}
+
+bool TimeModule::persistSchedule_()
+{
+    if (!cfgStore) return false;
+    // Serialize on demand to avoid keeping a second 1.5 KB scheduler buffer in BSS.
+    char* persistBuf = static_cast<char*>(malloc(TIME_SCHED_BLOB_SIZE));
+    if (!persistBuf) {
+        LOGE("scheduler persist alloc failed (%u bytes)", (unsigned)TIME_SCHED_BLOB_SIZE);
+        return false;
+    }
+
+    const bool ok =
+        serializeSchedule_(persistBuf, TIME_SCHED_BLOB_SIZE) &&
+        cfgStore->set(scheduleBlobVar, persistBuf);
+    free(persistBuf);
+    return ok;
+}
+
+bool TimeModule::setSlot_(const TimeSchedulerSlot& slotDef)
+{
+    if (slotDef.slot >= TIME_SCHED_MAX_SLOTS) return false;
+    if (isSystemSlot_(slotDef.slot)) return false;
+
+    TimeSchedulerSlot normalized = slotDef;
+    sanitizeLabel_(normalized.label);
+    if (normalized.mode == TimeSchedulerMode::RecurringClock) {
+        if (normalized.startHour > 23 || normalized.startMinute > 59) return false;
+        if (normalized.hasEnd && (normalized.endHour > 23 || normalized.endMinute > 59)) return false;
+        normalized.weekdayMask &= TIME_WEEKDAY_ALL;
+        if (normalized.weekdayMask == 0) normalized.weekdayMask = TIME_WEEKDAY_ALL;
+        normalized.startEpochSec = 0;
+        normalized.endEpochSec = 0;
+    } else {
+        if (normalized.startEpochSec < 1609459200ULL) return false;
+        if (normalized.hasEnd && normalized.endEpochSec <= normalized.startEpochSec) return false;
+        normalized.weekdayMask = TIME_WEEKDAY_ALL;
+        normalized.startHour = 0;
+        normalized.startMinute = 0;
+        normalized.endHour = 0;
+        normalized.endMinute = 0;
+    }
+
+    SchedulerSlotRuntime previous{};
+    bool previousSchedInitialized = false;
+    uint16_t previousActiveMask = 0;
+    portENTER_CRITICAL(&schedMux_);
+    previous = sched_[normalized.slot];
+    previousSchedInitialized = schedInitialized_;
+    previousActiveMask = activeMaskValue_;
+
+    SchedulerSlotRuntime& s = sched_[normalized.slot];
+    s.used = true;
+    s.def = normalized;
+    s.active = false;
+    s.lastTriggerMinuteKey = INVALID_MINUTE_KEY;
+    schedInitialized_ = false;
+    activeMaskValue_ &= (uint16_t)~(uint16_t)(1u << normalized.slot);
+    portEXIT_CRITICAL(&schedMux_);
+
+    if (!persistSchedule_()) {
+        portENTER_CRITICAL(&schedMux_);
+        sched_[normalized.slot] = previous;
+        schedInitialized_ = previousSchedInitialized;
+        activeMaskValue_ = previousActiveMask;
+        portEXIT_CRITICAL(&schedMux_);
+        LOGW("Failed to persist scheduler slot=%u", (unsigned)normalized.slot);
+        return false;
+    }
+
+    return true;
+}
+
+bool TimeModule::getSlot_(uint8_t slot, TimeSchedulerSlot& outDef) const
+{
+    if (slot >= TIME_SCHED_MAX_SLOTS) return false;
+
+    bool ok = false;
+    portENTER_CRITICAL(&schedMux_);
+    const SchedulerSlotRuntime& s = sched_[slot];
+    if (s.used) {
+        outDef = s.def;
+        ok = true;
+    }
+    portEXIT_CRITICAL(&schedMux_);
+    return ok;
+}
+
+bool TimeModule::clearSlot_(uint8_t slot)
+{
+    if (slot >= TIME_SCHED_MAX_SLOTS) return false;
+    if (isSystemSlot_(slot)) return false;
+
+    portENTER_CRITICAL(&schedMux_);
+    sched_[slot] = SchedulerSlotRuntime{};
+    sched_[slot].def.slot = slot;
+    activeMaskValue_ &= (uint16_t)~(uint16_t)(1u << slot);
+    portEXIT_CRITICAL(&schedMux_);
+
+    return persistSchedule_();
+}
+
+bool TimeModule::clearAllSlots_()
+{
+    portENTER_CRITICAL(&schedMux_);
+    for (uint8_t i = 0; i < TIME_SCHED_MAX_SLOTS; ++i) {
+        sched_[i] = SchedulerSlotRuntime{};
+        sched_[i].def.slot = i;
+    }
+    applySystemSlots_(sched_, TIME_SCHED_MAX_SLOTS);
+    activeMaskValue_ = 0;
+    schedInitialized_ = false;
+    portEXIT_CRITICAL(&schedMux_);
+    return persistSchedule_();
+}
+
+uint8_t TimeModule::usedCount_() const
+{
+    uint8_t c = 0;
+    portENTER_CRITICAL(&schedMux_);
+    for (uint8_t i = 0; i < TIME_SCHED_MAX_SLOTS; ++i) {
+        if (sched_[i].used) ++c;
+    }
+    portEXIT_CRITICAL(&schedMux_);
+    return c;
+}
+
+uint16_t TimeModule::activeMask_() const
+{
+    uint16_t mask = 0;
+    portENTER_CRITICAL(&schedMux_);
+    mask = activeMaskValue_;
+    portEXIT_CRITICAL(&schedMux_);
+    return mask;
+}
+
+bool TimeModule::isActive_(uint8_t slot) const
+{
+    if (slot >= TIME_SCHED_MAX_SLOTS) return false;
+    uint16_t mask = activeMask_();
+    return (mask & (uint16_t)(1u << slot)) != 0;
+}
+
+void TimeModule::tickScheduler_()
+{
+    if (!eventBus) return;
+    if (state != TimeSyncState::Synced) return;
+
+    time_t now = nowEpoch_();
+    if (!isTimePlausible_((uint64_t)now)) return;
+
+    struct tm localNow;
+    if (!localtime_r(&now, &localNow)) return;
+
+    const uint32_t minuteKey = (uint32_t)(((uint64_t)now) / 60ULL);
+    const uint8_t weekBit = weekBitFromTm_(localNow);
+    const uint8_t prevWeekBit = (weekBit == 0) ? 6u : (uint8_t)(weekBit - 1u);
+    const uint32_t dayMinute = minuteOfDay_(localNow);
+
+    bool crossedDayBoundary = false;
+    bool crossedWeekBoundary = false;
+    bool crossedMonthBoundary = false;
+#ifdef TIME_TEST_FAST_CLOCK
+    if (lastSchedulerEvalEpochSec_ != 0ULL && (uint64_t)now > lastSchedulerEvalEpochSec_) {
+        const time_t prevNow = (time_t)lastSchedulerEvalEpochSec_;
+        struct tm prevLocal{};
+        if (localtime_r(&prevNow, &prevLocal)) {
+            crossedDayBoundary =
+                (prevLocal.tm_year != localNow.tm_year) || (prevLocal.tm_yday != localNow.tm_yday);
+            crossedMonthBoundary =
+                (prevLocal.tm_year != localNow.tm_year) || (prevLocal.tm_mon != localNow.tm_mon);
+            const uint8_t weekStartBit = cfgData.weekStartMonday ? 0u : 6u;
+            crossedWeekBoundary = crossedDayBoundary && (weekBit == weekStartBit);
+        }
+    }
+    lastSchedulerEvalEpochSec_ = (uint64_t)now;
+#endif
+
+    SchedulerPendingEvent* pending = schedulerPending_;
+    uint8_t pendingCount = 0;
+
+    auto pushPending = [&](uint8_t slot, SchedulerEdge edge, uint8_t replayed, uint16_t eventId) {
+        if (pendingCount >= (TIME_SCHED_MAX_SLOTS * 2)) return;
+        pending[pendingCount++] = SchedulerPendingEvent{slot, (uint8_t)edge, replayed, eventId, (uint64_t)now};
+    };
+
+    portENTER_CRITICAL(&schedMux_);
+
+    uint16_t newMask = 0;
+
+    for (uint8_t i = 0; i < TIME_SCHED_MAX_SLOTS; ++i) {
+        SchedulerSlotRuntime& s = sched_[i];
+        if (!s.used) continue;
+
+        if (!s.def.enabled) {
+            if (s.active) {
+                s.active = false;
+                pushPending(i, SchedulerEdge::Stop, 0, s.def.eventId);
+            }
+            continue;
+        }
+
+        if (s.def.mode == TimeSchedulerMode::OneShotEpoch) {
+            if (!s.def.hasEnd) {
+                if ((uint64_t)now >= s.def.startEpochSec) {
+                    if (s.lastTriggerMinuteKey != minuteKey) {
+                        const uint8_t replayed = schedInitialized_ ? 0 : 1;
+                        pushPending(i, SchedulerEdge::Trigger, replayed, s.def.eventId);
+                        s.lastTriggerMinuteKey = minuteKey;
+                    }
+                    s.used = false;
+                    s.active = false;
+                }
+                continue;
+            }
+
+            bool activeNow = ((uint64_t)now >= s.def.startEpochSec) && ((uint64_t)now < s.def.endEpochSec);
+
+            if (!schedInitialized_) {
+                s.active = activeNow;
+                if (activeNow && s.def.replayStartOnBoot) {
+                    pushPending(i, SchedulerEdge::Start, 1, s.def.eventId);
+                }
+            } else {
+                if (!s.active && activeNow) {
+                    pushPending(i, SchedulerEdge::Start, 0, s.def.eventId);
+                } else if (s.active && !activeNow) {
+                    pushPending(i, SchedulerEdge::Stop, 0, s.def.eventId);
+                }
+                s.active = activeNow;
+            }
+
+            if (!s.active && (uint64_t)now >= s.def.endEpochSec) {
+                s.used = false;
+            } else if (s.active) {
+                newMask |= (uint16_t)(1u << i);
+            }
+            continue;
+        }
+
+        // Recurring clock mode
+        if (!s.def.hasEnd) {
+            bool shouldTrigger = isRecurringTriggerNow_(s.def, weekBit, dayMinute);
+#ifdef TIME_TEST_FAST_CLOCK
+            if (!shouldTrigger && crossedDayBoundary && s.def.slot == TIME_SLOT_SYS_DAY_START) {
+                shouldTrigger = true;
+            }
+            if (!shouldTrigger && crossedWeekBoundary && s.def.slot == TIME_SLOT_SYS_WEEK_START) {
+                shouldTrigger = true;
+            }
+            if (!shouldTrigger &&
+                crossedMonthBoundary &&
+                s.def.slot == TIME_SLOT_SYS_MONTH_START &&
+                localNow.tm_mday == 1) {
+                shouldTrigger = true;
+            }
+#endif
+            if (shouldTrigger) {
+                if (s.def.slot == TIME_SLOT_SYS_MONTH_START && !isMonthStartEvent_(s, localNow)) {
+                    continue;
+                }
+                if (s.lastTriggerMinuteKey != minuteKey) {
+                    const uint8_t replayed = schedInitialized_ ? 0 : 1;
+                    pushPending(i, SchedulerEdge::Trigger, replayed, s.def.eventId);
+                    s.lastTriggerMinuteKey = minuteKey;
+                }
+            }
+            s.active = false;
+            continue;
+        }
+
+        bool activeNow = isRecurringActiveNow_(s.def, weekBit, prevWeekBit, dayMinute);
+
+        if (!schedInitialized_) {
+            s.active = activeNow;
+            if (activeNow && s.def.replayStartOnBoot) {
+                pushPending(i, SchedulerEdge::Start, 1, s.def.eventId);
+            }
+        } else {
+            if (!s.active && activeNow) {
+                pushPending(i, SchedulerEdge::Start, 0, s.def.eventId);
+            } else if (s.active && !activeNow) {
+                pushPending(i, SchedulerEdge::Stop, 0, s.def.eventId);
+            }
+            s.active = activeNow;
+        }
+
+        if (s.active) {
+            newMask |= (uint16_t)(1u << i);
+        }
+    }
+
+    activeMaskValue_ = newMask;
+    schedInitialized_ = true;
+
+    portEXIT_CRITICAL(&schedMux_);
+
+    for (uint8_t i = 0; i < pendingCount; ++i) {
+        SchedulerEventTriggeredPayload payload{};
+        payload.slot = pending[i].slot;
+        payload.edge = pending[i].edge;
+        payload.replayed = pending[i].replayed;
+        payload.eventId = pending[i].eventId;
+        payload.epochSec = pending[i].epochSec;
+        payload.activeMask = activeMask_();
+
+        LOGI("Scheduler event %s slot=%u eventId=%u replayed=%u activeMask=0x%04X epoch=%llu",
+             schedulerEdgeStr(payload.edge),
+             (unsigned)payload.slot,
+             (unsigned)payload.eventId,
+             (unsigned)payload.replayed,
+             (unsigned)payload.activeMask,
+             (unsigned long long)payload.epochSec);
+
+        (void)eventBus->post(EventId::SchedulerEventTriggered, &payload, sizeof(payload), ModuleId::Time);
+    }
+}

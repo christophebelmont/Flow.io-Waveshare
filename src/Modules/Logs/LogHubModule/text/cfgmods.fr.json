@@ -1,0 +1,174 @@
+{
+  "_meta": {
+    "generated": true,
+    "locale": "fr",
+    "version": 1
+  },
+  "docs": {
+    "log/levels": {
+      "apply_per_field": true
+    },
+    "log/levels/m10_lvl": {
+      "label_t": "cfgmods.log.levels.m10_lvl.label",
+      "help_t": "cfgmods.log.levels.m10_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m11_lvl": {
+      "label_t": "cfgmods.log.levels.m11_lvl.label",
+      "help_t": "cfgmods.log.levels.m11_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m12_lvl": {
+      "label_t": "cfgmods.log.levels.m12_lvl.label",
+      "help_t": "cfgmods.log.levels.m12_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m13_lvl": {
+      "label_t": "cfgmods.log.levels.m13_lvl.label",
+      "help_t": "cfgmods.log.levels.m13_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m14_lvl": {
+      "label_t": "cfgmods.log.levels.m14_lvl.label",
+      "help_t": "cfgmods.log.levels.m14_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m15_lvl": {
+      "label_t": "cfgmods.log.levels.m15_lvl.label",
+      "help_t": "cfgmods.log.levels.m15_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m16_lvl": {
+      "label_t": "cfgmods.log.levels.m16_lvl.label",
+      "help_t": "cfgmods.log.levels.m16_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m17_lvl": {
+      "label_t": "cfgmods.log.levels.m17_lvl.label",
+      "help_t": "cfgmods.log.levels.m17_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m18_lvl": {
+      "label_t": "cfgmods.log.levels.m18_lvl.label",
+      "help_t": "cfgmods.log.levels.m18_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m19_lvl": {
+      "label_t": "cfgmods.log.levels.m19_lvl.label",
+      "help_t": "cfgmods.log.levels.m19_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m20_lvl": {
+      "label_t": "cfgmods.log.levels.m20_lvl.label",
+      "help_t": "cfgmods.log.levels.m20_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m21_lvl": {
+      "label_t": "cfgmods.log.levels.m21_lvl.label",
+      "help_t": "cfgmods.log.levels.m21_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m22_lvl": {
+      "label_t": "cfgmods.log.levels.m22_lvl.label",
+      "help_t": "cfgmods.log.levels.m22_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m23_lvl": {
+      "label_t": "cfgmods.log.levels.m23_lvl.label",
+      "help_t": "cfgmods.log.levels.m23_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m24_lvl": {
+      "label_t": "cfgmods.log.levels.m24_lvl.label",
+      "help_t": "cfgmods.log.levels.m24_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m25_lvl": {
+      "label_t": "cfgmods.log.levels.m25_lvl.label",
+      "help_t": "cfgmods.log.levels.m25_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m26_lvl": {
+      "label_t": "cfgmods.log.levels.m26_lvl.label",
+      "help_t": "cfgmods.log.levels.m26_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m2_lvl": {
+      "label_t": "cfgmods.log.levels.m2_lvl.label",
+      "help_t": "cfgmods.log.levels.m2_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m3_lvl": {
+      "label_t": "cfgmods.log.levels.m3_lvl.label",
+      "help_t": "cfgmods.log.levels.m3_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m40_lvl": {
+      "label_t": "cfgmods.log.levels.m40_lvl.label",
+      "help_t": "cfgmods.log.levels.m40_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m41_lvl": {
+      "label_t": "cfgmods.log.levels.m41_lvl.label",
+      "help_t": "cfgmods.log.levels.m41_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m42_lvl": {
+      "label_t": "cfgmods.log.levels.m42_lvl.label",
+      "help_t": "cfgmods.log.levels.m42_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m43_lvl": {
+      "label_t": "cfgmods.log.levels.m43_lvl.label",
+      "help_t": "cfgmods.log.levels.m43_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m4_lvl": {
+      "label_t": "cfgmods.log.levels.m4_lvl.label",
+      "help_t": "cfgmods.log.levels.m4_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m5_lvl": {
+      "label_t": "cfgmods.log.levels.m5_lvl.label",
+      "help_t": "cfgmods.log.levels.m5_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m6_lvl": {
+      "label_t": "cfgmods.log.levels.m6_lvl.label",
+      "help_t": "cfgmods.log.levels.m6_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m7_lvl": {
+      "label_t": "cfgmods.log.levels.m7_lvl.label",
+      "help_t": "cfgmods.log.levels.m7_lvl.help",
+      "enum_set": "log_levels"
+    },
+    "log/levels/m9_lvl": {
+      "label_t": "cfgmods.log.levels.m9_lvl.label",
+      "help_t": "cfgmods.log.levels.m9_lvl.help",
+      "enum_set": "log_levels"
+    }
+  },
+  "meta": {
+    "enum_sets": {
+      "log_levels": [
+        {
+          "value": 0,
+          "label_t": "cfgmods_meta.logs.loghubmodule.enum_sets.log_levels.0.label"
+        },
+        {
+          "value": 1,
+          "label_t": "cfgmods_meta.logs.loghubmodule.enum_sets.log_levels.1.label"
+        },
+        {
+          "value": 2,
+          "label_t": "cfgmods_meta.logs.loghubmodule.enum_sets.log_levels.2.label"
+        },
+        {
+          "value": 3,
+          "label_t": "cfgmods_meta.logs.loghubmodule.enum_sets.log_levels.3.label"
+        }
+      ]
+    }
+  }
+}

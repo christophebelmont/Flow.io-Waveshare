@@ -1,0 +1,48 @@
+{
+  "_meta": {
+    "generated": true,
+    "locale": "fr",
+    "version": 1
+  },
+  "docs": {
+    "sysmon/trace_period_ms": {
+      "type": "Int32",
+      "label_t": "cfgdocs.sysmon.trace_period_ms.label",
+      "help_t": "cfgdocs.sysmon.trace_period_ms.help",
+      "unit": "ms"
+    },
+    "sysmon/web_watchdog_auto_reboot": {
+      "type": "Bool",
+      "label_t": "cfgdocs.sysmon.web_watchdog_auto_reboot.label",
+      "help_t": "cfgdocs.sysmon.web_watchdog_auto_reboot.help"
+    },
+    "sysmon/web_watchdog_boot_grace_ms": {
+      "type": "Int32",
+      "label_t": "cfgdocs.sysmon.web_watchdog_boot_grace_ms.label",
+      "help_t": "cfgdocs.sysmon.web_watchdog_boot_grace_ms.help",
+      "unit": "ms"
+    },
+    "sysmon/web_watchdog_check_period_ms": {
+      "type": "Int32",
+      "label_t": "cfgdocs.sysmon.web_watchdog_check_period_ms.label",
+      "help_t": "cfgdocs.sysmon.web_watchdog_check_period_ms.help",
+      "unit": "ms"
+    },
+    "sysmon/web_watchdog_enabled": {
+      "type": "Bool",
+      "label_t": "cfgdocs.sysmon.web_watchdog_enabled.label",
+      "help_t": "cfgdocs.sysmon.web_watchdog_enabled.help"
+    },
+    "sysmon/web_watchdog_max_failures": {
+      "type": "Int32",
+      "label_t": "cfgdocs.sysmon.web_watchdog_max_failures.label",
+      "help_t": "cfgdocs.sysmon.web_watchdog_max_failures.help"
+    },
+    "sysmon/web_watchdog_stale_ms": {
+      "type": "Int32",
+      "label_t": "cfgdocs.sysmon.web_watchdog_stale_ms.label",
+      "help_t": "cfgdocs.sysmon.web_watchdog_stale_ms.help",
+      "unit": "ms"
+    }
+  }
+}

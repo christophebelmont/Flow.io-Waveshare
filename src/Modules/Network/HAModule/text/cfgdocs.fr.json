@@ -1,0 +1,39 @@
+{
+  "_meta": {
+    "generated": true,
+    "locale": "fr",
+    "version": 1
+  },
+  "docs": {
+    "ha/device_id": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.ha.device_id.label",
+      "help_t": "cfgdocs.ha.device_id.help"
+    },
+    "ha/entity_prefix": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.ha.entity_prefix.label",
+      "help_t": "cfgdocs.ha.entity_prefix.help"
+    },
+    "ha/disc_prefix": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.ha.disc_prefix.label",
+      "help_t": "cfgdocs.ha.disc_prefix.help"
+    },
+    "ha/enabled": {
+      "type": "Bool",
+      "label_t": "cfgdocs.ha.enabled.label",
+      "help_t": "cfgdocs.ha.enabled.help"
+    },
+    "ha/model": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.ha.model.label",
+      "help_t": "cfgdocs.ha.model.help"
+    },
+    "ha/vendor": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.ha.vendor.label",
+      "help_t": "cfgdocs.ha.vendor.help"
+    }
+  }
+}

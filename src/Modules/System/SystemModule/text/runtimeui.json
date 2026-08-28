@@ -1,0 +1,48 @@
+{
+  "moduleId": "system",
+  "values": [
+    {
+      "valueId": 1,
+      "key": "system.firmware",
+      "type": "string",
+      "domain": "system",
+      "display": "value",
+      "order": 10,
+      "label_t": "runtimeui.system.v01.label",
+      "group_t": "runtimeui.system.v01.group"
+    },
+    {
+      "valueId": 2,
+      "key": "system.uptime_ms",
+      "type": "uint32",
+      "unit": "ms",
+      "domain": "system",
+      "display": "time",
+      "order": 20,
+      "label_t": "runtimeui.system.v02.label",
+      "group_t": "runtimeui.system.v02.group"
+    },
+    {
+      "valueId": 3,
+      "key": "system.heap_free",
+      "type": "uint32",
+      "unit": "B",
+      "domain": "system",
+      "display": "value",
+      "order": 30,
+      "label_t": "runtimeui.system.v03.label",
+      "group_t": "runtimeui.system.v03.group"
+    },
+    {
+      "valueId": 4,
+      "key": "system.heap_min_free",
+      "type": "uint32",
+      "unit": "B",
+      "domain": "system",
+      "display": "value",
+      "order": 40,
+      "label_t": "runtimeui.system.v04.label",
+      "group_t": "runtimeui.system.v04.group"
+    }
+  ]
+}

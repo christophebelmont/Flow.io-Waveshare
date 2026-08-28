@@ -1,0 +1,44 @@
+{
+  "_meta": {
+    "generated": true,
+    "locale": "fr",
+    "version": 1
+  },
+  "docs": {
+    "time/enabled": {
+      "type": "Bool",
+      "label_t": "cfgdocs.time.enabled.label",
+      "help_t": "cfgdocs.time.enabled.help"
+    },
+    "time/manual_time": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.time.manual_time.label",
+      "help_t": "cfgdocs.time.manual_time.help"
+    },
+    "time/scheduler/slots_blob": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.time.scheduler.slots_blob.label",
+      "help_t": "cfgdocs.time.scheduler.slots_blob.help"
+    },
+    "time/server1": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.time.server1.label",
+      "help_t": "cfgdocs.time.server1.help"
+    },
+    "time/server2": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.time.server2.label",
+      "help_t": "cfgdocs.time.server2.help"
+    },
+    "time/tz": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.time.tz.label",
+      "help_t": "cfgdocs.time.tz.help"
+    },
+    "time/week_start_mon": {
+      "type": "Bool",
+      "label_t": "cfgdocs.time.week_start_mon.label",
+      "help_t": "cfgdocs.time.week_start_mon.help"
+    }
+  }
+}

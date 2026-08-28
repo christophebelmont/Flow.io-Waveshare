@@ -1,0 +1,21 @@
+{
+  "translations": {
+    "cfgdocs.wifi.enabled.help": "Active ou désactive la connexion réseau en mode station.",
+    "cfgdocs.wifi.enabled.label": "Réseau activé",
+    "cfgdocs.wifi.pass.help": "Mot de passe WPA/WPA2 du réseau.",
+    "cfgdocs.wifi.pass.label": "Mot de passe réseau",
+    "cfgdocs.wifi.ssid.help": "Nom du réseau auquel se connecter.",
+    "cfgdocs.wifi.ssid.label": "SSID",
+    "cfgmods.network.label": "network",
+    "cfgmods.network.ethernet.label": "ethernet",
+    "cfgmods.network.wifi.label": "réseau",
+    "runtimeui.wifi.v01.display.activeText": "Connecte",
+    "runtimeui.wifi.v01.display.inactiveText": "Deconnecte",
+    "runtimeui.wifi.v01.group": "Réseau",
+    "runtimeui.wifi.v01.label": "Réseau prêt",
+    "runtimeui.wifi.v02.group": "Réseau",
+    "runtimeui.wifi.v02.label": "Adresse IP",
+    "runtimeui.wifi.v03.group": "Réseau",
+    "runtimeui.wifi.v03.label": "Signal"
+  }
+}

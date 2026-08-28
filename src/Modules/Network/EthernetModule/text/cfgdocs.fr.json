@@ -1,0 +1,14 @@
+{
+  "_meta": {
+    "generated": true,
+    "locale": "fr",
+    "version": 1
+  },
+  "docs": {
+    "ethernet/enabled": {
+      "type": "Bool",
+      "label_t": "cfgdocs.ethernet.enabled.label",
+      "help_t": "cfgdocs.ethernet.enabled.help"
+    }
+  }
+}
