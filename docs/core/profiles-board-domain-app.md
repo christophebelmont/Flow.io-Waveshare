@@ -55,8 +55,8 @@ Références principales:
 Le domaine Pool décrit les rôles fonctionnels indépendamment du câblage physique:
 
 - 13 slots capteurs Waveshare;
-- 7 presets d'équipements piscine;
-- 20 liaisons `domain_slot -> io_slot`;
+- 8 presets d'équipements piscine;
+- 21 liaisons `domain_slot -> io_slot`;
 - les valeurs par défaut de la logique piscine.
 
 Le domaine ne sélectionne pas directement un GPIO ou un canal d'expander. Il pointe vers un IO slot stable; le profil IO choisit ensuite son binding port. Voir la [cartographie Waveshare](waveshare-io-map.md).

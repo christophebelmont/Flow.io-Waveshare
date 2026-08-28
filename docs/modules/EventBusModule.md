@@ -29,7 +29,7 @@ Type: module actif.
 
 - longueur queue: `Limits::EventQueueLen` (`40`)
 - payload max par événement: `48` octets
-- abonnés max: `Limits::EventSubscribersMax` (`50`)
+- abonnés max: `Limits::EventSubscribersMax` (`56` dans l'environnement Waveshare)
 - ring interne de traces de rejets d'abonnement: `8`
 
 ## EventBus
@@ -55,7 +55,7 @@ Abonnements:
 
 ### Statistiques abonnements (toutes les 5s)
 
-`sub stats 5s: used=../50 queue=../40 data=.. cfg=.. sched=.. alarm=.. other=.. rej_total=.. cap=.. null_cb=..`
+`sub stats 5s: used=../56 queue=../40 data=.. cfg=.. sched=.. alarm=.. other=.. rej_total=.. cap=.. null_cb=..`
 - niveau log: `DEBUG` par défaut, `WARN` si rejet d'abonnement (`rej_total/cap/null_cb > 0`) ou queue pleine
 - `used`: nombre d'abonnements actifs
 - `queue`: occupation instantanée queue

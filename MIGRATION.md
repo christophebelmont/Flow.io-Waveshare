@@ -1,14 +1,16 @@
-# Spécialisation Waveshare ESP32-S3
+# Historique de la spécialisation Waveshare ESP32-S3
 
-Ce document décrit la transformation du dépôt Flow.IO multi-cibles en une
-arborescence autonome dédiée à `Flowio-waveshare-esp32-s3`.
+Ce document conserve l'historique de la transformation de l'ancien dépôt
+flow.io multi-cibles en une arborescence dédiée à `Flowio-waveshare-esp32-s3`.
+Il décrit l'état de l'export initial ; pour la documentation technique actuelle,
+consulter [`docs/README.md`](docs/README.md).
 
 ## Résultat
 
 - une seule section PlatformIO: `[env:Flowio-waveshare-esp32-s3]`;
 - un seul profil applicatif et un seul catalogue matériel/domaine;
-- aucune métadonnée Git, aucun cache PlatformIO et aucun binaire généré dans
-  l'arborescence livrée;
+- l'export initial ne contenait ni métadonnée Git, ni cache PlatformIO, ni
+  binaire généré;
 - aucune valeur Wi-Fi ou MQTT sensible compilée par défaut;
 - compilation de production validée le 25 août 2026.
 
@@ -48,7 +50,7 @@ OneWire, le W5500, le TFT, le buzzer, les GPIO et les capacités statiques.
 - anciens binaires suivis, index web générés, caches, sauvegardes et doublons;
 - documentation propre aux architectures supprimées.
 
-Le bitmap Flow.IO utilisé par le TFT a été déplacé dans `TFTModuleS3` avant la
+Le bitmap flow.io utilisé par le TFT a été déplacé dans `TFTModuleS3` avant la
 suppression de l'ancien module HMI.
 
 ## Modifications fonctionnelles et de sécurité
@@ -99,12 +101,14 @@ remplace pas un essai sur la carte réelle.
   relais, entrées isolées, provisioning, MQTT et OTA.
 - Un équipement ayant déjà des identifiants Wi-Fi/MQTT en NVS les conservera;
   une carte neuve ou effacée démarrera sans broker MQTT configuré.
-- Aucun fichier de licence n'existait dans le dépôt source; aucune licence n'a
-  été inventée pour l'export.
+- Le dépôt source exporté ne contenait pas de licence. Le dépôt spécialisé
+  contient désormais le fichier [`LICENSE`](LICENSE).
 
-## Créer le nouveau dépôt local sans historique
+## Création initiale du dépôt local
 
-Copier le contenu de cette arborescence vers un dossier neuf, puis exécuter:
+Lors de la migration, l'arborescence a été copiée vers un dossier neuf puis
+initialisée avec Git. Ces étapes sont conservées ici uniquement à titre
+historique : le dépôt actuel est déjà initialisé.
 
 ```sh
 cd /chemin/vers/le-nouveau-dossier
@@ -113,7 +117,6 @@ git add .
 git commit -m "Initial Waveshare ESP32-S3 import"
 ```
 
-Vérifier avant le premier commit que `.git`, `.pio`, `binary` et `data/wc` ne
-proviennent pas du dépôt source. Le `.gitignore` fourni les exclut des commits
-futurs. La création d'un dépôt distant et son association éventuelle restent
-volontairement à la charge du mainteneur.
+Les caches `.pio/` et `data/wc/` restent des sorties générées. Les binaires
+exportés sont produits par le script post-build conformément à la politique du
+dépôt actuel.

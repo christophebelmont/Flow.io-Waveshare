@@ -5,7 +5,7 @@ Elle remplace l'ancienne matrice historique `FlowIO` / `Supervisor` par une
 vue centrée sur le profil réellement compilé et instancié par
 `src/Profiles/Waveshare`.
 
-Dernière vérification: 2026-08-25.
+Dernière vérification: 2026-08-28.
 Commande de vérification: `~/.platformio/penv/bin/pio run -e Flowio-waveshare-esp32-s3`.
 
 Résultat build:
@@ -16,6 +16,10 @@ Résultat build:
   partition applicative
 - RAM PlatformIO: `106 828` octets sur `327 680`, soit `32,6 %`
 - DIRAM résumé linker: `191 266` octets utilisés sur `341 760`, soit `55,97 %`
+- compilation des tests Unity : échec avant compilation des sources de test,
+  l'en-tête installé `.pio/libdeps/Flowio-waveshare-esp32-s3/Unity/src/unity.h`
+  n'étant pas disponible au moment de la résolution de dépendance ; aucun test
+  n'a donc été exécuté sur carte pendant cette vérification
 
 Conclusion globale: le profil est compilable et structurellement cohérent avec le
 TFT actif. La partition OTA 16 Mio conserve une marge applicative confortable; les
@@ -241,7 +245,7 @@ Rôle: bus d'événements interne, dispatch actif, publication de `SystemStarted
 
 Points forts:
 
-- capacités explicites: queue `40`, payload `48` octets, abonnés `50`
+- capacités explicites: queue `40`, payload `48` octets, abonnés `56`
 - logs de drops, saturation, callbacks lentes et rejets d'abonnement
 - tâche dédiée sur core 1, stack `2560`, priorité `1`
 - documentation de diagnostic détaillée
@@ -264,7 +268,7 @@ Rôle: exposition du `ConfigStore` global et service de patch/export JSON.
 Points forts:
 
 - service central `ConfigStoreService`
-- génération cfgdocs massive validée au build (`514` docs)
+- génération cfgdocs massive validée au build (`580` docs)
 - notifications `ConfigChanged` indirectes sur changement persistant
 - documentation existante
 
@@ -360,14 +364,14 @@ Points forts:
 
 Risques:
 
-- doc actuelle parle surtout du FlowIO/Nextion V1 et pas assez du profil
-  Waveshare actuel
+- le protocole conserve des conventions historiques Nextion V1 qui nécessitent
+  une validation sur l'écran utilisé avec le profil Waveshare
 - module volumineux, avec drivers et comportements multiples
 - tests automatisés absents sur menu, protocole et sorties annexes
 
 Actions recommandées:
 
-- compléter la fiche `HMIModule.md` avec un chapitre Waveshare-S3
+- maintenir la fiche `HMIModule.md` et le protocole Nextion alignés sur le mapping Waveshare
 - tests host du `ConfigMenuModel`
 - scénario sur banc pour Nextion/UDP
 

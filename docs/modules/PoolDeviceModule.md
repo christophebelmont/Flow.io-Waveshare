@@ -219,15 +219,15 @@ Entités créées:
 
 Les slots `pd0..pd7` sont définis via `defineDevice()` dans `src/Profiles/Waveshare/WaveshareBootstrap.cpp`, à partir du domaine Pool et de ses bindings:
 
-Le type métier est fixé par le profil et n'est plus exposé en configuration. Le mapping effectif passe par `pdN -> dN -> binding_port -> relais physique`.
+Le type métier est fixé par le profil et n'est plus exposé en configuration. Le mapping effectif passe par `pdN -> dNN -> binding_port -> sortie physique`.
 
-| Slot | Rôle métier | Sortie IO | Relais physique | Dépendances | Particularités |
+| Slot | Rôle métier | Sortie IO | Binding Waveshare | Dépendances | Particularités |
 | --- | --- | --- | --- | --- | --- |
-| `pd0` | filtration | `d0` | `PortRelay1` / `relay1` | aucune | pompe de filtration pilotée par `PoolLogic` |
-| `pd1` | pH | `d1` | `PortRelay2` / `relay2` | `pd0` | pompe péristaltique, cuve suivie, débit nominal, uptime max `30 min/j` |
-| `pd2` | chlore | `d2` | `PortRelay3` / `relay3` | `pd0` | pompe péristaltique, cuve suivie, débit nominal, uptime max `30 min/j` |
-| `pd3` | robot | `d3` | `PortRelay5` / `relay5` | `pd0` | relais standard |
-| `pd4` | remplissage | `d4` | `PortRelay7` / `relay7` | aucune | relais standard, uptime max `30 min/j` |
-| `pd5` | électrolyse | `d5` | `PortRelay4` / `relay4` | `pd0` | relais standard, uptime max `600 min/j` |
-| `pd6` | lumières | `d6` | `PortRelay6` / `relay6` | aucune | relais standard |
-| `pd7` | chauffage eau | `d7` | `PortRelay8` / `relay8` | aucune | relais standard |
+| `pd0` | filtration | `d00` | `PortExio1` / `EXIO1` | aucune | pompe de filtration pilotée par `PoolLogic` |
+| `pd1` | pH | `d01` | `PortExio2` / `EXIO2` | `pd0` | pompe péristaltique, cuve suivie, débit nominal, uptime max `30 min/j` |
+| `pd2` | chlore | `d02` | `PortExio3` / `EXIO3` | `pd0` | pompe péristaltique, cuve suivie, débit nominal, uptime max `30 min/j` |
+| `pd3` | robot | `d03` | `PortExio4` / `EXIO4` | `pd0` | relais standard |
+| `pd4` | remplissage | `d04` | `PortExio5` / `EXIO5` | aucune | relais standard, uptime max `30 min/j` |
+| `pd5` | électrolyse | `d05` | `PortExio6` / `EXIO6` | `pd0` | relais standard, uptime max `600 min/j` |
+| `pd6` | lumières | `d06` | `PortExio7` / `EXIO7` | aucune | relais standard |
+| `pd7` | chauffage eau | `d07` | `PortExio8` / `EXIO8` | aucune | relais standard |

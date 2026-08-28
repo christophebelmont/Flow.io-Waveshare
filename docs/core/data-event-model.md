@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Flow.io sépare les responsabilités en 4 blocs:
+flow.io sépare les responsabilités en 4 blocs:
 1. `ConfigStore`: configuration persistante (NVS)
 2. `DataStore`: état runtime RAM (`RuntimeData`)
 3. `EventBus`: signalisation asynchrone (payload max `48` octets)

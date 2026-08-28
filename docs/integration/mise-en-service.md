@@ -71,7 +71,7 @@ Ces entrées sont des IO génériques et n'ont pas de domain slot Pool par défa
 | CH4 / EXIO4 | `d03` | 303 | robot |
 | CH5 / EXIO5 | `d04` | 304 | remplissage |
 | CH6 / EXIO6 | `d05` | 305 | électrolyseur |
-| CH7 / EXIO7 | `d06` | 306 | libre |
+| CH7 / EXIO7 | `d06` | 306 | éclairage |
 | CH8 / EXIO8 | `d07` | 307 | chauffage |
 
 Toutes les sorties sont actives à l'état haut et démarrent à OFF. `d00` préserve l'état matériel du latch TCA9554 lors d'un redémarrage chaud.

@@ -1,15 +1,15 @@
-# Protocole ESP / Nextion (FlowIO)
+# Protocole ESP / Nextion — profil Waveshare
 
 ## Objet
 
-Ce document décrit le contrat actuel entre `FlowIO` et un écran Nextion piloté
+Ce document décrit le contrat actuel entre `flow.io` et un écran Nextion piloté
 par `HMIModule` / `NextionDriver`.
 
 Le protocole est volontairement mixte :
 - `ESP -> Nextion` : commandes Nextion natives (`.txt`, `.val`, `page ...`)
 - `Nextion -> ESP` : protocole binaire compact `# <len> <opcode> <payload...>`
 
-Le port série utilisé côté FlowIO est `Serial2` sur `RX16 / TX17` à `115200`.
+Le port série utilisé par le profil Waveshare est `Serial2` sur `RX44 / TX43` à `115200` bauds. Cette affectation provient de `src/Board/WaveshareBoard.h` et est résolue par `src/Board/BoardSerialMap.h`.
 
 ## Principes
 
@@ -20,7 +20,7 @@ Le port série utilisé côté FlowIO est `Serial2` sur `RX16 / TX17` à `115200
   texte du jour de semaine et du mois.
 - Les états discrets et indicateurs compacts sont envoyés en `.val`.
 - L'écran Nextion n'est pas la source de vérité : il émet des intentions ou des
-  commandes UI, puis `FlowIO` rafraîchit l'affichage à partir du `DataStore`,
+  commandes UI, puis `flow.io` rafraîchit l'affichage à partir du `DataStore`,
   du `ConfigStore` et des états runtime.
 - Les objets Nextion utilisés par l'ESP doivent être considérés comme faisant
   partie du contrat de firmware HMI.
@@ -124,14 +124,14 @@ Sémantique :
   - `1` : entier
   - `2` : decimal/float
   - `3` : booleen
-- `vaCtxRef.val` : token de contexte courant fourni par FlowIO pour permettre
+- `vaCtxRef.val` : token de contexte courant fourni par flow.io pour permettre
   un retour clavier vers la vue exacte en cours d'edition.
 - Mode browse : seuls les topics immédiats sont affichés dans `tLx`.
 - Mode édition : les attributs de la branche sélectionnée sont affichés dans
   `tLx/tVx`; un refresh léger des valeurs est fait toutes les `5s`.
-- Pour une valeur non-switch, FlowIO envoie `tsw tVx,0`, `tVx.val=0` puis
+- Pour une valeur non-switch, flow.io envoie `tsw tVx,0`, `tVx.val=0` puis
   `tVx.txt`.
-- Pour un `Switch`, FlowIO envoie `tsw tVx,1`, `tVx.val=0/1` puis
+- Pour un `Switch`, flow.io envoie `tsw tVx,1`, `tVx.val=0/1` puis
   `tVx.txt=" OFF"` ou `tVx.txt=" ON"`.
 
 ## Protocole Nextion -> ESP
@@ -139,7 +139,7 @@ Sémantique :
 ## RTC Nextion
 
 L'écran Nextion expose une RTC locale utilisée comme source de secours pour
-FlowIO lorsque l'heure NTP n'est pas disponible au boot.
+flow.io lorsque l'heure NTP n'est pas disponible au boot.
 
 Registres RTC Nextion utilisés :
 - `rtc0` : année, par exemple `2026`
@@ -220,8 +220,8 @@ Payload :
 
 Usage :
 - utilisé par Nextion pour informer l'ESP de la page actuellement affichée
-- `page_code=0x0A` ouvre le rendu du menu configuration cote FlowIO
-- FlowIO ne change pas la page Nextion; il rend seulement le contenu si
+- `page_code=0x0A` ouvre le rendu du menu configuration cote flow.io
+- flow.io ne change pas la page Nextion; il rend seulement le contenu si
   `pageCfgMenu` a annonce son entree
 
 Exemple Nextion :
@@ -252,7 +252,7 @@ Valeurs supportées :
 - `0x04` : `NEXT_PAGE`
 - `0x05` : `PREV_PAGE`
 - `0x06` : `CONFIG_EXIT`, a envoyer dans le `Page Exit Event` de
-  `pageCfgMenu` pour demander a FlowIO d'arreter le rendu actif du menu
+  `pageCfgMenu` pour demander a flow.io d'arreter le rendu actif du menu
 
 Exemple Nextion :
 
@@ -365,7 +365,7 @@ Actions supportées :
 - `0x01` : `FILTRATION_SET`
 - `0x02` : `AUTO_MODE_SET`
 - `0x03` : `SYNC_REQUEST`
-- `0x04` : `CONFIG_OPEN` (compatibilite no-op cote FlowIO; ne change pas la page Nextion)
+- `0x04` : `CONFIG_OPEN` (compatibilite no-op cote flow.io; ne change pas la page Nextion)
 - `0x05` : `PH_PUMP_SET`
 - `0x06` : `ORP_PUMP_SET`
 - `0x07` : `PH_PUMP_TOGGLE`
@@ -410,7 +410,7 @@ printh 23 03 60 03 01
 ```
 
 Demande logique d'ouverture du menu configuration, sans changement de page
-cote FlowIO. Le flux recommande reste de changer la page localement cote
+cote flow.io. Le flux recommande reste de changer la page localement cote
 Nextion puis d'envoyer `PAGE=0x0A` depuis `pageCfgMenu`.
 
 ```text
@@ -459,7 +459,7 @@ pour les toggles, conservée pour homogénéité de trame).
 ### Commande locale Flow Connect Display
 
 La reinitialisation Wi-Fi du firmware ecran deporte est locale au Display :
-elle n'est pas envoyee a FlowIO. Elle efface les identifiants Wi-Fi du
+elle n'est pas envoyee a flow.io. Elle efface les identifiants Wi-Fi du
 Display, redemarre l'ESP, puis le portail captif revient au boot.
 
 ```text
@@ -491,7 +491,7 @@ Les actions Home sont routées via `CommandService` :
   - demande simplement à `HMIModule` de republier toutes les données Home
 - `CONFIG_OPEN`
   - ne passe pas par `CommandService`
-  - compatibilité uniquement; FlowIO ne change plus la page Nextion
+  - compatibilité uniquement; flow.io ne change plus la page Nextion
   - le rendu du menu démarre uniquement lorsque `pageCfgMenu` envoie
     `printh 23 02 50 0A`
 - `PH_PUMP_SET`
@@ -527,7 +527,7 @@ Le retour attendu est le rafraîchissement de l'état réel après exécution.
 ## Événements Touch Standard
 
 Les événements Nextion `Send Component ID` (`0x65`) ne sont plus interprétés
-par `FlowIO`. Utiliser uniquement les trames `printh 23 ...` de ce document.
+par `flow.io`. Utiliser uniquement les trames `printh 23 ...` de ce document.
 
 ## Pages et identifiants recommandés
 
@@ -539,7 +539,7 @@ Ces codes ne sont pas les IDs internes des pages Nextion. Ce sont seulement
 les valeurs envoyées volontairement dans `printh`.
 
 L'opcode `PAGE` peut être émis dans le `Preinitialize Event` de chaque page.
-Pour `pageCfgMenu`, c'est le signal qui demande a FlowIO d'ouvrir le menu et
+Pour `pageCfgMenu`, c'est le signal qui demande a flow.io d'ouvrir le menu et
 d'envoyer le rendu courant.
 
 Exemples :
@@ -574,9 +574,9 @@ Exemples :
 
 ### Config
 
-FlowIO ne pilote pas la navigation visuelle vers ou hors de `pageCfgMenu`.
+flow.io ne pilote pas la navigation visuelle vers ou hors de `pageCfgMenu`.
 L'écran Nextion doit changer de page localement, puis annoncer l'entrée/sortie
-a FlowIO.
+a flow.io.
 
 Dans le `Preinitialize Event` de `pageCfgMenu` :
 
@@ -633,7 +633,7 @@ configuration est fermé. Le changement de page visuel vers Home doit alors êtr
 fait localement côté Nextion, par exemple avec `page <nom_de_la_page_home>`.
 
 Le `Page Exit Event` de `pageCfgMenu` doit aussi envoyer `printh 23 02 51 06`.
-Cette trame est l'arret explicite du mode menu cote FlowIO; sans elle, FlowIO
+Cette trame est l'arret explicite du mode menu cote flow.io; sans elle, flow.io
 peut continuer a considerer le menu actif et tenter de mettre a jour les objets
 du menu.
 

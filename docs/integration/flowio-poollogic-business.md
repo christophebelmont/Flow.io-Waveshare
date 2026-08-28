@@ -1,13 +1,13 @@
-# FlowIO — logique métier piscine (contexte de compilation `flowio`)
+# flow.io — logique métier piscine du profil Waveshare
 
-Ce document résume la logique métier réellement compilée dans le profil **FlowIO** (board `FlowIODINv1`, domain `Pool`).  
-Il complète la doc module par module avec une vue orientée fonctionnement bassin (filtration, hiver, injection pH/ORP, électrolyse, robot, remplissage).
+Ce document résume la logique métier compilée dans l'environnement `Flowio-waveshare-esp32-s3`, avec la carte `WaveshareESP32S3` et le domaine `Pool`.
+Il complète la documentation module par module avec une vue orientée fonctionnement du bassin : filtration, hivernage, injection pH/ORP, électrolyse, chauffage, robot et remplissage.
 
-## 1) Contexte de compilation `flowio`
+## 1) Contexte de compilation
 
 Le profil Waveshare assemble:
 
-- Board: `FlowIODINv1`
+- Carte : `WaveshareESP32S3`
 - Domaine: `Pool`
 - Modules critiques métier: `IOModule`, `PoolLogicModule`, `PoolDeviceModule`, `TimeModule`, `AlarmModule`, `CommandModule`, `MQTTModule`, `HAModule`.
 
@@ -15,45 +15,37 @@ Le flux de décision principal est:
 
 1. `PoolLogicModule` calcule les **intentions métier** (désirs ON/OFF des équipements + régulation PID).
 2. `PoolDeviceModule` applique ces demandes avec les **interlocks** (dépendances, max uptime, activation appareil, I/O error), puis pilote les sorties via `IOModule`.
-3. `IOModule` est l’abstraction des entrées/sorties physiques de la carte Rev1.
+3. `IOModule` traduit les points logiques en ressources physiques sélectionnées par le profil Waveshare.
 
-## 2) Noms E/S par défaut (board revision 1)
+## 2) Affectations E/S par défaut du profil Waveshare
 
 ### 2.1 Sorties physiques (DO)
 
-Sur la board Rev1, les sorties sont câblées par défaut ainsi:
+Les huit premières sorties logiques sont reliées par défaut au TCA9554 de la carte Waveshare :
 
-- `relay1` → Filtration pump
-- `relay2` → Pompe pH
-- `relay3` → Pompe chlore liquide (ORP peristaltique)
-- `relay4` → Électrolyseur (momentary/pulse sur cette carte)
-- `relay5` → Robot
-- `relay6` → Éclairage
-- `relay7` → Pompe de remplissage
-- `relay8` → Chauffage
+| IO slot | Binding port | Fonction piscine |
+|---|---|---|
+| `d00` | `EXIO1` | pompe de filtration |
+| `d01` | `EXIO2` | pompe pH |
+| `d02` | `EXIO3` | pompe chlore/brome ou oxygène actif |
+| `d03` | `EXIO4` | robot |
+| `d04` | `EXIO5` | remplissage |
+| `d05` | `EXIO6` | électrolyseur |
+| `d06` | `EXIO7` | éclairage |
+| `d07` | `EXIO8` | chauffage |
 
-Côté identifiants IO runtime compatibles pool:
-
-- `d0=filtration`, `d1=ph`, `d2=chlore`, `d3=electrolyse`, `d4=robot`, `d5=lights`, `d6=fill`, `d7=heater`
+Les slots `d08..d15` correspondent aux sorties du MCP23017 et n'ont pas de rôle métier Pool prédéfini.
 
 ### 2.2 Entrées capteurs (AI/DI)
 
-Affectation logique pool par défaut:
+Affectation logique Pool par défaut :
 
-- Analogiques:
-  - `a0` ORP
-  - `a1` pH
-  - `a2` PSI
-  - `a3` Spare
-  - `a4` Température eau
-  - `a5` Température air
-- Digitales:
-  - `i0` Niveau bassin
-  - `i1` Niveau cuve pH
-  - `i2` Niveau cuve chlore
-  - `i3` Compteur eau
+- analogiques : `a00` ORP, `a01` pH, `a02` pression, `a03` libre, `a04` température eau, `a05` température air, `a06` courant et `a07` tension ;
+- digitales : `i08` PIR, `i09` niveau cuve pH, `i10` niveau cuve désinfection, `i11` niveau bassin et `i12` compteur d'eau.
 
-Convention logique harmonisée pour `i0/i1/i2`:
+Les slots numériques restent stables même si leur `binding_port` est modifié en configuration. La [cartographie IO](../core/waveshare-io-map.md) donne les ports physiques, les ressources libres et les réservations du TFT.
+
+Convention logique harmonisée pour les entrées de niveau :
 - `ON` (`true`) = alerte/problème (niveau bas)
 - `OFF` (`false`) = pas de problème
 
@@ -78,7 +70,7 @@ Important: en mode manuel (`auto_mode=false`), la filtration reste pilotée manu
 Responsabilités:
 
 - expose le service `PoolDeviceService` utilisé par `PoolLogic`
-- applique les commandes ON/OFF demandées sur slots `pd0..pd7`
+- applique les commandes ON/OFF demandées sur les slots `pd0..pd7`, chacun associé à un rôle Pool prédéfini
 - impose des contraintes d’exécution:
   - `enabled` par appareil
   - dépendances (`depends_on_mask`)
@@ -203,8 +195,8 @@ En auto:
 
 ## 5.7 Remplissage
 
-- basé sur capteur niveau bassin (`i0`)
-- si niveau bas (`i0 == true`): marche
+- basé sur le capteur de niveau bassin (`i11` par défaut)
+- si le niveau bas est actif : marche
 - quand niveau revient OK: maintien ON jusqu’à atteindre au moins `fill_min_on_s`
 
 ## 6) Sécurité / alarmes
@@ -363,12 +355,12 @@ Runtime persistant par slot, stocké en blob NVS interne `pdNrt`:
 
 ## 9) Résumé opérationnel
 
-- `PoolLogic` décide **quoi faire** (métier bassin).  
-- `PoolDevice` décide **si c’est autorisé** et applique **comment** côté actionneurs.  
-- `IO` traduit en lectures capteurs / écritures relais de la board Rev1.
+- `PoolLogic` décide **quoi faire** (métier bassin).
+- `PoolDevice` décide **si c’est autorisé** et applique **comment** côté actionneurs.
+- `IO` traduit les slots logiques en lectures de capteurs et écritures de sorties du profil Waveshare.
 
 Cette séparation permet:
 
 - une logique métier claire et configurable (`poollogic/*`)
 - une sécurité d’exécution centralisée (`pdm/*`)
-- une adaptation hardware propre (`io/*` + bindings FlowIO Rev1).
+- une adaptation matérielle centralisée (`io/*` et bindings Waveshare).

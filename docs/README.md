@@ -1,140 +1,86 @@
-# Documentation flow.io
+# Documentation technique de flow.io
 
-<p align="center">
-  <img src="pictures/Logo_flowio.png" alt="Logo flow.io" width="260">
-</p>
+Cette documentation s'adresse aux personnes qui installent le matériel, compilent le firmware, adaptent les raccordements ou interviennent sur le logiciel. La présentation fonctionnelle destinée aux utilisateurs reste disponible dans le [README principal](../README.md).
 
-Le profil matériel et firmware de référence de flow.io est `Flowio-waveshare-esp32-s3`. Il rassemble la logique piscine, les E/S, le réseau, l'interface web, MQTT, Home Assistant, les mises à jour et l'HMI dans un même ESP32-S3.
-
-## Ensemble matériel de référence
-
-### Contrôleur Waveshare ESP32-S3
-
-Le firmware cible le module industriel **Waveshare ESP32-S3-POE-ETH-8DI-8RO**.
-
-<p align="center">
-  <img src="pictures/waveshare-esp32-s3-poe-eth-8di-8ro.png" alt="Module Waveshare ESP32-S3-POE-ETH-8DI-8RO utilisé par flow.io" width="520">
-</p>
-
-La carte fournit 8 entrées digitales isolées, 8 relais, Ethernet W5500, Wi-Fi/BLE, RS485, RTC, buzzer, LED RGB et boîtier rail DIN. Le profil flow.io complète ces ressources avec ses capteurs analogiques, ses sondes 1-Wire et ses extensions I2C. Voir la [fiche officielle Waveshare](https://www.waveshare.com/esp32-s3-eth-8di-8ro.htm).
-
-### Carte flow.io Companion
-
-La carte **flow.io Companion** sert d'interface d'intégration entre le contrôleur Waveshare et les équipements de la piscine.
-
-<p align="center">
-  <img src="pictures/flowio-companion-waveshare.png" alt="Carte flow.io Companion pour Waveshare ESP32-S3" width="820">
-</p>
-
-Une nappe dédiée relie le connecteur d'extension du Waveshare à la Companion. Les signaux sont ainsi reportés sur des connecteurs et borniers clairement identifiés pour présenter directement les ports piscine: pH, ORP, pression et niveau d'eau, températures, niveaux des cuves, compteur d'eau, entrées digitales, I2C et HMI Nextion.
-
-Cette organisation facilite le raccordement des modules piscine dans un ensemble compact et intégré. Elle réduit les liaisons fil à fil, simplifie la mise en service et rend le câblage plus lisible et maintenable. Le Waveshare conserve l'exécution du firmware et le pilotage des E/S; la Companion assure leur présentation et leur distribution physique.
+Le dépôt contient une seule cible matérielle et un seul environnement PlatformIO : `Flowio-waveshare-esp32-s3`.
 
 ## Démarrage rapide
 
-Compilation et flash du firmware principal:
+Prérequis : [PlatformIO Core](https://docs.platformio.org/en/latest/core/installation/index.html).
+
+Compiler le firmware :
 
 ```sh
 ~/.platformio/penv/bin/pio run -e Flowio-waveshare-esp32-s3
+```
+
+Téléverser le firmware et ouvrir le moniteur série :
+
+```sh
 ~/.platformio/penv/bin/pio run -e Flowio-waveshare-esp32-s3 -t upload
 ~/.platformio/penv/bin/pio device monitor -b 115200
 ```
 
-Continuer avec la [mise en service matérielle](integration/mise-en-service.md), puis utiliser la [cartographie IO Waveshare](core/waveshare-io-map.md) pour le câblage et les affectations.
+Les dépendances déclarées dans `platformio.ini` sont installées automatiquement par PlatformIO. Les identifiants Wi-Fi et MQTT ne sont pas inscrits dans le code source : ils sont renseignés lors du provisioning ou depuis l'interface de configuration, puis conservés en NVS.
 
-## Comprendre la cartographie IO
+## Parcours recommandé
 
-Le profil sépare le besoin métier, l'endpoint logiciel et la ressource physique:
+### Installer et raccorder
+
+- [Mise en service du profil Waveshare](integration/mise-en-service.md)
+- [Cartographie complète des entrées, sorties et raccordements](core/waveshare-io-map.md)
+- [Protocole entre l'ESP32 et l'écran Nextion](integration/nextion-esp-protocol.md)
+
+### Comprendre le dépôt et l'architecture
+
+- [Structure du dépôt et responsabilités des répertoires](core/repository-structure.md)
+- [Architecture générale](core/architecture.md)
+- [Profils, carte, domaine et bootstrap](core/profiles-board-domain-app.md)
+- [Services Core](core/services.md)
+- [Modèle ConfigStore, DataStore, EventBus et MQTT](core/data-event-model.md)
+- [Exposition des données dans l'interface Runtime UI](core/runtime-ui-exposure.md)
+- [Chargement modulaire des ressources web](core/webinterface-assets-modular.md)
+- [Logique métier de la piscine](integration/flowio-poollogic-business.md)
+
+### Intégrer et diagnostiquer
+
+- [Topologie et conventions MQTT](core/mqtt-topics.md)
+- [Matrice de qualité des modules](core/module-quality-gates.md)
+- [Historique de la spécialisation Waveshare](../MIGRATION.md)
+
+## Repères d'architecture
+
+Le démarrage suit une chaîne volontairement explicite :
 
 ```text
-domain_slot (métier)  ->  io_slot (endpoint)  ->  binding_port (matériel)
-Filtration Pump       ->  d00                 ->  300 / EXIO1
-Water Temperature     ->  a04                 ->  120 / OneWire GPIO20
-Pool Level            ->  i11                 ->  225 / MCP23017 GPA5
+src/main.cpp
+  -> App::Bootstrap
+  -> profil Waveshare
+  -> description de la carte et domaine Pool
+  -> enregistrement des modules et des services
+  -> boucle d'exécution
 ```
 
-| Niveau | Définition | Persistance |
+Les responsabilités sont séparées en quatre niveaux :
+
+| Niveau | Responsabilité | Emplacement principal |
 |---|---|---|
-| `domain_slot` | rôle stable du domaine Pool, par exemple ORP, pompe de filtration ou niveau bassin | compilé dans le domaine |
-| `io_slot` | endpoint logique de `IOModule`: `aNN`, `iNN` ou `dNN` | structure compilée, configuration du slot en NVS |
-| `binding_port` | port physique sélectionnable: GPIO, expander, ADS1115, OneWire ou capteur I2C | valeur du slot stockée en NVS |
+| Carte | broches, bus, périphériques et capacités statiques | `src/Board/` |
+| Domaine | rôles et comportements propres à la piscine | `src/Domain/Pool/` |
+| Profil | assemblage matériel/logiciel de la cible Waveshare | `src/Profiles/Waveshare/` |
+| Modules | fonctions autonomes exposées par services et événements | `src/Modules/` |
 
-La page [Binding ports, IO slots et domain slots](core/waveshare-io-map.md) contient l'inventaire exhaustif et les affectations par défaut.
+La chaîne d'affectation des entrées et sorties est :
 
-### Affectations métier principales
+```text
+domain_slot (fonction piscine) -> io_slot (point logique) -> binding_port (ressource physique)
+```
 
-| Domain slot | IO slot | Binding port par défaut |
-|---|---|---|
-| ORP / pH / pression / analogique libre | `a00..a03` | ADS1115 interne `100..103` |
-| température eau / air | `a04..a05` | OneWire `120..121` |
-| courant / tension | `a06..a07` | INA226 `140` / `139` |
-| PIR / niveaux | `i08..i11` | MCP23017 `220`, `223..225` |
-| compteur d'eau | `i12` | entrée optocouplée GPIO4, port `200` |
-| filtration / pH / chlore / robot | `d00..d03` | `EXIO1..EXIO4`, ports `300..303` |
-| remplissage / électrolyse / éclairage / chauffage | `d04..d07` | `EXIO5..EXIO8`, ports `304..307` |
-
-Les entrées isolées de la carte occupent `i00..i07`, mais GPIO4 est réservé par défaut au compteur `i12`; le binding initial de `i00` est donc « non connecté ». `d06` pilote l'éclairage (`Lights`) via `EXIO7`. Les sorties `d08..d15` utilisent le MCP23017 et restent sans rôle métier Pool par défaut.
-
-## Matériel et interfaces du profil
-
-| Ressource | Configuration du firmware |
-|---|---|
-| Ethernet | W5500: MOSI 13, MISO 14, SCLK 15, CS 16, INT 12, RST 39 |
-| I2C IO | SDA 42, SCL 41, 400 kHz |
-| Entrées digitales carte | GPIO 4 à 11, slots `i00..i07` |
-| Relais carte | TCA9554 `0x20`, `EXIO1..EXIO8`, slots `d00..d07` |
-| Extension MCP23017 | `0x21`, GPA en entrée et GPB en sortie |
-| OneWire | eau GPIO20, air GPIO19 |
-| HMI série | UART2, RX 44, TX 43, 115200 bauds |
-| TFT ST7789 local | BL 21, CS 45, DC 1, RST 47, MOSI 2, SCLK 48 |
-| Buzzer | GPIO46, actif haut |
-
-Les GPIO 1, 2, 21, 45, 47 et 48 sont réservés au TFT dans l'environnement de production `Flowio-waveshare-esp32-s3`. Ils ne doivent pas être réaffectés comme E/S génériques tant que `FLOW_ENABLE_TFT_S3=1`.
-
-## Parcours de lecture
-
-### Installer et adapter
-
-- [Mise en service matérielle et flash](integration/mise-en-service.md)
-- [Cartographie IO du profil Waveshare](core/waveshare-io-map.md)
-### Comprendre l'architecture
-
-- [Architecture générale](core/architecture.md)
-- [Profils, cartes, domaines et bootstrap](core/profiles-board-domain-app.md)
-- [Services Core](core/services.md)
-- [Modèle `ConfigStore` / `DataStore` / `EventBus` / MQTT](core/data-event-model.md)
-- [Topologie MQTT](core/mqtt-topics.md)
-- [Exposition Runtime UI](core/runtime-ui-exposure.md)
-- [Matrice qualité du profil Waveshare](core/module-quality-gates.md)
-
-## Composition du firmware principal
-
-L'environnement unique `[env:Flowio-waveshare-esp32-s3]` compile le bootstrap `src/Profiles/Waveshare/WaveshareBootstrap.cpp`, qui enregistre notamment:
-
-- les services Core de logs, configuration, état runtime, commandes et événements;
-- Ethernet, Wi-Fi, provisioning et interface web;
-- mise à jour du firmware, temps/RTC, MQTT et Home Assistant;
-- HMI UDP/série, buzzer et TFT local;
-- `IOModule`, `PoolLogicModule`, `PoolDeviceModule` et supervision système.
-
-Les anciens profils multi-cartes et les environnements Wokwi ne font pas partie de ce dépôt spécialisé.
-
-## Capacités statiques Waveshare
-
-| Domaine | Capacité compile-time |
-|---|---:|
-| Entrées analogiques / slots config | 16 / 16 |
-| Entrées digitales / slots config | 13 / 13 |
-| Sorties digitales / slots config | 16 / 16 |
-| Domain slots / bindings domaine-IO | 20 / 20 |
-| Indices `PoolDevice` | 8, dont 7 presets métier |
-| Entités Home Assistant: sensors / binary sensors / switches | 48 / 16 / 16 |
-| Entités Home Assistant: numbers / buttons / selects | 30 / 24 / 6 |
-| Routes runtime MQTT | 112 |
-| File EventBus | 40 |
-| Variables de configuration | 768 |
+La [cartographie IO](core/waveshare-io-map.md) contient les valeurs par défaut et les ressources réservées.
 
 ## Référence par module
+
+### Infrastructure et stockage
 
 - [LogHubModule](modules/LogHubModule.md)
 - [LogDispatcherModule](modules/LogDispatcherModule.md)
@@ -146,12 +92,26 @@ Les anciens profils multi-cartes et les environnements Wokwi ne font pas partie 
 - [CommandModule](modules/CommandModule.md)
 - [SystemModule](modules/SystemModule.md)
 - [SystemMonitorModule](modules/SystemMonitorModule.md)
-- [HMIModule](modules/HMIModule.md)
-- [AlarmModule](modules/AlarmModule.md)
+
+### Réseau, temps et interfaces
+
 - [WifiModule](modules/WifiModule.md)
 - [TimeModule](modules/TimeModule.md)
 - [MQTTModule](modules/MQTTModule.md)
 - [HAModule](modules/HAModule.md)
+- [HMIModule](modules/HMIModule.md)
+
+### Piscine et entrées/sorties
+
+- [AlarmModule](modules/AlarmModule.md)
 - [IOModule](modules/IOModule.md)
 - [PoolLogicModule](modules/PoolLogicModule.md)
 - [PoolDeviceModule](modules/PoolDeviceModule.md)
+
+La [matrice de qualité](core/module-quality-gates.md) complète ces fiches pour les modules d'infrastructure qui ne disposent pas encore d'une page dédiée.
+
+## Fichiers générés
+
+La compilation prépare automatiquement les métadonnées de configuration, le manifeste Runtime UI, les ressources SPIFFS et les binaires exportés. Les sorties de `.pio/`, `data/wc/` et `binary/` ne constituent pas la source de référence : leurs générateurs sont dans `scripts/` et leurs entrées versionnées se trouvent notamment dans les dossiers `text/` des modules et dans `data/webinterface/`.
+
+Avant de modifier directement un fichier généré, consulter la [structure du dépôt](core/repository-structure.md) pour identifier sa source.

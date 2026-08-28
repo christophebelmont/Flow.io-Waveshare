@@ -151,8 +151,13 @@ Le script `scripts/generate_runtimeui_manifest.py`:
 
 Sorties:
 
-- `data/webinterface/runtimeui.json`
 - `src/Core/Generated/RuntimeUiManifest_Generated.h`
+- `src/Core/Generated/RuntimeUiManifestJson_Generated.h`
+- `src/Core/Generated/RuntimeUiAlarmText_Generated.h`
+
+Le fichier de diagnostic `data/webinterface/runtimeui.json` n'est écrit que si
+la variable d'environnement `FLOW_RUNTIMEUI_WRITE_JSON` est activée. Il ne fait
+pas partie des sorties normales du build.
 
 ## Lecture batch
 

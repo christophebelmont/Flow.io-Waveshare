@@ -2,7 +2,7 @@
 
 ## Rôle
 
-`PoolLogicModule` est l'orchestrateur métier principal de la piscine.  
+`PoolLogicModule` est l'orchestrateur métier principal de la piscine.
 Il:
 - calcule et maintient la fenêtre quotidienne de filtration à partir de la température d'eau
 - pilote les équipements via `PoolDeviceService` (filtration, pompe pH, pompe ORP/chlore liquide, robot, électrolyse, remplissage)
@@ -51,7 +51,7 @@ Ces snapshots sont routés vers MQTT via `MQTTModule::RuntimeProducer` (provider
 
 ### Pourquoi ce protocole existe
 
-Sur certaines installations, la température d'eau n'est fiable que si la pompe de filtration a tourné un peu.  
+Sur certaines installations, la température d'eau n'est fiable que si la pompe de filtration a tourné un peu.
 Le protocole `heat_assist` résout ce point: il fait d'abord un cycle court de filtration pour mesurer, puis décide si le chauffage doit réellement démarrer.
 
 ### Conditions d'activation
@@ -119,14 +119,14 @@ La pompe démarre 5 minutes avant l'échéance. Ainsi, un intervalle calculé de
 
 ### Principe
 
-Le mode oxygène actif liquide est conçu pour les traitements qui ne peuvent pas être pilotés par la sonde ORP.  
-Avec ce type de produit, la mesure ORP peut être fortement perturbée ou inhibée: Flow.io ne cherche donc pas à atteindre une consigne ORP et ne lance pas de PID chlore/brome.
+Le mode oxygène actif liquide est conçu pour les traitements qui ne peuvent pas être pilotés par la sonde ORP.
+Avec ce type de produit, la mesure ORP peut être fortement perturbée ou inhibée: flow.io ne cherche donc pas à atteindre une consigne ORP et ne lance pas de PID chlore/brome.
 
-À la place, Flow.io injecte un **volume calculé** d'oxygène actif à des jours et heures définis. Le volume dépend du bassin, du dosage produit choisi, de la température et d'un facteur manuel de charge.
+À la place, flow.io injecte un **volume calculé** d'oxygène actif à des jours et heures définis. Le volume dépend du bassin, du dosage produit choisi, de la température et d'un facteur manuel de charge.
 
 ### Ce qui change par rapport au chlore/brome
 
-En mode `Chlore/Brome`, la pompe de désinfection est pilotée par le PID ORP: si l'ORP est sous la consigne, Flow.io injecte par fenêtres temporisées.
+En mode `Chlore/Brome`, la pompe de désinfection est pilotée par le PID ORP: si l'ORP est sous la consigne, flow.io injecte par fenêtres temporisées.
 
 En mode `Oxygène actif`, la même sortie de pompe de désinfection est pilotée autrement:
 - la sonde ORP n'est pas utilisée pour décider l'injection
@@ -149,7 +149,7 @@ Les conditions principales sont:
 - filtration en marche depuis au moins `min_filter_run_min`
 - pompe de désinfection non bloquée par PoolDevice
 
-PoolDevice conserve ses protections habituelles: appareil désactivé, interlock, erreur I/O et `max_uptime_day_s`. Si PoolDevice bloque la pompe, Flow.io ne force pas l'injection et affiche un blocage O2.
+PoolDevice conserve ses protections habituelles: appareil désactivé, interlock, erreur I/O et `max_uptime_day_s`. Si PoolDevice bloque la pompe, flow.io ne force pas l'injection et affiche un blocage O2.
 
 ### Calcul de la dose
 
@@ -167,17 +167,17 @@ Dose hebdomadaire calculée:
 
 `50 / 10 * 500 * 1.0 * 1.0 = 2500 ml / semaine`
 
-Si `split_count=2`, Flow.io prépare deux doses de `1250 ml`: une le lundi et une le jeudi.
+Si `split_count=2`, flow.io prépare deux doses de `1250 ml`: une le lundi et une le jeudi.
 
 ### Compensation température
 
-Si `temp_comp=true`, Flow.io ajuste la dose selon la température de l'eau:
+Si `temp_comp=true`, flow.io ajuste la dose selon la température de l'eau:
 
 - entre 18 °C et 24 °C: facteur `1.0`
 - sous 18 °C: réduction progressive de 2% par °C, limitée à `0.75`
 - au-dessus de 24 °C: augmentation progressive de 3% par °C, limitée à `1.50`
 
-Si la température d'eau est indisponible, Flow.io utilise un facteur `1.0`. Le dosage reste donc possible, mais sans adaptation automatique à la température.
+Si la température d'eau est indisponible, flow.io utilise un facteur `1.0`. Le dosage reste donc possible, mais sans adaptation automatique à la température.
 
 ### Fractionnement dans la semaine
 
@@ -191,18 +191,18 @@ Le fractionnement réduit les gros volumes injectés en une seule fois et répar
 
 ### Heure de dosage
 
-`main_hour` indique l'heure à partir de laquelle Flow.io peut créer la dose du jour.  
+`main_hour` indique l'heure à partir de laquelle flow.io peut créer la dose du jour.
 Par exemple, avec `main_hour=20`, une dose prévue le lundi ne sera créée qu'à partir de 20h00.
 
-Si Flow.io redémarre après l'heure prévue, il peut reprendre le protocole:
+Si flow.io redémarre après l'heure prévue, il peut reprendre le protocole:
 - si la dose du jour n'a pas encore été faite, elle peut être créée
 - si un volume était déjà en attente (`pending_ml`), il reprend ce volume
 - si la dose a été terminée, `last_dose_day` empêche une deuxième injection le même jour
 
 ### Filtration avant injection
 
-L'oxygène actif doit être injecté avec une eau en circulation.  
-Quand une dose O2 est en attente, Flow.io demande donc la filtration, puis attend que la filtration soit réellement active depuis `min_filter_run_min` minutes.
+L'oxygène actif doit être injecté avec une eau en circulation.
+Quand une dose O2 est en attente, flow.io demande donc la filtration, puis attend que la filtration soit réellement active depuis `min_filter_run_min` minutes.
 
 Ce délai permet:
 - d'éviter une injection dans une canalisation immobile
@@ -211,7 +211,7 @@ Ce délai permet:
 
 ### Injection au volume
 
-Flow.io calcule le volume injecté à partir du débit configuré dans PoolDevice:
+flow.io calcule le volume injecté à partir du débit configuré dans PoolDevice:
 
 `volume_injecte_ml = flow_l_h / 3600 * temps_ms`
 
@@ -227,7 +227,7 @@ Exemple avec une pompe à `1.5 L/h`:
 Dans `poollogic/modes`:
 
 - `disinfection_type`: choisir `Oxygène actif`
-- `auto_mode`: doit être actif pour que Flow.io pilote le protocole
+- `auto_mode`: doit être actif pour que flow.io pilote le protocole
 
 Dans `poollogic/o2`:
 
@@ -257,7 +257,7 @@ Exemples:
 - `1.2`: +20% pour forte fréquentation, eau chaude ou épisode difficile
 - `0.8`: -20% pour bassin peu utilisé ou eau froide
 
-Ce réglage ne remplace pas les recommandations du produit utilisé. Il sert à adapter la stratégie Flow.io au contexte réel du bassin.
+Ce réglage ne remplace pas les recommandations du produit utilisé. Il sert à adapter la stratégie flow.io au contexte réel du bassin.
 
 ### Etats et diagnostics
 
@@ -298,7 +298,7 @@ Le protocole O2 persiste les éléments nécessaires pour reprendre correctement
 - `last_dose_day`: dernier jour où une dose a été terminée
 - `protocol_state`: état courant du protocole
 
-Après redémarrage, Flow.io ne repart donc pas aveuglément de zéro. Si une dose était en attente, elle reste en attente. Si une dose a déjà été terminée le même jour, elle n'est pas répétée.
+Après redémarrage, flow.io ne repart donc pas aveuglément de zéro. Si une dose était en attente, elle reste en attente. Si une dose a déjà été terminée le même jour, elle n'est pas répétée.
 
 ### Points d'attention
 
@@ -690,7 +690,7 @@ Si les conditions d'autorisation ne sont plus remplies:
 
 ### Actionnement
 
-Le module n'écrit pas directement les GPIO.  
+Le module n'écrit pas directement les GPIO.
 Il passe par `PoolDeviceService::writeDesired` sur:
 - slot pH (`POOL_IO_SLOT_PH_PUMP`)
 - slot ORP/chlore liquide (`POOL_IO_SLOT_CHLORINE_PUMP`)

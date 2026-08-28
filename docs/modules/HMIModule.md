@@ -11,7 +11,7 @@ Couche d'orchestration HMI locale:
 En V1, le driver interactif embarqué est `NextionDriver`.
 Une sortie déportée `TfaVeniceRf433Sink` peut aussi émettre la température d'eau
 vers un récepteur TFA Venice compatible.
-Le menu Nextion de configuration est activé dans le build FlowIO, mais il ne
+Le menu Nextion de configuration est activé dans le profil Waveshare, mais il ne
 rend `pageCfgMenu` qu'après une commande d'ouverture explicite depuis l'écran.
 Le modèle menu est stateless côté RAM longue durée : il relit la page courante
 depuis le `ConfigStore` et applique les changements simples immédiatement.
@@ -48,8 +48,8 @@ depuis le `ConfigStore` et applique les changements simples immédiatement.
 - Les changements simples (`Switch`, `Select`, `Slider`, `Text`) sont appliqués immédiatement via un patch JSON ciblé `applyJson()`.
 - Les valeurs de la page d'édition courante sont rafraîchies toutes les `5s`; la page complète n'est pas rerendue en continu.
 - `Valider` est réservé pour une évolution ultérieure; le modèle léger actuel ne conserve pas de cache `dirty`.
-- FlowIO ne change pas la page Nextion; le `Preinitialize Event` de `pageCfgMenu` doit envoyer `printh 23 02 50 0A` (ou `printh 23 06 50 0A` + `print <ctx_ref_u32_le>`) pour activer le rendu du menu côté FlowIO.
-- Le `Page Exit Event` Nextion de `pageCfgMenu` doit envoyer `printh 23 02 51 06` pour désactiver le rendu actif du menu côté FlowIO.
+- flow.io ne change pas la page Nextion; le `Preinitialize Event` de `pageCfgMenu` doit envoyer `printh 23 02 50 0A` (ou `printh 23 06 50 0A` + `print <ctx_ref_u32_le>`) pour activer le rendu du menu côté flow.io.
+- Le `Page Exit Event` Nextion de `pageCfgMenu` doit envoyer `printh 23 02 51 06` pour désactiver le rendu actif du menu côté flow.io.
 
 Le modèle de menu est volontairement stateless côté RAM longue durée:
 - pas de cache persistant des modules;
@@ -73,9 +73,9 @@ Des hints peuvent forcer le widget et les contraintes (bornes/options).
 ## Driver Nextion (V1)
 
 - Transport: mappé via `src/Board/BoardSerialMap.h`
-  - mode normal: logs -> `Serial`, Nextion -> `Serial2` (RX16/TX17)
+  - mode normal: logs -> `Serial`, Nextion -> `Serial2` (RX44/TX43 sur Waveshare)
   - inversion: définir `FLOW_SWAP_LOG_HMI_SERIAL=1` au build pour
-    logs -> `Serial2` (RX16/TX17), Nextion -> `Serial`
+    logs -> `Serial2` sur les broches HMI du profil, Nextion -> `Serial`
   - note: en mode inversé, UART0 reste utilisé par les messages ROM boot ESP32
 - Rendu page config sur objets Nextion conventionnels:
   - `tPath`, `tL0..tL5`, `tV0..tV5`
@@ -96,8 +96,8 @@ Des hints peuvent forcer le widget et les contraintes (bornes/options).
   - mode édition: `tL0..tL5` affichent les clés, `tV0..tV5` affichent les valeurs et servent de dual-state button pour les booléens; refresh valeurs toutes les `5s`
   - `vaEditTypeN.val` indique le clavier a ouvrir pour la ligne `N`
     (`0` texte, `1` entier, `2` decimal/float, `3` booleen)
-  - valeur non-switch: FlowIO désactive `tVN` avec `tsw tVN,0`, force `tVN.val=0`, puis met `tVN.txt`
-  - valeur switch: FlowIO active `tVN` avec `tsw tVN,1`, met `tVN.val=0/1`, puis `tVN.txt` à `OFF/ON`
+  - valeur non-switch: flow.io désactive `tVN` avec `tsw tVN,0`, force `tVN.val=0`, puis met `tVN.txt`
+  - valeur switch: flow.io active `tVN` avec `tsw tVN,1`, met `tVN.val=0/1`, puis `tVN.txt` à `OFF/ON`
   - changement switch `tVN`: `printh 23 02 53 0N`
   - fermeture recommandée: `bBack` à la racine + changement de page local Nextion
 - RTC:
