@@ -81,6 +81,17 @@ flow.io propose plusieurs moyens de suivre et de piloter la piscine :
 - des alarmes pour les états qui nécessitent une intervention ;
 - des mises à jour du système par le réseau local.
 
+### Une interface web claire et complète
+
+L'interface web réunit le tableau de bord, l'état de la piscine, les mesures, les équipements, les alarmes, l'historique d'activité et les mises à jour. Elle propose des thèmes clair et sombre et reste accessible directement depuis le réseau local, sans dépendre d'un service en ligne.
+
+<p align="center">
+  <img src="docs/pictures/flowio-web-interface-marketing.png" alt="Interface web de flow.io présentée dans plusieurs fenêtres Safari" width="1100"><br>
+  <em>Supervision et configuration de la piscine depuis l'interface web flow.io.</em>
+</p>
+
+### Un écran tactile local
+
 <p align="center">
   <img src="docs/pictures/Nextion5-2-marketing.png" alt="Écran tactile local flow.io installé près d'une piscine" width="720">
 </p>
