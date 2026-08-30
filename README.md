@@ -10,6 +10,13 @@
 
 flow.io surveille le bassin, automatise les traitements et coordonne les équipements de la piscine depuis un contrôleur unique. L'objectif est simple : conserver une eau stable, éviter les fonctionnements inutiles et rendre l'entretien quotidien plus prévisible.
 
+## Exemple d'installation
+
+<p align="center">
+  <img src="docs/pictures/flowio-installation-marketing-v2.jpg" alt="Installation complète du système flow.io avec pompes péristaltiques, sondes et points d'injection" width="820"><br>
+  <em>Exemple d'installation en cours du système flow.io.</em>
+</p>
+
 ## Ce que flow.io fait pour votre piscine
 
 ### Maintenir une eau équilibrée
@@ -75,7 +82,7 @@ flow.io propose plusieurs moyens de suivre et de piloter la piscine :
 - des mises à jour du système par le réseau local.
 
 <p align="center">
-  <img src="docs/pictures/Nextion5-2.jpeg" alt="Écran tactile local de flow.io" width="520">
+  <img src="docs/pictures/Nextion5-2-marketing.png" alt="Écran tactile local flow.io installé près d'une piscine" width="720">
 </p>
 
 ## Le matériel flow.io
