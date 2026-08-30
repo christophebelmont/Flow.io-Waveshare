@@ -13,7 +13,7 @@ flow.io surveille le bassin, automatise les traitements et coordonne les équipe
 ## Exemple d'installation
 
 <p align="center">
-  <img src="docs/pictures/flowio-installation-marketing-v2.jpg" alt="Installation complète du système flow.io avec pompes péristaltiques, sondes et points d'injection" width="820"><br>
+  <img src="docs/pictures/flowio-installation-marketing-v2.jpg" alt="Installation complète du système flow.io avec pompes péristaltiques, sondes et points d'injection" width="574"><br>
   <em>Exemple d'installation en cours du système flow.io.</em>
 </p>
 
