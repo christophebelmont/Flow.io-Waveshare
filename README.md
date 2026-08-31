@@ -81,6 +81,17 @@ flow.io propose plusieurs moyens de suivre et de piloter la piscine :
 - des alarmes pour les états qui nécessitent une intervention ;
 - des mises à jour du système par le réseau local.
 
+### Piloter sa piscine avec Home Assistant et MQTT
+
+L'interface Home Assistant permet de consulter les mesures et de piloter sa piscine depuis partout dans le monde, directement depuis un smartphone.
+
+Grâce à MQTT, flow.io peut également être intégré à d'autres systèmes domotiques compatibles, notamment Jeedom, openHAB et Domoticz.
+
+<p align="center">
+  <img src="docs/pictures/flowio-home-assistant-mobile-marketing.png" alt="Interface Home Assistant de flow.io sur smartphone avec les logos Home Assistant, Jeedom, openHAB et Domoticz" width="1100"><br>
+  <em>Pilotage de la piscine à distance avec Home Assistant et intégration aux principaux systèmes domotiques compatibles MQTT.</em>
+</p>
+
 ### Une interface web claire et complète
 
 L'interface web réunit le tableau de bord, l'état de la piscine, les mesures, les équipements, les alarmes, l'historique d'activité et les mises à jour. Elle propose des thèmes clair et sombre et reste accessible directement depuis le réseau local, sans dépendre d'un service en ligne.
@@ -98,24 +109,41 @@ L'interface web réunit le tableau de bord, l'état de la piscine, les mesures, 
 
 ## Le matériel flow.io
 
-L'installation de référence associe un contrôleur industriel Waveshare ESP32-S3 à la carte flow.io Companion.
+L'installation de référence associe un contrôleur industriel Waveshare ESP32-S3 à la carte flow.io Companion, dans un boîtier de contrôle complété par un écran tactile local.
 
 <table>
   <tr>
-    <td align="center" width="40%">
-      <img src="docs/pictures/waveshare-esp32-s3-poe-eth-8di-8ro.png" alt="Contrôleur Waveshare ESP32-S3 utilisé par flow.io" width="260"><br>
+    <td align="center" width="50%">
+      <img src="docs/pictures/waveshare-esp32-s3-poe-eth-8di-8ro.png" alt="Contrôleur Waveshare ESP32-S3 utilisé par flow.io" width="240"><br>
       <strong>Contrôleur Waveshare</strong>
     </td>
-    <td align="center" width="60%">
-      <img src="docs/pictures/flowio-companion-waveshare.png" alt="Carte flow.io Companion pour le contrôleur Waveshare" width="420"><br>
+    <td align="center" width="50%">
+      <img src="docs/pictures/flowio-companion-waveshare.png" alt="Carte flow.io Companion pour le contrôleur Waveshare" width="320"><br>
       <strong>Carte flow.io Companion</strong>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/pictures/flowio-controller-enclosure.png" alt="Boîtier de contrôle flow.io avec écran tactile intégré" width="360"><br>
+      <strong>Boîtier de contrôle flow.io</strong>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/pictures/flowio-local-display-dashboard.png" alt="Écran tactile local flow.io affichant les mesures de la piscine" width="360"><br>
+      <strong>Écran tactile local</strong>
     </td>
   </tr>
 </table>
 
+<p align="center">
+  <img src="docs/pictures/flowio-waveshare-connected-enclosures.png" alt="Boîtier flow.io placé au-dessus du contrôleur Waveshare et relié par une nappe Dupont multicolore" width="600"><br>
+  <em>Liaison entre le boîtier flow.io et le contrôleur Waveshare par une nappe Dupont à 14 conducteurs.</em>
+</p>
+
 Le contrôleur [Waveshare ESP32-S3-POE-ETH-8DI-8RO](https://www.waveshare.com/product/iot-communication/esp32-s3-eth-8di-8ro.htm) assure le fonctionnement autonome et les communications Ethernet ou Wi-Fi.
 
 La carte flow.io Companion regroupe les raccordements utiles à la piscine sur des borniers et connecteurs clairement identifiés : sondes pH et ORP, pression, températures, niveaux, compteur d'eau, afficheur et extensions. Elle simplifie le câblage et permet une intégration plus compacte et plus lisible dans le coffret technique.
+
+Le boîtier rassemble l'électronique de contrôle dans un ensemble compact, tandis que l'écran tactile donne accès sur place aux mesures essentielles et aux commandes de la piscine.
 
 ## Au quotidien
 
