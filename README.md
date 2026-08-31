@@ -1,7 +1,5 @@
-# flow.io
-
 <p align="center">
-  <img src="docs/pictures/Logo_flowio.png" alt="Logo flow.io" width="240">
+  <img src="docs/pictures/Logo_flowio.png" alt="Logo flow.io" width="336">
 </p>
 
 <p align="center">
@@ -103,39 +101,18 @@ L'interface web réunit le tableau de bord, l'état de la piscine, les mesures, 
 
 ### Un écran tactile local
 
+L'écran tactile Nextion peut être installé localement, via un câble, ou à distance, grâce à une connexion Wi-Fi.
+
 <p align="center">
-  <img src="docs/pictures/Nextion5-2-marketing.png" alt="Écran tactile local flow.io installé près d'une piscine" width="720">
+  <img src="docs/pictures/Nextion5-2-marketing.png" alt="Écran tactile Nextion flow.io installé près d'une piscine" width="900">
 </p>
 
 ## Le matériel flow.io
 
 L'installation de référence associe un contrôleur industriel Waveshare ESP32-S3 à la carte flow.io Companion, dans un boîtier de contrôle complété par un écran tactile local.
 
-<table>
-  <tr>
-    <td align="center" width="50%">
-      <img src="docs/pictures/waveshare-esp32-s3-poe-eth-8di-8ro.png" alt="Contrôleur Waveshare ESP32-S3 utilisé par flow.io" width="240"><br>
-      <strong>Contrôleur Waveshare</strong>
-    </td>
-    <td align="center" width="50%">
-      <img src="docs/pictures/flowio-companion-waveshare.png" alt="Carte flow.io Companion pour le contrôleur Waveshare" width="320"><br>
-      <strong>Carte flow.io Companion</strong>
-    </td>
-  </tr>
-  <tr>
-    <td align="center" width="50%">
-      <img src="docs/pictures/flowio-controller-enclosure.png" alt="Boîtier de contrôle flow.io avec écran tactile intégré" width="360"><br>
-      <strong>Boîtier de contrôle flow.io</strong>
-    </td>
-    <td align="center" width="50%">
-      <img src="docs/pictures/flowio-local-display-dashboard.png" alt="Écran tactile local flow.io affichant les mesures de la piscine" width="360"><br>
-      <strong>Écran tactile local</strong>
-    </td>
-  </tr>
-</table>
-
 <p align="center">
-  <img src="docs/pictures/flowio-waveshare-connected-enclosures.png" alt="Boîtier flow.io placé au-dessus du contrôleur Waveshare et relié par une nappe Dupont multicolore" width="600"><br>
+  <img src="docs/pictures/flowio-system-marketing-overview-v3.png" alt="Vue d'ensemble du système flow.io, de ses capteurs et des équipements de piscine pilotés" width="1100"><br>
   <em>Liaison entre le boîtier flow.io et le contrôleur Waveshare par une nappe Dupont à 14 conducteurs.</em>
 </p>
 
