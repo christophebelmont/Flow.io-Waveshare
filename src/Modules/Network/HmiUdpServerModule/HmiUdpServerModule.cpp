@@ -63,6 +63,13 @@ bool HmiUdpServerModule::consumeFullRefreshRequested()
     return requested;
 }
 
+bool HmiUdpServerModule::consumeDisplayVersionChanged()
+{
+    const bool changed = displayVersionChangedPending_;
+    displayVersionChangedPending_ = false;
+    return changed;
+}
+
 bool HmiUdpServerModule::isLegacyV2() const
 {
     return displayVersionDetected_ && versionMajorEquals_(displayVersion_, 2U);
@@ -558,9 +565,13 @@ void HmiUdpServerModule::handlePacket_(const HmiUdpHeader& header, const uint8_t
             }
             const bool versionChanged = previousVersionDetected != displayVersionDetected_ ||
                                         (displayVersionDetected_ && strcmp(previousVersion, displayVersion_) != 0);
+            const bool displayVersionUpdated = !wasOnline || versionChanged;
+            if (displayVersionUpdated) {
+                displayVersionChangedPending_ = true;
+            }
             const uint16_t fcdFw = hello ? hello->displayFw : 0U;
             const uint16_t fcdProto = hello ? hello->protoVersion : 0U;
-            if (!wasOnline || versionChanged) {
+            if (displayVersionUpdated) {
                 if (displayVersionDetected_) {
                     LOGI("HMI UDP Flow Connect Display detected Nextion display version=%s fcd_fw=%u proto=%u",
                          displayVersion_,
@@ -574,7 +585,7 @@ void HmiUdpServerModule::handlePacket_(const HmiUdpHeader& header, const uint8_t
             }
             displayOnline_ = true;
             displaySleeping_ = nextionSleeping;
-            if (!nextionSleeping && (!wasOnline || versionChanged || freshDisplaySession)) {
+            if (!nextionSleeping && (displayVersionUpdated || freshDisplaySession)) {
                 fullRefreshRequested_ = true;
                 if (freshDisplaySession) {
                     LOGI("HMI UDP Flow Connect Display fresh session detected");

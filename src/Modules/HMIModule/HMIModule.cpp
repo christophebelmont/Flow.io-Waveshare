@@ -448,10 +448,12 @@ void HMIModule::applyOutputConfig_()
     } else if (cfgData_.nextionEnabled && !cfgData_.remoteUdpEnabled && !nextionUartConfigured) {
         LOGW("Nextion disabled: no local HMI UART configured on active board");
     }
-    if (cfgData_.remoteUdpEnabled) {
-        wantedDriver = static_cast<IHmiDriver*>(&remoteUdp_);
-    } else if (cfgData_.nextionEnabled && nextionUartConfigured && !nextionDisabledByVersion_) {
-        wantedDriver = static_cast<IHmiDriver*>(&nextion_);
+    if (!displayDisabledByVersion_) {
+        if (cfgData_.remoteUdpEnabled) {
+            wantedDriver = static_cast<IHmiDriver*>(&remoteUdp_);
+        } else if (cfgData_.nextionEnabled && nextionUartConfigured) {
+            wantedDriver = static_cast<IHmiDriver*>(&nextion_);
+        }
     }
     if (driver_ != wantedDriver) {
         driver_ = wantedDriver;
@@ -701,7 +703,7 @@ void HMIModule::init(ConfigStore& cfg, ServiceRegistry& services)
     const bool ws2812Ready = ws2812StatusLed_.begin();
     (void)ws2812StatusLed_.setEnabled(cfgData_.waveshareLedEnabled);
     driverReady_ = false;
-    nextionDisabledByVersion_ = false;
+    displayDisabledByVersion_ = false;
     homePageVisible_ = false;
     menuSessionActive_ = false;
     menuPageVisible_ = false;
@@ -1322,7 +1324,7 @@ bool HMIModule::validateDriverDisplayVersion_(bool requireDetection)
     if (!driver_->hasDisplayVersion()) {
         if (!requireDetection) return true;
         LOGW("Ecran Nextion version non detectee. Affichage Nextion desactive.");
-        nextionDisabledByVersion_ = true;
+        displayDisabledByVersion_ = true;
         applyOutputConfig_();
         return false;
     }
@@ -1343,7 +1345,7 @@ bool HMIModule::validateDriverDisplayVersion_(bool requireDetection)
         LOGW("Ecran Nextion version %s non supportee (supportee %s). Affichage Nextion desactive.",
              nextionVersion_,
              kNextionDisplayVersionExpected);
-        nextionDisabledByVersion_ = true;
+        displayDisabledByVersion_ = true;
         applyOutputConfig_();
         return false;
     }
@@ -2936,7 +2938,11 @@ void HMIModule::loop()
             lastRtcPushAttemptMs_ = 0;
         }
 
-        if (!validateDriverDisplayVersion_(false)) {
+        if (driverReady_ &&
+            driver_ == static_cast<IHmiDriver*>(&remoteUdp_) &&
+            remoteUdpServer_ &&
+            remoteUdpServer_->consumeDisplayVersionChanged() &&
+            !validateDriverDisplayVersion_(false)) {
             vTaskDelay(pdMS_TO_TICKS(25));
             return;
         }

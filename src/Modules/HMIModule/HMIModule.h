@@ -129,7 +129,7 @@ private:
     IHmiDriver* driver_ = nullptr;
 
     bool driverReady_ = false;
-    bool nextionDisabledByVersion_ = false;
+    bool displayDisabledByVersion_ = false;
     bool homePageVisible_ = false;
     bool menuSessionActive_ = false;
     bool menuPageVisible_ = false;

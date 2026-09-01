@@ -33,6 +33,7 @@ public:
     bool hasDisplayVersion() const { return displayVersionDetected_; }
     const char* displayVersion() const { return displayVersion_; }
     bool isLegacyV2() const;
+    bool consumeDisplayVersionChanged();
     bool consumeFullRefreshRequested();
 
     bool sendHomeText(HmiHomeTextField field, const char* text);
@@ -90,6 +91,7 @@ private:
     bool displayOnline_ = false;
     bool displaySleeping_ = false;
     bool fullRefreshRequested_ = false;
+    bool displayVersionChangedPending_ = false;
     bool displayVersionDetected_ = false;
     char displayVersion_[HMI_DISPLAY_VERSION_TEXT_MAX]{};
     uint16_t txSeq_ = 1;
