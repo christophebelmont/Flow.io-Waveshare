@@ -112,8 +112,13 @@ L'écran tactile Nextion peut être installé localement, via un câble, ou dép
 L'installation de référence associe un contrôleur industriel Waveshare ESP32-S3 à la carte flow.io Companion, dans un boîtier de contrôle complété par un écran tactile local.
 
 <p align="center">
+  <img src="docs/pictures/flowio-controller-enclosure-cutaway-middle.png" alt="Carte Flow.io Companion dans son boitier standard" width="1100"><br>
+  <em>Carte flow.io Companion dans son boitier.</em>
+</p>
+
+<p align="center">
   <img src="docs/pictures/flowio-system-marketing-overview-v3.png" alt="Vue d'ensemble du système flow.io, de ses capteurs et des équipements de piscine pilotés" width="1100"><br>
-  <em>Liaison entre le boîtier flow.io et le contrôleur Waveshare par une nappe Dupont.</em>
+  <em>Liaison entre le boîtier flow.io et le contrôleur Waveshare par une nappe standard.</em>
 </p>
 
 Le contrôleur [Waveshare ESP32-S3-POE-ETH-8DI-8RO](https://www.waveshare.com/product/iot-communication/esp32-s3-eth-8di-8ro.htm) assure le fonctionnement autonome et les communications Ethernet ou Wi-Fi.
