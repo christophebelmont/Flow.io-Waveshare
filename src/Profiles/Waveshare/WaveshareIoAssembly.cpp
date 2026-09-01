@@ -246,6 +246,7 @@ void applyDigitalDefaultsForDomainSlot(DomainSlotId domainSlot, IODigitalInputDe
     const FlowIoLayout::DigitalInputRoleDefault* spec = FlowIoLayout::digitalInputDefaultForDomainSlot(domainSlot);
     requireSetup(spec != nullptr, "unsupported digital input domain role");
     def.bindingPort = spec->bindingPort;
+    def.activeHigh = spec->activeHigh;
     def.mode = spec->mode;
     def.edgeMode = spec->edgeMode;
     def.counterDebounceUs = spec->debounceUs;
@@ -537,7 +538,6 @@ void configureIoModule(const AppContext& ctx, ModuleInstances& modules)
             IODigitalInputDefinition def{};
             snprintf(def.id, sizeof(def.id), "%s", preset.endpointId ? preset.endpointId : "input");
             def.ioId = ioId;
-            def.activeHigh = preset.id == PoolIds::SensorPir;
             def.pullMode = IO_PULL_NONE;
             applyDigitalDefaultsForDomainSlot(preset.id, def);
             if (const char* defaultName = waveshareDigitalInputNameForDomainSlot(preset.id)) {

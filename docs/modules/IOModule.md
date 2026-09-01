@@ -169,7 +169,7 @@ Le profil Waveshare instancie aujourd'hui:
 | `SensorPhLevel` | `PortGpio8Input` | état |
 | `SensorChlorineLevel` | `PortGpio7Input` | état |
 | `SensorPoolLevel` | `PortGpio6Input` | état |
-| `SensorWaterMeter` | `PortGpio5Input` | compteur, front montant, debounce `100000 us` |
+| `SensorWaterMeter` | `PortGpio5Input` | compteur, actif bas (`actif=0`), front montant, debounce `100000 us` |
 
 ### Sorties digitales
 

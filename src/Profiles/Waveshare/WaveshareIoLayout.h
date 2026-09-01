@@ -181,18 +181,19 @@ inline constexpr AnalogRoleDefault kAnalogRoleDefaults[] = {
 struct DigitalInputRoleDefault {
     DomainSlotId domainSlot; // Besoin fonctionnel de l'entree.
     PhysicalPortId bindingPort; // Port physique associe.
+    bool activeHigh; // Niveau electrique correspondant a l'etat actif.
     uint8_t mode; // Mode de lecture (etat/counter).
     uint8_t edgeMode; // Type de front pris en compte.
     uint32_t debounceUs; // Debounce en microsecondes.
 };
 
 inline constexpr DigitalInputRoleDefault kDigitalInputRoleDefaults[] = {
-    // {role, bindingPort, mode, edgeMode, debounceUs}
-    {PoolIds::SensorPir, PortGpio11Input, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
-    {PoolIds::SensorPhLevel, PortGpio8Input, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
-    {PoolIds::SensorChlorineLevel, PortGpio7Input, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
-    {PoolIds::SensorPoolLevel, PortGpio6Input, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
-    {PoolIds::SensorWaterMeter, PortGpio5Input, IO_DIGITAL_INPUT_COUNTER, IO_EDGE_RISING, 100000U},
+    // {role, bindingPort, activeHigh, mode, edgeMode, debounceUs}
+    {PoolIds::SensorPir, PortGpio11Input, true, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
+    {PoolIds::SensorPhLevel, PortGpio8Input, false, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
+    {PoolIds::SensorChlorineLevel, PortGpio7Input, false, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
+    {PoolIds::SensorPoolLevel, PortGpio6Input, false, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
+    {PoolIds::SensorWaterMeter, PortGpio5Input, false, IO_DIGITAL_INPUT_COUNTER, IO_EDGE_RISING, 100000U},
 };
 
 struct DigitalOutputRoleDefault {

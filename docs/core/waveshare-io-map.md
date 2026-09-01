@@ -197,7 +197,7 @@ l'ADS1115 externe restent sélectionnables. Aucun de ces slots libres n'est asso
 | `i09` | pH Level | 204 / GPIO8 | État |
 | `i10` | Chlorine Level | 203 / GPIO7 | État |
 | `i11` | Pool Level | 202 / GPIO6 | État |
-| `i12` | Water Meter | 201 / GPIO5 | Compteur, front montant, debounce 100 ms |
+| `i12` | Water Meter | 201 / GPIO5 | Compteur, actif bas (`actif=0`), front montant, debounce 100 ms |
 
 ### Sorties digitales
 
