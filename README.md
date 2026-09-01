@@ -60,6 +60,10 @@ Selon l'installation, flow.io peut commander :
 
 Les dépendances entre équipements sont gérées de manière centralisée. Par exemple, un traitement ou un chauffage qui nécessite une circulation d'eau ne fonctionne pas indépendamment de la filtration.
 
+### Modèle open source
+
+L'ensemble du logiciel et du hardware est disponible en open source. Le code est ouvert et modulaire permettant d'adapter le fonctionnement à tous les écosystèmes.
+
 ## Vue d'ensemble
 
 <p align="center">
@@ -101,26 +105,30 @@ L'interface web réunit le tableau de bord, l'état de la piscine, les mesures, 
 
 ### Un écran tactile local
 
-L'écran tactile Nextion peut être installé localement, via un câble, ou à distance, grâce à une connexion Wi-Fi.
+L'écran tactile [Nextion](https://nextion.tech/) peut être installé dans le local technique via un câble série, ou déporté, grâce à sa connexion Wi-Fi. Plusieurs modèles sont supportés en définition 480x320 ou 800x480, en version Enhanced ou Intelligent et en capacitif ou résistif selon le budget et les fonctionnalités attendues.
 
 <p align="center">
-  <img src="docs/pictures/Nextion5-2-marketing.png" alt="Écran tactile Nextion flow.io installé près d'une piscine" width="900">
+  <img src="docs/pictures/Nextion5-2-marketing.png" alt="Écran tactile Nextion flow.io installé près d'une piscine" width="900"><br>
+  <em>Ecran Nextion présenté dans un boitier dédié.</em>
 </p>
 
 ## Le matériel flow.io
 
-L'installation de référence associe un contrôleur industriel Waveshare ESP32-S3 à la carte flow.io Companion, dans un boîtier de contrôle complété par un écran tactile local.
+L'installation de référence associe un contrôleur industriel [Waveshare ESP32-S3-POE-ETH-8DI-8RO](https://www.waveshare.com/product/iot-communication/esp32-s3-eth-8di-8ro.htm) à la carte flow.io Companion.
+
+<p align="center">
+  <img src="docs/pictures/flowio-controller-enclosure-cutaway-screen.png" alt="Carte Flow.io Companion dans son boitier standard" width="1100"><br>
+  <em>Carte flow.io Companion dans son boitier.</em>
+</p>
 
 <p align="center">
   <img src="docs/pictures/flowio-system-marketing-overview-v3.png" alt="Vue d'ensemble du système flow.io, de ses capteurs et des équipements de piscine pilotés" width="1100"><br>
-  <em>Liaison entre le boîtier flow.io et le contrôleur Waveshare par une nappe Dupont.</em>
+  <em>Liaison entre le boîtier flow.io et le contrôleur Waveshare par une nappe standard.</em>
 </p>
 
-Le contrôleur [Waveshare ESP32-S3-POE-ETH-8DI-8RO](https://www.waveshare.com/product/iot-communication/esp32-s3-eth-8di-8ro.htm) assure le fonctionnement autonome et les communications Ethernet ou Wi-Fi.
+Le contrôleur [Waveshare ESP32-S3-POE-ETH-8DI-8RO](https://www.waveshare.com/product/iot-communication/esp32-s3-eth-8di-8ro.htm) assure le fonctionnement autonome. Il inclut une alimentation isolée et stabilisée, des ports Ethernet ou Wi-Fi, des entrées sorties isolées par optocoupleur, une Real Time Clock (RTC) pour la gestion du temps et une interface RS485 pour contrôler les équipements qui utilisent ce protocole. Le contrôleur existe en version POE pour alimenter l'ensemble du système flow.io via le port Ethernet.
 
-La carte flow.io Companion regroupe les raccordements utiles à la piscine sur des borniers et connecteurs clairement identifiés : sondes pH et ORP, pression, températures, niveaux, compteur d'eau, afficheur et extensions. Elle simplifie le câblage et permet une intégration plus compacte et plus lisible dans le coffret technique.
-
-Le boîtier rassemble l'électronique de contrôle dans un ensemble compact, tandis que l'écran tactile donne accès sur place aux mesures essentielles et aux commandes de la piscine.
+La carte flow.io Companion regroupe les raccordements utiles à la piscine sur des borniers et connecteurs clairement identifiés : sondes pH et ORP, pression, températures, niveaux, compteur d'eau, afficheur et extensions. Elle simplifie le câblage et permet une intégration plus compacte et plus lisible dans le coffret technique. La carte est prévue pour s'intégrer dans un boitier DIN standard.
 
 ## Au quotidien
 
