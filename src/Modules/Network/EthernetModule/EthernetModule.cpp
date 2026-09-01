@@ -102,6 +102,7 @@ EthernetModule::EthernetModule(const BoardSpec& board)
     const EthernetW5500Spec* eth = boardEthernetW5500(board);
     if (eth) {
         ethCfg_ = *eth;
+        cfgData_.enabled = ethCfg_.enabled;
         hasEthPins_ = ethCfg_.enabled &&
                       ethCfg_.mosiPin >= 0 &&
                       ethCfg_.misoPin >= 0 &&

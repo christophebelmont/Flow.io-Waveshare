@@ -6,7 +6,7 @@ Cette page décrit la compilation, le flash et les premières vérifications du 
 
 ## 1. Cible et prérequis
 
-Le firmware à utiliser est l'environnement PlatformIO `Flowio-waveshare-esp32-s3`. Contrairement à l'ancienne architecture `FlowIO` + `Supervisor`, ce profil exécute sur le même ESP32-S3:
+Le firmware à utiliser est l'environnement PlatformIO `Flowio-waveshare-esp32-s3`. Ce profil exécute sur le même ESP32-S3:
 
 - la logique métier et les équipements piscine;
 - les entrées/sorties et les extensions capteurs;
@@ -43,23 +43,27 @@ L'environnement exécute les scripts de génération de version, modèle de donn
 | OneWire eau | GPIO20 |
 | OneWire air | GPIO19 |
 | Buzzer actif | GPIO46, actif haut |
+| Venice TX433 | GPIO3, driver désactivé par défaut |
+| Bouton reset | GPIO4, actif bas, appui continu de 5 s |
 
 Le bus I2C utilise par défaut le TCA9554 `0x20`, le MCP23017 `0x21`, l'INA226 `0x40`, le SHT40 `0x44`, les ADS1115 `0x48` et `0x49`, le BMP280 `0x76` et le BME688 `0x77`. Ne raccorder que les périphériques réellement présents et éviter les collisions d'adresse.
 
-### Entrées digitales isolées
+### Entrées digitales et commandes locales
 
-| Borne/canal | GPIO | IO slot | Binding port |
+| Fonction | GPIO | IO slot | Binding port |
 |---|---:|---|---:|
-| DI1 | 4 | `i00` | 200 |
-| DI2 | 5 | `i01` | 201 |
-| DI3 | 6 | `i02` | 202 |
-| DI4 | 7 | `i03` | 203 |
-| DI5 | 8 | `i04` | 204 |
-| DI6 | 9 | `i05` | 205 |
-| DI7 | 10 | `i06` | 206 |
-| DI8 | 11 | `i07` | 207 |
+| Reset NVS + reboot | 4 | Réservé au système | — |
+| Water Meter | 5 | `i12` | 201 |
+| Pool Level | 6 | `i11` | 202 |
+| Chlorine Level | 7 | `i10` | 203 |
+| pH Level | 8 | `i09` | 204 |
+| Libre | 9 | `i05` | 205 |
+| Libre | 10 | `i06` | 206 |
+| PIR écrans | 11 | `i08` | 207 |
 
-Ces entrées sont des IO génériques et n'ont pas de domain slot Pool par défaut.
+GPIO4 n'est pas exposé comme entrée configurable. Maintenir son bouton appuyé
+pendant 5 secondes efface le ConfigStore et les paramètres Wi-Fi en NVS, puis
+redémarre la carte.
 
 ### Relais
 
@@ -118,7 +122,7 @@ domain_slot -> io_slot -> binding_port -> driver/canal physique
 Exemples:
 
 - `SensorWaterTemp -> a04 -> 120 -> DS18B20 GPIO20`;
-- `SensorPoolLevel -> i11 -> 225 -> MCP23017 GPA5`;
+- `SensorPoolLevel -> i11 -> 202 -> GPIO6`;
 - `ActuatorFiltrationPump -> d00 -> 300 -> TCA9554 EXIO1`.
 
 Consulter la [cartographie exhaustive](../core/waveshare-io-map.md) avant de câbler les capteurs ou de modifier un binding.
@@ -135,9 +139,3 @@ Vérifier dans le moniteur série:
 6. l'absence d'erreur de domain slot non configuré ou sans binding.
 
 Dans l'interface web, la page **Entrées/Sorties** permet de contrôler la topologie, les valeurs runtime et l'affectation des binding ports. Vérifier d'abord les entrées sans charge, puis chaque relais avec un circuit de test adapté avant de raccorder les équipements piscine.
-
-## 8. Périmètre de ce dépôt
-
-Ce dépôt spécialisé ne contient aucun profil secondaire. Les anciennes cibles `FlowIO`,
-`Supervisor`, `FlowConnectDisplay`, `Micronova` et Wokwi ont été retirées; seule la cible
-`Flowio-waveshare-esp32-s3` est prise en charge.

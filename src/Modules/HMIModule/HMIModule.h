@@ -73,7 +73,7 @@ private:
             false;
 #endif
         bool veniceEnabled = false;
-        int32_t veniceTxGpio = 14;
+        int32_t veniceTxGpio = -1;
     } cfgData_{};
 
     ConfigVariable<bool,0> ledsEnabledVar_{

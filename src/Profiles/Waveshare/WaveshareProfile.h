@@ -58,7 +58,7 @@ struct ModuleInstances {
     DataStoreModule dataStoreModule{};
     MQTTModule mqttModule{};
     HAModule haModule{};
-    SystemModule systemModule{};
+    SystemModule systemModule;
     SystemMonitorModule systemMonitorModule{};
     LogSerialSinkModule logSerialSinkModule{};
     ActivityLogModule activityLogModule{};

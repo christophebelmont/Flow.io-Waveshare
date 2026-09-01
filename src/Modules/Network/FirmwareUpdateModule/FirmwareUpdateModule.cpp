@@ -56,7 +56,9 @@ const LocalUiBoardSpec& localUiBoardSpec_(const BoardSpec& board)
             120,
             true,
             23,
-            40
+            40,
+            false,
+            5000
         },
         {
             25,

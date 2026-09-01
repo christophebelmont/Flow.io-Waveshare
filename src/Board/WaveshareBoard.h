@@ -282,14 +282,14 @@ inline constexpr IoPointSpec kWaveshareESP32S3IoPoints[] = {
     {"exio6", IoCapability::DigitalOut, BoardSignal::Relay6, 5, false, 0},
     {"exio7", IoCapability::DigitalOut, BoardSignal::Relay7, 6, false, 0},
     {"exio8", IoCapability::DigitalOut, BoardSignal::Relay8, 7, false, 0},
-    {"digital_in1_water_counter", IoCapability::DigitalIn, BoardSignal::DigitalIn1, 4, false, 0},
-    {"digital_in2_disinfectant_level", IoCapability::DigitalIn, BoardSignal::DigitalIn2, 5, false, 0},
-    {"digital_in3_pool_level", IoCapability::DigitalIn, BoardSignal::DigitalIn3, 6, false, 0},
-    {"digital_in4_unused", IoCapability::DigitalIn, BoardSignal::DigitalIn4, 7, false, 0},
-    {"digital_in5_unused", IoCapability::DigitalIn, BoardSignal::DigitalIn5, 8, false, 0},
-    {"digital_in6_unused", IoCapability::DigitalIn, BoardSignal::DigitalIn6, 9, false, 0},
-    {"digital_in7_unused", IoCapability::DigitalIn, BoardSignal::DigitalIn7, 10, false, 0},
-    {"digital_in8_unused", IoCapability::DigitalIn, BoardSignal::DigitalIn8, 11, false, 0},
+    {"venice_tx433", IoCapability::DigitalOut, BoardSignal::Tx433, 3, false, 0},
+    {"water_meter", IoCapability::DigitalIn, BoardSignal::DigitalIn1, 5, false, 0},
+    {"pool_level", IoCapability::DigitalIn, BoardSignal::DigitalIn2, 6, false, 0},
+    {"chlorine_level", IoCapability::DigitalIn, BoardSignal::DigitalIn3, 7, false, 0},
+    {"ph_level", IoCapability::DigitalIn, BoardSignal::DigitalIn4, 8, false, 0},
+    {"gpio9_unused", IoCapability::DigitalIn, BoardSignal::DigitalIn5, 9, false, 0},
+    {"gpio10_unused", IoCapability::DigitalIn, BoardSignal::DigitalIn6, 10, false, 0},
+    {"pir", IoCapability::DigitalIn, BoardSignal::DigitalIn7, 11, false, 0},
     {"water_temperature_ds18b20", IoCapability::OneWireTemp, BoardSignal::TempProbe1, 20, false, 0},
     {"air_temperature_ds18b20", IoCapability::OneWireTemp, BoardSignal::TempProbe2, 19, false, 0},
 #if !defined(FLOW_ENABLE_TFT_S3) || (FLOW_ENABLE_TFT_S3 == 0)
@@ -380,31 +380,34 @@ inline constexpr St7789DisplaySpec kWaveshareESP32S3Display{
  *
  * Field order:
  *   pirPin, pirDebounceMs, pirActiveHigh, factoryResetPin,
- *   factoryResetDebounceMs.
+ *   factoryResetDebounceMs, factoryResetActiveHigh, factoryResetHoldMs.
  *
  * pirPin:
- *   Optional local motion sensor GPIO. No PIR sensor is assigned on this board.
+ *   Local motion sensor GPIO. The logical IOModule PIR endpoint also binds to
+ *   this physical input so both screens use the same signal.
  *
  * pirDebounceMs / pirActiveHigh:
  *   Debounce time and polarity for the PIR input.
  *
  * factoryResetPin:
- *   Optional GPIO for a local factory-reset button. Use -1 when no button is
- *   wired.
+ *   GPIO for the local factory-reset button.
  *
- * factoryResetDebounceMs:
- *   Debounce time for the factory-reset input if it is enabled.
+ * factoryResetDebounceMs / factoryResetActiveHigh / factoryResetHoldMs:
+ *   Debounce, polarity, and continuous hold duration required before the
+ *   ConfigStore and Wi-Fi NVS data are erased and the controller reboots.
  *
  * NVS behavior:
  *   TFTModuleS3 does not consume these direct-PIR settings; it reads a logical
  *   IOModule input selected by its persistent "motion_io_id" configuration.
  */
 inline constexpr LocalUiInputSpec kWaveshareESP32S3Inputs{
-    -1,   // pirPin disabled; was GPIO11 motion sensor for TFT wake.
+    11,   // pirPin: motion sensor used to wake the screens.
     120,  // pirDebounceMs.
     true, // pirActiveHigh.
-    -1,   // factoryResetPin: not assigned on this board.
-    40    // factoryResetDebounceMs.
+    4,    // factoryResetPin.
+    40,   // factoryResetDebounceMs.
+    false,// factoryResetActiveHigh: button pulls GPIO4 to ground.
+    5000  // factoryResetHoldMs.
 };
 
 /*

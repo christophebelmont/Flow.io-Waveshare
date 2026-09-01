@@ -3,7 +3,8 @@
  * @file SystemModule.h
  * @brief System command module (ping/reboot/factory reset).
  */
-#include "Core/ModulePassive.h"
+#include "Board/BoardTypes.h"
+#include "Core/Module.h"
 #include "Core/NvsKeys.h"
 #include "Core/RuntimeUi.h"
 #include "Core/EventBus/EventBus.h"
@@ -11,13 +12,22 @@
 #include "Core/Services/Services.h"
 
 /**
- * @brief Passive module that registers system commands.
+ * @brief Registers system commands and monitors the hardware factory-reset button.
  */
-class SystemModule : public ModulePassive, public IRuntimeUiValueProvider {
+struct BoardSpec;
+
+class SystemModule : public Module, public IRuntimeUiValueProvider {
 public:
+    explicit SystemModule(const BoardSpec& board);
+
     /** @brief Module id. */
     ModuleId moduleId() const override { return ModuleId::System; }
     ModuleId runtimeUiProviderModuleId() const override { return moduleId(); }
+    const char* taskName() const override { return "system"; }
+    uint16_t taskStackSize() const override { return 3072; }
+    BaseType_t taskCore() const override { return 1; }
+    uint8_t taskCount() const override { return factoryResetButtonEnabled_() ? 1U : 0U; }
+    const ModuleTaskSpec* taskSpecs() const override { return singleLoopTaskSpec(); }
 
     /** @brief Depends on log hub, command service, config service and event bus. */
     uint8_t dependencyCount() const override { return 4; }
@@ -32,6 +42,8 @@ public:
     /** @brief Register system commands. */
     void init(ConfigStore& cfg, ServiceRegistry& services) override;
     void onConfigLoaded(ConfigStore&, ServiceRegistry&) override;
+    void onStart(ConfigStore&, ServiceRegistry&) override;
+    void loop() override;
     bool writeRuntimeUiValue(uint8_t valueId, IRuntimeUiWriter& writer) const override;
 
 private:
@@ -59,6 +71,12 @@ private:
     char restartReason_[24] = {0};
     SystemConfig cfgData_{};
     uint32_t localeGeneration_ = 1U;
+    LocalUiInputSpec inputCfg_{};
+    bool factoryResetRawActive_ = false;
+    bool factoryResetDebouncedActive_ = false;
+    bool factoryResetTriggered_ = false;
+    uint32_t factoryResetRawChangedMs_ = 0U;
+    uint32_t factoryResetPressedMs_ = 0U;
 
     ConfigVariable<char,0> languageVar_{
         NVS_KEY(NvsKeys::System::Language), "lang", "system", ConfigType::CharArray,
@@ -79,6 +97,9 @@ private:
     static bool cmdFactoryReset(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen);
     static void restartTaskStatic_(void* userCtx);
     bool scheduleRestart_(uint32_t delayMs, const char* reason);
+    bool performFactoryReset_();
+    bool factoryResetButtonEnabled_() const;
+    bool readFactoryResetButton_() const;
     void notifyShutdownPending_();
     static void onEventStatic_(const Event& e, void* user);
     void onEvent_(const Event& e);

@@ -147,6 +147,8 @@ struct LocalUiInputSpec {
     bool pirActiveHigh;            // PIR polarity (true = active high).
     int8_t factoryResetPin;        // GPIO pin for factory-reset button.
     uint16_t factoryResetDebounceMs; // Debounce duration for factory-reset input.
+    bool factoryResetActiveHigh;   // Factory-reset button polarity (true = active high).
+    uint16_t factoryResetHoldMs;   // Continuous press duration required to erase NVS.
 };
 
 struct LocalUpdateSpec {

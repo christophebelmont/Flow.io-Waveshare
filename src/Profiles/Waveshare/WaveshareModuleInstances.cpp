@@ -25,6 +25,7 @@ ModuleInstances::ModuleInstances(const BoardSpec& board)
 #if defined(FLOW_ENABLE_TFT_S3) && (FLOW_ENABLE_TFT_S3 != 0)
       tftModuleS3(board),
 #endif
+      systemModule(board),
       hmiModule(board),
       hmiBuzzerModule(board),
       ioModule(board),

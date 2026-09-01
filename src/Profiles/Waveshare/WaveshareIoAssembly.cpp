@@ -70,7 +70,7 @@ constexpr FlowIoAnalogHaSpec kAnalogHaSpecs[kFlowIoAnalogHaSlots] = {
 };
 
 constexpr FlowIoDigitalHaSpec kDigitalHaSpecs[] = {
-    {0, "io_gpio04", "GPIO04", "mdi:electric-switch", nullptr},
+    {0, "io_factory_reset", "Factory Reset", "mdi:restart-alert", nullptr},
     {1, "io_gpio05", "GPIO05", "mdi:electric-switch", nullptr},
     {2, "io_gpio06", "GPIO06", "mdi:electric-switch", nullptr},
     {3, "io_gpio07", "GPIO07", "mdi:electric-switch", nullptr},
@@ -169,14 +169,13 @@ const PoolDevicePreset* findPoolPresetById(const DomainSpec& domain, PoolDeviceI
 uint8_t digitalInputOrdinalFromPort(PhysicalPortId port)
 {
     switch (port) {
-        case FlowIoLayout::PortDin0: return 1;
-        case FlowIoLayout::PortDin1: return 2;
-        case FlowIoLayout::PortDin2: return 3;
-        case FlowIoLayout::PortDin3: return 4;
-        case FlowIoLayout::PortDin4: return 5;
-        case FlowIoLayout::PortDin5: return 6;
-        case FlowIoLayout::PortDin6: return 7;
-        case FlowIoLayout::PortDin7: return 8;
+        case FlowIoLayout::PortGpio5Input: return 2;
+        case FlowIoLayout::PortGpio6Input: return 3;
+        case FlowIoLayout::PortGpio7Input: return 4;
+        case FlowIoLayout::PortGpio8Input: return 5;
+        case FlowIoLayout::PortGpio9Input: return 6;
+        case FlowIoLayout::PortGpio10Input: return 7;
+        case FlowIoLayout::PortGpio11Input: return 8;
         default: return 0;
     }
 }
@@ -184,14 +183,13 @@ uint8_t digitalInputOrdinalFromPort(PhysicalPortId port)
 PhysicalPortId digitalInputPortFromOrdinal(uint8_t ordinal)
 {
     switch (ordinal) {
-        case 1: return FlowIoLayout::PortDin0;
-        case 2: return FlowIoLayout::PortDin1;
-        case 3: return FlowIoLayout::PortDin2;
-        case 4: return FlowIoLayout::PortDin3;
-        case 5: return FlowIoLayout::PortDin4;
-        case 6: return FlowIoLayout::PortDin5;
-        case 7: return FlowIoLayout::PortDin6;
-        case 8: return FlowIoLayout::PortDin7;
+        case 2: return FlowIoLayout::PortGpio5Input;
+        case 3: return FlowIoLayout::PortGpio6Input;
+        case 4: return FlowIoLayout::PortGpio7Input;
+        case 5: return FlowIoLayout::PortGpio8Input;
+        case 6: return FlowIoLayout::PortGpio9Input;
+        case 7: return FlowIoLayout::PortGpio10Input;
+        case 8: return FlowIoLayout::PortGpio11Input;
         default: return IO_PORT_INVALID;
     }
 }
@@ -268,7 +266,7 @@ const char* waveshareDigitalInputNameForDomainSlot(DomainSlotId domainSlot)
 const char* waveshareDigitalInputNameForLogical(uint8_t logicalIdx)
 {
     switch (logicalIdx) {
-        case 0: return "GPIO04";
+        case 0: return "Factory Reset";
         case 1: return "GPIO05";
         case 2: return "GPIO06";
         case 3: return "GPIO07";

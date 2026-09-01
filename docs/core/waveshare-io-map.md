@@ -17,7 +17,7 @@ Le domaine choisit par exemple `ActuatorFiltrationPump -> d00`; la configuration
 signifie « non connecté ». Un binding peut être changé en configuration sans modifier
 le rôle métier ni les topics runtime de l'IO slot.
 
-Les valeurs du profil ne nécessitent aucune migration NVS. La capacité IO compilée est
+Les valeurs du profil décrivent uniquement la carte Flow.io actuelle. La capacité IO compilée est
 `{16, 13, 16, 16, 13, 16}`: 16 analogiques, 13 entrées digitales, 16 sorties digitales,
 puis les trois capacités de configuration correspondantes.
 
@@ -37,7 +37,10 @@ puis les trois capacités de configuration correspondantes.
 | OneWire eau | GPIO20 | DS18B20 eau |
 | OneWire air | GPIO19 | DS18B20 air |
 
-GPIO19 et GPIO20 sont exclusivement utilisés par OneWire. GPIO3 n'est pas exposé.
+GPIO3 pilote l'émetteur Venice TX433, désactivé par défaut dans le ConfigStore.
+GPIO4 est réservé au bouton de remise à zéro matérielle: un appui continu de 5 s
+efface la configuration NVS et les paramètres Wi-Fi, puis redémarre le contrôleur.
+GPIO19 et GPIO20 sont exclusivement utilisés par OneWire. Ethernet est activé par défaut.
 Dans l'environnement de production `Flowio-waveshare-esp32-s3`, le TFT local est actif et
 réserve GPIO21 (backlight), GPIO45 (CS), GPIO1 (DC), GPIO47 (RST), GPIO2 (MOSI) et
 GPIO48 (SCLK). Leurs identifiants de binding génériques sont retirés de `kBindingPorts`
@@ -46,13 +49,13 @@ dans les builds sans TFT.
 
 ## Binding ports
 
-Le profil de production avec TFT déclare 52 binding ports: 21 sources analogiques,
-15 entrées digitales et 16 sorties digitales. Les builds sans TFT ajoutent les six
-GPIO génériques en entrée et en sortie, soit 64 ports. Un binding port décrit une capacité physique; il ne crée un
+Le profil de production avec TFT déclare 51 binding ports: 21 sources analogiques,
+14 entrées digitales et 16 sorties digitales. Les builds sans TFT ajoutent les six
+GPIO génériques en entrée et en sortie, soit 63 ports. Un binding port décrit une capacité physique; il ne crée un
 endpoint runtime que lorsqu'un IO slot lui est affecté.
 
 Chaque entrée de `kBindingPorts` porte un `boardLabel` correspondant au marquage
-matériel (`GPIO04`, `GPA0`, `GPB0`, `EXIO1`, etc.). L'API `/api/io/topology`
+matériel (`GPIO05`, `GPA0`, `GPB0`, `EXIO1`, etc.). L'API `/api/io/topology`
 expose la configuration stable des ports et des slots, tandis que `/api/io/runtime`
 expose leurs états et valeurs actualisés. Les deux réponses sont préparées dans des
 tampons bornés en PSRAM avant leur transmission HTTP.
@@ -99,20 +102,19 @@ le texte « Entrée » ou « Sortie » est disponible au survol et au focus clav
 
 | ID | Constante | Kind/canal | Affectation par défaut |
 |---:|---|---|---|
-| 200 | `PortDin0` | GPIO4 optocouplé | `i12`, Water Meter |
-| 201 | `PortDin1` | GPIO5 | `i01` |
-| 202 | `PortDin2` | GPIO6 | `i02` |
-| 203 | `PortDin3` | GPIO7 | `i03` |
-| 204 | `PortDin4` | GPIO8 | `i04` |
-| 205 | `PortDin5` | GPIO9 | `i05` |
-| 206 | `PortDin6` | GPIO10 | `i06` |
-| 207 | `PortDin7` | GPIO11 | `i07` |
-| 220 | `PortMcpInGpa0` | MCP GPA0 / canal 0 | `i08`, PIR |
+| 201 | `PortGpio5Input` | GPIO5 | `i12`, Water Meter |
+| 202 | `PortGpio6Input` | GPIO6 | `i11`, Pool Level |
+| 203 | `PortGpio7Input` | GPIO7 | `i10`, Chlorine Level |
+| 204 | `PortGpio8Input` | GPIO8 | `i09`, pH Level |
+| 205 | `PortGpio9Input` | GPIO9 | `i05`, libre |
+| 206 | `PortGpio10Input` | GPIO10 | `i06`, libre |
+| 207 | `PortGpio11Input` | GPIO11 | `i08`, PIR |
+| 220 | `PortMcpInGpa0` | MCP GPA0 / canal 0 | Non affecté |
 | 221 | `PortMcpInGpa1` | MCP GPA1 / canal 1 | Non affecté |
 | 222 | `PortMcpInGpa2` | MCP GPA2 / canal 2 | Non affecté |
-| 223 | `PortMcpInGpa3` | MCP GPA3 / canal 3 | `i09`, pH Level |
-| 224 | `PortMcpInGpa4` | MCP GPA4 / canal 4 | `i10`, Chlorine Level |
-| 225 | `PortMcpInGpa5` | MCP GPA5 / canal 5 | `i11`, Pool Level |
+| 223 | `PortMcpInGpa3` | MCP GPA3 / canal 3 | Non affecté |
+| 224 | `PortMcpInGpa4` | MCP GPA4 / canal 4 | Non affecté |
+| 225 | `PortMcpInGpa5` | MCP GPA5 / canal 5 | Non affecté |
 | 226 | `PortMcpInGpa6` | MCP GPA6 / canal 6 | Non affecté |
 | 240..245 | `PortGpio*Input` | GPIO1, 2, 21, 45, 47, 48 | Builds sans TFT uniquement |
 
@@ -183,19 +185,19 @@ l'ADS1115 externe restent sélectionnables. Aucun de ces slots libres n'est asso
 
 | IO slot | Nom | Binding port | Mode |
 |---|---|---:|---|
-| `i00` | GPIO04 | Non connecté | État |
-| `i01` | GPIO05 | 201 | État |
-| `i02` | GPIO06 | 202 | État |
-| `i03` | GPIO07 | 203 | État |
-| `i04` | GPIO08 | 204 | État |
+| `i00` | Factory Reset | Non connecté (GPIO4 réservé au système) | État |
+| `i01` | GPIO05 | Non connecté | État |
+| `i02` | GPIO06 | Non connecté | État |
+| `i03` | GPIO07 | Non connecté | État |
+| `i04` | GPIO08 | Non connecté | État |
 | `i05` | GPIO09 | 205 | État |
 | `i06` | GPIO10 | 206 | État |
-| `i07` | GPIO11 | 207 | État |
-| `i08` | PIR | 220 | État, actif haut |
-| `i09` | pH Level | 223 | État |
-| `i10` | Chlorine Level | 224 | État |
-| `i11` | Pool Level | 225 | État |
-| `i12` | Water Meter | 200 / GPIO4 optocouplé | Compteur, front montant, debounce 100 ms |
+| `i07` | GPIO11 | Non connecté | État |
+| `i08` | PIR | 207 / GPIO11 | État, actif haut |
+| `i09` | pH Level | 204 / GPIO8 | État |
+| `i10` | Chlorine Level | 203 / GPIO7 | État |
+| `i11` | Pool Level | 202 / GPIO6 | État |
+| `i12` | Water Meter | 201 / GPIO5 | Compteur, front montant, debounce 100 ms |
 
 ### Sorties digitales
 

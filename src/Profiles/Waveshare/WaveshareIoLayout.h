@@ -40,14 +40,13 @@ enum : PhysicalPortId {
     PortIna226CurrentMa = 140, // INA226: courant (mA).
     PortIna226PowerMw = 141, // INA226: puissance (mW).
     PortIna226LoadV = 142, // INA226: tension charge (V).
-    PortDin0 = 200, // DIN0.
-    PortDin1 = 201, // DIN1.
-    PortDin2 = 202, // DIN2.
-    PortDin3 = 203, // DIN3.
-    PortDin4 = 204, // DIN4.
-    PortDin5 = 205, // DIN5.
-    PortDin6 = 206, // DIN6.
-    PortDin7 = 207, // DIN7.
+    PortGpio5Input = 201,
+    PortGpio6Input = 202,
+    PortGpio7Input = 203,
+    PortGpio8Input = 204,
+    PortGpio9Input = 205,
+    PortGpio10Input = 206,
+    PortGpio11Input = 207,
     PortExio1 = 300, // TCA9554 sortie bit 0.
     PortExio2 = 301, // TCA9554 sortie bit 1.
     PortExio3 = 302, // TCA9554 sortie bit 2.
@@ -108,14 +107,13 @@ inline constexpr IOBindingPortSpec kBindingPorts[] = {
     {PortIna226CurrentMa, IO_PORT_KIND_INA226, 2, 0, "INA226 Current"},
     {PortIna226PowerMw, IO_PORT_KIND_INA226, 3, 0, "INA226 Power"},
     {PortIna226LoadV, IO_PORT_KIND_INA226, 4, 0, "INA226 Load Voltage"},
-    {PortDin0, IO_PORT_KIND_GPIO_INPUT, 4, 0, "GPIO04"},
-    {PortDin1, IO_PORT_KIND_GPIO_INPUT, 5, 0, "GPIO05"},
-    {PortDin2, IO_PORT_KIND_GPIO_INPUT, 6, 0, "GPIO06"},
-    {PortDin3, IO_PORT_KIND_GPIO_INPUT, 7, 0, "GPIO07"},
-    {PortDin4, IO_PORT_KIND_GPIO_INPUT, 8, 0, "GPIO08"},
-    {PortDin5, IO_PORT_KIND_GPIO_INPUT, 9, 0, "GPIO09"},
-    {PortDin6, IO_PORT_KIND_GPIO_INPUT, 10, 0, "GPIO10"},
-    {PortDin7, IO_PORT_KIND_GPIO_INPUT, 11, 0, "GPIO11"},
+    {PortGpio5Input, IO_PORT_KIND_GPIO_INPUT, 5, 0, "GPIO05"},
+    {PortGpio6Input, IO_PORT_KIND_GPIO_INPUT, 6, 0, "GPIO06"},
+    {PortGpio7Input, IO_PORT_KIND_GPIO_INPUT, 7, 0, "GPIO07"},
+    {PortGpio8Input, IO_PORT_KIND_GPIO_INPUT, 8, 0, "GPIO08"},
+    {PortGpio9Input, IO_PORT_KIND_GPIO_INPUT, 9, 0, "GPIO09"},
+    {PortGpio10Input, IO_PORT_KIND_GPIO_INPUT, 10, 0, "GPIO10"},
+    {PortGpio11Input, IO_PORT_KIND_GPIO_INPUT, 11, 0, "GPIO11"},
     {PortMcpInGpa0, IO_PORT_KIND_MCP23017_INPUT, 0, ExpanderMcp23017, "GPA0"},
     {PortMcpInGpa1, IO_PORT_KIND_MCP23017_INPUT, 1, ExpanderMcp23017, "GPA1"},
     {PortMcpInGpa2, IO_PORT_KIND_MCP23017_INPUT, 2, ExpanderMcp23017, "GPA2"},
@@ -190,11 +188,11 @@ struct DigitalInputRoleDefault {
 
 inline constexpr DigitalInputRoleDefault kDigitalInputRoleDefaults[] = {
     // {role, bindingPort, mode, edgeMode, debounceUs}
-    {PoolIds::SensorPir, PortMcpInGpa0, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
-    {PoolIds::SensorPhLevel, PortMcpInGpa3, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
-    {PoolIds::SensorChlorineLevel, PortMcpInGpa4, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
-    {PoolIds::SensorPoolLevel, PortMcpInGpa5, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
-    {PoolIds::SensorWaterMeter, PortDin0, IO_DIGITAL_INPUT_COUNTER, IO_EDGE_RISING, 100000U},
+    {PoolIds::SensorPir, PortGpio11Input, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
+    {PoolIds::SensorPhLevel, PortGpio8Input, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
+    {PoolIds::SensorChlorineLevel, PortGpio7Input, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
+    {PoolIds::SensorPoolLevel, PortGpio6Input, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
+    {PoolIds::SensorWaterMeter, PortGpio5Input, IO_DIGITAL_INPUT_COUNTER, IO_EDGE_RISING, 100000U},
 };
 
 struct DigitalOutputRoleDefault {

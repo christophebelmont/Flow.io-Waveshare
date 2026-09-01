@@ -126,7 +126,7 @@ Ports déclarés actuellement:
 - BMP280: `PortBmp280Temp`, `PortBmp280Pressure`
 - BME688 via driver BME680: `PortBme688Temp`, `PortBme688Humidity`, `PortBme688Pressure`, `PortBme688Gas`
 - INA226: `PortIna226ShuntMv`, `PortIna226BusV`, `PortIna226CurrentMa`, `PortIna226PowerMw`, `PortIna226LoadV`
-- entrées digitales intégrées: `PortDin0..7`
+- entrées digitales intégrées: `PortGpio5Input..PortGpio11Input` (GPIO4 est réservé au reset système)
 - entrées d'extension: `PortMcpInGpa0..6`
 - sorties relais TCA9554: `PortExio1..8`
 - sorties d'extension: `PortMcpOutGpb0..7`
@@ -165,11 +165,11 @@ Le profil Waveshare instancie aujourd'hui:
 
 | Rôle par défaut | Port physique par défaut | Mode |
 |---|---|---|
-| `SensorPir` | `PortMcpInGpa0` | état |
-| `SensorPhLevel` | `PortMcpInGpa3` | état |
-| `SensorChlorineLevel` | `PortMcpInGpa4` | état |
-| `SensorPoolLevel` | `PortMcpInGpa5` | état |
-| `SensorWaterMeter` | `PortDin0` (optocoupleur GPIO4) | compteur, front montant, debounce `100000 us` |
+| `SensorPir` | `PortGpio11Input` | état |
+| `SensorPhLevel` | `PortGpio8Input` | état |
+| `SensorChlorineLevel` | `PortGpio7Input` | état |
+| `SensorPoolLevel` | `PortGpio6Input` | état |
+| `SensorWaterMeter` | `PortGpio5Input` | compteur, front montant, debounce `100000 us` |
 
 ### Sorties digitales
 

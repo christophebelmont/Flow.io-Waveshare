@@ -291,7 +291,9 @@ const LocalUiBoardSpec& fallbackBoardSpec_()
             120,
             true,
             -1,
-            40
+            40,
+            false,
+            5000
         },
         {
             -1,

@@ -430,7 +430,6 @@ def _apply_profile_specific_io_enum_sets(meta: dict, profile: str, tft_enabled: 
             203: "DIN3 - GPIO35 [203]",
         }
         din_labels_waveshare = {
-            200: "GPIO04 - ESP32-S3 input [200]",
             201: "GPIO05 - ESP32-S3 input [201]",
             202: "GPIO06 - ESP32-S3 input [202]",
             203: "GPIO07 - ESP32-S3 input [203]",
@@ -602,7 +601,8 @@ def main() -> None:
     tft_enabled = _env_flag("FLOW_CFGDOC_TFT_ENABLED")
 
     if profile == "waveshare":
-        # The Waveshare runtime exposes GPIO04..GPIO11 plus five MCP23017 inputs.
+        # The Waveshare runtime reserves GPIO4 for factory reset and exposes
+        # GPIO5..GPIO11 plus five logical Pool inputs.
         _expand_digital_input_slot_docs(cfgdocs_docs, 12)
         _expand_digital_input_slot_docs(cfgmods_docs, 12)
         _expand_digital_input_slot_translations(i18n, 12)

@@ -3,6 +3,7 @@
  * @brief Implementation file.
  */
 #include "SystemModule.h"
+#include "Board/BoardSpec.h"
 #include "Core/ErrorCodes.h"
 #include "Core/EventBus/EventPayloads.h"
 #include "Core/FirmwareVersion.h"
@@ -14,6 +15,12 @@
 #include <string.h>
 #define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::SystemModule)
 #include "Core/ModuleLog.h"
+
+SystemModule::SystemModule(const BoardSpec& board)
+{
+    const LocalUiBoardSpec* localUi = boardLocalUiConfig(board);
+    if (localUi) inputCfg_ = localUi->inputs;
+}
 
 static bool wipeWifiPersistent_(esp_err_t* outErr)
 {
@@ -83,7 +90,21 @@ bool SystemModule::cmdFactoryReset(void* userCtx, const CommandRequest&, char* r
         return false;
     }
 
-    const bool flowCfgCleared = self->cfgSvc->erase(self->cfgSvc->ctx);
+    if (!self->performFactoryReset_()) {
+        if (!writeErrorJson(reply, replyLen, ErrorCode::Failed, "system.factory_reset")) {
+            snprintf(reply, replyLen, "{\"ok\":false}");
+        }
+        return false;
+    }
+
+    return writeOkReply_(reply, replyLen, "{\"ok\":true,\"msg\":\"factory_reset\",\"reboot_scheduled\":true}", "system.factory_reset");
+}
+
+bool SystemModule::performFactoryReset_()
+{
+    if (!cfgSvc || !cfgSvc->erase) return false;
+
+    const bool flowCfgCleared = cfgSvc->erase(cfgSvc->ctx);
 
     // Also wipe WiFi driver persisted credentials/settings from default NVS storage.
     esp_err_t wifiRestoreErr = ESP_OK;
@@ -97,25 +118,79 @@ bool SystemModule::cmdFactoryReset(void* userCtx, const CommandRequest&, char* r
              (int)flowCfgCleared,
              (int)wifiCfgCleared,
              (int)wifiRestoreErr);
-        if (!writeErrorJson(reply, replyLen, ErrorCode::Failed, "system.factory_reset")) {
-            snprintf(reply, replyLen, "{\"ok\":false}");
-        }
         return false;
     }
 
-    if (!self->scheduleRestart_(700U, "system.factory_reset")) {
-        if (!writeErrorJson(reply, replyLen, ErrorCode::Failed, "system.factory_reset.reboot")) {
-            snprintf(reply, replyLen, "{\"ok\":false}");
-        }
-        return false;
-    }
+    if (!scheduleRestart_(700U, "system.factory_reset")) return false;
 
     LOGI("Factory reset done flow_cfg=%d wifi_cfg=%d wifi_err=%d",
          (int)flowCfgCleared,
          (int)wifiCfgCleared,
          (int)wifiRestoreErr);
 
-    return writeOkReply_(reply, replyLen, "{\"ok\":true,\"msg\":\"factory_reset\",\"reboot_scheduled\":true}", "system.factory_reset");
+    return true;
+}
+
+bool SystemModule::factoryResetButtonEnabled_() const
+{
+    return inputCfg_.factoryResetPin >= 0 && inputCfg_.factoryResetHoldMs > 0U;
+}
+
+bool SystemModule::readFactoryResetButton_() const
+{
+    if (!factoryResetButtonEnabled_()) return false;
+    const bool pinHigh = digitalRead((uint8_t)inputCfg_.factoryResetPin) == HIGH;
+    return inputCfg_.factoryResetActiveHigh ? pinHigh : !pinHigh;
+}
+
+void SystemModule::onStart(ConfigStore&, ServiceRegistry&)
+{
+    if (!factoryResetButtonEnabled_()) return;
+
+    pinMode((uint8_t)inputCfg_.factoryResetPin,
+            inputCfg_.factoryResetActiveHigh ? INPUT_PULLDOWN : INPUT_PULLUP);
+    factoryResetRawActive_ = readFactoryResetButton_();
+    factoryResetDebouncedActive_ = factoryResetRawActive_;
+    factoryResetRawChangedMs_ = millis();
+    factoryResetPressedMs_ = factoryResetDebouncedActive_ ? factoryResetRawChangedMs_ : 0U;
+    LOGI("Factory-reset button ready gpio=%d active=%s hold_ms=%u debounce_ms=%u",
+         (int)inputCfg_.factoryResetPin,
+         inputCfg_.factoryResetActiveHigh ? "high" : "low",
+         (unsigned)inputCfg_.factoryResetHoldMs,
+         (unsigned)inputCfg_.factoryResetDebounceMs);
+}
+
+void SystemModule::loop()
+{
+    if (!factoryResetButtonEnabled_()) return;
+
+    const uint32_t now = millis();
+    const bool rawActive = readFactoryResetButton_();
+    if (rawActive != factoryResetRawActive_) {
+        factoryResetRawActive_ = rawActive;
+        factoryResetRawChangedMs_ = now;
+    }
+
+    if (factoryResetDebouncedActive_ != factoryResetRawActive_ &&
+        (uint32_t)(now - factoryResetRawChangedMs_) >= inputCfg_.factoryResetDebounceMs) {
+        factoryResetDebouncedActive_ = factoryResetRawActive_;
+        if (factoryResetDebouncedActive_) {
+            factoryResetPressedMs_ = now;
+            LOGW("Factory-reset button pressed; hold for %u ms", (unsigned)inputCfg_.factoryResetHoldMs);
+        } else {
+            factoryResetPressedMs_ = 0U;
+            factoryResetTriggered_ = false;
+        }
+    }
+
+    if (factoryResetTriggered_ || !factoryResetDebouncedActive_ || factoryResetPressedMs_ == 0U) return;
+    if ((uint32_t)(now - factoryResetPressedMs_) < inputCfg_.factoryResetHoldMs) return;
+
+    factoryResetTriggered_ = true;
+    LOGW("Factory-reset button hold confirmed; erasing NVS configuration");
+    if (!performFactoryReset_()) {
+        LOGE("Factory-reset button action failed; release and retry");
+    }
 }
 
 void SystemModule::restartTaskStatic_(void* userCtx)
