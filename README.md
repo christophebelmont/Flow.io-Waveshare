@@ -122,7 +122,7 @@ L'installation de référence associe un contrôleur industriel [Waveshare ESP32
   <em>Liaison entre le boîtier flow.io et le contrôleur Waveshare par une nappe standard.</em>
 </p>
 
-Le contrôleur [Waveshare ESP32-S3-POE-ETH-8DI-8RO](https://www.waveshare.com/product/iot-communication/esp32-s3-eth-8di-8ro.htm) assure le fonctionnement autonome. Il inclut une alimentation isolée et stabilisée, des ports Ethernet ou Wi-Fi, des entrées sorties isolées par optocoupleur, une Real Time Clock (RTC) pour la gestion du temps et une interface RS485 pour contrôler les équipements qui utilisent ce protocole.
+Le contrôleur [Waveshare ESP32-S3-POE-ETH-8DI-8RO](https://www.waveshare.com/product/iot-communication/esp32-s3-eth-8di-8ro.htm) assure le fonctionnement autonome. Il inclut une alimentation isolée et stabilisée, des ports Ethernet ou Wi-Fi, des entrées sorties isolées par optocoupleur, une Real Time Clock (RTC) pour la gestion du temps et une interface RS485 pour contrôler les équipements qui utilisent ce protocole. Le contrôleur existe en version POE pour alimenter l'ensemble du système flow.io via le port Ethernet.
 
 La carte flow.io Companion regroupe les raccordements utiles à la piscine sur des borniers et connecteurs clairement identifiés : sondes pH et ORP, pression, températures, niveaux, compteur d'eau, afficheur et extensions. Elle simplifie le câblage et permet une intégration plus compacte et plus lisible dans le coffret technique. La carte est prévue pour s'intégrer dans un boitier DIN standard.
 
