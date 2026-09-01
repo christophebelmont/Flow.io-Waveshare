@@ -62,7 +62,7 @@ Les dépendances entre équipements sont gérées de manière centralisée. Par 
 
 ### Modèle open source
 
-L'ensemble du logiciel et du hardware est disponible en open source. Le code est ouvert et modulaire permettant d'adapter le fonctionnement à tout écosystème.
+L'ensemble du logiciel et du hardware est disponible en open source. Le code est ouvert et modulaire permettant d'adapter le fonctionnement à tous les écosystèmes.
 
 ## Vue d'ensemble
 
