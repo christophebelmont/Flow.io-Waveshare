@@ -110,10 +110,10 @@ L'écran tactile [Nextion](https://nextion.tech/) peut être installé dans le l
 
 ## Le matériel flow.io
 
-L'installation de référence associe un contrôleur industriel Waveshare ESP32-S3 à la carte flow.io Companion, dans un boîtier de contrôle complété par un écran tactile local.
+L'installation de référence associe un contrôleur industriel [Waveshare ESP32-S3-POE-ETH-8DI-8RO](https://www.waveshare.com/product/iot-communication/esp32-s3-eth-8di-8ro.htm) à la carte flow.io Companion.
 
 <p align="center">
-  <img src="docs/pictures/flowio-controller-enclosure-cutaway-middle.png" alt="Carte Flow.io Companion dans son boitier standard" width="1100"><br>
+  <img src="docs/pictures/flowio-controller-enclosure-cutaway-screen.png" alt="Carte Flow.io Companion dans son boitier standard" width="1100"><br>
   <em>Carte flow.io Companion dans son boitier.</em>
 </p>
 
@@ -122,11 +122,9 @@ L'installation de référence associe un contrôleur industriel Waveshare ESP32-
   <em>Liaison entre le boîtier flow.io et le contrôleur Waveshare par une nappe standard.</em>
 </p>
 
-Le contrôleur [Waveshare ESP32-S3-POE-ETH-8DI-8RO](https://www.waveshare.com/product/iot-communication/esp32-s3-eth-8di-8ro.htm) assure le fonctionnement autonome et les communications Ethernet ou Wi-Fi.
+Le contrôleur [Waveshare ESP32-S3-POE-ETH-8DI-8RO](https://www.waveshare.com/product/iot-communication/esp32-s3-eth-8di-8ro.htm) assure le fonctionnement autonome. Il inclut une alimentation isolée et stabilisée, des ports Ethernet ou Wi-Fi, des entrées sorties isolées par optocoupleur, une Real Time Clock (RTC) pour la gestion du temps et une interface RS485 pour contrôler les équipements qui utilisent ce protocole.
 
-La carte flow.io Companion regroupe les raccordements utiles à la piscine sur des borniers et connecteurs clairement identifiés : sondes pH et ORP, pression, températures, niveaux, compteur d'eau, afficheur et extensions. Elle simplifie le câblage et permet une intégration plus compacte et plus lisible dans le coffret technique.
-
-Le boîtier rassemble l'électronique de contrôle dans un ensemble compact, tandis que l'écran tactile donne accès sur place aux mesures essentielles et aux commandes de la piscine.
+La carte flow.io Companion regroupe les raccordements utiles à la piscine sur des borniers et connecteurs clairement identifiés : sondes pH et ORP, pression, températures, niveaux, compteur d'eau, afficheur et extensions. Elle simplifie le câblage et permet une intégration plus compacte et plus lisible dans le coffret technique. La carte est prévue pour s'intégrer dans un boitier DIN standard.
 
 ## Au quotidien
 
