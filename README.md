@@ -60,6 +60,10 @@ Selon l'installation, flow.io peut commander :
 
 Les dépendances entre équipements sont gérées de manière centralisée. Par exemple, un traitement ou un chauffage qui nécessite une circulation d'eau ne fonctionne pas indépendamment de la filtration.
 
+### Modèle open source
+
+L'ensemble du logiciel et du hardware est disponible en open source. Le code est ouvert et modulaire permettant d'adapter le fonctionnement à tout écosystème.
+
 ## Vue d'ensemble
 
 <p align="center">
