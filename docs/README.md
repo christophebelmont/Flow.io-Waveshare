@@ -27,6 +27,8 @@ Les dépendances déclarées dans `platformio.ini` sont installées automatiquem
 
 ### Installer et raccorder
 
+- [Construire et assembler le matériel flow.io](hardware/README.md)
+- [Nomenclature complète et fichiers BOM](hardware/bill-of-materials.md)
 - [Mise en service du profil Waveshare](integration/mise-en-service.md)
 - [Cartographie complète des entrées, sorties et raccordements](core/waveshare-io-map.md)
 - [Protocole entre l'ESP32 et l'écran Nextion](integration/nextion-esp-protocol.md)

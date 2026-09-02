@@ -130,6 +130,8 @@ Le contrôleur [Waveshare ESP32-S3-POE-ETH-8DI-8RO](https://www.waveshare.com/pr
 
 La carte flow.io Companion regroupe les raccordements utiles à la piscine sur des borniers et connecteurs clairement identifiés : sondes pH et ORP, pression, températures, niveaux, compteur d'eau, afficheur et extensions. Elle simplifie le câblage et permet une intégration plus compacte et plus lisible dans le coffret technique. La carte est prévue pour s'intégrer dans un boitier DIN standard.
 
+Les plans de fabrication, nomenclatures, procédures d'assemblage, boîtiers, écrans et extensions sont regroupés dans la [documentation matérielle flow.io](docs/hardware/README.md).
+
 ## Au quotidien
 
 Une fois l'installation configurée, flow.io travaille en continu pour :
@@ -145,4 +147,4 @@ Le résultat recherché est une eau plus régulière, moins d'interventions rép
 
 ---
 
-Pour l'installation, la compilation, la cartographie des raccordements et la structure du logiciel, consulter la [documentation technique de flow.io](docs/README.md).
+Pour la construction matérielle, l'installation, la compilation, la cartographie des raccordements et la structure du logiciel, consulter la [documentation technique de flow.io](docs/README.md).

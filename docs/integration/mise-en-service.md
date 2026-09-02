@@ -84,6 +84,8 @@ Toutes les sorties sont actives à l'état haut et démarrent à OFF. `d00` pré
 
 La carte flow.io Companion se raccorde au connecteur d'extension du Waveshare au moyen d'une nappe dédiée. Cette liaison reporte les alimentations et signaux utiles vers les borniers fonctionnels de la Companion, sans modifier leur affectation logicielle.
 
+La fabrication et les précautions de montage sont détaillées dans [Companion v1.1](../hardware/companion-v1.1.md) et [Assemblage de la Companion](../hardware/companion-assembly.md).
+
 Procédure recommandée:
 
 1. couper toutes les alimentations du Waveshare, de la Companion et des équipements;
@@ -110,6 +112,8 @@ Le build de production active `FLOW_ENABLE_TFT_S3=1` et réserve:
 | SCLK | 48 |
 
 Ne pas affecter les binding ports génériques associés à ces GPIO tant que le TFT est actif.
+
+La préparation mécanique, le câblage et l'intégration au boîtier sont décrits dans [Boîtier DIN, façade et TFT local](../hardware/enclosures-and-local-tft.md).
 
 ## 6. Extensions et rôles métier
 

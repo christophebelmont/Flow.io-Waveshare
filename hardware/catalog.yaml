@@ -1,0 +1,58 @@
+schema_version: 1
+catalog_updated: 2026-09-02
+
+boards:
+  companion_v1_1:
+    status: supported
+    documentation: ../docs/hardware/companion-v1.1.md
+    source_format: EasyEDA JSON
+    source_file: companion/v1.1/EasyEDA_PCB_Flowio_Companion_Waveshare-ESP32-S3-POE-ETH-8DI-8RO-1.1_2026-08-11.json
+    source_sha256: 0409350dabae7eda7e2fc5bf3aff67a83bc9fe06dea5f912a016159c8b996019
+    gerber_file: companion/v1.1/Gerber_ESP32-S3_Flowio_Companion_Waveshare-ESP32-S3-POE-ETH-8DI-8RO-1.1_2026-08-11.zip
+    gerber_sha256: 77f39623fad43bc6f1fc939d096e8d3342d30c61543473d87716cf636e770025
+    model_3d_file: companion/v1.1/OBJ_Flowio_Companion_Waveshare-ESP32-S3-POE-ETH-8DI-8RO-1.1_2026-08-11.zip
+    model_3d_sha256: c017995d180c68ee367472f1e70d554e9fff51e63f65bc70c39148c5fb235915
+
+  companion_facade:
+    status: prototype
+    version: "(À confirmer)"
+    documentation: ../docs/hardware/enclosures-and-local-tft.md
+    source_file: companion/facade/EasyEDA_PCB_FLOWIO_DIN_FACADE_2026-08-11.json
+    source_sha256: 6827ed51ff1b35ff71161982c5805d320ff3986d5657b0c1d4b031c91135f91d
+    manufacturing_package: companion/facade/PCB_FLOWIO_DIN_FACADE__20260616163521.zip_Y25.zip
+    manufacturing_package_sha256: 8e92d549c979cb11c91f7d3fc5ab88bb060320de79820aae2a5f7519fd01ab85
+
+  led_panel:
+    status: supported
+    version: "(À confirmer)"
+    documentation: ../docs/hardware/sensors-and-extensions.md
+    source_file: led-panel/EasyEDA_PCB_Led-flowio-m5proto_2026-08-11.json
+    source_sha256: 0af8ea1a685de839d3d4ca96cbad309a6abb79ed8da0b973b92e2365abc823d5
+
+third_party:
+  ph_orp_board_v2:
+    status: external
+    documentation: ../docs/hardware/ph-orp-interface.md
+    upstream: https://github.com/Gixy31/ESP32-PoolMaster/tree/main/pH_Orp%20Board%20V2
+    license: "(À confirmer)"
+    redistribution: false
+
+nextion_release:
+  version: 6.0.0
+  firmware_compatibility: "flow.io 2.0.1"
+  files:
+    - model: NX4832K035
+      file: ../nextion/releases/6.0.0/FlowIO_Nextion_NX4832K035_011-6.0.0.tft
+      sha256: 2974bd7449561e40a95fc3b3df3dd1f1fc2959744132c404638f2c64a6934f51
+    - model: NX8048P050-011R
+      file: ../nextion/releases/6.0.0/FlowIO_Nextion_NX8048P050_011-6.0.0.tft
+      sha256: f4bdc1ffda053792e58708d353bb5e8e27e52947a378c0dd0cecee14a77ac3cd
+    - model: NX8048P070-011R
+      file: ../nextion/releases/6.0.0/FlowIO_Nextion_NX8048P070_011-6.0.0.tft
+      sha256: 44121307d4fcf3f45fc7bbf0ebcf22e144203d3934b666a64279d2630955cab5
+    - model: Enhanced 480x320 source
+      file: ../nextion/releases/6.0.0/Flowio_Enhanced_480x320.HMI
+      sha256: 7518a352d7efff1e09de3eb1c70b6be0347dc30d710cb27131a82cc502df6147
+    - model: Intelligent 800x480 source
+      file: ../nextion/releases/6.0.0/Flowio_Intelligent_800x480.HMI
+      sha256: ba0d2a86f7f1134dd1ce78241bd807e778ce6d9480c6e7c64610103b0826143e

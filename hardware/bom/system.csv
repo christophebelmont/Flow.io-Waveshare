@@ -1,0 +1,47 @@
+section,status,item,model_or_specification,quantity,unit,indicative_unit_price,currency,price_date,source_url,notes
+Base,Required,Waveshare controller,ESP32-S3-ETH-8DI-8RO or ESP32-S3-POE-ETH-8DI-8RO,1,piece,70,(À confirmer),2026-08,https://www.waveshare.com/product/esp32-s3-eth-8di-8ro.htm,PoE variant recommended when the network infrastructure supports IEEE 802.3af
+Base,Required,Companion PCB,Flow.io Companion v1.1,1,piece,4,(À confirmer),2026-08,../companion/v1.1/,Bare PCB; components are listed in companion-v1.1.csv
+Base,Required,Tactile push button,6x6x6 mm 4-pin G91 or compatible,1,piece,1,(À confirmer),2026-08,https://fr.aliexpress.com/item/32816784693.html,Used for the local reset function
+Base,Required,Resistor network,9-pin 10 kOhm A103J,1,piece,1.3,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005004545557182.html,Orientation is marked by the dot on the component and PCB
+Base,Required,I2C logic-level converter,4-channel bidirectional 5 V / 3.3 V,1,piece,1,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005006885846600.html,HV and LV orientation must be respected
+Base,Required,Analog-to-digital converter,ADS1115 16-bit I2C,1,piece,1.5,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005006733645008.html,ADS1015 12-bit modules are not compatible with the documented configuration
+Base,Required,Power monitor,INA226 I2C module,1,piece,2,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005009059583318.html,
+Base,Required,Jumpers,2.54 mm assorted,1,lot,1,(À confirmer),2026-08,https://fr.aliexpress.com/item/4000583368141.html,
+Base,Required,Screw terminal,KF128 2-pin 5.08 mm pitch,2,piece,0.5,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005006136789245.html,
+Base,Required,Screw terminal,KF128 6-pin 2.54 mm pitch,3,piece,0.5,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005008165668449.html,
+Base,Required,Screw terminal,KF128 4-pin 2.54 mm pitch,3,piece,0.5,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005008165668449.html,
+Base,Required,Breakaway pin header,2.54 mm single-row male assorted colors,1,lot,3,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005007039504981.html,
+Base,Required,Female header,2.54 mm single-row 10-pin,1,lot,3,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005001418544370.html,
+Base,Required,Top-entry connector,XH 2.54 mm 4-pin,3,piece,0.5,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005005039750137.html,
+Base,Required,Straight connector,JST-PH 2.0 mm 3-pin,6,piece,0.3,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005007441813591.html,
+Base,Required,Dupont ribbon cable,7-pin female-to-female,4,piece,1,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005004635090978.html,Length depends on the relative position of the boards
+Base,Required,Dupont ribbon cable,10-pin male-to-female,1,piece,3,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005003641187997.html,A 2x5 connector may provide a more robust alternative
+Power,Required,DC power supply,230 VAC to 12 VDC 15 W DIN-rail supply or equivalent,1,piece,8,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005006961836286.html,Required only when the controller is not powered by PoE or another suitable DC source
+Power,Required,Circuit breaker,10 A with characteristics suited to the installation,1,piece,8,(À confirmer),2026-08,(À confirmer),Selection and installation must be performed by a qualified person
+Sensors,Required,Air-temperature probe,DS18B20 3 m,1,piece,2.3,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005001601986600.html,OneWire GPIO19
+Sensors,Required,Water-temperature probe,Waterproof DS18B20,1,piece,9,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005005541143230.html,OneWire GPIO20
+Sensors,Recommended,Water-pressure sensor,3.3 V output 0.4-2.4 V; 0-2 bar or 0-3 bar,1,piece,15,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005005851644209.html,Pressure range must be selected for the hydraulic installation
+Sensors,Required,pH probe,BNC pool-compatible probe,1,piece,(À confirmer),(À confirmer),(À confirmer),(À confirmer),Exact model and cable length (À confirmer)
+Sensors,Required,ORP probe,BNC platinum probe recommended for pool setpoints,1,piece,(À confirmer),(À confirmer),(À confirmer),(À confirmer),Exact model and cable length (À confirmer)
+Actuators,Required,Peristaltic dosing pump,Compatible supply and flow rate,2,piece,(À confirmer),(À confirmer),(À confirmer),(À confirmer),Supply voltage; flow rate and tubing (À confirmer)
+pH/ORP option A,Alternative,pH/ORP adapter,Phidgets 1130 or equivalent,2,piece,35.3,(À confirmer),2026-08,https://www.gotronic.fr/art-adaptateur-ph-orp-1130-12112.htm,Use together with one galvanic isolator per channel
+pH/ORP option A,Alternative,Analog sensor cable,Phidgets 3003 or compatible,2,piece,2.5,(À confirmer),2026-08,https://www.gotronic.fr/cat-cordons-pour-capteurs-analogiques-phidgets-2065.htm,
+pH/ORP option A,Alternative,Signal isolator,DFRobot DFR0504 or equivalent,2,piece,22,(À confirmer),2026-08,https://www.gotronic.fr/art-module-d-isolation-de-signal-dfr0504-27832.htm,
+pH/ORP option B,Alternative,Isolated pH/ORP I2C board,Gixy/PoolMaster pH_Orp Board V2,1,piece,(À confirmer),(À confirmer),(À confirmer),https://github.com/Gixy31/ESP32-PoolMaster/tree/main/pH_Orp%20Board%20V2,Redistribution license (À confirmer)
+pH/ORP option B,Alternative,Dupont cable,4-pin female-to-female,1,piece,1,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005006389290211.html,
+Extensions,Optional,Additional 5 V converter,DD4012SA 1 A 5-40 V to 5 V,1,piece,1.1,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005002296952935.html,Only if the Waveshare regulators are insufficient for the installed extensions
+Extensions,Optional,Additional 3.3 V converter,DD4012SA 1 A 5-40 V to 3.3 V,1,piece,1.1,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005002296952935.html,Only if the Waveshare regulators are insufficient for the installed extensions
+Extensions,Optional,RF transmitter,433 MHz transmitter compatible with TFA Venice,1,piece,1,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005009706095391.html,GPIO3; driver disabled by default
+Extensions,Recommended,I2C GPIO expander,MCP23017 module configured at 0x21,1,piece,2.5,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005010698366461.html,Recommended during initial assembly
+Extensions,Recommended,Motion sensor,M5Stack PIR unit or compatible active-high module,1,piece,9,(À confirmer),2026-08,https://shop.m5stack.com/products/pir-module,GPIO11; module supply selection depends on its specification
+Extensions,Optional,Front LED panel,Flow.io PCF8574A panel at 0x3C,1,piece,10,(À confirmer),2026-08,../led-panel/,See led-panel.csv
+Enclosure,Optional,DIN-rail enclosure,RS PRO 1862291 138.8 x 88.8 x 62.8 mm,1,piece,7,(À confirmer),2026-08,https://www.manomano.fr/p/boitier-pour-rail-din-rs-pro-boitier-modulaire-dimensions-1388-x-888-x-628mm-prix-pour-1-84767065,Availability and exact current reference (À confirmer)
+Enclosure,Optional,Flow.io enclosure cover,Companion facade PCB,2,piece,2,(À confirmer),2026-08,../companion/facade/,Quantity depends on enclosure configuration
+Local display,Optional,TFT LCD module,ST7789 240x320 2.0-inch with metal frame,1,piece,4,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005008791002373.html,2.0-inch format recommended for the documented enclosure
+Local display,Optional,Dupont cable,8-pin female-to-female 2.54 mm 10 cm,1,piece,4.2,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005003197404065.html,Red and black conductors are reversed during preparation
+Local display,Optional,Internal PIR module,Mini pyroelectric PIR with suitable logic level,1,piece,(À confirmer),(À confirmer),(À confirmer),(À confirmer),Only when the external enclosed PIR is not used
+Nextion,Recommended,Touch display,Nextion NX8048P050-011R 5-inch,1,piece,(À confirmer),(À confirmer),(À confirmer),https://nextion.tech/,Recommended local HMI
+Nextion,Optional,Touch display,Nextion NX8048P070-011R 7-inch,1,piece,(À confirmer),(À confirmer),(À confirmer),https://nextion.tech/,Larger alternative
+Nextion,Optional,Touch display,Nextion NX4832K035 3.5-inch,1,piece,40,(À confirmer),2026-08,https://nextion.tech/datasheets/nx4832k035/,Supported but smaller display
+Nextion,Optional,Enclosure,Case for NX4832K035,1,piece,3,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005007935262679.html,Case reference for 5-inch and 7-inch models (À confirmer)
+Nextion,Required,Serial cable,XH2.54 4-pin reverse cable 0.3-1 m,1,piece,4,(À confirmer),2026-08,https://fr.aliexpress.com/item/1005010789767450.html,Required only when a Nextion display is installed; verify 5V TX RX GND continuity before powering the display

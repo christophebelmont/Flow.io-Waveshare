@@ -15,6 +15,7 @@ Cette page indique où intervenir selon le type de changement. Elle complète l'
 │   └── Profiles/Waveshare/ assemblage de la cible matérielle
 ├── data/                   sources de l'interface web et du système de fichiers
 ├── docs/                   documentation technique et médias
+├── hardware/               BOM et sources de fabrication matérielles
 ├── include/                fichiers de compatibilité exposés au build
 ├── lib/                    bibliothèques locales
 ├── nextion/                sources liées à l'afficheur Nextion
@@ -63,6 +64,14 @@ Les affectations IO par défaut sont centralisées dans `WaveshareIoLayout.h`; l
 `data/webinterface/` contient les sources statiques de l'interface servie par l'ESP32. La préparation du build crée des variantes compactées et des fragments dans `data/wc/`, puis assemble une arborescence SPIFFS temporaire sous `.pio/`.
 
 Ne pas modifier manuellement les fichiers générés dans `data/wc/`. Le chemin de génération et les conventions de chargement sont détaillés dans [Ressources web Waveshare](webinterface-assets-modular.md).
+
+## Matériel et fichiers de fabrication
+
+`hardware/` contient les BOM normalisées, les sources EasyEDA, les Gerber, les modèles mécaniques et un catalogue avec les empreintes SHA-256. Les pages de lecture correspondantes se trouvent dans [`docs/hardware/`](../hardware/README.md).
+
+Les fichiers tiers dont la licence de redistribution n'est pas établie ne sont pas copiés dans le dépôt : un fichier README conserve leur provenance et marque la licence **(À confirmer)**.
+
+`nextion/releases/` contient les sources HMI et les binaires TFT versionnés par modèle. Les fichiers non versionnés conservés à la racine de `nextion/` appartiennent à l'historique du dépôt.
 
 ## Générateurs et sorties
 

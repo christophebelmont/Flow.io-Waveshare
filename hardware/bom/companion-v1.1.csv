@@ -1,0 +1,31 @@
+id,name,designators,footprint,quantity,manufacturer_part,manufacturer,supplier,supplier_part,source_url,status,notes
+1,PZ254V-11-03P-RD,"RED1,RED2,RED3,RED4,RED",HDR-TH_3P-P2.54-V-M,5,(À confirmer),(À confirmer),LCSC,C41425293,https://lcsc.com/eda_search?q=C41425293,Required,Red 3-pin headers
+2,2.54 mm 1x4,"IO09,IO10",HDR-TH_4P-P2.54-V-M,2,(À confirmer),(À confirmer),LCSC,(À confirmer),https://lcsc.com/eda_search?q=C390680,Required,Original supplier part and URL disagree
+3,2.54 mm 1x3 male,"H1,H28,H29,H30,H31",HDR-TH_3P-P2.54-V-M-1,5,(À confirmer),(À confirmer),(À confirmer),C49257,https://lcsc.com/eda_search?q=C49257,Required,
+4,2.54 mm 1x2 male,"H3,H24,H26,H27",HDR-TH_2P-P2.54-V-M-2,4,(À confirmer),(À confirmer),LCSC,(À confirmer),https://item.szlcsc.com/214355.html,Required,
+5,10 kOhm resistor network,NR,RES-ARRAY-TH_9P-P2.54-D1.0,1,A103J,(À confirmer),LCSC,C8692,https://lcsc.com/eda_search?q=C8692,Required,Align the common-pin dot with the PCB dot
+6,2.54 mm 1x3 male,"H7,H8,H25",HDR-TH_3P-P2.54-V-M-1,3,(À confirmer),(À confirmer),LCSC,C2914353,https://lcsc.com/eda_search?q=C2914353,Required,
+7,PZ254V-11-03P-YL,"I2C_SDA,I3C_SDA,I4C_SDA",HDR-TH_PZ254V-11-03P-YL,3,PZ254V-11-03P-YL,XFCN,LCSC,C41425306,https://lcsc.com/eda_search?q=C41425306,Required,Yellow 3-pin I2C headers
+8,2.54 mm 1x3 female,"H18,H19,H20,H21,H23",HDR-TH_3P-P2.54-V-F,5,(À confirmer),BOOMELE,LCSC,C146243,https://lcsc.com/eda_search?q=C146243,Required,
+9,2.54 mm 1x10 male,WS_GPIO_DIGITAL_INPUT,HDR-TH_10P-P2.54-V-M,1,(À confirmer),(À confirmer),LCSC,C57369,https://lcsc.com/eda_search?q=C2999448,Required,Original supplier part and URL disagree
+10,KF128 5.08 mm 2-pin,"A1,A2",CONN-TH_P5.08_KF128-5.08-2P,2,KF128-5.08-2P-AA,KEFA,LCSC,C474952,https://lcsc.com/eda_search?q=C474952,Required,
+11,2.54 mm 1x6 female,"H2,H14",HDR-TH_6P-P2.54-V-F,2,(À confirmer),(À confirmer),LCSC,C5224026,https://lcsc.com/eda_search?q=C9900015075,Required,Original supplier part and URL disagree
+12,2.54 mm 1x10 female,"H11,H15,H16,H17",HDR-TH_10P-P2.54-V-F,4,(À confirmer),(À confirmer),LCSC,C5116489,https://lcsc.com/eda_search?q=C9900001415,Required,Original supplier part and URL disagree
+13,XH2.54 4-pin,"NEXTION,H12,H13",HDR-1X4P-JST-XH2.54,3,(À confirmer),(À confirmer),LCSC,C5359632,(À confirmer),Required,
+14,2.54 mm 1x4 male,"NEXTION1-WHITE,WMPL-4P",HDR-TH_4P-P2.54-V-M,2,(À confirmer),(À confirmer),LCSC,(À confirmer),https://lcsc.com/eda_search?q=C390680,Required,Original supplier part and URL disagree
+15,KF128 2.54 mm 4-pin,"U8,U59,U60",CONN-TH_4P-P2.54_KF128-2.54-4P,3,(À confirmer),(À confirmer),LCSC,C474922,https://item.szlcsc.com/481540.html,Required,
+16,2.54 mm 1x3 male,VOLTS,HDR-TH_3P-P2.54-V-M-2,1,(À confirmer),(À confirmer),LCSC,C49257,https://item.szlcsc.com/290235.html,Required,
+17,2.54 mm 1x8 female,INA226SOCKET,HDR-TH_8P-P2.54-V-F,1,(À confirmer),(À confirmer),LCSC,C27438,https://lcsc.com/eda_search?q=C27438,Required,
+18,2.54 mm 1x8 male,SVLCD2,HDR-TH_8P-P2.54-V-M_1,1,(À confirmer),(À confirmer),LCSC,C5156616,https://suddendocs.samtec.com/prints/tx-1xx-x-x-footprint.pdf,Required,Supplier URL is a generic Samtec footprint document
+19,KF128 2.54 mm 6-pin,"U2,U3,U4",CONN-TH_6P-P2.54_KF128-2.54-6P,3,KF128-2.54-6P,KEFA,LCSC,C474924,https://lcsc.com/eda_search?q=C474924,Required,
+20,B3B-PH-K-S 3-pin,"AIRT1,ORP1,PH1,SPARE1,WATERP1,WATERT1",CONN-TH_B3B-PH-K-S,6,(À confirmer),(À confirmer),LCSC,C131339,https://lcsc.com/eda_search?q=C131339,Required,
+21,2.54 mm 1x14 male,"U7,U10",HDR-TH_14P-P2.54-V-M,2,(À confirmer),(À confirmer),LCSC,C2905490,https://lcsc.com/eda_search?q=C6761055,Required,Original supplier part and URL disagree
+A1,INA226 module,INA226SOCKET,Module,1,(À confirmer),(À confirmer),(À confirmer),(À confirmer),https://fr.aliexpress.com/item/1005009059583318.html,Required,I2C power monitor
+A2,ADS1115 module,ADS1115,Module,1,ADS1115,(À confirmer),(À confirmer),(À confirmer),https://fr.aliexpress.com/item/1005008461060528.html,Required,Must be the 16-bit ADS1115 and not the 12-bit ADS1015
+A3,Four-channel level shifter,SHIFT4CH,Module,1,(À confirmer),(À confirmer),(À confirmer),(À confirmer),https://fr.aliexpress.com/item/1005007938775203.html,Required,Respect HV and LV orientation
+A4,Jumpers,Power and configuration headers,2.54 mm,1 lot,(À confirmer),(À confirmer),(À confirmer),(À confirmer),https://fr.aliexpress.com/item/1005010176504525.html,Required,
+A5,Dupont ribbon cable,Waveshare interconnect,10-pin male-to-female,1,(À confirmer),(À confirmer),(À confirmer),(À confirmer),https://fr.aliexpress.com/item/1005003641187997.html,Required,
+A6,Dupont ribbon cable,Waveshare interconnect,7-pin female-to-female,4,(À confirmer),(À confirmer),(À confirmer),(À confirmer),https://fr.aliexpress.com/item/1005002889473244.html,Required,
+A7,Nextion cable,NEXTION,XH2.54 4-pin reverse,1,(À confirmer),(À confirmer),(À confirmer),(À confirmer),https://fr.aliexpress.com/item/1005010789767450.html,Optional,Required only when a wired Nextion is installed
+A8,Liquid-level sensor,"PH1,ORP1",XKC-Y25-V,2,XKC-Y25-V,(À confirmer),(À confirmer),(À confirmer),https://fr.aliexpress.com/item/1005002066789623.html,Recommended,For pH and disinfectant containers
+A9,Liquid-level sensor extension cable,"PH1,ORP1",Compatible with XKC-Y25-V,2,(À confirmer),(À confirmer),(À confirmer),(À confirmer),(À confirmer),Recommended,Exact connector and length (À confirmer)
