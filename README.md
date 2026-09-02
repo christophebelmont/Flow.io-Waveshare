@@ -2,10 +2,6 @@
   <img src="docs/pictures/Logo_flowio.png" alt="Logo flow.io" width="336">
 </p>
 
-<p align="center">
-  <strong>Le pilotage intelligent et local des équipements de votre piscine.</strong>
-</p>
-
 flow.io surveille le bassin, automatise les traitements et coordonne les équipements de la piscine depuis un contrôleur unique. L'objectif est simple : conserver une eau stable, éviter les fonctionnements inutiles et rendre l'entretien quotidien plus prévisible.
 
 ## Exemple d'installation
