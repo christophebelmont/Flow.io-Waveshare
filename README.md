@@ -14,7 +14,7 @@ Ce dépôt regroupe l’ensemble des composants logiciels et matériels nécessa
 ## Exemple d'installation
 
 <p align="center">
-  <img src="docs/pictures/flowio-installation-marketing-v2.jpg" alt="Installation complète du système flow.io avec pompes péristaltiques, sondes et points d'injection" width="574"><br>
+  <img src="docs/pictures/flowio-installation-from-original-v4.png" alt="Installation complète du système flow.io sur panneau OSB, avec deux pompes péristaltiques, deux sondes et deux points d'injection" width="574"><br>
   <em>Exemple d'installation en cours du système flow.io.</em>
 </p>
 
@@ -93,7 +93,7 @@ L'interface Home Assistant permet de consulter les mesures et de piloter sa pisc
 Grâce à MQTT, flow.io peut également être intégré à d'autres systèmes domotiques compatibles, notamment Jeedom, openHAB et Domoticz.
 
 <p align="center">
-  <img src="docs/pictures/flowio-home-assistant-mobile-marketing.png" alt="Interface Home Assistant de flow.io sur smartphone avec les logos Home Assistant, Jeedom, openHAB et Domoticz" width="1100"><br>
+  <img src="docs/pictures/flowio-home-assistant-mobile-white-bg.png" alt="Interface Home Assistant de flow.io sur smartphone avec les logos Home Assistant, Jeedom, openHAB et Domoticz" width="1100"><br>
   <em>Pilotage de la piscine à distance avec Home Assistant et intégration aux principaux systèmes domotiques compatibles MQTT.</em>
 </p>
 
@@ -102,7 +102,7 @@ Grâce à MQTT, flow.io peut également être intégré à d'autres systèmes do
 L'interface web réunit le tableau de bord, l'état de la piscine, les mesures, les équipements, les alarmes, l'historique d'activité et les mises à jour. Elle propose des thèmes clair et sombre et reste accessible directement depuis le réseau local, sans dépendre d'un service en ligne.
 
 <p align="center">
-  <img src="docs/pictures/flowio-web-interface-marketing.png" alt="Interface web de flow.io présentée dans plusieurs fenêtres Safari" width="1100"><br>
+  <img src="docs/pictures/flowio-web-interface-white-bg.png" alt="Interface web de flow.io présentée dans plusieurs fenêtres Safari" width="1100"><br>
   <em>Supervision et configuration de la piscine depuis l'interface web flow.io.</em>
 </p>
 
@@ -111,8 +111,8 @@ L'interface web réunit le tableau de bord, l'état de la piscine, les mesures, 
 L'écran tactile [Nextion](https://nextion.tech/) peut être installé dans le local technique via un câble série, ou déporté, grâce à sa connexion Wi-Fi. Plusieurs modèles sont supportés en définition 480x320 ou 800x480, en version Enhanced ou Intelligent et en capacitif ou résistif selon le budget et les fonctionnalités attendues.
 
 <p align="center">
-  <img src="docs/pictures/Nextion5-2-marketing.png" alt="Écran tactile Nextion flow.io installé près d'une piscine" width="900"><br>
-  <em>Ecran Nextion présenté dans un boitier dédié.</em>
+  <img src="docs/pictures/nextion5-white-bg.png" alt="Écran tactile Nextion flow.io sur fond blanc" width="900"><br>
+  <em>Écran Nextion présenté dans un boîtier dédié.</em>
 </p>
 
 ## Le matériel flow.io
