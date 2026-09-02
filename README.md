@@ -1,12 +1,15 @@
 <p align="center">
   <img src="docs/pictures/Logo_flowio.png" alt="Logo flow.io" width="336">
 </p>
+<p>
+Profiter de sa <b>piscine</b> devrait être synonyme de détente, pas de contraintes. Cette plateforme open source automatise la surveillance de la qualité de l’eau et le pilotage des équipements afin de maintenir un <b>bassin propre</b>, sain et équilibré tout au long de l’année.
 
-<p align="center">
-  <strong>Le pilotage intelligent et local des équipements de votre piscine.</strong>
+Grâce à des capteurs connectés, le système mesure en continu les paramètres essentiels tels que le <b>pH</b>, le <b>Redox</b> ou la <b>température</b>. Il peut ensuite ajuster automatiquement la filtration, les traitements, les dosages ou les cycles de nettoyage pour optimiser le fonctionnement global de l’installation. Il supporte les désinfections à base de <b>chlore</b>, de <b>brome</b> ou d'<b>oxygène actif</b>.
+
+Conçue autour d’une <b>architecture ouverte et modulaire</b>, la solution s’adapte aux besoins de chaque utilisateur. Chacun peut choisir les capteurs, actionneurs et équipements qu’il souhaite intégrer, tout en conservant la liberté d’utiliser du matériel provenant de différents fabricants. Comme tout logiciel libre, il donne aussi à chaque utilisateur la possibilité de développer le système selon ses besoins propres.
+
+Ce dépôt regroupe l’ensemble des composants logiciels et matériels nécessaires au déploiement du système. Schémas électroniques, Gerber, firmware, applications, documentation et outils de configuration sont mis à disposition afin de permettre à chacun de construire, personnaliser et exploiter sa propre solution en toute autonomie.
 </p>
-
-flow.io surveille le bassin, automatise les traitements et coordonne les équipements de la piscine depuis un contrôleur unique. L'objectif est simple : conserver une eau stable, éviter les fonctionnements inutiles et rendre l'entretien quotidien plus prévisible.
 
 ## Exemple d'installation
 
