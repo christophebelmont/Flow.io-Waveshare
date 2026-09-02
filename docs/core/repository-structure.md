@@ -67,11 +67,9 @@ Ne pas modifier manuellement les fichiers générés dans `data/wc/`. Le chemin 
 
 ## Matériel et fichiers de fabrication
 
-`hardware/` contient les BOM normalisées, les sources EasyEDA, les Gerber, les modèles mécaniques et un catalogue avec les empreintes SHA-256. Les pages de lecture correspondantes se trouvent dans [`docs/hardware/`](../hardware/README.md).
+`hardware/` regroupe les BOM, les fichiers EasyEDA, les Gerber, les modèles mécaniques et les empreintes SHA-256. Les guides associés se trouvent dans [`docs/hardware/`](../hardware/README.md).
 
-Les fichiers tiers dont la licence de redistribution n'est pas établie ne sont pas copiés dans le dépôt : un fichier README conserve leur provenance et marque la licence **(À confirmer)**.
-
-`nextion/releases/` contient les sources HMI et les binaires TFT versionnés par modèle. Les fichiers non versionnés conservés à la racine de `nextion/` appartiennent à l'historique du dépôt.
+`nextion/releases/` regroupe les sources HMI et les binaires TFT par version et par modèle.
 
 ## Générateurs et sorties
 

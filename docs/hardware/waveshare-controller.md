@@ -36,7 +36,7 @@ Le matériel Waveshare expose huit entrées numériques GPIO4 à GPIO11. Dans fl
 
 Waveshare spécifie huit relais, chacun donné pour un maximum de 10 A sous 250 VAC ou 30 VDC. Cette valeur est une limite de contact constructeur et ne dispense pas du dimensionnement en fonction de la charge réelle, de son courant d'appel, de la température du coffret et des protections en amont.
 
-La configuration de référence associe :
+Par défaut, les relais commandent :
 
 | Relais | Fonction par défaut |
 |---|---|

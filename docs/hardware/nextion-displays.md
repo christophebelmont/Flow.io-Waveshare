@@ -1,6 +1,6 @@
 # Écrans Nextion
 
-Flow.io prend en charge une interface Nextion câblée sur UART2 à 115200 bauds. La release HMI documentée est `6.0.0`, cohérente avec `TFT_FIRMW=6.0.0` dans `platformio.ini`.
+Flow.io communique avec l'écran Nextion par l'UART2 à 115200 bauds. Les fichiers HMI et TFT fournis correspondent à la version `6.0.0`, également déclarée par `TFT_FIRMW=6.0.0` dans `platformio.ini`.
 
 ## Modèles fournis
 
@@ -20,8 +20,6 @@ Les dessins dimensionnels officiels sont disponibles pour le [NX4832K035](https:
 | 800×480 | [`Flowio_Intelligent_800x480.HMI`](../../nextion/releases/6.0.0/Flowio_Intelligent_800x480.HMI) |
 
 Le 5 pouces et le 7 pouces utilisent deux binaires distincts compilés depuis la source 800×480. Ne pas renommer un binaire pour l'utiliser sur un autre modèle.
-
-Les fichiers non versionnés déjà présents dans `nextion/` ont des empreintes différentes de la release 6.0.0. Leur version exacte est **(À confirmer)** ; ils sont conservés uniquement pour l'historique.
 
 ## Câblage
 

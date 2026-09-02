@@ -1,6 +1,6 @@
 # Assemblage de la Companion v1.1
 
-Ce guide rassemble les points de montage qui ne sont pas évidents à partir de la seule sérigraphie. La [BOM Companion](../../hardware/bom/companion-v1.1.csv) doit être préparée avant de commencer.
+Préparer les composants de la [BOM Companion](../../hardware/bom/companion-v1.1.csv) avant de commencer. Les étapes ci-dessous insistent sur les orientations et les raccordements qui ne sont pas évidents sur la sérigraphie.
 
 ![Companion v1.1 assemblée](assets/companion/assembled-board.jpeg)
 

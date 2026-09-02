@@ -19,7 +19,7 @@ La configuration illustrée utilise un boîtier DIN RS PRO référence `1862291`
 
 ## 1. Préparer la nappe TFT
 
-La procédure source inverse les conducteurs rouge et noir de la nappe 8 broches.
+Sur la nappe illustrée, les conducteurs rouge et noir ont été inversés.
 
 ![Nappe avec conducteurs rouge et noir inversés](assets/enclosure/reverse-power-wires.jpeg)
 
@@ -103,7 +103,7 @@ Remplacer les vis difficiles d'accès par quatre fixations M4 × 40 mm afin de p
 
 ![Façade Flow.io pour le boîtier DIN](assets/facade/facade.jpg)
 
-Les ressources disponibles sont :
+Fichiers de fabrication :
 
 - [source EasyEDA](../../hardware/companion/facade/EasyEDA_PCB_FLOWIO_DIN_FACADE_2026-08-11.json) ;
 - [paquet de fabrication d'origine](../../hardware/companion/facade/PCB_FLOWIO_DIN_FACADE__20260616163521.zip_Y25.zip) ;

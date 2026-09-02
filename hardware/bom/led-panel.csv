@@ -8,5 +8,5 @@ id,name,designators,footprint,quantity,manufacturer_part,manufacturer,supplier,s
 7,Resistor array,"R3,R4",RES-ARRAY-SMD_0603-8P-L3.2-W1.6-BL,2,(À confirmer),(À confirmer),LCSC,C12013,https://lcsc.com/eda_search?q=C12013,Required,Resistance value (À confirmer)
 8,HY2.0 4-pin connector,U1,CONN-TH_4P-P2.00_ZX-HY2.0-4PWZ,1,(À confirmer),(À confirmer),LCSC,C7429589,https://lcsc.com/eda_search?q=C7429589,Required,
 9,I2C expander,U2,SOP-16_L10.0-W4.0-P1.27-LS6.0-BL,1,PCF8574AM/TR,NXP,LCSC,C5310793,https://lcsc.com/eda_search?q=C5310793,Required,Configured at I2C address 0x3C; outputs active low
-10,Enclosure,Mechanical,M5Stack Mini Proto Unit compatible,1,(À confirmer),(À confirmer),(À confirmer),(À confirmer),https://shop.m5stack.com/products/mini-proto-board-unit,Recommended,Alternative case reference in source archive: https://fr.aliexpress.com/item/1005003297440233.html
+10,Enclosure,Mechanical,M5Stack Mini Proto Unit compatible,1,(À confirmer),(À confirmer),(À confirmer),(À confirmer),https://shop.m5stack.com/products/mini-proto-board-unit,Recommended,Alternative enclosure: https://fr.aliexpress.com/item/1005003297440233.html
 11,Cable,Panel connection,HY2.0 4-pin Grove-compatible,1,(À confirmer),(À confirmer),(À confirmer),(À confirmer),(À confirmer),Required,Length (À confirmer)

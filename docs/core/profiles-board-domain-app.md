@@ -33,7 +33,7 @@ Références principales:
 - `src/Board/BoardCatalog.cpp`
 - `src/Board/BoardSpec.h`
 
-`WaveshareBoard.h` est la source de vérité du matériel compilé:
+`WaveshareBoard.h` définit le matériel compilé :
 
 - UART de logs et d'HMI;
 - bus I2C et 1-Wire;

@@ -19,7 +19,7 @@ Le port série utilisé par le profil Waveshare est `Serial2` sur `RX44 / TX43` 
   reste calculée localement par le Nextion depuis son RTC; l'ESP fournit le
   texte du jour de semaine et du mois.
 - Les états discrets et indicateurs compacts sont envoyés en `.val`.
-- L'écran Nextion n'est pas la source de vérité : il émet des intentions ou des
+- L'écran Nextion ne conserve pas l'état de l'application : il émet des intentions ou des
   commandes UI, puis `flow.io` rafraîchit l'affichage à partir du `DataStore`,
   du `ConfigStore` et des états runtime.
 - Les objets Nextion utilisés par l'ESP doivent être considérés comme faisant

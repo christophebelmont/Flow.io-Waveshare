@@ -78,7 +78,7 @@ E --> F["publish <base>/<device>/cfg/*"]
 
 Les deux chemins suivent la même structure générale:
 
-1. une source de vérité interne est modifiée
+1. un état interne est modifié
 2. un événement est publié sur `EventBus`
 3. un composant MQTT filtre cet événement
 4. si une route correspond, un job MQTT est enqueué
@@ -98,7 +98,7 @@ Résumé:
 
 Caractéristiques:
 
-- source de vérité: `DataStore`
+- état runtime: `DataStore`
 - événement principal: `DataChanged`
 - filtrage: par `DataKey`
 - organisation: centralisée autour du producteur runtime et des providers enregistrés dans `MQTTModule`
@@ -117,7 +117,7 @@ Résumé:
 
 Caractéristiques:
 
-- source de vérité: `ConfigStore`
+- configuration persistante: `ConfigStore`
 - événement principal: `ConfigChanged`
 - filtrage: par `ConfigBranchRef`
 - organisation: distribuée, chaque module portant ses propres routes `cfg/*`

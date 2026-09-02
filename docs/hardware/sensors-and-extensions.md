@@ -1,6 +1,6 @@
 # Capteurs et extensions
 
-Les extensions suivantes disposent d'un support dans le profil Waveshare. Une présence dans cette page ne signifie pas qu'elles sont toutes installées ni affectées par défaut à un rôle métier.
+Le profil Waveshare prend en charge les extensions ci-dessous. Elles sont indépendantes : installez uniquement celles dont vous avez besoin, puis affectez leur rôle dans la configuration.
 
 ## Matrice de compatibilité
 
@@ -32,7 +32,7 @@ Le [M5Stack ENV-IV](https://docs.m5stack.com/en/unit/Unit_ENV-IV) regroupe :
 - un SHT40 à l'adresse `0x44` pour la température et l'humidité ;
 - un BMP280 à l'adresse `0x76` pour la température et la pression atmosphérique.
 
-La source d'origine indique un essai concluant avec un câble de 2 m. Cette longueur n'est pas une garantie pour toutes les topologies I2C : contrôler la qualité des fronts, les résistances de pull-up et la fréquence en cas d'erreurs.
+Le module a été testé avec un câble de 2 m. Cette longueur peut toutefois poser problème selon la topologie I2C : en cas d'erreurs, contrôler la qualité des signaux, les résistances de pull-up et la fréquence du bus.
 
 Des modules SHT40 et BMP280 séparés peuvent convenir s'ils utilisent les mêmes adresses et des niveaux électriques compatibles.
 
@@ -40,7 +40,7 @@ Des modules SHT40 et BMP280 séparés peuvent convenir s'ils utilisent les même
 
 Le [M5Stack ENV-Pro](https://docs.m5stack.com/en/unit/ENV%20Pro%20Unit) utilise un BME688 à l'adresse `0x77`. Flow.io expose température, humidité, pression et résistance gaz. Les estimations propriétaires de qualité d'air, d'équivalent CO₂ ou de COV ne font pas partie du driver actuel.
 
-La source d'origine indique également un essai avec un câble de 2 m.
+Le module a également été testé avec un câble de 2 m, avec les mêmes précautions que pour l'ENV-IV.
 
 ## Compteur d'eau
 
@@ -58,7 +58,7 @@ Le driver transmet périodiquement la température d'eau à un afficheur TFA Dos
 
 ![Émetteur 433 MHz utilisé pour Venice](assets/extensions/tfa-venice-transmitter.png)
 
-Références de la source : [afficheur Venice](https://www.amazon.fr/dp/B010NSG4V2), [émetteur FS1000A ou compatible](https://fr.aliexpress.com/item/1005009706095391.html). La compatibilité radio des variantes commerciales est **(À confirmer)**.
+Références proposées : [afficheur Venice](https://www.amazon.fr/dp/B010NSG4V2), [émetteur FS1000A ou compatible](https://fr.aliexpress.com/item/1005009706095391.html). La compatibilité radio des variantes commerciales est **(À confirmer)**.
 
 Activer la fonction dans `hmi/venice/enabled` et définir GPIO3 dans `hmi/venice/tx_gpio`.
 

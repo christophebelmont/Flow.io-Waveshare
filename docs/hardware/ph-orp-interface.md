@@ -2,12 +2,12 @@
 
 Les sondes pH et ORP produisent des signaux de très forte impédance qui ne doivent pas être raccordés directement à l'ADS1115 de la Companion. Une chaîne d'amplification et d'isolation adaptée est requise.
 
-## Deux solutions documentées
+## Deux solutions possibles
 
 | Solution | Chaîne de mesure | Avantages | Points d'attention |
 |---|---|---|---|
 | Adaptateurs analogiques | sonde BNC → adaptateur Phidgets 1130 → isolateur DFR0504 → ADS1115 interne | composants disponibles séparément, diagnostic par étage | deux adaptateurs, deux isolateurs et davantage de câblage |
-| Carte pH/ORP V2 | deux sondes BNC → amplificateurs LMP7721 → ADS1115 → isolateur I2C ADM3260 | deux voies et isolation réunies sur une carte | source tierce, adresse I2C et licence **(À confirmer)** |
+| Carte pH/ORP V2 | deux sondes BNC → amplificateurs LMP7721 → ADS1115 → isolateur I2C ADM3260 | deux voies et isolation réunies sur une carte | projet externe, adresse I2C et licence **(À confirmer)** |
 
 ## Solution analogique séparée
 
@@ -19,7 +19,7 @@ Prévoir par voie :
 - un module d'isolation DFR0504 ou équivalent ;
 - un raccordement vers l'ADS1115 interne de la Companion.
 
-La configuration de référence utilise :
+Le câblage proposé utilise :
 
 | Mesure | ADS1115 interne | Binding port | IO slot |
 |---|---|---:|---|
@@ -30,11 +30,9 @@ L'ordre, l'échelle et la polarité de la sortie analogique doivent être vérif
 
 ## Carte pH/ORP V2
 
-La BOM disponible décrit deux amplificateurs `LMP7721MA/NOPB`, un convertisseur `ADS1115IDGSR` et un isolateur I2C `ADM3260`. La [BOM normalisée](../../hardware/bom/ph-orp-board-v2.csv) conserve les 18 lignes du fichier source.
+La carte utilise deux amplificateurs `LMP7721MA/NOPB`, un convertisseur `ADS1115IDGSR` et un isolateur I2C `ADM3260`. La [BOM](../../hardware/bom/ph-orp-board-v2.csv) détaille les 18 groupes de composants.
 
-Le projet amont fournit BOM, Gerber, schéma PDF, sources Altium et Pick & Place dans [Gixy31/ESP32-PoolMaster](https://github.com/Gixy31/ESP32-PoolMaster/tree/main/pH_Orp%20Board%20V2). Le dépôt amont renvoie également au [projet original de Loïc](https://github.com/Loic74650/pH_Orp_Board).
-
-Ces fichiers ne sont pas recopiés dans flow.io parce que leur licence de redistribution est **(À confirmer)**. Le répertoire [`hardware/ph-orp-board-v2`](../../hardware/ph-orp-board-v2/) documente cette décision.
+La BOM, les Gerber, le schéma PDF, les fichiers Altium et le Pick & Place sont disponibles dans [Gixy31/ESP32-PoolMaster](https://github.com/Gixy31/ESP32-PoolMaster/tree/main/pH_Orp%20Board%20V2). Ce projet renvoie au [travail original de Loïc](https://github.com/Loic74650/pH_Orp_Board). La licence de réutilisation de ces fichiers est **(À confirmer)** avant fabrication ou modification.
 
 ## Adresse I2C et intégration
 
@@ -46,7 +44,7 @@ Flow.io réserve `0x48` à l'ADS1115 interne et `0x49` à l'ADS1115 externe diff
 4. confirmer le brochage alimentation, SDA et SCL ;
 5. contrôler que l'isolation galvanique n'est pas contournée par une masse ou une alimentation commune.
 
-L'association directe de cette carte aux bindings différentiels `0x49` est **(À confirmer)** par un essai matériel documenté.
+Avant d'associer cette carte aux bindings différentiels `0x49`, valider le câblage et les mesures sur le matériel. Cette compatibilité reste **(À confirmer)**.
 
 ## Sondes et calibration
 

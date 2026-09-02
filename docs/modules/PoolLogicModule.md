@@ -618,7 +618,7 @@ Logique principale:
 
 ### Réarmement PSI
 
-- source de vérité en nominal: `alarmSvc->isActive(PoolPsiLow|PoolPsiHigh)`
+- en fonctionnement normal, l'état PSI vient de `alarmSvc->isActive(PoolPsiLow|PoolPsiHigh)`
 - tant qu'une alarme PSI latched reste `active`, `psiError_` reste vrai et la filtration est bloquée
 - si la condition est redevenue fausse, un `reset` manuel est alors autorisé pour clear l'alarme
 - si la filtration est redémarrée alors que la pression reste anormale:

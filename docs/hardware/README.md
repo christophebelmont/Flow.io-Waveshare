@@ -1,6 +1,6 @@
 # Matériel flow.io
 
-Cette section décrit l'installation matérielle de référence construite autour du contrôleur Waveshare ESP32-S3-ETH-8DI-8RO et de la carte Flow.io Companion v1.1. Elle sépare volontairement le choix des composants, la fabrication, l'assemblage et le raccordement au firmware.
+Flow.io s'appuie sur un contrôleur Waveshare ESP32-S3-ETH-8DI-8RO et une carte Companion v1.1. Vous trouverez ici les composants nécessaires, les fichiers de fabrication, le montage et le raccordement au firmware.
 
 ![Installation flow.io avec contrôleur Waveshare, Companion et afficheurs](assets/overview/flowio-installation.jpg)
 
@@ -20,9 +20,9 @@ Cette section décrit l'installation matérielle de référence construite autou
 | Sous-ensemble | Rôle | Statut |
 |---|---|---|
 | Waveshare ESP32-S3-ETH-8DI-8RO | calcul, réseau, relais, entrées isolées et alimentation | requis |
-| Flow.io Companion v1.1 | adaptation et distribution des signaux vers les capteurs et interfaces | requis pour l'installation documentée |
+| Flow.io Companion v1.1 | adaptation et distribution des signaux vers les capteurs et interfaces | requis avec le câblage présenté ici |
 | ADS1115 16 bits | acquisition analogique pH, ORP, pression et voie libre | requis |
-| INA226 | mesure de tension, courant et puissance | requis pour la configuration de référence |
+| INA226 | mesure de tension, courant et puissance | requis dans le montage présenté |
 | DS18B20 eau et air | températures OneWire | requis pour les fonctions de référence |
 | Nextion | interface tactile locale | recommandé |
 | TFT ST7789 240×320 | affichage local intégré au boîtier Companion | optionnel |
@@ -30,14 +30,14 @@ Cette section décrit l'installation matérielle de référence construite autou
 | PIR, ENV-IV, ENV-Pro, LED, Venice | extensions locales | optionnel |
 | Adaptateurs pH/ORP | conditionnement et isolation des sondes | requis si les fonctions de régulation pH/ORP sont utilisées |
 
-## Source de vérité
+## Description du système
 
-- Les broches, adresses I2C et affectations logiques sont définies par la [cartographie IO](../core/waveshare-io-map.md).
-- Les versions des fichiers de fabrication et leurs sommes SHA-256 sont dans [`hardware/catalog.yaml`](../../hardware/catalog.yaml).
-- Les achats et composants sont décrits par les [BOM CSV](../../hardware/bom/).
-- Le protocole de l'écran tactile est documenté séparément dans [ESP / Nextion](../integration/nextion-esp-protocol.md).
+- La [cartographie IO](../core/waveshare-io-map.md) indique les broches, les adresses I2C et les affectations logiques.
+- [`hardware/catalog.yaml`](../../hardware/catalog.yaml) répertorie les versions des fichiers de fabrication et leurs sommes SHA-256.
+- Les [BOM CSV](../../hardware/bom/) regroupent les composants et les références d'achat.
+- La page [ESP / Nextion](../integration/nextion-esp-protocol.md) décrit les échanges avec l'écran tactile.
 
-Une mention **(À confirmer)** indique une information absente ou ambiguë dans les sources disponibles. Elle ne doit pas être interprétée comme une valeur par défaut.
+La mention **(À confirmer)** signale une information qui doit encore être vérifiée. Elle ne constitue pas une valeur par défaut.
 
 ## Sécurité
 
