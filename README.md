@@ -111,7 +111,7 @@ L'interface web réunit le tableau de bord, l'état de la piscine, les mesures, 
 L'écran tactile [Nextion](https://nextion.tech/) peut être installé dans le local technique via un câble série, ou déporté, grâce à sa connexion Wi-Fi. Plusieurs modèles sont supportés en définition 480x320 ou 800x480, en version Enhanced ou Intelligent et en capacitif ou résistif selon le budget et les fonctionnalités attendues.
 
 <p align="center">
-  <img src="docs/pictures/nextion5-white-bg.png" alt="Écran tactile Nextion flow.io sur fond blanc" width="900"><br>
+  <img src="docs/pictures/Nextion5-2-marketing.png" alt="Écran tactile Nextion flow.io installé près d'une piscine" width="900"><br>
   <em>Écran Nextion présenté dans un boîtier dédié.</em>
 </p>
 
