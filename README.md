@@ -70,7 +70,7 @@ L'ensemble du logiciel et du hardware est disponible en open source. Le code est
 ## Vue d'ensemble
 
 <p align="center">
-  <img src="docs/pictures/flowio-pool-ecosystem.png" alt="Schéma de principe d'une installation de piscine pilotée par flow.io" width="900">
+  <img src="docs/pictures/flowio-pool-ecosystem-white-bg.png" alt="Schéma de principe d'une installation de piscine pilotée par flow.io" width="900">
 </p>
 
 Le contrôleur reçoit les mesures du bassin et des cuves, puis commande les équipements de filtration, de traitement et de confort. Les informations restent consultables localement et peuvent également être transmises à une installation domotique.
@@ -120,12 +120,12 @@ L'écran tactile [Nextion](https://nextion.tech/) peut être installé dans le l
 L'installation de référence associe un contrôleur industriel [Waveshare ESP32-S3-POE-ETH-8DI-8RO](https://www.waveshare.com/product/iot-communication/esp32-s3-eth-8di-8ro.htm) à la carte flow.io Companion.
 
 <p align="center">
-  <img src="docs/pictures/flowio-controller-enclosure-cutaway-screen.png" alt="Carte Flow.io Companion dans son boitier standard" width="1100"><br>
+  <img src="docs/pictures/flowio-controller-enclosure-cutaway-screen-white-bg.png" alt="Carte Flow.io Companion dans son boitier standard" width="1100"><br>
   <em>Carte flow.io Companion dans son boitier.</em>
 </p>
 
 <p align="center">
-  <img src="docs/pictures/flowio-system-marketing-overview-v3.png" alt="Vue d'ensemble du système flow.io, de ses capteurs et des équipements de piscine pilotés" width="1100"><br>
+  <img src="docs/pictures/flowio-system-marketing-overview-v3-white-bg.png" alt="Vue d'ensemble du système flow.io, de ses capteurs et des équipements de piscine pilotés" width="1100"><br>
   <em>Liaison entre le boîtier flow.io et le contrôleur Waveshare par une nappe standard.</em>
 </p>
 
