@@ -58,6 +58,8 @@ private:
         bool pending = false;
         FirmwareUpdateTarget target = FirmwareUpdateTarget::Waveshare;
         char url[kUrlLen] = {0};
+        char nextionCompatibility[HMI_DISPLAY_MODEL_TEXT_MAX] = {0};
+        uint32_t expectedSize = 0U;
     };
 
     struct UpdateStatus {
@@ -72,6 +74,16 @@ private:
         bool pending = false;
         uint32_t requestId = 0;
         char url[kUrlLen] = {0};
+    };
+
+    struct NextionArtifactSelection {
+        bool valid = false;
+        char displayModel[HMI_DISPLAY_MODEL_TEXT_MAX] = {0};
+        char compatibility[HMI_DISPLAY_MODEL_TEXT_MAX] = {0};
+        char path[128] = {0};
+        char version[HMI_DISPLAY_VERSION_TEXT_MAX] = {0};
+        char url[kUrlLen] = {0};
+        uint32_t size = 0U;
     };
 
     struct ConfigData {
@@ -107,6 +119,7 @@ private:
     UpdateStatus status_{};
     ManifestCheckJob manifestCheckJob_{};
     FirmwareManifestCheckSnapshot manifestCheck_{};
+    NextionArtifactSelection nextionSelection_{};
     char* manifestPayload_ = nullptr;
     uint32_t nextManifestRequestId_ = 0;
     uint8_t manifestCopyReaders_ = 0;
@@ -139,11 +152,12 @@ private:
                     size_t errOutLen);
     bool runJob_(const UpdateJob& job);
     bool runManifestCheck_(const ManifestCheckJob& job,
+                           NextionArtifactSelection* nextionSelectionOut,
                            size_t* payloadLenOut,
                            char* errOut,
                            size_t errOutLen);
     bool runWaveshareUpdate_(const char* url, char* errOut, size_t errOutLen);
-    bool runNextionUpdate_(const char* url, char* errOut, size_t errOutLen);
+    bool runNextionUpdate_(const UpdateJob& job, char* errOut, size_t errOutLen);
     bool runNextionReboot_(char* errOut, size_t errOutLen);
     bool runSpiffsUpdate_(const char* url, char* errOut, size_t errOutLen);
     bool resolveUrl_(FirmwareUpdateTarget target,

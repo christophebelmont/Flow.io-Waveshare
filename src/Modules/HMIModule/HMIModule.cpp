@@ -616,6 +616,63 @@ bool HMIModule::getDisplayVersion_(char* out, size_t outLen) const
     return true;
 }
 
+bool HMIModule::getLocalDisplayIdentity_(HmiDisplayIdentity* out) const
+{
+    if (!out || !nextion_.hasDisplayIdentity()) return false;
+    *out = nextion_.displayIdentity();
+    if (nextion_.hasDisplayVersion()) {
+        strncpy(out->applicationVersion, nextion_.displayVersion(), sizeof(out->applicationVersion) - 1U);
+        out->applicationVersion[sizeof(out->applicationVersion) - 1U] = '\0';
+    }
+    return true;
+}
+
+bool HMIModule::setLocalDisplayUpdateMode_(bool enabled, uint16_t timeoutMs)
+{
+    portENTER_CRITICAL(&localDisplayUpdateMux_);
+    localDisplayUpdateRequested_ = enabled;
+    portEXIT_CRITICAL(&localDisplayUpdateMux_);
+
+    const uint32_t start = millis();
+    do {
+        bool active = false;
+        portENTER_CRITICAL(&localDisplayUpdateMux_);
+        active = localDisplayUpdateActive_;
+        portEXIT_CRITICAL(&localDisplayUpdateMux_);
+        if (active == enabled) return true;
+        vTaskDelay(pdMS_TO_TICKS(5));
+    } while ((uint32_t)(millis() - start) < (uint32_t)timeoutMs);
+
+    // A timed-out suspend request must not leave the HMI task configured to
+    // release its UART after the firmware-update worker has already aborted.
+    if (enabled) {
+        portENTER_CRITICAL(&localDisplayUpdateMux_);
+        localDisplayUpdateRequested_ = false;
+        portEXIT_CRITICAL(&localDisplayUpdateMux_);
+    }
+    return false;
+}
+
+void HMIModule::synchronizeLocalDisplayUpdateMode_()
+{
+    bool requested = false;
+    bool active = false;
+    portENTER_CRITICAL(&localDisplayUpdateMux_);
+    requested = localDisplayUpdateRequested_;
+    active = localDisplayUpdateActive_;
+    portEXIT_CRITICAL(&localDisplayUpdateMux_);
+    if (requested == active) return;
+
+    if (requested) {
+        nextion_.end();
+        driverReady_ = false;
+    }
+
+    portENTER_CRITICAL(&localDisplayUpdateMux_);
+    localDisplayUpdateActive_ = requested;
+    portEXIT_CRITICAL(&localDisplayUpdateMux_);
+}
+
 HMIModule::HMIModule(const BoardSpec& board)
 {
     const I2cBusSpec* ioBus = boardFindI2cBus(board, "io");
@@ -633,6 +690,10 @@ HMIModule::HMIModule(const BoardSpec& board)
 void HMIModule::init(ConfigStore& cfg, ServiceRegistry& services)
 {
     services_ = &services;
+    portENTER_CRITICAL(&localDisplayUpdateMux_);
+    localDisplayUpdateRequested_ = false;
+    localDisplayUpdateActive_ = false;
+    portEXIT_CRITICAL(&localDisplayUpdateMux_);
     cfg.registerVar(ledsEnabledVar_);
     cfg.registerVar(waveshareLedEnabledVar_);
     cfg.registerVar(nextionEnabledVar_);
@@ -2912,6 +2973,17 @@ void HMIModule::loop()
     ws2812StatusLed_.tick(wsLedNow);
     logHmiLedDebug_(wsLedNow);
 
+    synchronizeLocalDisplayUpdateMode_();
+    bool localDisplayUpdateActive = false;
+    portENTER_CRITICAL(&localDisplayUpdateMux_);
+    localDisplayUpdateActive = localDisplayUpdateActive_;
+    portEXIT_CRITICAL(&localDisplayUpdateMux_);
+    if (localDisplayUpdateActive) {
+        venice_.tick(millis(), ioSvc_, waterTempIoId_);
+        vTaskDelay(pdMS_TO_TICKS(20));
+        return;
+    }
+
     if (driver_) {
         if (!driverReady_) {
             driverReady_ = driver_->begin();
@@ -3024,6 +3096,9 @@ void HMIModule::loop()
                      currentVersion);
             }
             (void)validateDriverDisplayVersion_(false);
+        }
+        if (!nextion_.hasDisplayIdentity()) {
+            (void)nextion_.detectDisplayIdentity(0U, true);
         }
     }
     if (kFrontLedsSupported && cfgData_.ledsEnabled) {

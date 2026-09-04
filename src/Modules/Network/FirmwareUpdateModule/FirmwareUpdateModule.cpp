@@ -11,6 +11,7 @@
 #include <FS.h>
 #include <HTTPClient.h>
 #include <Update.h>
+#include <ctype.h>
 #include <string.h>
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
@@ -20,6 +21,7 @@
 #include "Core/ErrorCodes.h"
 #include "Core/FirmwareVersion.h"
 #include "Core/SystemLimits.h"
+#include "Modules/HMIModule/Drivers/NextionDisplayIdentity.h"
 
 #include <ESPNexUpload.h>
 
@@ -83,6 +85,34 @@ bool manifestCheckIsActive_(FirmwareManifestCheckState state)
 {
     return state == FirmwareManifestCheckState::Queued ||
            state == FirmwareManifestCheckState::Downloading;
+}
+
+bool isSimpleArtifactFilename_(const char* path)
+{
+    if (!path || path[0] == '\0') return false;
+    for (size_t i = 0U; path[i] != '\0'; ++i) {
+        const char value = path[i];
+        if (!isalnum((unsigned char)value) && value != '.' && value != '_' && value != '-') {
+            return false;
+        }
+    }
+    return strstr(path, "..") == nullptr;
+}
+
+bool buildManifestSiblingUrl_(const char* manifestUrl,
+                              const char* path,
+                              char* out,
+                              size_t outLen)
+{
+    if (!manifestUrl || !path || !out || outLen == 0U || !isSimpleArtifactFilename_(path)) return false;
+    const char* slash = strrchr(manifestUrl, '/');
+    if (!slash) return false;
+    const size_t baseLen = (size_t)(slash - manifestUrl) + 1U;
+    const size_t pathLen = strlen(path);
+    if (baseLen + pathLen + 1U > outLen) return false;
+    memcpy(out, manifestUrl, baseLen);
+    memcpy(out + baseLen, path, pathLen + 1U);
+    return true;
 }
 
 class BoundedBufferStream final : public Stream {
@@ -542,6 +572,7 @@ bool FirmwareUpdateModule::startManifestCheck_(uint32_t* requestIdOut,
     snprintf(manifestCheckJob_.url, sizeof(manifestCheckJob_.url), "%s", url);
 
     manifestCheck_ = {};
+    nextionSelection_ = {};
     manifestCheck_.requestId = nextManifestRequestId_;
     manifestCheck_.state = FirmwareManifestCheckState::Queued;
     manifestCheck_.updatedAtMs = millis();
@@ -654,7 +685,42 @@ bool FirmwareUpdateModule::startUpdate_(FirmwareUpdateTarget target,
 {
     UpdateJob job{};
     job.target = target;
-    if (!resolveUrl_(target, url, job.url, sizeof(job.url), errOut, errOutLen)) {
+    if (target == FirmwareUpdateTarget::Nextion) {
+        NextionArtifactSelection selection{};
+        portENTER_CRITICAL(&lock_);
+        selection = nextionSelection_;
+        portEXIT_CRITICAL(&lock_);
+
+        if (!selection.valid) {
+            writeSimpleError_(errOut, errOutLen, "no compatible nextion artifact selected");
+            return false;
+        }
+        if (url && url[0] != '\0' && strcmp(url, selection.url) != 0) {
+            writeSimpleError_(errOut, errOutLen, "nextion artifact does not match manifest selection");
+            return false;
+        }
+
+        if (!hmiSvc_ && services_) {
+            hmiSvc_ = services_->get<HmiService>(ServiceId::Hmi);
+        }
+        HmiDisplayIdentity identity{};
+        if (!hmiSvc_ || !hmiSvc_->getLocalDisplayIdentity ||
+            !hmiSvc_->getLocalDisplayIdentity(hmiSvc_->ctx, &identity)) {
+            writeSimpleError_(errOut, errOutLen, "nextion display model not detected");
+            return false;
+        }
+        if (strcmp(identity.compatibility, selection.compatibility) != 0) {
+            writeSimpleError_(errOut, errOutLen, "nextion display model changed since manifest check");
+            return false;
+        }
+
+        snprintf(job.url, sizeof(job.url), "%s", selection.url);
+        snprintf(job.nextionCompatibility,
+                 sizeof(job.nextionCompatibility),
+                 "%s",
+                 selection.compatibility);
+        job.expectedSize = selection.size;
+    } else if (!resolveUrl_(target, url, job.url, sizeof(job.url), errOut, errOutLen)) {
         return false;
     }
 
@@ -819,10 +885,21 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const char* url, char* errOut, si
     return true;
 }
 
-bool FirmwareUpdateModule::runNextionUpdate_(const char* url, char* errOut, size_t errOutLen)
+bool FirmwareUpdateModule::runNextionUpdate_(const UpdateJob& job, char* errOut, size_t errOutLen)
 {
     if (nextionRxPin_ < 0 || nextionTxPin_ < 0) {
         writeSimpleError_(errOut, errOutLen, "nextion board pins not configured");
+        return false;
+    }
+
+    if (!hmiSvc_ && services_) {
+        hmiSvc_ = services_->get<HmiService>(ServiceId::Hmi);
+    }
+    HmiDisplayIdentity identity{};
+    if (!hmiSvc_ || !hmiSvc_->getLocalDisplayIdentity ||
+        !hmiSvc_->getLocalDisplayIdentity(hmiSvc_->ctx, &identity) ||
+        strcmp(identity.compatibility, job.nextionCompatibility) != 0) {
+        writeSimpleError_(errOut, errOutLen, "nextion display identity validation failed");
         return false;
     }
 
@@ -840,8 +917,8 @@ bool FirmwareUpdateModule::runNextionUpdate_(const char* url, char* errOut, size
 
     HTTPClient http;
     configureDownloadHttp_(http);
-    if (!http.begin(url)) {
-        writeHttpBeginFailedError_("fichier de mise a jour", url, errOut, errOutLen);
+    if (!http.begin(job.url)) {
+        writeHttpBeginFailedError_("fichier de mise a jour", job.url, errOut, errOutLen);
         if (flowIoEnablePin_ >= 0) {
             digitalWrite(flowIoEnablePin_, HIGH);
             pinMode(flowIoEnablePin_, INPUT);
@@ -852,7 +929,7 @@ bool FirmwareUpdateModule::runNextionUpdate_(const char* url, char* errOut, size
     const int code = http.GET();
     const int32_t contentLength = http.getSize();
     if (code != HTTP_CODE_OK) {
-        writeHttpCodeFailedError_("fichier de mise a jour", url, http, code, errOut, errOutLen);
+        writeHttpCodeFailedError_("fichier de mise a jour", job.url, http, code, errOut, errOutLen);
         http.end();
         if (flowIoEnablePin_ >= 0) {
             digitalWrite(flowIoEnablePin_, HIGH);
@@ -869,8 +946,27 @@ bool FirmwareUpdateModule::runNextionUpdate_(const char* url, char* errOut, size
         }
         return false;
     }
+    if (job.expectedSize == 0U || (uint32_t)contentLength != job.expectedSize) {
+        writeSimpleError_(errOut, errOutLen, "nextion artifact size differs from manifest");
+        http.end();
+        if (flowIoEnablePin_ >= 0) {
+            digitalWrite(flowIoEnablePin_, HIGH);
+            pinMode(flowIoEnablePin_, INPUT);
+        }
+        return false;
+    }
 
     setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Nextion, 0, "flashing");
+    if (!hmiSvc_->setLocalDisplayUpdateMode ||
+        !hmiSvc_->setLocalDisplayUpdateMode(hmiSvc_->ctx, true, 1000U)) {
+        writeSimpleError_(errOut, errOutLen, "failed to suspend nextion hmi driver");
+        http.end();
+        if (flowIoEnablePin_ >= 0) {
+            digitalWrite(flowIoEnablePin_, HIGH);
+            pinMode(flowIoEnablePin_, INPUT);
+        }
+        return false;
+    }
     portENTER_CRITICAL(&lock_);
     activeTotalBytes_ = (uint32_t)contentLength;
     activeSentBytes_ = 0;
@@ -900,9 +996,14 @@ bool FirmwareUpdateModule::runNextionUpdate_(const char* url, char* errOut, size
         pinMode(flowIoEnablePin_, INPUT);
     }
 
-    if (!ok) return false;
+    if (!ok) {
+        (void)hmiSvc_->setLocalDisplayUpdateMode(hmiSvc_->ctx, false, 1000U);
+        return false;
+    }
 
-    setStatus_(UpdateState::Done, FirmwareUpdateTarget::Nextion, 100, "nextion update complete");
+    setStatus_(UpdateState::Rebooting, FirmwareUpdateTarget::Nextion, 100, "rebooting after nextion update");
+    delay(1800);
+    ESP.restart();
     return true;
 }
 
@@ -1053,7 +1154,7 @@ bool FirmwareUpdateModule::runJob_(const UpdateJob& job)
             ok = runWaveshareUpdate_(job.url, err, sizeof(err));
             break;
         case FirmwareUpdateTarget::Nextion:
-            ok = runNextionUpdate_(job.url, err, sizeof(err));
+            ok = runNextionUpdate_(job, err, sizeof(err));
             break;
         case FirmwareUpdateTarget::Spiffs:
             ok = runSpiffsUpdate_(job.url, err, sizeof(err));
@@ -1075,11 +1176,13 @@ bool FirmwareUpdateModule::runJob_(const UpdateJob& job)
 }
 
 bool FirmwareUpdateModule::runManifestCheck_(const ManifestCheckJob& job,
+                                             NextionArtifactSelection* nextionSelectionOut,
                                              size_t* payloadLenOut,
                                              char* errOut,
                                              size_t errOutLen)
 {
     if (payloadLenOut) *payloadLenOut = 0U;
+    if (nextionSelectionOut) *nextionSelectionOut = NextionArtifactSelection{};
     if (!manifestPayload_) {
         writeSimpleError_(errOut, errOutLen, "manifest storage unavailable");
         return false;
@@ -1159,6 +1262,83 @@ bool FirmwareUpdateModule::runManifestCheck_(const ManifestCheckJob& job,
         writeSimpleError_(errOut, errOutLen, "manifest invalid json");
         return false;
     }
+
+    NextionArtifactSelection selection{};
+    if (!hmiSvc_ && services_) {
+        hmiSvc_ = services_->get<HmiService>(ServiceId::Hmi);
+    }
+    HmiDisplayIdentity identity{};
+    const bool displayDetected =
+        hmiSvc_ && hmiSvc_->getLocalDisplayIdentity &&
+        hmiSvc_->getLocalDisplayIdentity(hmiSvc_->ctx, &identity);
+    if (displayDetected) {
+        snprintf(selection.displayModel, sizeof(selection.displayModel), "%s", identity.model);
+        snprintf(selection.compatibility, sizeof(selection.compatibility), "%s", identity.compatibility);
+    }
+
+    const JsonVariantConst nextionValue = doc["artifacts"]["nextion"];
+    if (!nextionValue.isNull()) {
+        if (!nextionValue.is<JsonArrayConst>()) {
+            writeSimpleError_(errOut, errOutLen, "manifest nextion artifacts must be an array");
+            return false;
+        }
+        const JsonArrayConst artifacts = nextionValue.as<JsonArrayConst>();
+        size_t artifactIndex = 0U;
+        for (JsonObjectConst artifact : artifacts) {
+            const char* path = artifact["path"] | nullptr;
+            const char* version = artifact["version"] | nullptr;
+            const char* compatibility = artifact["display_compatibility"] | nullptr;
+            const char* target = artifact["target"] | nullptr;
+            const char* kind = artifact["kind"] | nullptr;
+            const uint32_t size = artifact["size"] | 0U;
+
+            char filenameCompatibility[HMI_DISPLAY_MODEL_TEXT_MAX]{};
+            char filenameVersion[HMI_DISPLAY_VERSION_TEXT_MAX]{};
+            if (!path || !version || !compatibility || size == 0U ||
+                !target || strcmp(target, "nextion") != 0 ||
+                !kind || strcmp(kind, "nextion-tft") != 0 ||
+                !isSimpleArtifactFilename_(path) ||
+                !parseNextionArtifactFilename(path,
+                                              filenameCompatibility,
+                                              sizeof(filenameCompatibility),
+                                              filenameVersion,
+                                              sizeof(filenameVersion)) ||
+                strcmp(filenameCompatibility, compatibility) != 0 ||
+                strcmp(filenameVersion, version) != 0) {
+                writeSimpleError_(errOut, errOutLen, "manifest contains invalid nextion artifact");
+                return false;
+            }
+
+            size_t previousIndex = 0U;
+            for (JsonObjectConst previous : artifacts) {
+                if (previousIndex++ >= artifactIndex) break;
+                const char* previousCompatibility = previous["display_compatibility"] | "";
+                const char* previousVersion = previous["version"] | "";
+                if (strcmp(previousCompatibility, compatibility) == 0 &&
+                    strcmp(previousVersion, version) == 0) {
+                    writeSimpleError_(errOut, errOutLen, "manifest contains duplicate nextion artifact");
+                    return false;
+                }
+            }
+            ++artifactIndex;
+
+            if (!displayDetected || strcmp(identity.compatibility, compatibility) != 0) continue;
+            if (selection.valid && compareNextionVersions(version, selection.version) <= 0) continue;
+
+            char artifactUrl[kUrlLen]{};
+            if (!buildManifestSiblingUrl_(job.url, path, artifactUrl, sizeof(artifactUrl))) {
+                writeSimpleError_(errOut, errOutLen, "nextion artifact url is invalid");
+                return false;
+            }
+            selection.valid = true;
+            snprintf(selection.path, sizeof(selection.path), "%s", path);
+            snprintf(selection.version, sizeof(selection.version), "%s", version);
+            snprintf(selection.url, sizeof(selection.url), "%s", artifactUrl);
+            selection.size = size;
+        }
+    }
+
+    if (nextionSelectionOut) *nextionSelectionOut = selection;
 
     if (payloadLenOut) *payloadLenOut = payloadLen;
     return true;
@@ -1344,16 +1524,41 @@ void FirmwareUpdateModule::loop()
         }
     } else if (runManifestCheck) {
         size_t payloadLen = 0U;
+        NextionArtifactSelection nextionSelection{};
         char err[128] = {0};
         const bool ok =
-            runManifestCheck_(manifestJob, &payloadLen, err, sizeof(err));
+            runManifestCheck_(manifestJob, &nextionSelection, &payloadLen, err, sizeof(err));
 
         portENTER_CRITICAL(&lock_);
         if (manifestCheck_.requestId == manifestJob.requestId) {
             manifestCheck_.updatedAtMs = millis();
             if (ok) {
+                nextionSelection_ = nextionSelection;
                 manifestCheck_.state = FirmwareManifestCheckState::Ready;
                 manifestCheck_.payloadLen = payloadLen;
+                manifestCheck_.nextionDisplayDetected = nextionSelection.displayModel[0] != '\0';
+                manifestCheck_.nextionArtifactSelected = nextionSelection.valid;
+                snprintf(manifestCheck_.nextionDisplayModel,
+                         sizeof(manifestCheck_.nextionDisplayModel),
+                         "%s",
+                         nextionSelection.displayModel);
+                snprintf(manifestCheck_.nextionDisplayCompatibility,
+                         sizeof(manifestCheck_.nextionDisplayCompatibility),
+                         "%s",
+                         nextionSelection.compatibility);
+                snprintf(manifestCheck_.nextionArtifactPath,
+                         sizeof(manifestCheck_.nextionArtifactPath),
+                         "%s",
+                         nextionSelection.path);
+                snprintf(manifestCheck_.nextionArtifactVersion,
+                         sizeof(manifestCheck_.nextionArtifactVersion),
+                         "%s",
+                         nextionSelection.version);
+                snprintf(manifestCheck_.nextionArtifactUrl,
+                         sizeof(manifestCheck_.nextionArtifactUrl),
+                         "%s",
+                         nextionSelection.url);
+                manifestCheck_.nextionArtifactSize = nextionSelection.size;
                 snprintf(manifestCheck_.message, sizeof(manifestCheck_.message), "ready");
             } else {
                 manifestCheck_.state = FirmwareManifestCheckState::Error;

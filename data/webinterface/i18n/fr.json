@@ -187,6 +187,8 @@
     "updates.nextion.notDetectedDetail": "Vérifiez la connexion de l’écran puis redémarrez le système.",
     "updates.nextion.incompatible": "Version Nextion incompatible",
     "updates.nextion.incompatibleDetail": "Version attendue : {version}.",
+    "updates.nextion.noCompatibleArtifact": "Aucun firmware Nextion compatible",
+    "updates.nextion.noCompatibleArtifactDetail": "Aucun fichier du manifest ne correspond au modèle {model}.",
     "updates.updateButton": "Mettre à jour",
     "updates.checkRequired": "Vérifiez les mises à jour avant de lancer cette action.",
     "updates.empty": "Cliquez sur « Vérifier les mises à jour ».",

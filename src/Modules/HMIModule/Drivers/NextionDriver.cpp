@@ -4,6 +4,7 @@
  */
 
 #include "Modules/HMIModule/Drivers/NextionDriver.h"
+#include "Modules/HMIModule/Drivers/NextionDisplayIdentity.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -131,7 +132,9 @@ bool NextionDriver::begin()
     started_ = true;
     pageReady_ = false;
     versionDetected_ = false;
+    identityDetected_ = false;
     displayVersion_[0] = '\0';
+    displayIdentity_ = HmiDisplayIdentity{};
     lastRenderMs_ = 0;
     sleeping_ = false;
     customFrameActive_ = false;
@@ -145,8 +148,17 @@ bool NextionDriver::begin()
     currentPage_ = 0;
 
     (void)refreshSleepState();
+    (void)detectDisplayIdentity();
     (void)detectDisplayVersion();
     return true;
+}
+
+void NextionDriver::end()
+{
+    if (cfg_.serial) cfg_.serial->end();
+    started_ = false;
+    pageReady_ = false;
+    currentPageKnown_ = false;
 }
 
 void NextionDriver::tick(uint32_t)
@@ -542,6 +554,79 @@ bool NextionDriver::readText_(const char* expr, char* out, size_t outLen, uint16
 
     if (!sendCmdFmt_("get %s", expr)) return false;
     return readTextResponse_(out, outLen, timeoutMs);
+}
+
+bool NextionDriver::readConnectResponse_(char* out, size_t outLen, uint16_t timeoutMs)
+{
+    if (!out || outLen == 0U || !started_ || !cfg_.serial) return false;
+    out[0] = '\0';
+
+    size_t len = 0U;
+    uint8_t ffCount = 0U;
+    const uint32_t start = millis();
+    while ((uint32_t)(millis() - start) < (uint32_t)timeoutMs) {
+        while (cfg_.serial->available() > 0) {
+            const int rb = cfg_.serial->read();
+            if (rb < 0) break;
+            const uint8_t value = (uint8_t)rb;
+            if (value == NEXTION_FF) {
+                if (++ffCount >= 3U) {
+                    if (len > 0U) {
+                        out[len] = '\0';
+                        if (strncmp(out, "comok ", 6U) == 0) return true;
+                    }
+                    len = 0U;
+                    ffCount = 0U;
+                }
+                continue;
+            }
+            if (ffCount > 0U) {
+                len = 0U;
+                ffCount = 0U;
+            }
+            if (len + 1U >= outLen) {
+                len = 0U;
+                continue;
+            }
+            out[len++] = (char)value;
+        }
+        delay(1);
+    }
+    out[0] = '\0';
+    return false;
+}
+
+bool NextionDriver::detectDisplayIdentity(uint16_t timeoutMs, bool force)
+{
+    if (identityDetected_ && !force) return true;
+    if (!started_ || !cfg_.serial || sleeping_) return false;
+
+    while (cfg_.serial->available() > 0) {
+        (void)cfg_.serial->read();
+    }
+    customFrameActive_ = false;
+    customExpectedLen_ = 0U;
+    customLen_ = 0U;
+    pageResponseActive_ = false;
+    pageResponseLen_ = 0U;
+    touchResponseActive_ = false;
+    touchResponseLen_ = 0U;
+
+    if (!sendCmd_("")) return false;
+    delay(40);
+    if (!sendCmd_("connect")) return false;
+
+    char response[192]{};
+    const uint16_t effectiveTimeout = timeoutMs != 0U ? timeoutMs : cfg_.displayIdentityReadTimeoutMs;
+    HmiDisplayIdentity detected{};
+    if (!readConnectResponse_(response, sizeof(response), effectiveTimeout) ||
+        !parseNextionConnectResponse(response, detected)) {
+        return false;
+    }
+
+    displayIdentity_ = detected;
+    identityDetected_ = true;
+    return true;
 }
 
 bool NextionDriver::detectDisplayVersion(uint16_t timeoutMs, bool force)

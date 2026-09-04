@@ -56,9 +56,9 @@
     let loadedWebAssetVersion = '';
     let supervisorFirmwareVersion = '-';
     let nextionDisplayVersion = '';
-    let nextionDisplayVersionDetected = false;
-    let nextionDisplayVersionCompatible = false;
-    let nextionDisplayExpectedVersion = '';
+    let nextionDisplayDetected = false;
+    let nextionDisplayModel = '';
+    let nextionDisplayCompatibility = '';
     let supervisorUptimeMs = 0;
     let supervisorHeap = {};
     let webProfileName = 'Supervisor';
@@ -1059,13 +1059,9 @@
         }
         const rawNextionVersion = String(data.nextion_display_version || '').trim();
         nextionDisplayVersion = rawNextionVersion && rawNextionVersion !== '0' ? rawNextionVersion : '';
-        nextionDisplayVersionDetected = Object.prototype.hasOwnProperty.call(data, 'nextion_display_version_detected')
-          ? data.nextion_display_version_detected === true
-          : !!nextionDisplayVersion;
-        nextionDisplayVersionCompatible = Object.prototype.hasOwnProperty.call(data, 'nextion_display_version_compatible')
-          ? data.nextion_display_version_compatible === true
-          : nextionDisplayVersionDetected;
-        nextionDisplayExpectedVersion = String(data.nextion_display_expected_version || '').trim();
+        nextionDisplayDetected = data.nextion_display_detected === true;
+        nextionDisplayModel = String(data.nextion_display_model || '').trim();
+        nextionDisplayCompatibility = String(data.nextion_display_compatibility || '').trim();
         supervisorUptimeMs = Number(data.upms) || 0;
         supervisorHeap = (data.heap && typeof data.heap === 'object') ? data.heap : {};
         renderUpgradeCatalog();
@@ -2070,7 +2066,7 @@
     let calibrationLoadedOnce = false;
     let calibrationContext = null;
     let calibrationComputed = null;
-    let upgradeManifestState = { manifest: null, manifestUrl: '', baseUrl: '' };
+    let upgradeManifestState = { manifest: null, manifestUrl: '', baseUrl: '', nextion: null };
     let cfgTreeAliases = [];
     let cfgTreeVirtualBranches = [];
     const cfgTreeNodeTextNames = { supervisor: {}, flow: {} };
@@ -2948,7 +2944,7 @@
 
     function upgradeUsesReconnect(target) {
       const key = String(target || '').trim().toLowerCase();
-      return key === 'flowios3' || key === 'esp32s3' || key === 'waveshare' || key === 'spiffs';
+      return key === 'flowios3' || key === 'esp32s3' || key === 'waveshare' || key === 'spiffs' || key === 'nextion';
     }
 
     function upgradeStepDefinitions(target) {
@@ -3669,9 +3665,18 @@
       if (!manifest || typeof manifest !== 'object') return null;
       const baseUrl = manifestBaseUrl(manifestUrl);
       const entries = [];
+      const nextionSelection = componentKey === 'nextion' && upgradeManifestState
+        && upgradeManifestState.nextion && typeof upgradeManifestState.nextion === 'object'
+        ? upgradeManifestState.nextion
+        : null;
+      const selectedNextionPath = nextionSelection && nextionSelection.artifact_selected === true
+        ? String(nextionSelection.artifact_path || '').trim()
+        : '';
       upgradeManifestKeysForComponent(componentKey).forEach((category) => {
         manifestArtifactList(manifest, category)
           .filter((artifact) => joinManifestArtifactUrl(baseUrl, artifact))
+          .filter((artifact) => componentKey !== 'nextion'
+            || (!!selectedNextionPath && String(artifact.path || '').trim() === selectedNextionPath))
           .forEach((artifact) => {
             const target = resolveArtifactTarget(category, artifact);
             const split = splitUpgradeVersionStamp(artifact.version, formatManifestBuildDate(artifact));
@@ -3725,22 +3730,23 @@
         const available = latest
           ? { version: latest.version, build: latest.buildDate }
           : { version: '-', build: '-' };
-        const nextionUnavailable = def.key === 'nextion'
-          && (!nextionDisplayVersionDetected || !nextionDisplayVersionCompatible);
+        const nextionUnavailable = def.key === 'nextion' && (!nextionDisplayDetected || !latest);
         const comparableCurrent = current.version && current.version !== '-';
         const comparableAvailable = available.version && available.version !== '-';
         const updateAvailable = !nextionUnavailable
           && comparableAvailable
           && (!comparableCurrent || compareFirmwareVersions(available.version, current.version) > 0);
-        const unavailableMessage = nextionDisplayVersionDetected
-          ? tr('updates.nextion.incompatible', 'Version Nextion incompatible')
+        const unavailableMessage = nextionDisplayDetected
+          ? tr('updates.nextion.noCompatibleArtifact', 'Aucun firmware Nextion compatible')
           : tr('updates.nextion.notDetected', 'Nextion non détecté');
-        const expectedVersion = formatDetectedNextionVersion(nextionDisplayExpectedVersion);
-        const unavailableComment = nextionDisplayVersionDetected && expectedVersion !== '-'
-          ? tr('updates.nextion.incompatibleDetail', 'Version attendue : {version}.')
-            .replace('{version}', expectedVersion)
+        const unavailableComment = nextionDisplayDetected
+          ? tr('updates.nextion.noCompatibleArtifactDetail', 'Aucun fichier du manifest ne correspond au modèle {model}.')
+            .replace('{model}', nextionDisplayModel || nextionDisplayCompatibility || '-')
           : tr('updates.nextion.notDetectedDetail', 'Vérifiez la connexion de l’écran puis redémarrez le système.');
         return Object.assign({}, def, {
+          subtitle: def.key === 'nextion' && nextionDisplayModel
+            ? def.subtitle + ' · ' + nextionDisplayModel
+            : def.subtitle,
           current: current,
           available: available,
           updateAvailable: updateAvailable,
@@ -3805,7 +3811,7 @@
       button.appendChild(icon);
       button.appendChild(label);
       const entry = row && row.entry;
-      button.disabled = !(entry && entry.endpoint && entry.url);
+      button.disabled = !!(row && row.unavailable) || !(entry && entry.endpoint && entry.url);
       button.title = button.disabled
         ? tr('updates.checkRequired', 'Vérifiez les mises à jour avant de lancer cette action.')
         : tr('updates.updateButton', 'Mettre à jour');
@@ -3934,7 +3940,7 @@
     }
 
     function resetUpgradeManifestSelections(text) {
-      upgradeManifestState = { manifest: null, manifestUrl: '', baseUrl: '' };
+      upgradeManifestState = { manifest: null, manifestUrl: '', baseUrl: '', nextion: null };
       setUpgradeCardsEmpty(text || tr('updates.empty', 'Cliquez sur « Vérifier les mises à jour ».'));
     }
 
@@ -3965,7 +3971,18 @@
     function populateUpgradeManifestSelections(data) {
       const manifest = data && data.manifest && typeof data.manifest === 'object' ? data.manifest : null;
       const manifestUrl = String(data && data.manifest_url ? data.manifest_url : '').trim();
-      upgradeManifestState = { manifest: manifest, manifestUrl: manifestUrl, baseUrl: manifestBaseUrl(manifestUrl) };
+      const nextion = data && data.nextion && typeof data.nextion === 'object' ? data.nextion : null;
+      upgradeManifestState = {
+        manifest: manifest,
+        manifestUrl: manifestUrl,
+        baseUrl: manifestBaseUrl(manifestUrl),
+        nextion: nextion
+      };
+      if (nextion) {
+        nextionDisplayDetected = nextion.display_detected === true;
+        nextionDisplayModel = String(nextion.model || '').trim();
+        nextionDisplayCompatibility = String(nextion.compatibility || '').trim();
+      }
       renderUpgradeCatalog();
     }
 

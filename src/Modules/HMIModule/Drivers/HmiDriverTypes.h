@@ -72,8 +72,6 @@ struct NextionV2NeedlePublish {
     uint8_t psiNeedle = 0;
 };
 
-static constexpr size_t HMI_DISPLAY_VERSION_TEXT_MAX = 9U; // "99.99.99" + NUL.
-
 enum class HmiHomeTextField : uint8_t {
     WaterTemp = 0,
     AirTemp = 1,

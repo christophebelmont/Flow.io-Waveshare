@@ -156,6 +156,9 @@ private:
     uint32_t frontLedI2cFrequencyHz_ = 100000U;
     uint32_t homePublishMask_ = 0U;
     portMUX_TYPE homePublishMux_ = portMUX_INITIALIZER_UNLOCKED;
+    portMUX_TYPE localDisplayUpdateMux_ = portMUX_INITIALIZER_UNLOCKED;
+    bool localDisplayUpdateRequested_ = false;
+    bool localDisplayUpdateActive_ = false;
     IoId phIoId_ = ioIdFromSlot(analogInputSlot(1));
     IoId orpIoId_ = ioIdFromSlot(analogInputSlot(0));
     IoId psiIoId_ = ioIdFromSlot(analogInputSlot(2));
@@ -234,6 +237,9 @@ private:
     bool ensureFrontLedPanelReady_();
     void applyFrontLedPanelConfig_();
     bool getDisplayVersion_(char* out, size_t outLen) const;
+    bool getLocalDisplayIdentity_(HmiDisplayIdentity* out) const;
+    bool setLocalDisplayUpdateMode_(bool enabled, uint16_t timeoutMs);
+    void synchronizeLocalDisplayUpdateMode_();
     bool readRtcSvc_(HmiRtcDateTime* out, uint16_t timeoutMs);
     bool writeRtcSvc_(const HmiRtcDateTime* value);
     bool refreshCurrentModule_();
@@ -312,6 +318,8 @@ private:
         ServiceBinding::bind<&HMIModule::setLedEnabled_>,
         ServiceBinding::bind<&HMIModule::setLedBrightness_>,
         ServiceBinding::bind<&HMIModule::getDisplayVersion_>,
+        ServiceBinding::bind<&HMIModule::getLocalDisplayIdentity_>,
+        ServiceBinding::bind<&HMIModule::setLocalDisplayUpdateMode_>,
         ServiceBinding::bind<&HMIModule::readRtcSvc_>,
         ServiceBinding::bind<&HMIModule::writeRtcSvc_>,
         ServiceBinding::bind<&HMIModule::isDisplaySleeping_>,

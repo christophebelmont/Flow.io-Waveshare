@@ -187,6 +187,8 @@
     "updates.nextion.notDetectedDetail": "Check the display connection, then restart the system.",
     "updates.nextion.incompatible": "Incompatible Nextion version",
     "updates.nextion.incompatibleDetail": "Expected version: {version}.",
+    "updates.nextion.noCompatibleArtifact": "No compatible Nextion firmware",
+    "updates.nextion.noCompatibleArtifactDetail": "No manifest file matches display model {model}.",
     "updates.updateButton": "Update",
     "updates.checkRequired": "Check for updates before starting this action.",
     "updates.empty": "Click “Check for updates”.",

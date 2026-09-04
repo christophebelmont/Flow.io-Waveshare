@@ -7,6 +7,24 @@
 #include <stddef.h>
 #include <stdint.h>
 
+static constexpr size_t HMI_DISPLAY_VERSION_TEXT_MAX = 9U; // "99.99.99" + NUL.
+static constexpr size_t HMI_DISPLAY_MODEL_TEXT_MAX = 40U;
+
+enum class HmiDisplayTouchType : uint8_t {
+    Unknown = 0,
+    None,
+    Resistive,
+    Capacitive
+};
+
+struct HmiDisplayIdentity {
+    char model[HMI_DISPLAY_MODEL_TEXT_MAX]{};
+    char compatibility[HMI_DISPLAY_MODEL_TEXT_MAX]{};
+    char applicationVersion[HMI_DISPLAY_VERSION_TEXT_MAX]{};
+    uint16_t deviceFirmwareVersion = 0U;
+    HmiDisplayTouchType touchType = HmiDisplayTouchType::Unknown;
+};
+
 enum class HmiLedCondition : uint8_t {
     AlarmActive = 0,
     DomainSlotError,
@@ -72,6 +90,8 @@ struct HmiService {
     bool (*setLedEnabled)(void* ctx, bool enabled);
     bool (*setLedBrightness)(void* ctx, uint8_t brightness);
     bool (*getDisplayVersion)(void* ctx, char* out, size_t outLen);
+    bool (*getLocalDisplayIdentity)(void* ctx, HmiDisplayIdentity* out);
+    bool (*setLocalDisplayUpdateMode)(void* ctx, bool enabled, uint16_t timeoutMs);
     bool (*readRtc)(void* ctx, HmiRtcDateTime* out, uint16_t timeoutMs);
     bool (*writeRtc)(void* ctx, const HmiRtcDateTime* value);
     bool (*isDisplaySleeping)(void* ctx);

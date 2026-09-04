@@ -48,4 +48,12 @@ La disposition physique peut varier selon le câble et le boîtier. Vérifier ch
 
 La configuration `hmi/nextion/enabled` active les écritures vers l'écran. Le PIR logique peut commander la veille et le réveil via `hmi/nextion/motion_io_id`.
 
+Au démarrage, Flow.io envoie la commande `connect`, conserve le modèle complet
+renvoyé par `comok` et calcule une clé de compatibilité. Les marqueurs tactiles
+`R` et `C` ne participent pas à cette clé; `N` et les autres suffixes restent
+distincts. Lors de la vérification des mises à jour, le firmware sélectionne
+uniquement le TFT dont `display_compatibility` correspond à l'écran détecté,
+puis choisit la version la plus récente. Aucun upgrade Nextion n'est accepté
+sans cette sélection validée côté firmware.
+
 Le contrat des pages, objets, opcodes et registres RTC est défini dans la [référence du protocole ESP / Nextion](../integration/nextion-esp-protocol.md). Les noms d'objets du fichier HMI font partie de ce contrat et ne doivent pas être modifiés sans adapter simultanément le firmware.

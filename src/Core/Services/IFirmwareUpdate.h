@@ -7,6 +7,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "Core/Services/IHmi.h"
+
 enum class FirmwareUpdateTarget : uint8_t {
     Nextion = 2,
     Waveshare = 3,
@@ -28,6 +30,14 @@ struct FirmwareManifestCheckSnapshot {
     size_t payloadLen = 0;
     char manifestUrl[192] = {0};
     char message[120] = {0};
+    bool nextionDisplayDetected = false;
+    bool nextionArtifactSelected = false;
+    char nextionDisplayModel[HMI_DISPLAY_MODEL_TEXT_MAX] = {0};
+    char nextionDisplayCompatibility[HMI_DISPLAY_MODEL_TEXT_MAX] = {0};
+    char nextionArtifactPath[128] = {0};
+    char nextionArtifactVersion[HMI_DISPLAY_VERSION_TEXT_MAX] = {0};
+    char nextionArtifactUrl[192] = {0};
+    uint32_t nextionArtifactSize = 0U;
 };
 
 struct FirmwareUpdateService {

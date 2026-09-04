@@ -697,7 +697,7 @@ const char* firmwareManifestCheckStateName_(FirmwareManifestCheckState state)
 }
 
 struct FirmwareManifestResponseChunkState {
-    static constexpr size_t kPrefixReserve = 512U;
+    static constexpr size_t kPrefixReserve = 1280U;
 
     ~FirmwareManifestResponseChunkState()
     {
@@ -715,10 +715,25 @@ struct FirmwareManifestResponseChunkState {
 
         char safeUrl[sizeof(snapshot.manifestUrl)] = {0};
         char current[48] = {0};
+        char nextionModel[sizeof(snapshot.nextionDisplayModel)] = {0};
+        char nextionCompatibility[sizeof(snapshot.nextionDisplayCompatibility)] = {0};
+        char nextionPath[sizeof(snapshot.nextionArtifactPath)] = {0};
+        char nextionVersion[sizeof(snapshot.nextionArtifactVersion)] = {0};
+        char nextionUrl[sizeof(snapshot.nextionArtifactUrl)] = {0};
         snprintf(safeUrl, sizeof(safeUrl), "%s", snapshot.manifestUrl);
         snprintf(current, sizeof(current), "%s", FirmwareVersion::Full);
+        snprintf(nextionModel, sizeof(nextionModel), "%s", snapshot.nextionDisplayModel);
+        snprintf(nextionCompatibility, sizeof(nextionCompatibility), "%s", snapshot.nextionDisplayCompatibility);
+        snprintf(nextionPath, sizeof(nextionPath), "%s", snapshot.nextionArtifactPath);
+        snprintf(nextionVersion, sizeof(nextionVersion), "%s", snapshot.nextionArtifactVersion);
+        snprintf(nextionUrl, sizeof(nextionUrl), "%s", snapshot.nextionArtifactUrl);
         sanitizeJsonString_(safeUrl);
         sanitizeJsonString_(current);
+        sanitizeJsonString_(nextionModel);
+        sanitizeJsonString_(nextionCompatibility);
+        sanitizeJsonString_(nextionPath);
+        sanitizeJsonString_(nextionVersion);
+        sanitizeJsonString_(nextionUrl);
 
         capacity = kPrefixReserve + snapshot.payloadLen + 2U;
         data = static_cast<char*>(
@@ -731,12 +746,24 @@ struct FirmwareManifestResponseChunkState {
                      kPrefixReserve,
                      "{\"ok\":true,\"request_id\":%lu,\"state\":\"ready\","
                      "\"manifest_url\":\"%s\",\"current\":{\"flowios3\":\"%s\","
-                     "\"esp32s3\":\"%s\",\"waveshare\":\"%s\"},\"manifest\":",
+                     "\"esp32s3\":\"%s\",\"waveshare\":\"%s\"},"
+                     "\"nextion\":{\"display_detected\":%s,\"model\":\"%s\","
+                     "\"compatibility\":\"%s\",\"artifact_selected\":%s,"
+                     "\"artifact_path\":\"%s\",\"artifact_version\":\"%s\","
+                     "\"artifact_url\":\"%s\",\"artifact_size\":%lu},\"manifest\":",
                      (unsigned long)snapshot.requestId,
                      safeUrl,
                      current,
                      current,
-                     current);
+                     current,
+                     snapshot.nextionDisplayDetected ? "true" : "false",
+                     nextionModel,
+                     nextionCompatibility,
+                     snapshot.nextionArtifactSelected ? "true" : "false",
+                     nextionPath,
+                     nextionVersion,
+                     nextionUrl,
+                     (unsigned long)snapshot.nextionArtifactSize);
         if (prefixWritten <= 0 || (size_t)prefixWritten >= kPrefixReserve) return false;
 
         const size_t prefixLen = (size_t)prefixWritten;
@@ -5589,7 +5616,7 @@ void WebInterfaceModule::startServer_()
     });
     server_.on("/api/web/meta", HTTP_GET, [this](AsyncWebServerRequest* request) {
         HttpLatencyScope latency(request, "/api/web/meta");
-        StaticJsonDocument<1024> doc;
+        StaticJsonDocument<1536> doc;
         NetworkAccessMode mode = NetworkAccessMode::None;
         if (!netAccessSvc_ && services_) {
             netAccessSvc_ = services_->get<NetworkAccessService>(ServiceId::NetworkAccess);
@@ -5618,7 +5645,8 @@ void WebInterfaceModule::startServer_()
         doc["provisioning_only"] = provisioningOnly_;
         doc["full_ui_enabled"] = !provisioningOnly_;
         doc["reboot_after_wifi_save"] = provisioningOnly_ || (mode == NetworkAccessMode::AccessPoint);
-        char nextionDisplayVersion[9]{};
+        char nextionDisplayVersion[HMI_DISPLAY_VERSION_TEXT_MAX]{};
+        HmiDisplayIdentity nextionIdentity{};
         if (!hmiSvc_ && services_) {
             hmiSvc_ = services_->get<HmiService>(ServiceId::Hmi);
         }
@@ -5627,6 +5655,19 @@ void WebInterfaceModule::startServer_()
             hmiSvc_->getDisplayVersion(hmiSvc_->ctx, nextionDisplayVersion, sizeof(nextionDisplayVersion));
         const bool nextionVersionCompatible =
             nextionVersionDetected && strcmp(nextionDisplayVersion, TFT_FIRMW) == 0;
+        const bool nextionDisplayDetected =
+            hmiSvc_ && hmiSvc_->getLocalDisplayIdentity &&
+            hmiSvc_->getLocalDisplayIdentity(hmiSvc_->ctx, &nextionIdentity);
+        doc["nextion_display_detected"] = nextionDisplayDetected;
+        if (nextionDisplayDetected) {
+            doc["nextion_display_model"] = nextionIdentity.model;
+            doc["nextion_display_compatibility"] = nextionIdentity.compatibility;
+            doc["nextion_display_device_firmware"] = nextionIdentity.deviceFirmwareVersion;
+            doc["nextion_display_touch"] =
+                nextionIdentity.touchType == HmiDisplayTouchType::Capacitive ? "capacitive" :
+                nextionIdentity.touchType == HmiDisplayTouchType::Resistive ? "resistive" :
+                nextionIdentity.touchType == HmiDisplayTouchType::None ? "none" : "unknown";
+        }
         doc["nextion_display_version_detected"] = nextionVersionDetected;
         doc["nextion_display_version_compatible"] = nextionVersionCompatible;
         doc["nextion_display_expected_version"] = TFT_FIRMW;
