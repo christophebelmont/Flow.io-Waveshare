@@ -471,6 +471,13 @@ constexpr char MaxUptimeFmt[] = "pd%umu"; // Pool device module key template; `%
 constexpr char RuntimeFmt[] = "pd%urt"; // Pool device module runtime metrics key template; `%u` is replaced by slot index before NVS access.
 }  // namespace PoolDevice
 
+namespace PoolHistory {
+/** @brief Compact record for the current local day. */
+constexpr char Today[] = "phist_today";
+/** @brief Compact record for the previous local day. */
+constexpr char PreviousDay[] = "phist_prev";
+}  // namespace PoolHistory
+
 namespace Alarm {
 constexpr char Enabled[] = "al_en"; // Alarm module persisted key for field `enabled`.
 constexpr char EvalPeriodMs[] = "al_epms"; // Alarm module persisted key for field `eval_period_ms`.

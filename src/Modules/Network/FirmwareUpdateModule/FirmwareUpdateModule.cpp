@@ -444,7 +444,7 @@ bool FirmwareUpdateModule::parseUrlArg_(const CommandRequest& req, char* out, si
 
     StaticJsonDocument<256> doc;
     if (parseReqJsonObject_(req.args, doc)) {
-        const char* url = doc["url"] | nullptr;
+        const char* url = doc["url"].as<const char*>();
         if (url && url[0] != '\0') {
             snprintf(out, outLen, "%s", url);
             return true;
@@ -453,14 +453,14 @@ bool FirmwareUpdateModule::parseUrlArg_(const CommandRequest& req, char* out, si
 
     doc.clear();
     if (parseReqJsonObject_(req.json, doc)) {
-        const char* rootUrl = doc["url"] | nullptr;
+        const char* rootUrl = doc["url"].as<const char*>();
         if (rootUrl && rootUrl[0] != '\0') {
             snprintf(out, outLen, "%s", rootUrl);
             return true;
         }
         JsonVariantConst args = doc["args"];
         if (args.is<JsonObjectConst>()) {
-            const char* nestedUrl = args["url"] | nullptr;
+            const char* nestedUrl = args["url"].as<const char*>();
             if (nestedUrl && nestedUrl[0] != '\0') {
                 snprintf(out, outLen, "%s", nestedUrl);
                 return true;
@@ -1285,11 +1285,11 @@ bool FirmwareUpdateModule::runManifestCheck_(const ManifestCheckJob& job,
         const JsonArrayConst artifacts = nextionValue.as<JsonArrayConst>();
         size_t artifactIndex = 0U;
         for (JsonObjectConst artifact : artifacts) {
-            const char* path = artifact["path"] | nullptr;
-            const char* version = artifact["version"] | nullptr;
-            const char* compatibility = artifact["display_compatibility"] | nullptr;
-            const char* target = artifact["target"] | nullptr;
-            const char* kind = artifact["kind"] | nullptr;
+            const char* path = artifact["path"].as<const char*>();
+            const char* version = artifact["version"].as<const char*>();
+            const char* compatibility = artifact["display_compatibility"].as<const char*>();
+            const char* target = artifact["target"].as<const char*>();
+            const char* kind = artifact["kind"].as<const char*>();
             const uint32_t size = artifact["size"] | 0U;
 
             char filenameCompatibility[HMI_DISPLAY_MODEL_TEXT_MAX]{};

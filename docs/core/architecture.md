@@ -105,6 +105,7 @@ Assistant du profil.
 | `eventbus` | `0` | disponibilité immédiate; `SystemStarted` est désormais posté depuis `onStart()` |
 | `mqtt` | `1500` | conserve le relâchement différé historique avant les tentatives de connexion |
 | `poollogic` | `10000` | conserve le démarrage différé historique de la boucle métier |
+| `poolhistory` | `6000` | attend la disponibilité du temps local et de l'état réel des équipements avant l'échantillonnage |
 | `ha` | `15000` | conserve le démarrage différé historique de l'auto-discovery Home Assistant |
 | `webinterface` | `10000` | conserve le warm-up fixe du serveur web, désormais porté par `ModuleManager` |
 | autres modules | `0` | relâchement immédiat après `onConfigLoaded()` sauf override explicite |
@@ -126,6 +127,7 @@ Le profil principal Waveshare porte notamment:
 - `io`
 - `poollogic`
 - `pooldev`
+- `poolhistory`
 - `hmi`
 - `hmi.buzzer`
 - `tft.s3`

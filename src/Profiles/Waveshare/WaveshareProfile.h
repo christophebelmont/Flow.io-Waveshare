@@ -26,6 +26,7 @@
 #include "Modules/Network/WifiProvisioningModule/WifiProvisioningModule.h"
 #include "Modules/Network/WifiModule/WifiModule.h"
 #include "Modules/PoolDeviceModule/PoolDeviceModule.h"
+#include "Modules/PoolHistoryModule/PoolHistoryModule.h"
 #include "Modules/PoolLogicModule/PoolLogicModule.h"
 #include "Modules/Stores/ConfigStoreModule/ConfigStoreModule.h"
 #include "Modules/Stores/DataStoreModule/DataStoreModule.h"
@@ -74,6 +75,7 @@ struct ModuleInstances {
     HMIBuzzerModule hmiBuzzerModule;
     IOModule ioModule;
     PoolDeviceModule poolDeviceModule{};
+    PoolHistoryModule poolHistoryModule{};
     PoolLogicModule poolLogicModule{};
     OneWireBus oneWireWater;
     OneWireBus oneWireAir;

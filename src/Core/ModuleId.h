@@ -17,7 +17,7 @@ enum class ModuleId : uint8_t {
     Ethernet,
     WifiProvisioning,
     Time,
-    Reserved14,
+    PoolHistory,
     Reserved15,
     WebInterface,
     FirmwareUpdate,
@@ -70,6 +70,7 @@ constexpr const char* toString(ModuleId id)
         case ModuleId::Ethernet: return "ethernet";
         case ModuleId::WifiProvisioning: return "wifiprov";
         case ModuleId::Time: return "time";
+        case ModuleId::PoolHistory: return "poolhistory";
         case ModuleId::WebInterface: return "webinterface";
         case ModuleId::FirmwareUpdate: return "fwupdate";
         case ModuleId::System: return "system";
@@ -85,7 +86,6 @@ constexpr const char* toString(ModuleId id)
         case ModuleId::ActivityLog: return "activitylog";
         case ModuleId::TftS3: return "tft.s3";
         case ModuleId::HmiBuzzer: return "hmi.buzzer";
-        case ModuleId::Reserved14:
         case ModuleId::Reserved15:
         case ModuleId::Reserved27:
         case ModuleId::Reserved28:

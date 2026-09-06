@@ -65,9 +65,7 @@
     let webDeviceName = 'flowio';
     let infoLastMac = '-';
     let webProfileKey = 'supervisor';
-    let webLocalConfigLabel = 'Config Store Supervisor';
     let webLocalRuntime = false;
-    let webRemoteConfigEnabled = true;
     let hideMenuSvg = false;
     let disableWebIcons = false;
     let unifyStatusCardIcons = false;
@@ -253,17 +251,6 @@
       webUiLocale = normalized;
       document.documentElement.lang = webUiLocale;
       document.body.setAttribute('data-ui-locale', webUiLocale);
-      const knownLocalLabels = new Set([
-        'Config Store Supervisor',
-        'Config Store Micronova',
-        'Supervisor Config Store',
-        'Micronova Config Store'
-      ]);
-      if (knownLocalLabels.has(String(webLocalConfigLabel || '').trim())) {
-        webLocalConfigLabel = isMicronovaProfile()
-          ? tr('cfg.local.micronova', 'Config Store Micronova')
-          : tr('cfg.local.supervisor', 'Config Store Supervisor');
-      }
       applyStaticTranslations();
       syncMobileTopbarTitle(getActivePageId());
       updateInfoLoadButtonsText();
@@ -292,17 +279,17 @@
     }
 
     async function fetchConfiguredWebUiLocale() {
-      const res = await fetchWithBusyRetry('/api/supervisorcfg/module?name=system', { cache: 'no-store' });
+      const res = await fetchWithBusyRetry('/api/flowcfg/module?name=system', { cache: 'no-store' });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data || data.ok !== true || !data.data || typeof data.data !== 'object') {
-        cfgI18nDebugLog('supervisorcfg/system unavailable for locale probe', {
+        cfgI18nDebugLog('flowcfg/system unavailable for locale probe', {
           ok: !!(data && data.ok),
           status: res ? res.status : 0
         });
         return null;
       }
       const payload = data.data;
-      cfgI18nDebugLog('supervisorcfg/system locale payload', payload);
+      cfgI18nDebugLog('flowcfg/system locale payload', payload);
       const tryLocale = (value) => {
         const raw = String(value || '').trim();
         if (!raw) return '';
@@ -530,11 +517,6 @@
       const rawDeviceName = String(data.devicename || data.deviceName || '').trim();
       webDeviceName = rawDeviceName || 'flowio';
       webLocalRuntime = data.local_runtime === true;
-      const label = String(data.local_config_label || '').trim();
-      webLocalConfigLabel = label || (isMicronovaProfile()
-        ? tr('cfg.local.micronova', 'Config Store Micronova')
-        : tr('cfg.local.supervisor', 'Config Store Supervisor'));
-      webRemoteConfigEnabled = data.remote_config_enabled !== false;
       runtimeMeasureDomainKeys = runtimeDomainsForProfile();
       ensureRuntimeDomainState();
       runtimeManifestDomainCache = null;
@@ -706,12 +688,7 @@
         }
         const rawDeviceName = String(initialMeta.devicename || initialMeta.deviceName || '').trim();
         webDeviceName = rawDeviceName || 'flowio';
-        const label = String(initialMeta.local_config_label || '').trim();
-        webLocalConfigLabel = label || (isMicronovaProfile()
-          ? tr('cfg.local.micronova', 'Config Store Micronova')
-          : tr('cfg.local.supervisor', 'Config Store Supervisor'));
         webLocalRuntime = initialMeta.local_runtime === true;
-        webRemoteConfigEnabled = initialMeta.remote_config_enabled !== false;
         networkMode = normalizeNetworkMode(initialMeta.network_mode);
         networkTransport = normalizeNetworkTransport(initialMeta.network_transport || initialMeta.transport);
       }
@@ -1756,12 +1733,6 @@
       return queued;
     }
 
-    function fetchFlowCfgEndpoint(url, options) {
-      return isWaveshareProfile()
-        ? fetchWithBusyRetry(url, options)
-        : fetchFlowRemoteQueued(url, options);
-    }
-
     function waitMs(ms) {
       return new Promise((resolve) => setTimeout(resolve, ms));
     }
@@ -2043,7 +2014,6 @@
     let flowCfgPath = [];
     let flowCfgExpandedNodes = new Set();
     let flowCfgRootExpanded = true;
-    let cfgTreeSelectedSource = 'flow';
     let cfgDocSources = [];
     let flowCfgDocsLoaded = false;
     let flowCfgDocIndex = null;
@@ -2058,7 +2028,7 @@
     let flowCfgDetailLoadingDepth = 0;
     let flowCfgLoadPromise = null;
     let flowCfgRetryTimer = null;
-    let flowCfgFlowOnlyFailureStreak = 0;
+    let flowCfgFailureStreak = 0;
     let flowCfgLocalApplyBusyDepth = 0;
     let flowCfgApplyBtnSavedText = '';
     let wifiConfigLoadedOnce = false;
@@ -2069,16 +2039,9 @@
     let upgradeManifestState = { manifest: null, manifestUrl: '', baseUrl: '', nextion: null };
     let cfgTreeAliases = [];
     let cfgTreeVirtualBranches = [];
-    const cfgTreeNodeTextNames = { supervisor: {}, flow: {} };
-    const cfgTreeNodeTextNamePending = { supervisor: new Set(), flow: new Set() };
-    const poolLogicDeviceIoOutputNames = { supervisor: {}, flow: {} };
-    let supCfgCurrentModule = '';
-    let supCfgCurrentData = {};
-    let supCfgCurrentPdmExtension = null;
-    let supCfgTreePath = '';
-    let supCfgChildrenCache = {};
-    let supCfgExpandedNodes = new Set();
-    let supCfgRootExpanded = true;
+    let cfgTreeNodeTextNames = {};
+    let cfgTreeNodeTextNamePending = new Set();
+    const poolLogicDeviceIoOutputNames = {};
     const ioOutputPdmLabels = Object.freeze({
       0: 'Filtration',
       1: 'Pompe pH',
@@ -2104,7 +2067,7 @@
     let ioTopologyCache = null;
     fieldApplyCheckIcon = iconCheckText();
     const flowCfgBackupFormat = 'flowio-configstore-backup';
-    const flowCfgBackupVersion = 1;
+    const flowCfgBackupVersion = 2;
     const flowCfgBackupRedactedToken = '__REDACTED__';
     const flowCfgBackupPatchTargetBytes = 1300;
     let flowCfgBackupBusy = false;
@@ -2297,7 +2260,7 @@
       {
         key: 'nextion',
         title: 'Nextion',
-        subtitle: 'Interface écran',
+        subtitle: 'Unknown',
         icon: 'display_settings',
         tone: 'orange',
         commentsAvailable: 'Nouvelle interface écran disponible',
@@ -3744,8 +3707,8 @@
             .replace('{model}', nextionDisplayModel || nextionDisplayCompatibility || '-')
           : tr('updates.nextion.notDetectedDetail', 'Vérifiez la connexion de l’écran puis redémarrez le système.');
         return Object.assign({}, def, {
-          subtitle: def.key === 'nextion' && nextionDisplayModel
-            ? def.subtitle + ' · ' + nextionDisplayModel
+          subtitle: def.key === 'nextion'
+            ? (nextionDisplayModel || def.subtitle)
             : def.subtitle,
           current: current,
           available: available,
@@ -6946,7 +6909,7 @@
         '/api/flowcfg/module?name=' + encodeURIComponent(cleanModule),
         { cache: 'no-store' },
         tr('pool.error.moduleRead', 'lecture {module} impossible').replace('{module}', cleanModule),
-        fetchFlowRemoteQueued
+        fetchWithBusyRetry
       );
       return {
         module: cleanModule,
@@ -7523,7 +7486,7 @@
         '/api/flowcfg/module?name=' + encodeURIComponent(cleanModule),
         { cache: 'no-store' },
         'lecture module ' + cleanModule + ' impossible',
-        fetchFlowRemoteQueued
+        fetchWithBusyRetry
       );
       if (!data || typeof data.data !== 'object' || Array.isArray(data.data)) {
         throw new Error(tr('calibration.err.invalidModuleNamed', 'module {module} invalide').replace('{module}', cleanModule));
@@ -7912,7 +7875,7 @@
         const response = await fetchJsonResponse(
           '/api/flowcfg/apply',
           createFormPostOptions({ patch: JSON.stringify(patch) }),
-          fetchFlowRemoteQueued
+          fetchWithBusyRetry
         );
         if (!response.res.ok || !response.data || response.data.ok !== true) {
           throw new Error(formatFlowCfgApplyError(response.data));
@@ -8186,43 +8149,37 @@
       return null;
     }
 
-    async function fetchCfgTreeNodeTextName(source, pathValue) {
+    async function fetchCfgTreeNodeTextName(pathValue) {
       const cleanPath = nettoyerNomFlowCfg(pathValue);
       const info = cfgTreeNodeRefInfo(cleanPath);
       if (!info || info.type !== 'io') return;
-      if (!cfgTreeNodeTextNames[source]) cfgTreeNodeTextNames[source] = {};
-      if (!cfgTreeNodeTextNamePending[source]) cfgTreeNodeTextNamePending[source] = new Set();
-
-      const existing = cfgTreeNodeTextNames[source][cleanPath];
+      const existing = cfgTreeNodeTextNames[cleanPath];
       if (typeof existing !== 'undefined') return;
-      if (cfgTreeNodeTextNamePending[source].has(cleanPath)) return;
+      if (cfgTreeNodeTextNamePending.has(cleanPath)) return;
 
-      cfgTreeNodeTextNamePending[source].add(cleanPath);
+      cfgTreeNodeTextNamePending.add(cleanPath);
       try {
         const storePath = cfgStorePathFromDisplayPath(cleanPath) || info.modulePath;
         if (!storePath) return;
-        const url = source === 'supervisor'
-          ? ('/api/supervisorcfg/module?name=' + encodeURIComponent(storePath))
-          : ('/api/flowcfg/module?name=' + encodeURIComponent(storePath));
-        const fetchFn = source === 'supervisor' ? fetch : fetchFlowRemoteQueued;
-        const res = await fetchFn(url, { cache: 'no-store' });
+        const url = '/api/flowcfg/module?name=' + encodeURIComponent(storePath);
+        const res = await fetchWithBusyRetry(url, { cache: 'no-store' });
         const data = await res.json().catch(() => null);
         if (!res.ok || !data || data.ok !== true || typeof data.data !== 'object') {
-          cfgTreeNodeTextNames[source][cleanPath] = '';
+          cfgTreeNodeTextNames[cleanPath] = '';
           return;
         }
         const raw = data.data[info.nameKey];
         const textName = (typeof raw === 'string') ? raw.trim() : '';
-        cfgTreeNodeTextNames[source][cleanPath] = textName;
+        cfgTreeNodeTextNames[cleanPath] = textName;
       } catch (err) {
-        cfgTreeNodeTextNames[source][cleanPath] = '';
+        cfgTreeNodeTextNames[cleanPath] = '';
       } finally {
-        cfgTreeNodeTextNamePending[source].delete(cleanPath);
+        cfgTreeNodeTextNamePending.delete(cleanPath);
         renderFlowCfgTree();
       }
     }
 
-    function cfgTreeDecoratedNodeLabel(source, pathValue, baseLabel) {
+    function cfgTreeDecoratedNodeLabel(pathValue, baseLabel) {
       const cleanPath = nettoyerNomFlowCfg(pathValue);
       const info = cfgTreeNodeRefInfo(cleanPath);
       if (!info) return baseLabel;
@@ -8230,19 +8187,17 @@
       const ref = info.ref || String(baseLabel || '').trim();
       if (!ref) return baseLabel;
 
-      const sourceCache = cfgTreeNodeTextNames[source] || {};
-      const cached = sourceCache[cleanPath];
+      const cached = cfgTreeNodeTextNames[cleanPath];
       if (typeof cached !== 'undefined') {
         return (typeof cached === 'string' && cached.length > 0) ? (ref + ' [' + cached + ']') : ref;
       }
-      fetchCfgTreeNodeTextName(source, cleanPath).catch(() => {});
+      fetchCfgTreeNodeTextName(cleanPath).catch(() => {});
       return ref;
     }
 
-    function clearCfgTreeNodeTextNameCache(source) {
-      if (source !== 'flow' && source !== 'supervisor') return;
-      cfgTreeNodeTextNames[source] = {};
-      cfgTreeNodeTextNamePending[source] = new Set();
+    function clearCfgTreeNodeTextNameCache() {
+      cfgTreeNodeTextNames = {};
+      cfgTreeNodeTextNamePending = new Set();
     }
 
     function flowCfgTitreDepuisChemin(pathValue) {
@@ -8261,13 +8216,9 @@
       return p.length > 0 ? p : '__root__';
     }
 
-    function cfgChildrenCacheForSource(source) {
-      return source === 'supervisor' ? supCfgChildrenCache : flowCfgChildrenCache;
-    }
-
-    function cfgFilteredChildren(source, prefix) {
+    function cfgFilteredChildren(prefix) {
       const p = nettoyerNomFlowCfg(prefix);
-      const node = cfgChildrenCacheForSource(source)[cfgCacheKey(p)];
+      const node = flowCfgChildrenCache[cfgCacheKey(p)];
       if (!node || !Array.isArray(node.children)) return [];
       return node.children
         .filter((name) => {
@@ -8277,26 +8228,25 @@
         .slice();
     }
 
-    function cfgExpandAncestors(source, pathValue) {
+    function cfgExpandAncestors(pathValue) {
       const cleanPath = nettoyerNomFlowCfg(pathValue);
       if (!cleanPath) return;
-      const expandedSet = source === 'supervisor' ? supCfgExpandedNodes : flowCfgExpandedNodes;
       const segs = cleanPath.split('/');
       let prefix = '';
       for (let i = 0; i < segs.length; ++i) {
         prefix = prefix ? (prefix + '/' + segs[i]) : segs[i];
-        expandedSet.add(prefix);
+        flowCfgExpandedNodes.add(prefix);
       }
     }
 
-    function cfgNodeForPath(source, pathValue) {
+    function cfgNodeForPath(pathValue) {
       const cleanPath = nettoyerNomFlowCfg(pathValue);
-      return cfgChildrenCacheForSource(source)[cfgCacheKey(cleanPath)] || null;
+      return flowCfgChildrenCache[cfgCacheKey(cleanPath)] || null;
     }
 
-    async function chargerCfgChildren(source, prefix, forceReload) {
+    async function chargerCfgChildren(prefix, forceReload) {
       const p = nettoyerNomFlowCfg(prefix);
-      const cache = cfgChildrenCacheForSource(source);
+      const cache = flowCfgChildrenCache;
       const key = cfgCacheKey(p);
       if (!forceReload && cache[key]) {
         return cache[key];
@@ -8317,18 +8267,14 @@
       }
 
       const storePrefix = cfgStorePathFromDisplayPath(p);
-      const baseUrl = source === 'supervisor' ? '/api/supervisorcfg/children' : '/api/flowcfg/children';
+      const baseUrl = '/api/flowcfg/children';
       const url = storePrefix && storePrefix.length > 0
         ? (baseUrl + '?prefix=' + encodeURIComponent(storePrefix))
         : baseUrl;
-      const fetchFn = source === 'supervisor' ? fetch : fetchFlowRemoteQueued;
-      const res = await fetchFn(url, { cache: 'no-store' });
+      const res = await fetchWithBusyRetry(url, { cache: 'no-store' });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data || data.ok !== true || !Array.isArray(data.children)) {
-        const fallback = source === 'supervisor'
-          ? 'liste enfants supervisor indisponible'
-          : 'liste enfants indisponible';
-        throw new Error(extractApiErrorMessage(data, fallback));
+        throw new Error(extractApiErrorMessage(data, 'liste enfants indisponible'));
       }
 
       const children = data.children
@@ -8355,45 +8301,39 @@
       return node;
     }
 
-    async function ensureCfgPathLoaded(source, pathValue, forceReload) {
+    async function ensureCfgPathLoaded(pathValue, forceReload) {
       const cleanPath = nettoyerNomFlowCfg(pathValue);
-      await chargerCfgChildren(source, '', !!forceReload);
-      if (!cleanPath) return cfgNodeForPath(source, '');
+      await chargerCfgChildren('', !!forceReload);
+      if (!cleanPath) return cfgNodeForPath('');
 
       const segs = cleanPath.split('/');
       let prefix = '';
       let node = null;
       for (let i = 0; i < segs.length; ++i) {
         prefix = prefix ? (prefix + '/' + segs[i]) : segs[i];
-        node = await chargerCfgChildren(source, prefix, !!forceReload);
+        node = await chargerCfgChildren(prefix, !!forceReload);
       }
       return node;
     }
 
-    function currentCfgTreePath(source) {
-      return source === 'supervisor' ? nettoyerNomFlowCfg(supCfgTreePath) : cheminFlowCfgCourant();
+    function currentCfgTreePath() {
+      return cheminFlowCfgCourant();
     }
 
-    function cfgSourceLabel(source) {
-      if (source !== 'supervisor') {
-        return tr('cfg.remote.flow', 'Config Store flow.io');
-      }
-      if (webLocalConfigLabel) return webLocalConfigLabel;
-      return isMicronovaProfile()
-        ? tr('cfg.local.micronova', 'Config Store Micronova')
-        : tr('cfg.local.supervisor', 'Config Store Supervisor');
+    function cfgStoreLabel() {
+      return tr('cfg.flow', 'Config Store flow.io');
     }
 
-    function renderFlowCfgCurrentPath(source, pathValue, node) {
+    function renderFlowCfgCurrentPath(pathValue, node) {
       const cleanPath = nettoyerNomFlowCfg(pathValue);
-      const childCount = cfgFilteredChildren(source, cleanPath).length;
+      const childCount = cfgFilteredChildren(cleanPath).length;
       const level = cleanPath ? cleanPath.split('/').length : 0;
       const hasExact = !!(node && node.hasExact);
-      const sourceLabel = cfgSourceLabel(source);
+      const sourceLabel = cfgStoreLabel();
 
       flowCfgPathLabel.textContent = cleanPath ? (sourceLabel + ' / ' + flowCfgTitreDepuisChemin(cleanPath)) : sourceLabel;
       flowCfgPathLabel.setAttribute('aria-label', cleanPath ? (tr('config.branch', 'Branche') + ' ' + cleanPath) : sourceLabel);
-      flowCfgApplyBtn.textContent = source === 'supervisor' ? tr('cfg.apply.local', 'Appliquer localement') : tr('config.apply', 'Appliquer');
+      flowCfgApplyBtn.textContent = tr('config.apply', 'Appliquer');
 
       if (!cleanPath) {
         flowCfgPathMeta.textContent = childCount > 0
@@ -8416,13 +8356,13 @@
       flowCfgPathMeta.textContent = details.join(' | ');
     }
 
-    function buildFlowCfgTreeItem(source, pathValue) {
+    function buildFlowCfgTreeItem(pathValue) {
       const cleanPath = nettoyerNomFlowCfg(pathValue);
-      const label = cfgTreeDecoratedNodeLabel(source, cleanPath, cfgPathLabel(cleanPath));
-      const cachedNode = cfgNodeForPath(source, cleanPath);
-      const children = cfgFilteredChildren(source, cleanPath);
-      const isExpanded = source === 'supervisor' ? supCfgExpandedNodes.has(cleanPath) : flowCfgExpandedNodes.has(cleanPath);
-      const isSelected = source === cfgTreeSelectedSource && cleanPath === currentCfgTreePath(source);
+      const label = cfgTreeDecoratedNodeLabel(cleanPath, cfgPathLabel(cleanPath));
+      const cachedNode = cfgNodeForPath(cleanPath);
+      const children = cfgFilteredChildren(cleanPath);
+      const isExpanded = flowCfgExpandedNodes.has(cleanPath);
+      const isSelected = cleanPath === currentCfgTreePath();
       const hasKnownChildren = children.length > 0;
       const canExpand = !cachedNode || hasKnownChildren;
 
@@ -8448,7 +8388,7 @@
       if (canExpand) {
         toggle.addEventListener('click', async (event) => {
           event.stopPropagation();
-          await toggleFlowCfgBranch(source, cleanPath);
+          await toggleFlowCfgBranch(cleanPath);
         });
       }
       row.appendChild(toggle);
@@ -8461,10 +8401,10 @@
       nodeBtn.setAttribute('aria-current', isSelected ? 'true' : 'false');
       nodeBtn.addEventListener('click', async () => {
         if (canExpand && isExpanded) {
-          await toggleFlowCfgBranch(source, cleanPath);
+          await toggleFlowCfgBranch(cleanPath);
           return;
         }
-        await selectFlowCfgPath(source, cleanPath, false);
+        await selectFlowCfgPath(cleanPath, false);
       });
 
       const nodeLabel = document.createElement('span');
@@ -8480,7 +8420,7 @@
         group.setAttribute('role', 'group');
         children.forEach((child) => {
           const childPath = cleanPath ? (cleanPath + '/' + child) : child;
-          group.appendChild(buildFlowCfgTreeItem(source, childPath));
+          group.appendChild(buildFlowCfgTreeItem(childPath));
         });
         item.appendChild(group);
       }
@@ -8488,7 +8428,7 @@
       return item;
     }
 
-    function buildCfgTreeRootItem(source, label, expanded, children) {
+    function buildCfgTreeRootItem(label, expanded, children) {
       const item = document.createElement('li');
       item.className = 'cfg-tree-item cfg-tree-item-root';
       item.setAttribute('role', 'treeitem');
@@ -8510,18 +8450,17 @@
       toggle.setAttribute('aria-label', expanded ? ('Replier ' + label) : ('Afficher ' + label));
       toggle.addEventListener('click', async (event) => {
         event.stopPropagation();
-        if (source === 'flow') flowCfgRootExpanded = !flowCfgRootExpanded;
-        else supCfgRootExpanded = !supCfgRootExpanded;
+        flowCfgRootExpanded = !flowCfgRootExpanded;
         renderFlowCfgTree();
       });
       row.appendChild(toggle);
 
       const labelBtn = document.createElement('button');
       labelBtn.type = 'button';
-      labelBtn.className = 'cfg-tree-root-label' + ((cfgTreeSelectedSource === source && !currentCfgTreePath(source)) ? ' is-selected' : '');
+      labelBtn.className = 'cfg-tree-root-label' + (!currentCfgTreePath() ? ' is-selected' : '');
       labelBtn.textContent = label;
       labelBtn.addEventListener('click', async () => {
-        await selectFlowCfgPath(source, '', false);
+        await selectFlowCfgPath('', false);
       });
       row.appendChild(labelBtn);
       item.appendChild(row);
@@ -8531,7 +8470,7 @@
         group.className = 'cfg-tree-group cfg-tree-group-root';
         group.setAttribute('role', 'group');
         children.forEach((child) => {
-          group.appendChild(buildFlowCfgTreeItem(source, child));
+          group.appendChild(buildFlowCfgTreeItem(child));
         });
         item.appendChild(group);
       }
@@ -8542,16 +8481,12 @@
     function renderFlowCfgTree() {
       const savedScrollTop = flowCfgTree.scrollTop;
       flowCfgTree.innerHTML = '';
-      const flowChildren = cfgFilteredChildren('flow', '');
-      const supervisorChildren = cfgFilteredChildren('supervisor', '');
+      const children = cfgFilteredChildren('');
 
       const roots = document.createElement('ul');
       roots.className = 'cfg-tree-group';
       roots.setAttribute('role', 'tree');
-      if (webRemoteConfigEnabled && flowChildren.length > 0) {
-        roots.appendChild(buildCfgTreeRootItem('flow', tr('cfg.remote.flow', 'Config Store flow.io'), flowCfgRootExpanded, flowChildren));
-      }
-      roots.appendChild(buildCfgTreeRootItem('supervisor', cfgSourceLabel('supervisor'), supCfgRootExpanded, supervisorChildren));
+      roots.appendChild(buildCfgTreeRootItem(cfgStoreLabel(), flowCfgRootExpanded, children));
       flowCfgTree.appendChild(roots);
       flowCfgTree.scrollTop = savedScrollTop;
     }
@@ -8580,19 +8515,18 @@
       });
     }
 
-    async function toggleFlowCfgBranch(source, pathValue) {
+    async function toggleFlowCfgBranch(pathValue) {
       const cleanPath = nettoyerNomFlowCfg(pathValue);
-      const expandedSet = source === 'supervisor' ? supCfgExpandedNodes : flowCfgExpandedNodes;
       if (!cleanPath) return;
-      if (expandedSet.has(cleanPath)) {
-        expandedSet.delete(cleanPath);
+      if (flowCfgExpandedNodes.has(cleanPath)) {
+        flowCfgExpandedNodes.delete(cleanPath);
         renderFlowCfgTree();
         return;
       }
       try {
         flowCfgStatus.textContent = 'Chargement des sous-branches...';
-        await chargerCfgChildren(source, cleanPath, false);
-        expandedSet.add(cleanPath);
+        await chargerCfgChildren(cleanPath, false);
+        flowCfgExpandedNodes.add(cleanPath);
         renderFlowCfgTree();
         flowCfgStatus.textContent = 'Sous-branches chargees.';
       } catch (err) {
@@ -8600,60 +8534,44 @@
       }
     }
 
-    async function selectFlowCfgPath(source, pathValue, forceReload) {
+    async function selectFlowCfgPath(pathValue, forceReload) {
       const preservedTreeScrollTop = flowCfgTree ? flowCfgTree.scrollTop : 0;
-      beginFlowCfgLoading('Chargement de la configuration distante...', { tree: false, detail: true });
+      beginFlowCfgLoading('Chargement de la configuration...', { tree: false, detail: true });
       const cleanPath = nettoyerNomFlowCfg(pathValue);
       try {
-        let node = null;
         const storePath = cfgStorePathFromDisplayPath(cleanPath);
-        cfgTreeSelectedSource = source === 'supervisor' ? 'supervisor' : 'flow';
-        if (cfgTreeSelectedSource === 'supervisor') {
-          node = await ensureCfgPathLoaded('supervisor', cleanPath, !!forceReload);
-          supCfgTreePath = cleanPath;
-          supCfgRootExpanded = true;
-          cfgExpandAncestors('supervisor', cleanPath);
-          if (cleanPath && cfgFilteredChildren('supervisor', cleanPath).length > 0) {
-            supCfgExpandedNodes.add(cleanPath);
-          }
-        } else {
-          node = await ensureCfgPathLoaded('flow', cleanPath, !!forceReload);
-          flowCfgPath = cleanPath ? cleanPath.split('/') : [];
-          flowCfgRootExpanded = true;
-          cfgExpandAncestors('flow', cleanPath);
-          if (cleanPath && cfgFilteredChildren('flow', cleanPath).length > 0) {
-            flowCfgExpandedNodes.add(cleanPath);
-          }
+        const node = await ensureCfgPathLoaded(cleanPath, !!forceReload);
+        flowCfgPath = cleanPath ? cleanPath.split('/') : [];
+        flowCfgRootExpanded = true;
+        cfgExpandAncestors(cleanPath);
+        if (cleanPath && cfgFilteredChildren(cleanPath).length > 0) {
+          flowCfgExpandedNodes.add(cleanPath);
         }
 
-        renderFlowCfgCurrentPath(cfgTreeSelectedSource, cleanPath, node);
+        renderFlowCfgCurrentPath(cleanPath, node);
         renderFlowCfgTree();
         restoreFlowCfgTreeScroll(preservedTreeScrollTop);
 
         if (!cleanPath) {
-          resetPrimaryCfgEditor(cfgFilteredChildren(cfgTreeSelectedSource, '').length > 0
+          resetPrimaryCfgEditor(cfgFilteredChildren('').length > 0
             ? 'Sélectionnez une branche dans l\'arborescence.'
             : 'Aucune branche disponible.');
           return;
         }
 
         if (node && node.hasExact) {
-          if (cfgTreeSelectedSource === 'supervisor') {
-            await chargerPrimarySupervisorCfgModule(storePath || cleanPath);
-          } else {
-            await chargerFlowCfgModule(storePath || cleanPath);
-          }
+          await chargerFlowCfgModule(storePath || cleanPath);
           return;
         }
 
-        const childCount = cfgFilteredChildren(cfgTreeSelectedSource, cleanPath).length;
+        const childCount = cfgFilteredChildren(cleanPath).length;
         if (childCount > 0) {
           resetPrimaryCfgEditor('Branche ouverte. Sélectionnez une sous-branche ou un noeud configurable.');
         } else {
           resetPrimaryCfgEditor('Aucune variable configurable dans cette branche.');
         }
       } catch (err) {
-        renderFlowCfgCurrentPath(cfgTreeSelectedSource, cleanPath, null);
+        renderFlowCfgCurrentPath(cleanPath, null);
         renderFlowCfgTree();
         restoreFlowCfgTreeScroll(preservedTreeScrollTop);
         resetPrimaryCfgEditor('Chargement branche échoué: ' + err);
@@ -8852,27 +8770,19 @@
       if (!loaded) return;
       if (!isPageActive('page-control')) return;
       try {
-        await ensureCfgDocsForModule(cfgTreeSelectedSource === 'supervisor' ? supCfgCurrentModule : flowCfgCurrentModule);
-        if (cfgTreeSelectedSource === 'supervisor' && supCfgCurrentPdmExtension && supCfgCurrentPdmExtension.module) {
-          await ensureCfgDocsForModule(supCfgCurrentPdmExtension.module);
-        } else if (cfgTreeSelectedSource !== 'supervisor' && flowCfgCurrentPdmExtension && flowCfgCurrentPdmExtension.module) {
+        await ensureCfgDocsForModule(flowCfgCurrentModule);
+        if (flowCfgCurrentPdmExtension && flowCfgCurrentPdmExtension.module) {
           await ensureCfgDocsForModule(flowCfgCurrentPdmExtension.module);
         }
       } catch (err) {
       }
       renderFlowCfgTree();
-      renderFlowCfgCurrentPath(cfgTreeSelectedSource, currentCfgTreePath(cfgTreeSelectedSource), cfgNodeForPath(cfgTreeSelectedSource, currentCfgTreePath(cfgTreeSelectedSource)));
-      if (cfgTreeSelectedSource === 'supervisor') {
-        if (supCfgCurrentModule && supCfgCurrentData && typeof supCfgCurrentData === 'object') {
-          renderPrimarySupervisorCfgFieldsWithExtensions(supCfgCurrentData);
-        }
-      } else if (flowCfgCurrentModule && flowCfgCurrentData && typeof flowCfgCurrentData === 'object') {
+      renderFlowCfgCurrentPath(currentCfgTreePath(), cfgNodeForPath(currentCfgTreePath()));
+      if (flowCfgCurrentModule && flowCfgCurrentData && typeof flowCfgCurrentData === 'object') {
         renderFlowCfgFieldsWithExtensions(flowCfgCurrentData);
       }
       cfgI18nDebugLog('refreshCfgDocLocaleRuntime done', {
         locale: webUiLocale,
-        source: cfgTreeSelectedSource,
-        supervisorModule: supCfgCurrentModule,
         flowModule: flowCfgCurrentModule
       });
     }
@@ -9053,10 +8963,6 @@
       return resolved;
     }
 
-    function poolLogicDeviceSlotSource(source) {
-      return source === 'supervisor' ? 'supervisor' : 'flow';
-    }
-
     function poolLogicDeviceSlotRef(slot) {
       const n = Number.parseInt(slot, 10);
       if (!Number.isFinite(n) || n < 0 || n > 15) return '';
@@ -9081,19 +8987,19 @@
       return !doc || String(doc.enum_set || '').trim() === 'poollogic_device_slot';
     }
 
-    function poolLogicDeviceSlotLabel(source, slot, fallback) {
+    function poolLogicDeviceSlotLabel(slot, fallback) {
       const n = Number.parseInt(slot, 10);
       const ref = poolLogicDeviceSlotRef(n);
       if (!ref) return String(fallback || slot);
-      const src = poolLogicDeviceSlotSource(source);
-      const cache = poolLogicDeviceIoOutputNames[src] || {};
-      const ioName = typeof cache[n] === 'string' ? cache[n].trim() : '';
+      const ioName = typeof poolLogicDeviceIoOutputNames[n] === 'string'
+        ? poolLogicDeviceIoOutputNames[n].trim()
+        : '';
       const baseName = ioName || String(ioOutputPdmLabels[n] || '').trim();
       const suffix = baseName ? (' [' + baseName + ']') : '';
       return 'pd' + String(n) + ' - ' + ref + suffix;
     }
 
-    function dynamicPoolLogicDeviceSlotOptions(source, enumOptions) {
+    function dynamicPoolLogicDeviceSlotOptions(enumOptions) {
       const byValue = {};
       if (Array.isArray(enumOptions)) {
         enumOptions.forEach((opt) => {
@@ -9106,37 +9012,31 @@
       for (let slot = 0; slot <= 15; slot += 1) {
         const base = byValue[slot] ? Object.assign({}, byValue[slot]) : { value: slot };
         base.value = slot;
-        base.label = poolLogicDeviceSlotLabel(source, slot, base.label);
+        base.label = poolLogicDeviceSlotLabel(slot, base.label);
         out.push(base);
       }
       return out;
     }
 
-    function configEnumOptionsForField(source, moduleName, key, doc) {
+    function configEnumOptionsForField(moduleName, key, doc) {
       const options = (doc && Array.isArray(doc._enumOptions)) ? doc._enumOptions : null;
       if (!options) return null;
       if (isWaveshareProfile() && isPoolLogicDeviceSlotField(moduleName, key, doc)) {
-        return dynamicPoolLogicDeviceSlotOptions(source, options);
+        return dynamicPoolLogicDeviceSlotOptions(options);
       }
       return options;
     }
 
-    async function loadPoolLogicDeviceSlotLabels(source, forceReload) {
-      const src = poolLogicDeviceSlotSource(source);
-      if (!poolLogicDeviceIoOutputNames[src]) poolLogicDeviceIoOutputNames[src] = {};
-      const cache = poolLogicDeviceIoOutputNames[src];
+    async function loadPoolLogicDeviceSlotLabels(forceReload) {
+      const cache = poolLogicDeviceIoOutputNames;
       const fetchOne = async (slot) => {
         if (!forceReload && Object.prototype.hasOwnProperty.call(cache, slot)) return;
         const moduleName = poolLogicDeviceIoOutputModule(slot);
         const nameKey = poolLogicDeviceIoOutputNameKey(slot);
         if (!moduleName || !nameKey) return;
         try {
-          const url = src === 'supervisor'
-            ? ('/api/supervisorcfg/module?name=' + encodeURIComponent(moduleName))
-            : ('/api/flowcfg/module?name=' + encodeURIComponent(moduleName));
-          const res = src === 'supervisor'
-            ? await fetchWithBusyRetry(url, { cache: 'no-store' })
-            : await fetchFlowRemoteQueued(url, { cache: 'no-store' });
+          const url = '/api/flowcfg/module?name=' + encodeURIComponent(moduleName);
+          const res = await fetchWithBusyRetry(url, { cache: 'no-store' });
           const payload = await res.json().catch(() => null);
           if (!res.ok || !payload || payload.ok !== true || !payload.data || typeof payload.data !== 'object') {
             cache[slot] = '';
@@ -9575,7 +9475,6 @@
     }
 
     function resetPrimaryCfgEditor(message) {
-      supCfgCurrentPdmExtension = null;
       flowCfgFields.innerHTML = '';
       flowCfgApplyBtn.hidden = false;
       flowCfgApplyBtn.disabled = true;
@@ -9791,7 +9690,7 @@
         }
         row.appendChild(labelWrap);
 
-        const enumOptions = configEnumOptionsForField(opts.source || cfgTreeSelectedSource, moduleName, key, doc);
+        const enumOptions = configEnumOptionsForField(moduleName, key, doc);
         let inputEl = null;
         const valueWrap = document.createElement('div');
         valueWrap.className = 'control-value-wrap';
@@ -9999,7 +9898,6 @@
 
     function renderFlowCfgFields(dataObj) {
       renderConfigFields(flowCfgFields, flowCfgCurrentModule, dataObj, {
-        source: 'flow',
         controlsPrimaryPane: true,
         perFieldApply: flowCfgApplyPerFieldEnabled(flowCfgCurrentModule),
         onApplyField: appliquerFlowCfgField
@@ -10013,7 +9911,6 @@
           Object.keys(flowCfgCurrentPdmExtension.data).length > 0) {
         renderConfigFields(flowCfgFields, flowCfgCurrentPdmExtension.module, flowCfgCurrentPdmExtension.data, {
           append: true,
-          source: 'flow',
           sectionTitle: flowCfgPdmSectionTitle(flowCfgCurrentModule, dataObj),
           controlsPrimaryPane: true,
           perFieldApply: flowCfgApplyPerFieldEnabled(flowCfgCurrentModule),
@@ -10060,7 +9957,7 @@
       const pdmModule = flowCfgPdmModuleForIoOutput(moduleName, dataObj);
       if (!pdmModule) return null;
       try {
-        const res = await fetchFlowRemoteQueued(
+        const res = await fetchWithBusyRetry(
           '/api/flowcfg/module?name=' + encodeURIComponent(pdmModule),
           { cache: 'no-store' }
         );
@@ -10075,54 +9972,6 @@
       } catch (err) {
         return null;
       }
-    }
-
-    async function loadPrimarySupervisorPdmExtensionData(moduleName, dataObj) {
-      if (!isWaveshareProfile()) return null;
-      const pdmModule = flowCfgPdmModuleForIoOutput(moduleName, dataObj);
-      if (!pdmModule) return null;
-      try {
-        const res = await fetchWithBusyRetry(
-          '/api/supervisorcfg/module?name=' + encodeURIComponent(pdmModule),
-          { cache: 'no-store' }
-        );
-        const data = await res.json().catch(() => null);
-        if (!res.ok || !data || data.ok !== true || typeof data.data !== 'object') {
-          return null;
-        }
-        return {
-          module: pdmModule,
-          data: data.data
-        };
-      } catch (err) {
-        return null;
-      }
-    }
-
-    function renderPrimarySupervisorCfgFields(dataObj) {
-      renderConfigFields(flowCfgFields, supCfgCurrentModule, dataObj, {
-        source: 'supervisor',
-        controlsPrimaryPane: true,
-        perFieldApply: flowCfgApplyPerFieldEnabled(supCfgCurrentModule),
-        onApplyField: appliquerPrimaryCfgField
-      });
-    }
-
-    function renderPrimarySupervisorCfgFieldsWithExtensions(dataObj) {
-      renderPrimarySupervisorCfgFields(dataObj);
-      if (supCfgCurrentPdmExtension &&
-          supCfgCurrentPdmExtension.data &&
-          Object.keys(supCfgCurrentPdmExtension.data).length > 0) {
-        renderConfigFields(flowCfgFields, supCfgCurrentPdmExtension.module, supCfgCurrentPdmExtension.data, {
-          append: true,
-          source: 'supervisor',
-          sectionTitle: flowCfgPdmSectionTitle(supCfgCurrentModule, dataObj),
-          controlsPrimaryPane: true,
-          perFieldApply: flowCfgApplyPerFieldEnabled(supCfgCurrentModule),
-          onApplyField: appliquerPrimaryCfgField
-        });
-      }
-      updatePrimaryCfgApplyState();
     }
 
     function buildPatchJsonFromFields(fieldsContainer, moduleName) {
@@ -10162,22 +10011,15 @@
       return buildPatchJsonFromFields(flowCfgFields, flowCfgCurrentModule);
     }
 
-    function buildPrimaryCfgPatchJson() {
-      if (cfgTreeSelectedSource === 'supervisor') {
-        return buildPatchJsonFromFields(flowCfgFields, supCfgCurrentModule);
-      }
-      return buildPatchJsonFromFields(flowCfgFields, flowCfgCurrentModule);
-    }
-
     async function chargerFlowCfgModule(moduleName) {
-      beginFlowCfgLoading('Chargement de la branche distante...', { tree: false, detail: true });
+      beginFlowCfgLoading('Chargement de la branche...', { tree: false, detail: true });
       const m = nettoyerNomFlowCfg(moduleName);
       try {
         if (!m) {
           resetFlowCfgEditor('Aucune branche sélectionnée.');
           return;
         }
-        const res = await fetchFlowRemoteQueued(
+        const res = await fetchWithBusyRetry(
           '/api/flowcfg/module?name=' + encodeURIComponent(m),
           { cache: 'no-store' }
         );
@@ -10191,14 +10033,14 @@
           await ensureCfgDocsForModule(pdmModule);
         }
         if (isWaveshareProfile() && m === 'poollogic/devices') {
-          await loadPoolLogicDeviceSlotLabels('flow', true);
+          await loadPoolLogicDeviceSlotLabels(true);
         }
         flowCfgCurrentModule = m;
         flowCfgCurrentData = data.data;
         flowCfgCurrentPdmExtension = await loadFlowCfgPdmExtensionData(m, flowCfgCurrentData);
         renderFlowCfgFieldsWithExtensions(flowCfgCurrentData);
         flowCfgStatus.textContent = data.truncated
-          ? tr('config.branchLoadedTruncated', 'Branche chargée (tronquée, buffer distant atteint).')
+          ? tr('config.branchLoadedTruncated', 'Branche chargée (tronquée, capacité du buffer atteinte).')
           : tr('config.branchLoaded', 'Branche chargée.');
       } catch (err) {
         flowCfgCurrentPdmExtension = null;
@@ -10208,61 +10050,12 @@
       }
     }
 
-    async function chargerPrimarySupervisorCfgModule(moduleName) {
-      beginFlowCfgLoading('Chargement de la branche locale...', { tree: false, detail: true });
-      const m = nettoyerNomFlowCfg(moduleName);
-      try {
-        if (!m) {
-          supCfgCurrentModule = '';
-          supCfgCurrentData = {};
-          supCfgCurrentPdmExtension = null;
-          resetPrimaryCfgEditor('Aucune branche locale sélectionnée.');
-          return;
-        }
-        const res = await fetchWithBusyRetry('/api/supervisorcfg/module?name=' + encodeURIComponent(m), { cache: 'no-store' });
-        const data = await res.json();
-        if (!res.ok || !data || data.ok !== true || typeof data.data !== 'object') {
-          throw new Error('lecture module supervisor impossible');
-        }
-        await ensureCfgDocsForModule(m);
-        const pdmModule = isWaveshareProfile() ? flowCfgPdmModuleForIoOutput(m, data.data) : '';
-        if (pdmModule) {
-          await ensureCfgDocsForModule(pdmModule);
-        }
-        if (isWaveshareProfile() && m === 'poollogic/devices') {
-          await loadPoolLogicDeviceSlotLabels('supervisor', true);
-        }
-        supCfgCurrentModule = m;
-        supCfgCurrentData = data.data;
-        supCfgCurrentPdmExtension = await loadPrimarySupervisorPdmExtensionData(m, supCfgCurrentData);
-        renderPrimarySupervisorCfgFieldsWithExtensions(supCfgCurrentData);
-        flowCfgStatus.textContent = data.truncated
-          ? 'Branche locale chargée (tronquée, buffer atteint).'
-          : 'Branche locale chargée.';
-      } catch (err) {
-        supCfgCurrentModule = '';
-        supCfgCurrentData = {};
-        supCfgCurrentPdmExtension = null;
-        resetPrimaryCfgEditor('Chargement branche locale échoué: ' + err);
-      } finally {
-        endFlowCfgLoading({ tree: false, detail: true });
-      }
-    }
-
-    function markCfgSourceUnavailable(source) {
+    function markCfgUnavailable() {
       const emptyRootNode = {
         prefix: '',
         hasExact: false,
         children: []
       };
-      if (source === 'supervisor') {
-        supCfgChildrenCache = { [cfgCacheKey('')]: emptyRootNode };
-        supCfgExpandedNodes = new Set();
-        supCfgTreePath = '';
-        supCfgCurrentModule = '';
-        supCfgCurrentData = {};
-        return;
-      }
       flowCfgChildrenCache = { [cfgCacheKey('')]: emptyRootNode };
       flowCfgExpandedNodes = new Set();
       flowCfgPath = [];
@@ -10270,20 +10063,10 @@
       flowCfgCurrentData = {};
     }
 
-    function formatCfgLoadStatus(result, finalMessage) {
-      if (result && !result.flowLoaded && result.supervisorLoaded) {
-        return finalMessage
-          ? 'flow.io indisponible pour le moment. Configuration Supervisor disponible. Nouvelle tentative automatique...'
-          : 'Configuration Supervisor disponible. Nouvelle tentative pour flow.io.';
-      }
-      if (result && result.flowLoaded && !result.supervisorLoaded) {
-        return finalMessage
-          ? 'Configuration flow.io disponible. Configuration Supervisor indisponible. Nouvelle tentative automatique...'
-          : 'Configuration flow.io disponible. Nouvelle tentative pour Supervisor.';
-      }
+    function formatCfgLoadStatus(finalMessage) {
       return finalMessage
-        ? 'flow.io indisponible pour le moment. Nouvelle tentative automatique...'
-        : 'flow.io se prépare... nouvelle tentative.';
+        ? 'ConfigStore indisponible pour le moment. Nouvelle tentative automatique...'
+        : 'ConfigStore se prépare... nouvelle tentative.';
     }
 
     async function chargerFlowCfgModules(forceReload) {
@@ -10291,87 +10074,24 @@
       if (force) {
         flowCfgChildrenCache = {};
         flowCfgExpandedNodes = new Set();
-        supCfgChildrenCache = {};
-        supCfgExpandedNodes = new Set();
       }
-
-      if (!webRemoteConfigEnabled) {
-        if (force) {
-          flowCfgChildrenCache = {};
-          flowCfgExpandedNodes = new Set();
-        }
-        markCfgSourceUnavailable('flow');
-        let supervisorLoaded = false;
-        try {
-          await ensureCfgPathLoaded('supervisor', '', force);
-          supervisorLoaded = true;
-        } catch (err) {
-          markCfgSourceUnavailable('supervisor');
-        }
-        if (supervisorLoaded) {
-          await selectFlowCfgPath('supervisor', currentCfgTreePath('supervisor'), force);
-        } else {
-          cfgTreeSelectedSource = 'supervisor';
-          renderFlowCfgCurrentPath('supervisor', '', null);
-          renderFlowCfgTree();
-          resetPrimaryCfgEditor('Aucune branche disponible.');
-        }
-        return {
-          ok: supervisorLoaded,
-          flowLoaded: false,
-          supervisorLoaded
-        };
-      }
-
-      const rootLoads = await Promise.allSettled([
-        ensureCfgPathLoaded('flow', '', force),
-        ensureCfgPathLoaded('supervisor', '', force)
-      ]);
-      const flowLoaded = rootLoads[0].status === 'fulfilled';
-      const supervisorLoaded = rootLoads[1].status === 'fulfilled';
-
-      if (!flowLoaded) {
-        markCfgSourceUnavailable('flow');
-      }
-      if (!supervisorLoaded) {
-        markCfgSourceUnavailable('supervisor');
-      }
-
-      const currentSource = cfgTreeSelectedSource === 'supervisor' ? 'supervisor' : 'flow';
-      let nextSource = currentSource;
-      if (currentSource === 'flow' && !flowLoaded && supervisorLoaded) {
-        nextSource = 'supervisor';
-      } else if (currentSource === 'supervisor' && !supervisorLoaded && flowLoaded) {
-        nextSource = 'flow';
-      }
-
-      const nextPath = nextSource === currentSource
-        ? nettoyerNomFlowCfg(currentCfgTreePath(currentSource))
-        : '';
-      const selectableSource = nextSource === 'flow'
-        ? (flowLoaded ? 'flow' : (supervisorLoaded ? 'supervisor' : ''))
-        : (supervisorLoaded ? 'supervisor' : (flowLoaded ? 'flow' : ''));
-
-      if (selectableSource) {
-        await selectFlowCfgPath(selectableSource, selectableSource === nextSource ? nextPath : '', force);
-      } else {
-        cfgTreeSelectedSource = 'flow';
-        renderFlowCfgCurrentPath('flow', '', null);
+      try {
+        await ensureCfgPathLoaded('', force);
+        await selectFlowCfgPath(currentCfgTreePath(), force);
+        return { ok: true };
+      } catch (err) {
+        markCfgUnavailable();
+        renderFlowCfgCurrentPath('', null);
         renderFlowCfgTree();
         resetPrimaryCfgEditor('Aucune branche disponible.');
+        return { ok: false };
       }
-
-      return {
-        ok: flowLoaded && supervisorLoaded,
-        flowLoaded,
-        supervisorLoaded
-      };
     }
 
     async function ensureFlowCfgLoaded(forceReload) {
       const force = !!forceReload;
       if (force) {
-        flowCfgFlowOnlyFailureStreak = 0;
+        flowCfgFailureStreak = 0;
       }
       if (flowCfgLoadPromise) {
         await flowCfgLoadPromise;
@@ -10387,7 +10107,7 @@
 
         const wasLoaded = flowCfgLoadedOnce;
         const retryDelaysMs = (wasLoaded && !force) ? [0] : [0, 900, 2200, 3600];
-        let loadResult = { ok: false, flowLoaded: false, supervisorLoaded: false };
+        let loadResult = { ok: false };
         for (let attempt = 0; attempt < retryDelaysMs.length; ++attempt) {
           if (retryDelaysMs[attempt] > 0) {
             await waitMs(retryDelaysMs[attempt]);
@@ -10395,38 +10115,20 @@
           loadResult = await chargerFlowCfgModules(force || attempt > 0);
           if (loadResult.ok) {
             flowCfgLoadedOnce = true;
-            flowCfgFlowOnlyFailureStreak = 0;
+            flowCfgFailureStreak = 0;
             stopFlowCfgRetry();
             return;
           }
-          if (loadResult.supervisorLoaded && !loadResult.flowLoaded) {
-            break;
-          }
           if (attempt + 1 < retryDelaysMs.length) {
-            flowCfgStatus.textContent = formatCfgLoadStatus(loadResult, false);
+            flowCfgStatus.textContent = formatCfgLoadStatus(false);
           }
         }
 
         if (isPageActive('page-control')) {
-          if (loadResult.supervisorLoaded && !loadResult.flowLoaded) {
-            flowCfgFlowOnlyFailureStreak += 1;
-            const retryDelayMs = Math.min(60000, 7000 + ((flowCfgFlowOnlyFailureStreak - 1) * 5000));
-            if (flowCfgFlowOnlyFailureStreak >= 6) {
-              stopFlowCfgRetry();
-              flowCfgStatus.textContent =
-                'flow.io indisponible (lien I2C). Configuration Supervisor disponible. ' +
-                'Auto-retry en pause, utilisez Rafraîchir.';
-            } else {
-              flowCfgStatus.textContent =
-                'flow.io indisponible pour le moment. Configuration Supervisor disponible. ' +
-                'Nouvelle tentative dans ' + Math.max(1, Math.round(retryDelayMs / 1000)) + ' s.';
-              scheduleFlowCfgRetry(retryDelayMs);
-            }
-            return;
-          }
-          flowCfgFlowOnlyFailureStreak = 0;
-          flowCfgStatus.textContent = formatCfgLoadStatus(loadResult, true);
-          scheduleFlowCfgRetry(2500);
+          flowCfgFailureStreak += 1;
+          const retryDelayMs = Math.min(60000, 2500 + ((flowCfgFailureStreak - 1) * 2500));
+          flowCfgStatus.textContent = formatCfgLoadStatus(true);
+          scheduleFlowCfgRetry(retryDelayMs);
         }
       })();
 
@@ -10443,13 +10145,13 @@
       const where = typeof err.where === 'string' ? err.where : '';
 
       if (code === 'ArgsTooLarge' || code === 'CfgTruncated') {
-        return 'Trop de changements en une seule fois pour le lien I2C (' + (where || 'flowcfg') + ').';
+        return 'Trop de changements en une seule fois (' + (where || 'flowcfg') + ').';
       }
       if (code === 'NotReady') {
-        return 'Lien I2C temporairement indisponible (' + (where || 'flowcfg') + ').';
+        return 'ConfigStore temporairement indisponible (' + (where || 'flowcfg') + ').';
       }
       if (code === 'IoError') {
-        return 'Erreur de communication I2C (' + (where || 'flowcfg') + ').';
+        return 'Erreur d’accès au ConfigStore (' + (where || 'flowcfg') + ').';
       }
       if (code === 'BadCfgJson') {
         return 'Patch de configuration invalide (' + (where || 'flowcfg') + ').';
@@ -10480,7 +10182,7 @@
         const patch = buildFlowCfgSingleFieldPatchJson(flowCfgCurrentModule, inputEl);
         const body = new URLSearchParams();
         body.set('patch', patch);
-        const res = await fetchFlowRemoteQueued('/api/flowcfg/apply', {
+        const res = await fetchWithBusyRetry('/api/flowcfg/apply', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
           body: body.toString()
@@ -10490,7 +10192,9 @@
           throw new Error(formatFlowCfgApplyError(data));
         }
 
+        clearCfgTreeNodeTextNameCache();
         await chargerFlowCfgModule(flowCfgCurrentModule);
+        renderFlowCfgTree();
         await refreshWebUiLocale(true);
         flowCfgStatus.textContent = 'Champ "' + key + '" applique.';
       } catch (err) {
@@ -10499,54 +10203,13 @@
       }
     }
 
-    async function appliquerPrimaryCfgField(inputEl, applyBtn) {
-      if (!inputEl || !applyBtn || !supCfgCurrentModule) return;
-      const key = String(inputEl.dataset.key || '').trim();
-      if (!key) return;
-      if (!configFieldIsDirty(inputEl)) {
-        updateControlFieldApplyState(inputEl, applyBtn);
-        return;
-      }
-
-      setFlowCfgLocalApplyBusy(true, tr('cfg.apply.busyField', 'Application locale du champ « {field} »...').replace('{field}', key));
-      try {
-        applyBtn.disabled = true;
-        applyBtn.classList.add('is-pending');
-        flowCfgStatus.textContent = 'Application locale du champ "' + key + '"...';
-
-        const patch = buildFlowCfgSingleFieldPatchJson(supCfgCurrentModule, inputEl);
-        const body = new URLSearchParams();
-        body.set('patch', patch);
-        const res = await fetchWithBusyRetry('/api/supervisorcfg/apply', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-          body: body.toString()
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data || data.ok !== true) {
-          throw new Error(extractApiErrorMessage(data, 'apply refusé'));
-        }
-
-        clearCfgTreeNodeTextNameCache('supervisor');
-        await chargerPrimarySupervisorCfgModule(supCfgCurrentModule);
-        renderFlowCfgTree();
-        await refreshWebUiLocale(true);
-        flowCfgStatus.textContent = 'Champ local "' + key + '" applique.';
-      } catch (err) {
-        flowCfgStatus.textContent = 'Application locale du champ echouee: ' + err;
-        updateControlFieldApplyState(inputEl, applyBtn);
-      } finally {
-        applyBtn.classList.remove('is-pending');
-        setFlowCfgLocalApplyBusy(false);
-      }
-    }
-
-    async function appliquerFlowCfg() {
+    async function appliquerPrimaryCfg() {
+      setFlowCfgLocalApplyBusy(true, tr('cfg.apply.busy', 'Application de la configuration en cours...'));
       try {
         const patch = buildFlowCfgPatchJson();
         const body = new URLSearchParams();
         body.set('patch', patch);
-        const res = await fetchFlowRemoteQueued('/api/flowcfg/apply', {
+        const res = await fetchWithBusyRetry('/api/flowcfg/apply', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
           body: body.toString()
@@ -10555,43 +10218,16 @@
         if (!res.ok || !data || data.ok !== true) {
           throw new Error(formatFlowCfgApplyError(data));
         }
-        flowCfgStatus.textContent = 'Configuration appliquée sur flow.io.';
+        flowCfgStatus.textContent = 'Configuration appliquée.';
+        clearCfgTreeNodeTextNameCache();
         await chargerFlowCfgModule(flowCfgCurrentModule);
+        renderFlowCfgTree();
         await refreshWebUiLocale(true);
       } catch (err) {
         flowCfgStatus.textContent = 'Application cfg échouée: ' + err;
+      } finally {
+        setFlowCfgLocalApplyBusy(false);
       }
-    }
-
-    async function appliquerPrimaryCfg() {
-      if (cfgTreeSelectedSource === 'supervisor') {
-        setFlowCfgLocalApplyBusy(true, tr('cfg.apply.busy', 'Application de la configuration en cours...'));
-        try {
-          const patch = buildPrimaryCfgPatchJson();
-          const body = new URLSearchParams();
-          body.set('patch', patch);
-          const res = await fetchWithBusyRetry('/api/supervisorcfg/apply', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-            body: body.toString()
-          });
-          const data = await res.json().catch(() => ({}));
-          if (!res.ok || !data || data.ok !== true) {
-            throw new Error('apply refusé');
-          }
-          flowCfgStatus.textContent = 'Configuration locale appliquée.';
-          clearCfgTreeNodeTextNameCache('supervisor');
-          await chargerPrimarySupervisorCfgModule(supCfgCurrentModule);
-          renderFlowCfgTree();
-          await refreshWebUiLocale(true);
-        } catch (err) {
-          flowCfgStatus.textContent = 'Application cfg locale échouée: ' + err;
-        } finally {
-          setFlowCfgLocalApplyBusy(false);
-        }
-        return;
-      }
-      await appliquerFlowCfg();
     }
 
     function setFlowCfgBackupStatus(message, tone) {
@@ -10636,23 +10272,6 @@
       if (flowCfgImportFileInput) flowCfgImportFileInput.disabled = flowCfgBackupBusy;
     }
 
-    function flowCfgBackupStoreLabel(storeName) {
-      if (isWaveshareProfile()) return webProfileName || 'Waveshare';
-      return storeName === 'supervisor' ? webProfileName : 'flow.io';
-    }
-
-    function flowCfgBackupStoreFetchImpl(storeName) {
-      return storeName === 'supervisor' ? fetch : fetchFlowCfgEndpoint;
-    }
-
-    function flowCfgBackupStoreBasePath(storeName) {
-      return storeName === 'supervisor' ? '/api/supervisorcfg' : '/api/flowcfg';
-    }
-
-    function flowCfgBackupStoreNames() {
-      return isWaveshareProfile() ? ['flow'] : ['supervisor', 'flow'];
-    }
-
     function flowCfgBackupIsoDateForFile(dateLike) {
       const d = dateLike instanceof Date ? dateLike : new Date();
       const pad = (value) => String(value).padStart(2, '0');
@@ -10688,7 +10307,7 @@
       return false;
     }
 
-    function flowCfgBackupRedactModuleData(storeName, moduleName, moduleData) {
+    function flowCfgBackupRedactModuleData(moduleName, moduleData) {
       const result = {};
       const redactedFields = [];
       const source = (moduleData && typeof moduleData === 'object' && !Array.isArray(moduleData)) ? moduleData : {};
@@ -10699,8 +10318,7 @@
           redactedFields.push({
             module: moduleName,
             key: key,
-            reason: 'secret',
-            store: storeName
+            reason: 'secret'
           });
           return;
         }
@@ -10709,93 +10327,39 @@
       return { data: result, redactedFields };
     }
 
-    async function flowCfgBackupFetchModules(storeName) {
-      const basePath = flowCfgBackupStoreBasePath(storeName);
-      const fetchImpl = flowCfgBackupStoreFetchImpl(storeName);
+    async function flowCfgBackupFetchModules() {
       const normalizeModules = (data) => {
         if (!Array.isArray(data && data.modules)) {
-          throw new Error('liste modules ' + flowCfgBackupStoreLabel(storeName) + ' invalide');
+          throw new Error('liste modules ConfigStore invalide');
         }
         return data.modules
           .filter((moduleName) => typeof moduleName === 'string' && moduleName.trim().length > 0)
           .map((moduleName) => moduleName.trim())
           .sort((left, right) => left.localeCompare(right));
       };
-      const sameModuleList = (left, right) => {
-        if (!Array.isArray(left) || !Array.isArray(right)) return false;
-        if (left.length !== right.length) return false;
-        for (let i = 0; i < left.length; i += 1) {
-          if (left[i] !== right[i]) return false;
-        }
-        return true;
-      };
-
-      if (storeName !== 'flow') {
-        const data = await fetchOkJson(
-          basePath + '/modules',
-          { cache: 'no-store' },
-          'liste modules ' + flowCfgBackupStoreLabel(storeName) + ' indisponible',
-          fetchImpl
-        );
-        return normalizeModules(data);
-      }
-
-      let previous = null;
-      let stableCount = 0;
-      let attempt = 0;
-      while (stableCount < 1) {
-        attempt += 1;
-        const data = await fetchOkJson(
-          basePath + '/modules',
-          { cache: 'no-store' },
-          'liste modules ' + flowCfgBackupStoreLabel(storeName) + ' indisponible',
-          fetchImpl
-        );
-        const modules = normalizeModules(data);
-        if (previous && sameModuleList(previous, modules)) {
-          stableCount += 1;
-          return modules;
-        }
-        previous = modules;
-        stableCount = 0;
-        const retryDelayMs = attempt <= 3
-          ? (100 * attempt)
-          : Math.min(1200, 300 + ((attempt - 3) * 120));
-        await waitMs(retryDelayMs);
-      }
-      return previous || [];
+      const data = await fetchOkJson(
+        '/api/flowcfg/modules',
+        { cache: 'no-store' },
+        'liste modules ConfigStore indisponible',
+        fetchWithBusyRetry
+      );
+      return normalizeModules(data);
     }
 
-    async function flowCfgBackupFetchModule(storeName, moduleName) {
-      const basePath = flowCfgBackupStoreBasePath(storeName);
-      const fetchImpl = flowCfgBackupStoreFetchImpl(storeName);
-      const maxAttempts = storeName === 'flow' ? Number.POSITIVE_INFINITY : 1;
-      let lastError = null;
-      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-        try {
-          const data = await fetchOkJson(
-            basePath + '/module?name=' + encodeURIComponent(moduleName),
-            { cache: 'no-store' },
-            'lecture module ' + moduleName + ' (' + flowCfgBackupStoreLabel(storeName) + ') impossible',
-            fetchImpl
-          );
-          if (!data || typeof data.data !== 'object' || Array.isArray(data.data)) {
-            throw new Error('module ' + moduleName + ' invalide (' + flowCfgBackupStoreLabel(storeName) + ')');
-          }
-          return {
-            data: data.data,
-            truncated: !!data.truncated
-          };
-        } catch (err) {
-          lastError = err;
-          if (attempt >= maxAttempts) break;
-          const retryDelayMs = attempt <= 3
-            ? (120 * attempt)
-            : Math.min(5000, 500 + ((attempt - 3) * 250));
-          await waitMs(retryDelayMs);
-        }
+    async function flowCfgBackupFetchModule(moduleName) {
+      const data = await fetchOkJson(
+        '/api/flowcfg/module?name=' + encodeURIComponent(moduleName),
+        { cache: 'no-store' },
+        'lecture module ' + moduleName + ' impossible',
+        fetchWithBusyRetry
+      );
+      if (!data || typeof data.data !== 'object' || Array.isArray(data.data)) {
+        throw new Error('module ' + moduleName + ' invalide');
       }
-      throw (lastError || new Error('lecture module ' + moduleName + ' impossible'));
+      return {
+        data: data.data,
+        truncated: !!data.truncated
+      };
     }
 
     function flowCfgBackupValidatePrimitiveValue(value, moduleName, key) {
@@ -10803,7 +10367,7 @@
       throw new Error('Valeur invalide pour ' + moduleName + '.' + key + ' (type non supporté).');
     }
 
-    function flowCfgBackupNormalizeStoreSection(rawStore, storeName) {
+    function flowCfgBackupNormalizeStoreSection(rawStore) {
       const store = rawStore && typeof rawStore === 'object' ? rawStore : {};
       const rawModules = (store.modules && typeof store.modules === 'object' && !Array.isArray(store.modules))
         ? store.modules
@@ -10814,7 +10378,7 @@
         if (!cleanModuleName) return;
         const rawModuleData = rawModules[moduleName];
         if (!rawModuleData || typeof rawModuleData !== 'object' || Array.isArray(rawModuleData)) {
-          throw new Error('Module invalide dans backup: ' + cleanModuleName + ' (' + flowCfgBackupStoreLabel(storeName) + ').');
+          throw new Error('Module invalide dans backup: ' + cleanModuleName + '.');
         }
         const normalizedData = {};
         Object.keys(rawModuleData).forEach((key) => {
@@ -10868,20 +10432,24 @@
       if (String(parsedDoc.format || '').trim() !== flowCfgBackupFormat) {
         throw new Error('Backup invalide (format non reconnu).');
       }
-      if (Number(parsedDoc.version) !== flowCfgBackupVersion) {
+      const version = Number(parsedDoc.version);
+      if (version !== 1 && version !== flowCfgBackupVersion) {
         throw new Error('Backup invalide (version non supportée).');
       }
-      const stores = (parsedDoc.stores && typeof parsedDoc.stores === 'object') ? parsedDoc.stores : null;
-      if (!stores) {
-        throw new Error('Backup invalide (stores absent).');
+      let rawStore = null;
+      if (version === flowCfgBackupVersion) {
+        rawStore = (parsedDoc.store && typeof parsedDoc.store === 'object') ? parsedDoc.store : null;
+      } else {
+        const legacyStores = (parsedDoc.stores && typeof parsedDoc.stores === 'object') ? parsedDoc.stores : null;
+        rawStore = legacyStores && legacyStores.flow && typeof legacyStores.flow === 'object'
+          ? legacyStores.flow
+          : null;
       }
+      if (!rawStore) throw new Error('Backup invalide (ConfigStore absent).');
       return {
         format: flowCfgBackupFormat,
         version: flowCfgBackupVersion,
-        stores: {
-          supervisor: flowCfgBackupNormalizeStoreSection(stores.supervisor, 'supervisor'),
-          flow: flowCfgBackupNormalizeStoreSection(stores.flow, 'flow')
-        }
+        store: flowCfgBackupNormalizeStoreSection(rawStore)
       };
     }
 
@@ -10940,19 +10508,14 @@
       return chunks;
     }
 
-    async function flowCfgBackupApplyPatch(storeName, patchJson) {
-      const basePath = flowCfgBackupStoreBasePath(storeName);
-      const fetchImpl = flowCfgBackupStoreFetchImpl(storeName);
+    async function flowCfgBackupApplyPatch(patchJson) {
       const response = await fetchJsonResponse(
-        basePath + '/apply',
+        '/api/flowcfg/apply',
         createFormPostOptions({ patch: patchJson }),
-        fetchImpl
+        fetchWithBusyRetry
       );
       if (!response.res.ok || !response.data || response.data.ok !== true) {
-        if (storeName === 'flow') {
-          throw new Error(formatFlowCfgApplyError(response.data));
-        }
-        throw new Error(extractApiErrorMessage(response.data, 'apply refusé'));
+        throw new Error(formatFlowCfgApplyError(response.data));
       }
     }
 
@@ -10969,95 +10532,69 @@
           version: flowCfgBackupVersion,
           created_at_utc: createdAt.toISOString(),
           meta: {
-            supervisor_fw: supervisorFirmwareVersion || '-',
-            flow_reachable: false
+            firmware: supervisorFirmwareVersion || '-',
+            profile: webProfileName || ''
           },
-          stores: {
-            supervisor: {
-              modules: {},
-              truncated_modules: [],
-              redacted_fields: [],
-              failed_modules: []
-            },
-            flow: {
-              modules: {},
-              truncated_modules: [],
-              redacted_fields: [],
-              failed_modules: []
-            }
+          store: {
+            modules: {},
+            truncated_modules: [],
+            redacted_fields: [],
+            failed_modules: []
           }
         };
 
-        const stores = flowCfgBackupStoreNames();
-        const modulesByStore = {};
-        let totalModuleCount = 0;
-        for (const storeName of stores) {
-          const storeLabel = flowCfgBackupStoreLabel(storeName);
-          setFlowCfgBackupStatus('Lecture des modules ' + storeLabel + '...', 'busy');
-          const modules = await flowCfgBackupFetchModules(storeName);
-          modulesByStore[storeName] = modules;
-          totalModuleCount += modules.length;
-          backupDoc.stores[storeName].module_count = modules.length;
-        }
+        setFlowCfgBackupStatus('Lecture des modules ' + cfgStoreLabel() + '...', 'busy');
+        const modules = await flowCfgBackupFetchModules();
+        const totalModuleCount = modules.length;
+        backupDoc.store.module_count = totalModuleCount;
 
         let exportedModuleCount = 0;
         if (totalModuleCount === 0) {
           setFlowCfgBackupProgress(100, true, 'Export ConfigStore');
         }
 
-        for (const storeName of stores) {
-          const storeLabel = flowCfgBackupStoreLabel(storeName);
-          const modules = modulesByStore[storeName] || [];
-          for (let i = 0; i < modules.length; i += 1) {
-            const moduleName = modules[i];
-            const moduleOrder = exportedModuleCount + 1;
-            setFlowCfgBackupStatus(
-              'Export ' + storeLabel + ' : ' + moduleOrder + '/' + totalModuleCount + ' ' + moduleName + '...',
-              'busy'
-            );
-            let modulePayload = null;
-            try {
-              modulePayload = await flowCfgBackupFetchModule(storeName, moduleName);
-            } catch (err) {
-              backupDoc.stores[storeName].failed_modules.push({
-                module: moduleName,
-                reason: String(err || '').trim() || 'lecture module impossible'
-              });
-              exportedModuleCount += 1;
-              setFlowCfgBackupProgress((exportedModuleCount / totalModuleCount) * 100, true, 'Export ConfigStore');
-              continue;
-            }
-            if (modulePayload.truncated) {
-              backupDoc.stores[storeName].truncated_modules.push(moduleName);
-            }
-            const redacted = flowCfgBackupRedactModuleData(storeName, moduleName, modulePayload.data);
-            backupDoc.stores[storeName].modules[moduleName] = redacted.data;
-            redacted.redactedFields.forEach((entry) => {
-              backupDoc.stores[storeName].redacted_fields.push({
-                module: entry.module,
-                key: entry.key
-              });
+        for (let i = 0; i < modules.length; i += 1) {
+          const moduleName = modules[i];
+          const moduleOrder = exportedModuleCount + 1;
+          setFlowCfgBackupStatus(
+            'Export ConfigStore : ' + moduleOrder + '/' + totalModuleCount + ' ' + moduleName + '...',
+            'busy'
+          );
+          let modulePayload = null;
+          try {
+            modulePayload = await flowCfgBackupFetchModule(moduleName);
+          } catch (err) {
+            backupDoc.store.failed_modules.push({
+              module: moduleName,
+              reason: String(err || '').trim() || 'lecture module impossible'
             });
             exportedModuleCount += 1;
             setFlowCfgBackupProgress((exportedModuleCount / totalModuleCount) * 100, true, 'Export ConfigStore');
+            continue;
           }
-          if (storeName === 'flow') {
-            backupDoc.meta.flow_reachable = true;
+          if (modulePayload.truncated) {
+            backupDoc.store.truncated_modules.push(moduleName);
           }
+          const redacted = flowCfgBackupRedactModuleData(moduleName, modulePayload.data);
+          backupDoc.store.modules[moduleName] = redacted.data;
+          redacted.redactedFields.forEach((entry) => {
+            backupDoc.store.redacted_fields.push({
+              module: entry.module,
+              key: entry.key
+            });
+          });
+          exportedModuleCount += 1;
+          setFlowCfgBackupProgress((exportedModuleCount / totalModuleCount) * 100, true, 'Export ConfigStore');
         }
 
-        const truncatedErrors = []
-          .concat((backupDoc.stores.supervisor.truncated_modules || []).map((moduleName) => 'Supervisor/' + moduleName))
-          .concat((backupDoc.stores.flow.truncated_modules || []).map((moduleName) => 'flow.io/' + moduleName));
+        const truncatedErrors = backupDoc.store.truncated_modules || [];
         if (truncatedErrors.length > 0) {
           throw new Error(
             'export interrompu: modules tronqués (' + truncatedErrors.join(', ') + ').'
           );
         }
 
-        const failedModuleErrors = []
-          .concat((backupDoc.stores.supervisor.failed_modules || []).map((entry) => 'Supervisor/' + entry.module))
-          .concat((backupDoc.stores.flow.failed_modules || []).map((entry) => 'flow.io/' + entry.module));
+        const failedModuleErrors = (backupDoc.store.failed_modules || []).map((entry) => entry.module);
 
         const serialized = JSON.stringify(backupDoc, null, 2);
         const fileName = 'flowio-configstore-backup-' + flowCfgBackupIsoDateForFile(createdAt) + '.json';
@@ -11097,88 +10634,74 @@
         }
 
         const report = {
-          supervisor: { modules_applied: 0, modules_skipped: 0, patches_applied: 0 },
-          flow: { modules_applied: 0, modules_skipped: 0, patches_applied: 0 }
+          modules_applied: 0,
+          modules_skipped: 0,
+          patches_applied: 0
         };
 
-        const stores = flowCfgBackupStoreNames();
+        const storeData = backupDoc.store;
+        const moduleNames = Object.keys(storeData.modules || {}).sort((left, right) => left.localeCompare(right));
+        const truncatedSet = new Set(storeData.truncated_modules || []);
+        const redactedSet = flowCfgBackupBuildRedactedFieldSet(storeData.redacted_fields);
         const importPlan = {};
         let totalPatchCount = 0;
-        stores.forEach((storeName) => {
-          const storeData = backupDoc.stores[storeName];
-          const moduleNames = Object.keys(storeData.modules || {}).sort((left, right) => left.localeCompare(right));
-          const truncatedSet = new Set(storeData.truncated_modules || []);
-          const redactedSet = flowCfgBackupBuildRedactedFieldSet(storeData.redacted_fields);
-          importPlan[storeName] = {};
-          moduleNames.forEach((moduleName) => {
-            if (truncatedSet.has(moduleName)) return;
-            const modulePatch = flowCfgBackupBuildModulePatch(
-              moduleName,
-              storeData.modules[moduleName],
-              redactedSet
-            );
-            if (Object.keys(modulePatch).length === 0) return;
-            const chunkPatches = flowCfgBackupSplitModulePatch(
-              moduleName,
-              modulePatch,
-              flowCfgBackupPatchTargetBytes
-            );
-            importPlan[storeName][moduleName] = chunkPatches;
-            totalPatchCount += chunkPatches.length;
-          });
+        moduleNames.forEach((moduleName) => {
+          if (truncatedSet.has(moduleName)) return;
+          const modulePatch = flowCfgBackupBuildModulePatch(
+            moduleName,
+            storeData.modules[moduleName],
+            redactedSet
+          );
+          if (Object.keys(modulePatch).length === 0) return;
+          const chunkPatches = flowCfgBackupSplitModulePatch(
+            moduleName,
+            modulePatch,
+            flowCfgBackupPatchTargetBytes
+          );
+          importPlan[moduleName] = chunkPatches;
+          totalPatchCount += chunkPatches.length;
         });
         let appliedPatchCount = 0;
         if (totalPatchCount === 0) {
           setFlowCfgBackupProgress(100, true, 'Import ConfigStore');
         }
-        for (const storeName of stores) {
-          const storeData = backupDoc.stores[storeName];
-          const storeLabel = flowCfgBackupStoreLabel(storeName);
-          const moduleNames = Object.keys(storeData.modules || {}).sort((left, right) => left.localeCompare(right));
-          const truncatedSet = new Set(storeData.truncated_modules || []);
-
-          for (let moduleIndex = 0; moduleIndex < moduleNames.length; moduleIndex += 1) {
-            const moduleName = moduleNames[moduleIndex];
-            if (truncatedSet.has(moduleName)) {
-              report[storeName].modules_skipped += 1;
-              continue;
-            }
-
-            const chunkPatches = (importPlan[storeName] && importPlan[storeName][moduleName])
-              ? importPlan[storeName][moduleName]
-              : [];
-            if (chunkPatches.length === 0) {
-              report[storeName].modules_skipped += 1;
-              continue;
-            }
-
-            for (let chunkIndex = 0; chunkIndex < chunkPatches.length; chunkIndex += 1) {
-              setFlowCfgBackupStatus(
-                'Import ' + storeLabel + ' : ' + moduleName
-                + ' (' + (moduleIndex + 1) + '/' + moduleNames.length + ', patch ' + (chunkIndex + 1)
-                + '/' + chunkPatches.length + ')...',
-                'busy'
-              );
-              await flowCfgBackupApplyPatch(storeName, JSON.stringify(chunkPatches[chunkIndex]));
-              report[storeName].patches_applied += 1;
-              appliedPatchCount += 1;
-              if (totalPatchCount > 0) {
-                setFlowCfgBackupProgress((appliedPatchCount / totalPatchCount) * 100, true, 'Import ConfigStore');
-              }
-            }
-
-            report[storeName].modules_applied += 1;
+        for (let moduleIndex = 0; moduleIndex < moduleNames.length; moduleIndex += 1) {
+          const moduleName = moduleNames[moduleIndex];
+          if (truncatedSet.has(moduleName)) {
+            report.modules_skipped += 1;
+            continue;
           }
+
+          const chunkPatches = importPlan[moduleName] || [];
+          if (chunkPatches.length === 0) {
+            report.modules_skipped += 1;
+            continue;
+          }
+
+          for (let chunkIndex = 0; chunkIndex < chunkPatches.length; chunkIndex += 1) {
+            setFlowCfgBackupStatus(
+              'Import ConfigStore : ' + moduleName
+              + ' (' + (moduleIndex + 1) + '/' + moduleNames.length + ', patch ' + (chunkIndex + 1)
+              + '/' + chunkPatches.length + ')...',
+              'busy'
+            );
+            await flowCfgBackupApplyPatch(JSON.stringify(chunkPatches[chunkIndex]));
+            report.patches_applied += 1;
+            appliedPatchCount += 1;
+            if (totalPatchCount > 0) {
+              setFlowCfgBackupProgress((appliedPatchCount / totalPatchCount) * 100, true, 'Import ConfigStore');
+            }
+          }
+
+          report.modules_applied += 1;
         }
 
         await ensureFlowCfgLoaded(true).catch(() => {});
         const durationMs = Date.now() - startedAt;
         setFlowCfgBackupStatus(
           'Import terminé (' + Math.max(1, Math.round(durationMs / 1000)) + ' s). '
-            + 'Supervisor: ' + report.supervisor.modules_applied + ' module(s), '
-            + report.supervisor.patches_applied + ' patch(s). '
-            + 'flow.io: ' + report.flow.modules_applied + ' module(s), '
-            + report.flow.patches_applied + ' patch(s).',
+            + report.modules_applied + ' module(s), '
+            + report.patches_applied + ' patch(s).',
           'ok'
         );
         setFlowCfgBackupProgress(100, true, 'Import ConfigStore');
