@@ -110,6 +110,7 @@ La [cartographie IO](core/waveshare-io-map.md) contient les valeurs par défaut 
 - [PoolLogicModule](modules/PoolLogicModule.md)
 - [PoolDeviceModule](modules/PoolDeviceModule.md)
 - [PoolHistoryModule](modules/PoolHistoryModule.md)
+- [AiInsightModule](modules/AiInsightModule.md)
 
 La [matrice de qualité](core/module-quality-gates.md) complète ces fiches pour les modules d'infrastructure qui ne disposent pas encore d'une page dédiée.
 

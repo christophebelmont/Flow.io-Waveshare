@@ -10,6 +10,7 @@
 #include "IHmi.h"
 #include "IAlarm.h"
 #include "IActivityLog.h"
+#include "IAiInsight.h"
 #include "IEventBus.h"
 #include "IHA.h"
 #include "ILogger.h"

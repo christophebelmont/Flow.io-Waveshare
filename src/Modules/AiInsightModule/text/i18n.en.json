@@ -1,0 +1,18 @@
+{
+  "locale": "en",
+  "translations": {
+    "cfgdocs.ai.openai.enabled.help": "Enables AI insight preparation and permits weather context retrieval.",
+    "cfgdocs.ai.openai.enabled.label": "AI insights enabled",
+    "cfgdocs.ai.openai.api_key.help": "Key that will later be used to call the OpenAI API.",
+    "cfgdocs.ai.openai.api_key.label": "OpenAI API key",
+    "cfgdocs.ai.openai.model.help": "OpenAI model identifier to use for insights.",
+    "cfgdocs.ai.openai.model.label": "OpenAI model",
+    "cfgdocs.system.location.latitude.help": "Installation latitude in decimal degrees, between -90 and 90.",
+    "cfgdocs.system.location.latitude.label": "Latitude (decimal degrees)",
+    "cfgdocs.system.location.longitude.help": "Installation longitude in decimal degrees, between -180 and 180.",
+    "cfgdocs.system.location.longitude.label": "Longitude (decimal degrees)",
+    "cfgmods.ai.label": "Artificial intelligence",
+    "cfgmods.ai.openai.label": "OpenAI",
+    "cfgmods.system.location.label": "Location"
+  }
+}

@@ -102,6 +102,8 @@ Le remplacement dynamique d'un service pendant l'exécution n'est pas utilisé d
 | `Ha` | `ha` | `HAService` |
 | `Io` | `io` | `IOServiceV2` |
 | `PoolDevice` | `pooldev` | `PoolDeviceService` |
+| `PoolHistory` | `pool_history` | `PoolHistoryService` |
+| `AiInsight` | `ai_insight` | `AiInsightService` |
 | `WebInterface` | `webinterface` | `WebInterfaceService` |
 | `FirmwareUpdate` | `fwupdate` | `FirmwareUpdateService` |
 | `NetworkAccess` | `network_access` | `NetworkAccessService` |
@@ -224,6 +226,16 @@ Quand un module consomme le store, le service reste l'interface à privilégier.
 - écriture de l'état désiré
 - remise à niveau d'une cuve
 
+### `PoolHistoryService`
+
+- lecture atomique des agrégats du jour courant et du jour précédent
+- lecture des durées de filtration observée et active
+
+### `AiInsightService`
+
+- demande asynchrone de rafraîchissement du contexte météo
+- lecture de l’état de la demande et du dernier résumé météo disponible
+
 ### `NetworkAccessService`
 
 - état de joignabilité du web local
@@ -238,8 +250,8 @@ Quand un module consomme le store, le service reste l'interface à privilégier.
 
 ### `FirmwareUpdateService`
 
-- démarrage d'une mise à jour
-- lecture de l'état JSON
+- démarrage d'une mise à jour avec attribution d'un `operation_id`
+- lecture de l'état JSON courant et du reçu persistant `last_operation`
 - lecture de la configuration JSON
 - mise à jour de la configuration source
 

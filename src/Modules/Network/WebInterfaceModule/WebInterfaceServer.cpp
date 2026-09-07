@@ -5881,7 +5881,7 @@ void WebInterfaceModule::startServer_()
             return;
         }
 
-        char out[320] = {0};
+        char out[512] = {0};
         if (!fwUpdateSvc_->statusJson(fwUpdateSvc_->ctx, out, sizeof(out))) {
             request->send(500, "application/json",
                           "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"fwupdate.status\"}}");
@@ -7177,7 +7177,13 @@ void WebInterfaceModule::handleUpdateRequest_(AsyncWebServerRequest* request, Fi
     const char* url = (urlBuf[0] != '\0') ? urlBuf : nullptr;
 
     char err[144] = {0};
-    if (!fwUpdateSvc_->start(fwUpdateSvc_->ctx, target, url, err, sizeof(err))) {
+    uint32_t operationId = 0U;
+    if (!fwUpdateSvc_->start(fwUpdateSvc_->ctx,
+                             target,
+                             url,
+                             &operationId,
+                             err,
+                             sizeof(err))) {
         sanitizeJsonString_(err);
         char out[336] = {0};
         const int n = snprintf(out,
@@ -7192,7 +7198,16 @@ void WebInterfaceModule::handleUpdateRequest_(AsyncWebServerRequest* request, Fi
         return;
     }
 
-    request->send(202, "application/json", "{\"ok\":true,\"accepted\":true}");
+    char out[96] = {0};
+    const int n = snprintf(out,
+                           sizeof(out),
+                           "{\"ok\":true,\"accepted\":true,\"operation_id\":%lu}",
+                           (unsigned long)operationId);
+    request->send(202,
+                  "application/json",
+                  (n > 0 && (size_t)n < sizeof(out))
+                      ? out
+                      : "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"fwupdate.start.response\"}}");
 }
 
 bool WebInterfaceModule::isWebReachable_() const

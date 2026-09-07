@@ -346,7 +346,7 @@ body.web-icons-disabled .status-flag-check.is-true{font-size:13px;}
 .update-component-green{background:rgba(22,164,93,0.1);color:var(--success);}
 .update-component-orange{background:rgba(240,138,0,0.12);color:var(--warning);}
 .updates-table-shell{border:1px solid var(--border);border-radius:var(--radius);overflow:auto;background:#FFFFFF;box-shadow:0 8px 22px rgba(7,26,53,0.04);}
-.updates-table{width:100%;border-collapse:separate;border-spacing:0;min-width:960px;}
+.updates-table{width:100%;border-collapse:separate;border-spacing:0;min-width:800px;}
 .updates-table th,.updates-table td{padding:18px 22px;text-align:left;border-left:1px solid var(--border);border-top:1px solid var(--border);vertical-align:middle;}
 .updates-table th:first-child,.updates-table td:first-child{border-left:0;}
 .updates-table thead th{border-top:0;color:var(--text);font-size:14px;font-weight:800;background:#FBFDFF;white-space:nowrap;}

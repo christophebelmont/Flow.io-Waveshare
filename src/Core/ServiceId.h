@@ -32,6 +32,7 @@ enum class ServiceId : uint8_t {
     I2cBus,
     DomainStatus,
     PoolHistory,
+    AiInsight,
     Count
 };
 
@@ -74,6 +75,7 @@ constexpr const char* toString(ServiceId id)
         case ServiceId::I2cBus: return "i2c_bus";
         case ServiceId::DomainStatus: return "domain_status";
         case ServiceId::PoolHistory: return "pool_history";
+        case ServiceId::AiInsight: return "ai_insight";
         case ServiceId::Count: return "count";
     }
     return "unknown";

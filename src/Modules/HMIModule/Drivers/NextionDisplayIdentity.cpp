@@ -153,6 +153,14 @@ bool parseNextionConnectResponse(const char* response, HmiDisplayIdentity& out)
     return true;
 }
 
+bool isNextionDisplayCompatible(const HmiDisplayIdentity& identity,
+                                const char* expectedCompatibility)
+{
+    return identity.compatibility[0] != '\0' &&
+           expectedCompatibility && expectedCompatibility[0] != '\0' &&
+           strcmp(identity.compatibility, expectedCompatibility) == 0;
+}
+
 bool parseNextionArtifactFilename(const char* filename,
                                   char* compatibilityOut,
                                   size_t compatibilityOutLen,

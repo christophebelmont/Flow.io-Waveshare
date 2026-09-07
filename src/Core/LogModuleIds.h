@@ -28,6 +28,7 @@ enum class LogModuleIdValue : LogModuleId {
     WifiProvisioningModule = 13,
     TimeModule = 14,
     PoolHistoryModule = 15,
+    AiInsightModule = 16,
     WebInterfaceModule = 17,
     FirmwareUpdateModule = 18,
     SystemModule = 19,
@@ -65,6 +66,7 @@ static inline LogModuleId logModuleIdFromModuleId(ModuleId moduleId)
         case ModuleId::WifiProvisioning: return (LogModuleId)LogModuleIdValue::WifiProvisioningModule;
         case ModuleId::Time: return (LogModuleId)LogModuleIdValue::TimeModule;
         case ModuleId::PoolHistory: return (LogModuleId)LogModuleIdValue::PoolHistoryModule;
+        case ModuleId::AiInsight: return (LogModuleId)LogModuleIdValue::AiInsightModule;
         case ModuleId::WebInterface: return (LogModuleId)LogModuleIdValue::WebInterfaceModule;
         case ModuleId::FirmwareUpdate: return (LogModuleId)LogModuleIdValue::FirmwareUpdateModule;
         case ModuleId::System: return (LogModuleId)LogModuleIdValue::SystemModule;
@@ -106,6 +108,7 @@ static inline const char* logModuleNameFromId(LogModuleId moduleId)
         case LogModuleIdValue::WifiProvisioningModule: return "wifiprov";
         case LogModuleIdValue::TimeModule: return "time";
         case LogModuleIdValue::PoolHistoryModule: return "poolhistory";
+        case LogModuleIdValue::AiInsightModule: return "ai.insight";
         case LogModuleIdValue::WebInterfaceModule: return "webinterface";
         case LogModuleIdValue::FirmwareUpdateModule: return "fwupdate";
         case LogModuleIdValue::SystemModule: return "system";

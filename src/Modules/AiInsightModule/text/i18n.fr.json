@@ -1,0 +1,18 @@
+{
+  "locale": "fr",
+  "translations": {
+    "cfgdocs.ai.openai.enabled.help": "Active la préparation des analyses IA et autorise la récupération du contexte météo.",
+    "cfgdocs.ai.openai.enabled.label": "Analyse IA active",
+    "cfgdocs.ai.openai.api_key.help": "Clé utilisée ultérieurement pour appeler l’API OpenAI.",
+    "cfgdocs.ai.openai.api_key.label": "Clé API OpenAI",
+    "cfgdocs.ai.openai.model.help": "Identifiant du modèle OpenAI à utiliser pour l’analyse.",
+    "cfgdocs.ai.openai.model.label": "Modèle OpenAI",
+    "cfgdocs.system.location.latitude.help": "Latitude de l’installation en degrés décimaux, comprise entre -90 et 90.",
+    "cfgdocs.system.location.latitude.label": "Latitude (degrés décimaux)",
+    "cfgdocs.system.location.longitude.help": "Longitude de l’installation en degrés décimaux, comprise entre -180 et 180.",
+    "cfgdocs.system.location.longitude.label": "Longitude (degrés décimaux)",
+    "cfgmods.ai.label": "Intelligence artificielle",
+    "cfgmods.ai.openai.label": "OpenAI",
+    "cfgmods.system.location.label": "Localisation"
+  }
+}

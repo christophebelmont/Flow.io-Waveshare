@@ -80,6 +80,17 @@ void test_numeric_versions_compare_by_component()
     TEST_ASSERT_EQUAL_INT(1, compareNextionVersions("10.0.0", "6.9.9"));
 }
 
+void test_display_identity_remains_usable_without_application_version()
+{
+    HmiDisplayIdentity identity{};
+    TEST_ASSERT_TRUE(parseNextionConnectResponse(
+        "comok 1,38024-0,NX8048P050_011C,99,61488,D264B8204F0E1828,16777216",
+        identity));
+    TEST_ASSERT_EQUAL_STRING("NX8048P050_011", identity.compatibility);
+    TEST_ASSERT_EQUAL_STRING("", identity.applicationVersion);
+    TEST_ASSERT_TRUE(isNextionDisplayCompatible(identity, "NX8048P050_011"));
+}
+
 int main()
 {
     UNITY_BEGIN();
@@ -90,5 +101,6 @@ int main()
     RUN_TEST(test_artifact_filename_uses_touch_neutral_model);
     RUN_TEST(test_artifact_filename_rejects_touch_specific_model);
     RUN_TEST(test_numeric_versions_compare_by_component);
+    RUN_TEST(test_display_identity_remains_usable_without_application_version);
     return UNITY_END();
 }

@@ -3,6 +3,7 @@
 #include "App/FirmwareProfile.h"
 #include "Core/SystemLimits.h"
 #include "Modules/AlarmModule/AlarmModule.h"
+#include "Modules/AiInsightModule/AiInsightModule.h"
 #include "Modules/CommandModule/CommandModule.h"
 #include "Modules/EventBusModule/EventBusModule.h"
 #include "Modules/HMIModule/HMIModule.h"
@@ -76,6 +77,7 @@ struct ModuleInstances {
     IOModule ioModule;
     PoolDeviceModule poolDeviceModule{};
     PoolHistoryModule poolHistoryModule{};
+    AiInsightModule aiInsightModule{};
     PoolLogicModule poolLogicModule{};
     OneWireBus oneWireWater;
     OneWireBus oneWireAir;

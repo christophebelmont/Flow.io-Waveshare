@@ -21,6 +21,15 @@ bool parseNextionDisplayModel(const char* model, HmiDisplayIdentity& out);
 bool parseNextionConnectResponse(const char* response, HmiDisplayIdentity& out);
 
 /**
+ * Check TFT compatibility from the canonical hardware model only.
+ *
+ * The application version is intentionally ignored so a display whose
+ * version cannot be read can still be recovered or upgraded.
+ */
+bool isNextionDisplayCompatible(const HmiDisplayIdentity& identity,
+                                const char* expectedCompatibility);
+
+/**
  * Parse the canonical Flow.io Nextion artifact filename.
  *
  * Expected form: FlowIO_Nextion_<compatibility>-<version>.tft

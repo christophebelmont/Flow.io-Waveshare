@@ -48,7 +48,7 @@ constexpr uint8_t EventSubscribersMax = FLOW_EVENT_SUBSCRIBERS_MAX;
 namespace Core {
 namespace Capacity {
 /** @brief Maximum number of modules registered in `ModuleManager`. */
-constexpr size_t MaxModules = 28;
+constexpr size_t MaxModules = 32;
 /** @brief Maximum number of declared tasks tracked by `ModuleManager`. */
 constexpr size_t MaxModuleTasks = 32;
 }  // namespace Capacity

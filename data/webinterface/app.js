@@ -982,10 +982,6 @@
     async function loadWebMeta(options) {
       try {
         const data = await fetchOkJson('/api/web/meta', { cache: 'no-store' }, 'meta web indisponible');
-        const currentUpgradeSession = readUpgradeUiSession();
-        if (currentUpgradeSession && currentUpgradeSession.awaitingReconnect) {
-          handleUpgradeReconnectSuccess();
-        }
         ingestWebProfileMeta(data);
 
         if (typeof data.web_asset_version === 'string') {
@@ -2244,27 +2240,21 @@
         title: 'FlowIOS3',
         subtitle: 'Firmware Waveshare',
         icon: 'layers',
-        tone: 'blue',
-        commentsAvailable: 'Ajout de nouvelles fonctionnalités et améliorations système',
-        commentsCurrent: 'Firmware système actuel'
+        tone: 'blue'
       },
       {
         key: 'spiffs',
         title: 'SPIFFS',
         subtitle: 'Fichiers système',
         icon: 'memory',
-        tone: 'green',
-        commentsAvailable: 'Nouveaux fichiers de configuration et ressources',
-        commentsCurrent: 'Fichiers système actuels'
+        tone: 'green'
       },
       {
         key: 'nextion',
         title: 'Nextion',
         subtitle: 'Unknown',
         icon: 'display_settings',
-        tone: 'orange',
-        commentsAvailable: 'Nouvelle interface écran disponible',
-        commentsCurrent: 'Interface écran actuelle'
+        tone: 'orange'
       }
     ];
 
@@ -2281,7 +2271,6 @@
     const infoRuntimePoller = createIntervalRunner(() => pollInfoRuntimeTick(), infoRefreshActiveMs);
     const infoSupervisorPoller = createIntervalRunner(() => pollInfoSupervisorTick(), infoSupervisorRefreshMs);
     const upgradeReconnectStageTimer = createTimeoutRunner(() => enterUpgradeReconnectPhase());
-    const upgradeReconnectCompletionTimer = createTimeoutRunner(() => markUpgradeUiCompletedAfterReconnect());
     const upgradeReconnectMonitor = createIntervalRunner(() => probeUpgradeReconnect(), 1500);
     const poolMeasuresPoller = createIntervalRunner(() => {
       if (getActivePageId() !== 'page-pool-measures' || document.hidden) return;
@@ -3104,7 +3093,9 @@
         lastPercent: 0,
         awaitingReconnect: false,
         reconnectShown: false,
-        reconnectProgress: 0
+        reconnectProgress: 0,
+        operationId: 0,
+        bootId: 0
       };
       const next = Object.assign({}, current, patch || {});
       next.lastPercent = upgradePhasePercent(next);
@@ -3125,6 +3116,8 @@
         awaitingReconnect: false,
         reconnectShown: false,
         reconnectProgress: 0,
+        operationId: 0,
+        bootId: 0,
         failedStep: ''
       });
     }
@@ -3142,7 +3135,6 @@
 
     function stopUpgradeReconnectFlow() {
       upgradeReconnectStageTimer.stop();
-      upgradeReconnectCompletionTimer.stop();
       upgradeReconnectMonitor.stop();
     }
 
@@ -3152,10 +3144,6 @@
 
     function startUpgradeReconnectMonitor() {
       upgradeReconnectMonitor.start();
-    }
-
-    function scheduleUpgradeReconnectCompletion(delayMs) {
-      upgradeReconnectCompletionTimer.schedule(Math.max(0, Number(delayMs) || 0));
     }
 
     function markUpgradeUiAwaitingReconnect() {
@@ -3169,12 +3157,13 @@
       });
     }
 
-    function markUpgradeUiCompletedAfterReconnect() {
+    function markUpgradeUiCompletedAfterReceipt(target) {
       const current = readUpgradeUiSession();
-      if (!current || !current.awaitingReconnect) return null;
+      if (!current) return null;
       stopUpgradeReconnectFlow();
       return updateUpgradeUiSession({
         phase: 'done',
+        target: target || current.target,
         detail: tr('updates.detail.done', 'Mise à jour terminée.'),
         backendProgress: 100,
         awaitingReconnect: false,
@@ -3182,19 +3171,6 @@
         reconnectProgress: 100,
         failedStep: ''
       });
-    }
-
-    function handleUpgradeReconnectSuccess() {
-      const current = readUpgradeUiSession();
-      if (!current || !current.awaitingReconnect) return null;
-      if (!current.reconnectShown || current.phase === 'reboot') {
-        upgradeReconnectStageTimer.stop();
-        upgradeReconnectMonitor.stop();
-        markUpgradeUiAwaitingReconnect();
-        scheduleUpgradeReconnectCompletion(320);
-        return readUpgradeUiSession();
-      }
-      return markUpgradeUiCompletedAfterReconnect();
     }
 
     function incrementUpgradeReconnectProgress() {
@@ -3229,10 +3205,10 @@
           }, upgradeReconnectFetchTimeoutMs)
         : null;
       try {
-        return await fetchOkJson('/api/web/meta', {
+        return await fetchOkJson('/api/fwupdate/status', {
           cache: 'no-store',
           signal: controller ? controller.signal : undefined
-        }, 'meta web indisponible');
+        }, 'état de mise à jour indisponible');
       } finally {
         if (timeoutId) clearTimeout(timeoutId);
       }
@@ -3245,8 +3221,7 @@
         return;
       }
       try {
-        await fetchUpgradeReconnectHeartbeat();
-        handleUpgradeReconnectSuccess();
+        updateUpgradeView(await fetchUpgradeReconnectHeartbeat());
       } catch (err) {
         incrementUpgradeReconnectProgress();
       }
@@ -3269,6 +3244,45 @@
       const target = String(data.target || (current && current.target) || '').trim().toLowerCase();
       const progress = Math.max(0, Math.min(100, Number(data.progress) || 0));
       const msg = String(data.msg || '').trim();
+      const operationId = Number(data.operation_id) > 0 ? Number(data.operation_id) : 0;
+      const bootId = Number(data.boot_id) > 0 ? Number(data.boot_id) : 0;
+      const currentOperationId = Number(current && current.operationId) > 0
+        ? Number(current.operationId)
+        : 0;
+      const receipt = data.last_operation && typeof data.last_operation === 'object'
+        ? data.last_operation
+        : null;
+      const receiptOperationId = Number(receipt && receipt.operation_id) > 0
+        ? Number(receipt.operation_id)
+        : 0;
+      const receiptMatches = currentOperationId > 0 && receiptOperationId === currentOperationId;
+      const receiptResult = receiptMatches ? String(receipt.result || '') : '';
+
+      if (receiptResult === 'succeeded') {
+        markUpgradeUiCompletedAfterReceipt(String(receipt.target || target));
+        return;
+      }
+      if (receiptResult === 'failed' || receiptResult === 'interrupted') {
+        stopUpgradeReconnectFlow();
+        updateUpgradeUiSession({
+          phase: 'error',
+          target: String(receipt.target || target),
+          detail: receiptResult === 'interrupted'
+            ? tr('updates.err.interrupted', 'La mise à jour a été interrompue avant sa finalisation.')
+            : normalizeUpgradeHttpErrorMessage(msg, tr('updates.err.updateGeneric', 'Erreur de mise à jour.')),
+          backendProgress: progress,
+          awaitingReconnect: false,
+          reconnectShown: false,
+          reconnectProgress: 0,
+          failedStep: current && current.phase && current.phase !== 'idle' ? current.phase : 'flash',
+          bootId: bootId
+        });
+        return;
+      }
+
+      if (currentOperationId > 0 && operationId > 0 && operationId !== currentOperationId) {
+        return;
+      }
 
       if (upgradeUiStatusMuted) {
         if (state !== 'idle' && state !== 'done' && state !== 'error') return;
@@ -3276,8 +3290,17 @@
       }
 
       if (state === 'idle') {
-        if (current && current.awaitingReconnect) {
-          handleUpgradeReconnectSuccess();
+        if (currentOperationId > 0 && current && current.phase !== 'done' && current.phase !== 'error') {
+          stopUpgradeReconnectFlow();
+          updateUpgradeUiSession({
+            phase: 'error',
+            detail: tr('updates.err.resultUnavailable', 'Le résultat de la mise à jour n’est pas disponible après reconnexion.'),
+            awaitingReconnect: false,
+            reconnectShown: false,
+            reconnectProgress: 0,
+            failedStep: current.phase || 'reconnect',
+            bootId: bootId
+          });
         } else if (!current || current.phase === 'idle') {
           clearUpgradeUiSession();
           renderUpgradeJourney({ phase: 'idle', target: '', detail: tr('updates.none', 'Aucune opération en cours.') });
@@ -3296,6 +3319,8 @@
           awaitingReconnect: false,
           reconnectShown: false,
           reconnectProgress: 0,
+          operationId: operationId || currentOperationId,
+          bootId: bootId,
           failedStep: ''
         });
         return;
@@ -3311,6 +3336,8 @@
           awaitingReconnect: false,
           reconnectShown: false,
           reconnectProgress: 0,
+          operationId: operationId || currentOperationId,
+          bootId: bootId,
           failedStep: ''
         });
         return;
@@ -3326,6 +3353,8 @@
           awaitingReconnect: false,
           reconnectShown: false,
           reconnectProgress: 0,
+          operationId: operationId || currentOperationId,
+          bootId: bootId,
           failedStep: ''
         });
         return;
@@ -3341,6 +3370,8 @@
           awaitingReconnect: true,
           reconnectShown: false,
           reconnectProgress: 0,
+          operationId: operationId || currentOperationId,
+          bootId: bootId,
           failedStep: ''
         });
         scheduleUpgradeReconnectPhase(900);
@@ -3358,6 +3389,8 @@
             awaitingReconnect: true,
             reconnectShown: false,
             reconnectProgress: 0,
+            operationId: operationId || currentOperationId,
+            bootId: bootId,
             failedStep: ''
           });
           scheduleUpgradeReconnectPhase(900);
@@ -3371,6 +3404,8 @@
             awaitingReconnect: false,
             reconnectShown: true,
             reconnectProgress: 100,
+            operationId: operationId || currentOperationId,
+            bootId: bootId,
             failedStep: ''
           });
         }
@@ -3387,6 +3422,8 @@
           awaitingReconnect: false,
           reconnectShown: false,
           reconnectProgress: 0,
+          operationId: operationId || currentOperationId,
+          bootId: bootId,
           failedStep: current && current.phase && current.phase !== 'idle' ? current.phase : 'flash'
         });
       }
@@ -3649,7 +3686,6 @@
               title: formatManifestArtifactTitle(category, artifact),
               version: split.version,
               buildDate: split.build,
-              notes: String(artifact.notes || artifact.release_notes || '').trim(),
               url: joinManifestArtifactUrl(baseUrl, artifact),
               target: target,
               endpoint: resolveArtifactEndpoint(category, artifact, target)
@@ -3702,25 +3738,16 @@
         const unavailableMessage = nextionDisplayDetected
           ? tr('updates.nextion.noCompatibleArtifact', 'Aucun firmware Nextion compatible')
           : tr('updates.nextion.notDetected', 'Nextion non détecté');
-        const unavailableComment = nextionDisplayDetected
-          ? tr('updates.nextion.noCompatibleArtifactDetail', 'Aucun fichier du manifest ne correspond au modèle {model}.')
-            .replace('{model}', nextionDisplayModel || nextionDisplayCompatibility || '-')
-          : tr('updates.nextion.notDetectedDetail', 'Vérifiez la connexion de l’écran puis redémarrez le système.');
         return Object.assign({}, def, {
           subtitle: def.key === 'nextion'
-            ? (nextionDisplayModel || def.subtitle)
+            ? (nextionDisplayCompatibility || def.subtitle)
             : def.subtitle,
           current: current,
           available: available,
           updateAvailable: updateAvailable,
           unavailable: nextionUnavailable,
           unavailableMessage: nextionUnavailable ? unavailableMessage : '',
-          entry: latest,
-          comments: nextionUnavailable
-            ? unavailableComment
-            : (latest && latest.notes
-              ? latest.notes
-              : (updateAvailable ? def.commentsAvailable : def.commentsCurrent))
+          entry: latest
         });
       });
     }
@@ -3881,10 +3908,6 @@
         statusCell.appendChild(createUpgradeStatusBadge(row));
         trEl.appendChild(statusCell);
 
-        const commentsCell = document.createElement('td');
-        commentsCell.textContent = row.comments || '-';
-        trEl.appendChild(commentsCell);
-
         const actionCell = document.createElement('td');
         actionCell.appendChild(createUpgradeActionButton(row));
         trEl.appendChild(actionCell);
@@ -3986,9 +4009,9 @@
           throw new Error('identifiant de vérification invalide');
         }
 
-        const deadlineMs = Date.now() + 85000;
+        const maxPollAttempts = 215;
         let data = null;
-        while (Date.now() < deadlineMs) {
+        for (let attempt = 0; attempt < maxPollAttempts; ++attempt) {
           data = await fetchOkJson(
             '/api/fwupdate/check?request_id=' + encodeURIComponent(String(requestId)),
             { cache: 'no-store' },
@@ -4022,7 +4045,17 @@
         updateUpgradeView(await fetchOkJson('/api/fwupdate/status', { cache: 'no-store' }, 'échec lecture état'));
       } catch (err) {
         const current = readUpgradeUiSession();
-        if (current && (current.awaitingReconnect || current.phase === 'reboot')) {
+        const phase = String(current && current.phase ? current.phase : 'idle');
+        if (current && (current.awaitingReconnect || phase === 'target' || phase === 'download' || phase === 'flash' || phase === 'reboot' || phase === 'reconnect')) {
+          if (!current.awaitingReconnect) {
+            updateUpgradeUiSession({
+              phase: 'reconnect',
+              detail: tr('updates.detail.awaitReconnect', 'Attente de Reconnection.'),
+              awaitingReconnect: true,
+              reconnectShown: true,
+              reconnectProgress: Math.max(5, Number(current.reconnectProgress) || 0)
+            });
+          }
           enterUpgradeReconnectPhase();
           return;
         }
@@ -4042,7 +4075,12 @@
         if (!route) {
           throw new Error('route de mise à jour indisponible');
         }
-        await fetchOkJson(route, createFormPostOptions({ url: selectedUrl }), 'échec démarrage');
+        const started = await fetchOkJson(route, createFormPostOptions({ url: selectedUrl }), 'échec démarrage');
+        const operationId = Number(started && started.operation_id);
+        if (!Number.isFinite(operationId) || operationId <= 0) {
+          throw new Error('identifiant d’opération invalide');
+        }
+        updateUpgradeUiSession({ operationId: operationId });
         await refreshUpgradeStatus();
       } catch (err) {
         stopUpgradeReconnectFlow();
@@ -9198,12 +9236,17 @@
       return { input, trigger };
     }
 
-    function formatConfigValueForDisplay(value, displayFormat) {
+    function formatConfigValueForDisplay(value, displayFormat, doc) {
       if (displayFormat === 'hex' && typeof value === 'number' && Number.isFinite(value)) {
         const raw = Math.max(0, Math.trunc(value));
         const width = raw <= 0xFF ? 2 : 0;
         const hex = raw.toString(16).toUpperCase();
         return '0x' + (width > 0 ? hex.padStart(width, '0') : hex);
+      }
+      const configuredDecimalPlaces = configNumericConstraint(doc, 'decimal_places');
+      if (configuredDecimalPlaces !== null && typeof value === 'number' && Number.isFinite(value)) {
+        const decimalPlaces = Math.max(0, Math.min(10, Math.trunc(configuredDecimalPlaces)));
+        return value.toFixed(decimalPlaces);
       }
       return String(value ?? '');
     }
@@ -9349,6 +9392,12 @@
         return 'bool';
       }
       return 'string';
+    }
+
+    function configNumericConstraint(doc, name) {
+      if (!doc || typeof doc !== 'object') return null;
+      const parsed = Number(doc[name]);
+      return Number.isFinite(parsed) ? parsed : null;
     }
 
     function configFieldNormalizedInitialValue(doc, value) {
@@ -9772,10 +9821,18 @@
           input.type = displayFormat === 'hex' ? 'text' : 'number';
           input.value = formatConfigValueForDisplay(
             configFieldNormalizedInitialValue(doc, value),
-            displayFormat
+            displayFormat,
+            doc
           );
           if (displayFormat !== 'hex') {
-            input.step = (numericKind === 'float') ? '0.001' : '1';
+            const configuredStep = configNumericConstraint(doc, 'step');
+            input.step = String(configuredStep !== null && configuredStep > 0
+              ? configuredStep
+              : (numericKind === 'float' ? 0.001 : 1));
+            const configuredMinimum = configNumericConstraint(doc, 'minimum');
+            const configuredMaximum = configNumericConstraint(doc, 'maximum');
+            if (configuredMinimum !== null) input.min = String(configuredMinimum);
+            if (configuredMaximum !== null) input.max = String(configuredMaximum);
           }
           input.dataset.key = key;
           input.dataset.kind = numericKind;
@@ -10995,7 +11052,7 @@
         if (document.hidden || !onUpgradePage) {
           stopUpgradeStatusPolling();
         } else {
-          startUpgradeStatusPolling();
+          startUpgradeStatusPolling(true);
         }
         if (document.hidden || activePageId !== 'page-pool-measures') {
           stopPoolMeasuresTimer();

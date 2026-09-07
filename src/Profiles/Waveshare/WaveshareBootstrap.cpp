@@ -173,6 +173,7 @@ void registerModules(AppContext& ctx, ModuleInstances& modules)
     ctx.moduleManager.add(&modules.poolLogicModule);
     ctx.moduleManager.add(&modules.poolDeviceModule);
     ctx.moduleManager.add(&modules.poolHistoryModule);
+    ctx.moduleManager.add(&modules.aiInsightModule);
 
     modules.systemMonitorModule.setModuleManager(&ctx.moduleManager);
     ctx.moduleManager.add(&modules.systemMonitorModule);

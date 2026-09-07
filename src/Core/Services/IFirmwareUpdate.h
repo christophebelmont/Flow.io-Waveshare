@@ -41,7 +41,12 @@ struct FirmwareManifestCheckSnapshot {
 };
 
 struct FirmwareUpdateService {
-    bool (*start)(void* ctx, FirmwareUpdateTarget target, const char* url, char* errOut, size_t errOutLen);
+    bool (*start)(void* ctx,
+                  FirmwareUpdateTarget target,
+                  const char* url,
+                  uint32_t* operationIdOut,
+                  char* errOut,
+                  size_t errOutLen);
     bool (*statusJson)(void* ctx, char* out, size_t outLen);
     bool (*isBusy)(void* ctx);
     bool (*configJson)(void* ctx, char* out, size_t outLen);

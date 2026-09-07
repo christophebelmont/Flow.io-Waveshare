@@ -55,6 +55,10 @@ constexpr char Language[] = "sys_lang"; // System module persisted key for field
 constexpr char DeviceName[] = "sys_dname"; // System module persisted key for field `sys_dname`.
 }  // namespace System
 
+namespace FirmwareUpdate {
+constexpr char Receipt[] = "fw_up_receipt"; // Last update operation state, persisted across reboot.
+}  // namespace FirmwareUpdate
+
 namespace SystemMonitor {
 constexpr char TraceEnabled[] = "sm_tren"; // System monitor module persisted key for field `sm_tren`.
 constexpr char TracePeriodMs[] = "sm_trms"; // System monitor module persisted key for field `sm_trms`.
@@ -477,6 +481,14 @@ constexpr char Today[] = "phist_today";
 /** @brief Compact record for the previous local day. */
 constexpr char PreviousDay[] = "phist_prev";
 }  // namespace PoolHistory
+
+namespace AiInsight {
+constexpr char Enabled[] = "ai_enabled";
+constexpr char ApiKey[] = "ai_api_key";
+constexpr char Model[] = "ai_model";
+constexpr char Latitude[] = "inst_lat";
+constexpr char Longitude[] = "inst_lon";
+}  // namespace AiInsight
 
 namespace Alarm {
 constexpr char Enabled[] = "al_en"; // Alarm module persisted key for field `enabled`.

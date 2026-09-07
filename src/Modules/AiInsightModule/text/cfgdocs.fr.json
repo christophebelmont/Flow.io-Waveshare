@@ -1,0 +1,42 @@
+{
+  "_meta": {
+    "generated": true,
+    "locale": "fr",
+    "version": 1
+  },
+  "docs": {
+    "ai/openai/enabled": {
+      "type": "Bool",
+      "label_t": "cfgdocs.ai.openai.enabled.label",
+      "help_t": "cfgdocs.ai.openai.enabled.help"
+    },
+    "ai/openai/api_key": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.ai.openai.api_key.label",
+      "help_t": "cfgdocs.ai.openai.api_key.help"
+    },
+    "ai/openai/model": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.ai.openai.model.label",
+      "help_t": "cfgdocs.ai.openai.model.help"
+    },
+    "system/location/latitude": {
+      "type": "Double",
+      "step": 0.000001,
+      "decimal_places": 6,
+      "minimum": -90,
+      "maximum": 90,
+      "label_t": "cfgdocs.system.location.latitude.label",
+      "help_t": "cfgdocs.system.location.latitude.help"
+    },
+    "system/location/longitude": {
+      "type": "Double",
+      "step": 0.000001,
+      "decimal_places": 6,
+      "minimum": -180,
+      "maximum": 180,
+      "label_t": "cfgdocs.system.location.longitude.label",
+      "help_t": "cfgdocs.system.location.longitude.help"
+    }
+  }
+}
