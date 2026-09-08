@@ -1,0 +1,10 @@
+{
+  "locale": "fr",
+  "translations": {
+    "cfgmods.poolhistory.periods.label": "Périodes jour et nuit",
+    "cfgdocs.poolhistory.periods.day_start_hour.label": "Début de journée",
+    "cfgdocs.poolhistory.periods.day_start_hour.help": "Heure locale à partir de laquelle les mesures sont classées en journée.",
+    "cfgdocs.poolhistory.periods.day_end_hour.label": "Fin de journée",
+    "cfgdocs.poolhistory.periods.day_end_hour.help": "Heure locale à partir de laquelle les mesures sont classées en nuit."
+  }
+}

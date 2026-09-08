@@ -9,12 +9,16 @@
 #include "Core/NvsKeys.h"
 #include "Core/ServiceBinding.h"
 #include "Core/Services/Services.h"
+#include "Modules/AiInsightModule/OpenAiResponsesClient.h"
 #include "Modules/AiInsightModule/OpenMeteoWeatherClient.h"
 
 struct AiInsightConfig {
+    static constexpr size_t ApiKeyCapacity = 192U;
+    static constexpr size_t ModelCapacity = 48U;
+
     bool enabled = false;
-    char apiKey[192]{};
-    char model[48]{};
+    char apiKey[ApiKeyCapacity]{};
+    char model[ModelCapacity]{};
     double latitude = 91.0;
     double longitude = 0.0;
 };
@@ -56,7 +60,8 @@ private:
 
     static constexpr uint8_t kOpenAiConfigBranch = 1U;
     static constexpr uint8_t kLocationConfigBranch = 2U;
-    static constexpr uint32_t kCacheLifetimeMs = 30U * 60U * 1000U;
+    static constexpr uint32_t kWeatherCacheLifetimeMs = 30U * 60U * 1000U;
+    static constexpr uint32_t kPoolInsightReuseLifetimeSec = 60U * 60U;
     static constexpr uint32_t kLoopDelayMs = 100U;
 
     static bool cmdWeatherRefresh_(void* userCtx,
@@ -67,18 +72,26 @@ private:
                                   const CommandRequest& request,
                                   char* reply,
                                   size_t replyLen);
-
     bool requestWeatherRefresh_(bool force, char* errOut, size_t errOutLen);
     bool getWeatherStatus_(AiWeatherStatus* outStatus) const;
+    bool buildPoolPreview_(AiPoolInsightPreview* outPreview,
+                           char* errOut,
+                           size_t errOutLen) const;
+    bool requestPoolInsight_(bool* outReused, char* errOut, size_t errOutLen);
+    bool getPoolInsightStatus_(AiPoolInsightStatus* outStatus) const;
     bool buildWeatherStatusJson_(char* out, size_t outLen) const;
     void processWeatherRequest_();
+    void processPoolInsightRequest_();
     void finishWeatherRequest_(AiWeatherState state,
                                const PoolWeatherSnapshot* weather,
                                const char* message);
+    void finishPoolInsightRequest_(AiPoolInsightState state,
+                                   const OpenAiResponsesParser::Result* result,
+                                   const char* text,
+                                   const char* message);
     uint64_t currentEpoch_() const;
     bool networkReady_() const;
     static bool locationIsValid_(double latitude, double longitude);
-    static const char* weatherStateName_(AiWeatherState state);
     static bool writeError_(char* out, size_t outLen, const char* message);
 
     AiInsightConfig cfgData_{};
@@ -107,14 +120,19 @@ private:
 
     mutable portMUX_TYPE lock_ = portMUX_INITIALIZER_UNLOCKED;
     Storage* storage_ = nullptr;
+    OpenAiResponsesClient openAiClient_{};
     OpenMeteoWeatherClient weatherClient_{};
     const CommandService* commandService_ = nullptr;
     const NetworkAccessService* networkAccessService_ = nullptr;
     const TimeService* timeService_ = nullptr;
+    const PoolHistoryService* poolHistoryService_ = nullptr;
 
     AiInsightService service_{
         ServiceBinding::bind<&AiInsightModule::requestWeatherRefresh_>,
         ServiceBinding::bind<&AiInsightModule::getWeatherStatus_>,
+        ServiceBinding::bind<&AiInsightModule::buildPoolPreview_>,
+        ServiceBinding::bind<&AiInsightModule::requestPoolInsight_>,
+        ServiceBinding::bind<&AiInsightModule::getPoolInsightStatus_>,
         this
     };
 };

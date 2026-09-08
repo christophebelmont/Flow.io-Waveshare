@@ -40,7 +40,7 @@ private:
     struct PersistenceRequest {
         PersistenceOp op = PersistenceOp::EraseKey;
         char key[Limits::MaxNvsKeyLen + 1] = {0};
-        uint8_t len = 0;
+        uint16_t len = 0;
         uint8_t bytes[Limits::Config::Capacity::RuntimeBlobAsyncMax] = {0};
         float floatValue = 0.0f;
         uint8_t moduleId = (uint8_t)ConfigModuleId::Unknown;

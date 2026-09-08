@@ -1,0 +1,15 @@
+{
+  "_meta": {"generated": true, "locale": "fr", "version": 1},
+  "docs": {
+    "poolhistory/periods/day_start_hour": {
+      "type": "UInt8", "minimum": 0, "maximum": 23,
+      "label_t": "cfgdocs.poolhistory.periods.day_start_hour.label",
+      "help_t": "cfgdocs.poolhistory.periods.day_start_hour.help"
+    },
+    "poolhistory/periods/day_end_hour": {
+      "type": "UInt8", "minimum": 0, "maximum": 23,
+      "label_t": "cfgdocs.poolhistory.periods.day_end_hour.label",
+      "help_t": "cfgdocs.poolhistory.periods.day_end_hour.help"
+    }
+  }
+}

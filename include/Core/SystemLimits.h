@@ -72,7 +72,7 @@ constexpr uint8_t ModuleListMax = 160;
 /** @brief FreeRTOS queue length for serialized ConfigStore persistence requests. */
 constexpr uint8_t PersistenceQueueLen = 16;
 /** @brief Maximum runtime blob payload length accepted by ConfigStore async persistence. */
-constexpr size_t RuntimeBlobAsyncMax = 192;
+constexpr size_t RuntimeBlobAsyncMax = 256;
 }  // namespace Capacity
 }  // namespace Config
 

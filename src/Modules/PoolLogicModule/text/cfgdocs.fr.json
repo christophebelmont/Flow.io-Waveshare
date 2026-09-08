@@ -365,6 +365,21 @@
       "help_t": "cfgdocs.poollogic.swg.secure_elec_t.help",
       "unit": "C"
     },
+    "poollogic/pool/indoor": {
+      "type": "Bool",
+      "label_t": "cfgdocs.poollogic.pool.indoor.label",
+      "help_t": "cfgdocs.poollogic.pool.indoor.help"
+    },
+    "poollogic/pool/automatic_cover": {
+      "type": "Bool",
+      "label_t": "cfgdocs.poollogic.pool.automatic_cover.label",
+      "help_t": "cfgdocs.poollogic.pool.automatic_cover.help"
+    },
+    "poollogic/pool/cover_closed_at_night": {
+      "type": "Bool",
+      "label_t": "cfgdocs.poollogic.pool.cover_closed_at_night.label",
+      "help_t": "cfgdocs.poollogic.pool.cover_closed_at_night.help"
+    },
     "poollogic/swg/swg_control_mode": {
       "type": "UInt8",
       "label_t": "cfgdocs.poollogic.swg.swg_control_mode.label",

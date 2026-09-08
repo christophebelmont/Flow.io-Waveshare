@@ -33,6 +33,7 @@ static constexpr uint8_t kCfgBranchDevices = 10;
 static constexpr uint8_t kCfgBranchHeater = 11;
 static constexpr uint8_t kCfgBranchRobot = 12;
 static constexpr uint8_t kCfgBranchRefill = 13;
+static constexpr uint8_t kCfgBranchPool = 14;
 static constexpr uint32_t kStartupActivityStabilizeMs = 3000U;
 static constexpr uint32_t kStartupActivityMaxDelayMs = 30000U;
 static constexpr uint64_t kActivityMinEpoch = 1609459200ULL;
@@ -49,6 +50,7 @@ static constexpr const char* kCfgModuleDevices = "poollogic/devices";
 static constexpr const char* kCfgModuleHeater = "poollogic/heater";
 static constexpr const char* kCfgModuleRobot = "poollogic/robot";
 static constexpr const char* kCfgModuleRefill = "poollogic/refill";
+static constexpr const char* kCfgModulePool = "poollogic/pool";
 
 enum : uint16_t {
     kCfgMsgBase = 1,
@@ -65,6 +67,7 @@ enum : uint16_t {
     kCfgMsgHeater = 12,
     kCfgMsgRobot = 13,
     kCfgMsgRefill = 14,
+    kCfgMsgPool = 15,
 };
 
 static constexpr MqttConfigRouteProducer::Route kPoolLogicCfgRoutes[] = {
@@ -166,7 +169,48 @@ static constexpr MqttConfigRouteProducer::Route kPoolLogicCfgRoutes[] = {
      (uint8_t)MqttPublishPriority::Normal,
      nullptr,
      kPoolLogicCfgTopicBase},
+    {kCfgMsgPool,
+     {(uint8_t)ConfigModuleId::PoolLogic, kCfgBranchPool},
+     kCfgModulePool,
+     "pool",
+     (uint8_t)MqttPublishPriority::Normal,
+     nullptr,
+     kPoolLogicCfgTopicBase},
 };
+}
+
+bool PoolLogicModule::serviceGetPoolCharacteristics_(void* ctx,
+                                                     PoolCharacteristics* outCharacteristics)
+{
+    PoolLogicModule* self = static_cast<PoolLogicModule*>(ctx);
+    return self && outCharacteristics && self->getPoolCharacteristics_(*outCharacteristics);
+}
+
+bool PoolLogicModule::getPoolCharacteristics_(PoolCharacteristics& outCharacteristics) const
+{
+    outCharacteristics = PoolCharacteristics{};
+    outCharacteristics.available = true;
+    outCharacteristics.volumeValid = std::isfinite(o2PoolVolumeM3_) && o2PoolVolumeM3_ > 0.0f;
+    if (outCharacteristics.volumeValid) outCharacteristics.volumeM3 = o2PoolVolumeM3_;
+    outCharacteristics.indoor = indoorPool_;
+    outCharacteristics.automaticCoverPresent = automaticCoverPresent_;
+    outCharacteristics.coverClosedAtNight = coverClosedAtNight_;
+    switch (disinfectionType_) {
+        case DisinfectionChlorineBromine:
+            outCharacteristics.disinfectionMethod = PoolDisinfectionMethod::ChlorineBromine;
+            break;
+        case DisinfectionSwg:
+            outCharacteristics.disinfectionMethod = PoolDisinfectionMethod::SaltElectrolysis;
+            break;
+        case DisinfectionActiveOxygen:
+            outCharacteristics.disinfectionMethod = PoolDisinfectionMethod::ActiveOxygen;
+            break;
+        case DisinfectionDisabled:
+        default:
+            outCharacteristics.disinfectionMethod = PoolDisinfectionMethod::Disabled;
+            break;
+    }
+    return true;
 }
 
 void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
@@ -186,6 +230,9 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
     phDosePlusVar_.moduleName = kCfgModulePh;
     disinfectionTypeVar_.moduleName = kCfgModuleModes;
     swgControlModeVar_.moduleName = kCfgModuleSwg;
+    indoorPoolVar_.moduleName = kCfgModulePool;
+    automaticCoverVar_.moduleName = kCfgModulePool;
+    coverClosedAtNightVar_.moduleName = kCfgModulePool;
 
     tempLowVar_.moduleName = kCfgModuleFiltration;
     tempSetpointVar_.moduleName = kCfgModuleFiltration;
@@ -261,6 +308,9 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
     cfg.registerVar(phDosePlusVar_, kCfgModuleId, kCfgBranchPh);
     cfg.registerVar(disinfectionTypeVar_, kCfgModuleId, kCfgBranchModes);
     cfg.registerVar(swgControlModeVar_, kCfgModuleId, kCfgBranchSwg);
+    cfg.registerVar(indoorPoolVar_, kCfgModuleId, kCfgBranchPool);
+    cfg.registerVar(automaticCoverVar_, kCfgModuleId, kCfgBranchPool);
+    cfg.registerVar(coverClosedAtNightVar_, kCfgModuleId, kCfgBranchPool);
 
     cfg.registerVar(tempLowVar_, kCfgModuleId, kCfgBranchFiltration);
     cfg.registerVar(tempSetpointVar_, kCfgModuleId, kCfgBranchFiltration);
@@ -334,6 +384,9 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
     const CommandService* cmdSvc = services.get<CommandService>(ServiceId::Command);
     alarmSvc_ = services.get<AlarmService>(ServiceId::Alarm);
     activityLogSvc_ = services.get<ActivityLogService>(ServiceId::ActivityLog);
+    if (!services.add(ServiceId::PoolConfiguration, &poolConfigurationSvc_)) {
+        LOGE("service registration failed: %s", toString(ServiceId::PoolConfiguration));
+    }
     if (!ioSvc_) {
         LOGW("PoolLogic waiting for IOServiceV2");
     }

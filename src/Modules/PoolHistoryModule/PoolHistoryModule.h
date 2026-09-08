@@ -5,6 +5,8 @@
  */
 
 #include "Core/Module.h"
+#include "Core/ConfigTypes.h"
+#include "Core/NvsKeys.h"
 #include "Core/Services/IConfig.h"
 #include "Core/Services/IDomainStatus.h"
 #include "Core/Services/IPoolHistory.h"
@@ -22,12 +24,13 @@ public:
 
     ModuleId moduleId() const override { return ModuleId::PoolHistory; }
     const char* taskName() const override { return "poolhistory"; }
-    uint8_t dependencyCount() const override { return 4U; }
+    uint8_t dependencyCount() const override { return 5U; }
     ModuleId dependency(uint8_t index) const override {
         if (index == 0U) return ModuleId::LogHub;
         if (index == 1U) return ModuleId::ConfigStore;
         if (index == 2U) return ModuleId::Time;
         if (index == 3U) return ModuleId::PoolDevice;
+        if (index == 4U) return ModuleId::PoolLogic;
         return ModuleId::Unknown;
     }
     uint8_t taskCount() const override { return 1U; }
@@ -49,8 +52,9 @@ private:
 
     struct LocalDayContext {
         uint32_t currentDate = 0U;
-        uint32_t previousDate = 0U;
         uint64_t currentDayStartUtc = 0U;
+        uint32_t completeDates[POOL_HISTORY_COMPLETE_DAY_COUNT]{};
+        uint64_t completeStartsUtc[POOL_HISTORY_COMPLETE_DAY_COUNT]{};
     };
 
     static constexpr uint64_t kMinimumValidEpoch = 1609459200ULL;
@@ -59,6 +63,9 @@ private:
     static constexpr uint32_t kPersistPeriodMs = 15U * 60U * 1000U;
     static constexpr uint32_t kMaximumAccrualGapMs = 5U * 60U * 1000U;
     static constexpr uint32_t kMaximumSensorAgeMs = 15U * 60U * 1000U;
+    static constexpr uint32_t kWaterQualityWarmupMs = 10U * 60U * 1000U;
+    static constexpr uint8_t kDefaultDayStartHour = 8U;
+    static constexpr uint8_t kDefaultDayEndHour = 20U;
 
     static bool serviceGetSnapshot_(void* ctx, PoolHistorySnapshot* outSnapshot);
 
@@ -70,7 +77,13 @@ private:
     void loadPersisted_(ConfigStore& cfg);
     void initializeHistory_(const LocalDayContext& day, uint64_t nowEpoch, uint32_t nowMs);
     bool readFiltrationState_(bool& outRunning) const;
-    bool readFloatSlot_(DomainSlotId slot, uint32_t nowMs, float& outValue) const;
+    bool readFillingState_(bool& outRunning, float& outFlowLPerHour) const;
+    bool readFloatSlot_(DomainSlotId slot,
+                        uint32_t nowMs,
+                        uint32_t maximumAgeMs,
+                        float& outValue) const;
+    void daytimePeriod_(uint8_t& outStartHour, uint8_t& outEndHour) const;
+    bool isDaytime_(uint64_t epoch) const;
     void sampleMetrics_(uint64_t nowEpoch, uint32_t nowMs, bool filtrationKnown,
                         bool filtrationRunning);
     void persistIfDue_(uint32_t nowMs, bool force);
@@ -84,4 +97,16 @@ private:
     const ConfigStoreService* configService_ = nullptr;
     const DomainStatusService* domainStatusService_ = nullptr;
     const TimeService* timeService_ = nullptr;
+    const PoolConfigurationService* poolConfigurationService_ = nullptr;
+
+    uint8_t daytimeStartHour_ = kDefaultDayStartHour;
+    uint8_t daytimeEndHour_ = kDefaultDayEndHour;
+    ConfigVariable<uint8_t, 0> daytimeStartHourVar_{
+        NVS_KEY(NvsKeys::PoolHistory::DayStartHour), "day_start_hour", "poolhistory/periods",
+        ConfigType::UInt8, &daytimeStartHour_, ConfigPersistence::Persistent, 0U
+    };
+    ConfigVariable<uint8_t, 0> daytimeEndHourVar_{
+        NVS_KEY(NvsKeys::PoolHistory::DayEndHour), "day_end_hour", "poolhistory/periods",
+        ConfigType::UInt8, &daytimeEndHour_, ConfigPersistence::Persistent, 0U
+    };
 };

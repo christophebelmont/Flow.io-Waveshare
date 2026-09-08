@@ -126,6 +126,43 @@
           <section id="poolAlarmCard" class="pool-alarm-card" hidden aria-live="polite"></section>
           <section id="poolDisinfectionModes" class="pool-treatment-panel" aria-live="polite"></section>
           <section id="poolConfigGrid" class="pool-config-grid" aria-live="polite"></section>
+          <div class="pool-ai-action-row">
+            <button id="poolAiRefresh" type="button" class="btn-primary pool-ai-action-btn" aria-label="Générer l’analyse IA" title="Générer l’analyse IA" data-i18n-aria-label="pool.ai.refresh" data-i18n-title="pool.ai.refresh">
+              <span class="ui-msr btn-msr" aria-hidden="true">auto_awesome</span>
+              <span data-i18n="pool.ai.action">Analyse IA</span>
+            </button>
+          </div>
+          <section id="poolAiPreview" class="pool-ai-preview" aria-live="polite">
+            <div class="pool-ai-head">
+              <span class="ui-msr pool-card-icon" aria-hidden="true">auto_awesome</span>
+              <div class="pool-card-title-wrap">
+                <h3 data-i18n="pool.ai.title">Analyse IA du bassin</h3>
+                <p data-i18n="pool.ai.note">Génère sur demande une explication concise de l’état et de la dynamique du bassin.</p>
+              </div>
+            </div>
+            <p id="poolAiStatus" class="pool-ai-status" data-i18n="pool.ai.loading">Chargement de l’analyse…</p>
+            <article class="pool-ai-text-block pool-ai-result-block">
+              <h4 data-i18n="pool.ai.result">Préconisation et explication</h4>
+              <pre id="poolAiInsightText">—</pre>
+            </article>
+            <details class="pool-ai-diagnostics">
+              <summary>
+                <span class="ui-msr pool-ai-diagnostics-icon" aria-hidden="true">expand_more</span>
+                <span class="pool-ai-details-closed" data-i18n="pool.ai.showDetails">Afficher la météo et le prompt</span>
+                <span class="pool-ai-details-open" data-i18n="pool.ai.hideDetails">Masquer la météo et le prompt</span>
+              </summary>
+              <div class="pool-ai-diagnostics-grid">
+                <article class="pool-ai-text-block">
+                  <h4 data-i18n="pool.ai.weather">Météo</h4>
+                  <pre id="poolAiWeatherText">—</pre>
+                </article>
+                <article class="pool-ai-text-block">
+                  <h4 data-i18n="pool.ai.prompt">Prompt préparé</h4>
+                  <pre id="poolAiPromptText">—</pre>
+                </article>
+              </div>
+            </details>
+          </section>
         </div>
       </section>
 

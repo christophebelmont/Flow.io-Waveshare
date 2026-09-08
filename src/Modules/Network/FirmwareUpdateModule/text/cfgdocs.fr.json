@@ -5,12 +5,12 @@
     "version": 1
   },
   "docs": {
-    "fwupdate/update_host": {
+    "system/fwupdate/update_host": {
       "type": "CharArray",
       "label_t": "cfgdocs.fwupdate.update_host.label",
       "help_t": "cfgdocs.fwupdate.update_host.help"
     },
-    "fwupdate/update_path": {
+    "system/fwupdate/update_path": {
       "type": "CharArray",
       "label_t": "cfgdocs.fwupdate.update_path.label",
       "help_t": "cfgdocs.fwupdate.update_path.help"

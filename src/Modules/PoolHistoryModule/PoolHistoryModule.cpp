@@ -1,11 +1,12 @@
 /**
  * @file PoolHistoryModule.cpp
- * @brief Samples semantic pool values and keeps today/yesterday aggregates.
+ * @brief Samples semantic pool values and keeps today plus seven complete days.
  */
 
 #include "Modules/PoolHistoryModule/PoolHistoryModule.h"
 
 #include "Core/LogModuleIds.h"
+#include "Core/EventBus/EventPayloads.h"
 #include "Core/NvsKeys.h"
 #include "Core/SystemLimits.h"
 #include "Domain/Pool/PoolIds.h"
@@ -26,21 +27,36 @@ static_assert(PoolHistoryPersistence::EncodedSize <=
 
 struct PoolHistoryModule::Storage {
     PoolHistoryAccumulator history{};
-    PoolHistoryDayState loadedToday{};
-    PoolHistoryDayState loadedPreviousDay{};
+    PoolHistoryDayState loadedRecords[POOL_HISTORY_COMPLETE_DAY_COUNT + 2U]{};
+    PoolHistoryDayState persistenceStateScratch{};
     uint8_t persistenceScratch[PoolHistoryPersistence::EncodedSize]{};
-    bool hasLoadedToday = false;
-    bool hasLoadedPreviousDay = false;
+    uint8_t loadedRecordCount = 0U;
     bool initialized = false;
     bool todayDirty = false;
-    bool previousDayDirty = false;
-    bool lastFiltrationKnown = false;
-    bool lastFiltrationRunning = false;
+    bool completedDayDirty[POOL_HISTORY_COMPLETE_DAY_COUNT]{};
+    PoolHistorySamplingGate waterQualityGate{};
+    bool lastFillingKnown = false;
+    bool lastFillingRunning = false;
+    float lastFillingFlowLPerHour = 0.0f;
     uint32_t lastTickMs = 0U;
     uint32_t lastTickDate = 0U;
     uint32_t lastMetricSampleMs = 0U;
     uint32_t lastPersistAttemptMs = 0U;
 };
+
+namespace {
+
+constexpr const char* kCompletedDayKeys[POOL_HISTORY_COMPLETE_DAY_COUNT] = {
+    NvsKeys::PoolHistory::CompletedDay0,
+    NvsKeys::PoolHistory::CompletedDay1,
+    NvsKeys::PoolHistory::CompletedDay2,
+    NvsKeys::PoolHistory::CompletedDay3,
+    NvsKeys::PoolHistory::CompletedDay4,
+    NvsKeys::PoolHistory::CompletedDay5,
+    NvsKeys::PoolHistory::CompletedDay6,
+};
+
+}  // namespace
 
 PoolHistoryModule::~PoolHistoryModule()
 {
@@ -69,16 +85,36 @@ void PoolHistoryModule::unlockState_() const
 
 bool PoolHistoryModule::getSnapshot_(PoolHistorySnapshot& outSnapshot) const
 {
-    if (!storage_ || !lockState_()) return false;
+    if (!storage_) return false;
     uint64_t generatedAtUtc = 0U;
-    (void)currentEpoch_(generatedAtUtc);
-    storage_->history.snapshot(generatedAtUtc, outSnapshot);
+    LocalDayContext day{};
+    if (!currentEpoch_(generatedAtUtc) || !localDayContext_(generatedAtUtc, day)) return false;
+    PoolCharacteristics pool{};
+    if (poolConfigurationService_ && poolConfigurationService_->getCharacteristics) {
+        (void)poolConfigurationService_->getCharacteristics(
+            poolConfigurationService_->ctx, &pool);
+    }
+    uint8_t daytimeStartHour = 0U;
+    uint8_t daytimeEndHour = 0U;
+    daytimePeriod_(daytimeStartHour, daytimeEndHour);
+    if (!lockState_()) return false;
+    storage_->history.snapshot(generatedAtUtc,
+                               day.completeDates,
+                               day.completeStartsUtc,
+                               daytimeStartHour,
+                               daytimeEndHour,
+                               pool,
+                               outSnapshot);
     unlockState_();
     return true;
 }
 
-void PoolHistoryModule::init(ConfigStore&, ServiceRegistry& services)
+void PoolHistoryModule::init(ConfigStore& cfg, ServiceRegistry& services)
 {
+    constexpr uint8_t kConfigModuleId = (uint8_t)ConfigModuleId::PoolHistory;
+    constexpr uint8_t kPeriodsBranch = 1U;
+    cfg.registerVar(daytimeStartHourVar_, kConfigModuleId, kPeriodsBranch);
+    cfg.registerVar(daytimeEndHourVar_, kConfigModuleId, kPeriodsBranch);
     stateMutex_ = xSemaphoreCreateMutexStatic(&stateMutexBuffer_);
     void* storageMemory = heap_caps_malloc(sizeof(Storage),
                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -88,6 +124,8 @@ void PoolHistoryModule::init(ConfigStore&, ServiceRegistry& services)
     configService_ = services.get<ConfigStoreService>(ServiceId::ConfigStore);
     timeService_ = services.get<TimeService>(ServiceId::Time);
     domainStatusService_ = services.get<DomainStatusService>(ServiceId::DomainStatus);
+    poolConfigurationService_ =
+        services.get<PoolConfigurationService>(ServiceId::PoolConfiguration);
 
     if (!stateMutex_) LOGE("State mutex creation failed");
     if (!storage_) {
@@ -101,6 +139,9 @@ void PoolHistoryModule::init(ConfigStore&, ServiceRegistry& services)
     if (!configService_) LOGE("Missing service: %s", toString(ServiceId::ConfigStore));
     if (!timeService_) LOGE("Missing service: %s", toString(ServiceId::Time));
     if (!domainStatusService_) LOGE("Missing service: %s", toString(ServiceId::DomainStatus));
+    if (!poolConfigurationService_) {
+        LOGE("Missing service: %s", toString(ServiceId::PoolConfiguration));
+    }
     if (!services.add(ServiceId::PoolHistory, &service_)) {
         LOGE("Service registration failed: %s", toString(ServiceId::PoolHistory));
     }
@@ -108,6 +149,16 @@ void PoolHistoryModule::init(ConfigStore&, ServiceRegistry& services)
 
 void PoolHistoryModule::onConfigLoaded(ConfigStore& cfg, ServiceRegistry&)
 {
+    if (daytimeStartHour_ > 23U || daytimeEndHour_ > 23U ||
+        daytimeStartHour_ == daytimeEndHour_) {
+        LOGW("Invalid daytime period %u-%u, using %u-%u",
+             (unsigned)daytimeStartHour_,
+             (unsigned)daytimeEndHour_,
+             (unsigned)kDefaultDayStartHour,
+             (unsigned)kDefaultDayEndHour);
+        daytimeStartHour_ = kDefaultDayStartHour;
+        daytimeEndHour_ = kDefaultDayEndHour;
+    }
     loadPersisted_(cfg);
 }
 
@@ -115,25 +166,41 @@ void PoolHistoryModule::loadPersisted_(ConfigStore& cfg)
 {
     if (!storage_) return;
     uint8_t* const encoded = storage_->persistenceScratch;
-    size_t actualLength = 0U;
-
-    if (cfg.readRuntimeBlob(NvsKeys::PoolHistory::Today,
-                            encoded,
-                            PoolHistoryPersistence::EncodedSize,
-                            &actualLength) &&
-        actualLength == PoolHistoryPersistence::EncodedSize &&
-        PoolHistoryPersistence::decode(encoded, actualLength, storage_->loadedToday)) {
-        storage_->hasLoadedToday = true;
-    }
-
-    actualLength = 0U;
-    if (cfg.readRuntimeBlob(NvsKeys::PoolHistory::PreviousDay,
-                            encoded,
-                            PoolHistoryPersistence::EncodedSize,
-                            &actualLength) &&
-        actualLength == PoolHistoryPersistence::EncodedSize &&
-        PoolHistoryPersistence::decode(encoded, actualLength, storage_->loadedPreviousDay)) {
-        storage_->hasLoadedPreviousDay = true;
+    const char* keys[POOL_HISTORY_COMPLETE_DAY_COUNT + 2U] = {
+        NvsKeys::PoolHistory::Today,
+        NvsKeys::PoolHistory::PreviousDay,
+        NvsKeys::PoolHistory::CompletedDay0,
+        NvsKeys::PoolHistory::CompletedDay1,
+        NvsKeys::PoolHistory::CompletedDay2,
+        NvsKeys::PoolHistory::CompletedDay3,
+        NvsKeys::PoolHistory::CompletedDay4,
+        NvsKeys::PoolHistory::CompletedDay5,
+        NvsKeys::PoolHistory::CompletedDay6,
+    };
+    storage_->loadedRecordCount = 0U;
+    for (uint8_t i = 0U; i < (uint8_t)(POOL_HISTORY_COMPLETE_DAY_COUNT + 2U); ++i) {
+        size_t actualLength = 0U;
+        PoolHistoryDayState decoded{};
+        if (!cfg.readRuntimeBlob(keys[i], encoded, PoolHistoryPersistence::EncodedSize,
+                                 &actualLength) ||
+            !PoolHistoryPersistence::decode(encoded, actualLength, decoded)) {
+            continue;
+        }
+        bool duplicate = false;
+        for (uint8_t record = 0U; record < storage_->loadedRecordCount; ++record) {
+            if (storage_->loadedRecords[record].localDate == decoded.localDate) {
+                duplicate = true;
+                if (decoded.observedUntilUtc >
+                    storage_->loadedRecords[record].observedUntilUtc) {
+                    storage_->loadedRecords[record] = decoded;
+                }
+                break;
+            }
+        }
+        if (!duplicate &&
+            storage_->loadedRecordCount < POOL_HISTORY_COMPLETE_DAY_COUNT + 2U) {
+            storage_->loadedRecords[storage_->loadedRecordCount++] = decoded;
+        }
     }
 }
 
@@ -179,22 +246,31 @@ bool PoolHistoryModule::localDayContext_(uint64_t epoch, LocalDayContext& out)
     if (midnightEpoch < (time_t)kMinimumValidEpoch) return false;
     out.currentDayStartUtc = (uint64_t)midnightEpoch;
 
-    struct tm previousNoon = localNow;
-    previousNoon.tm_mday -= 1;
-    previousNoon.tm_hour = 12;
-    previousNoon.tm_min = 0;
-    previousNoon.tm_sec = 0;
-    previousNoon.tm_isdst = -1;
-    const time_t previousEpoch = mktime(&previousNoon);
-    if (previousEpoch < (time_t)kMinimumValidEpoch) return false;
+    for (uint8_t i = 0U; i < POOL_HISTORY_COMPLETE_DAY_COUNT; ++i) {
+        struct tm targetNoon = localNow;
+        targetNoon.tm_mday -= (int)i + 1;
+        targetNoon.tm_hour = 12;
+        targetNoon.tm_min = 0;
+        targetNoon.tm_sec = 0;
+        targetNoon.tm_isdst = -1;
+        const time_t targetEpoch = mktime(&targetNoon);
+        if (targetEpoch < (time_t)kMinimumValidEpoch) return false;
 
-    struct tm previousLocal{};
-    if (!localtime_r(&previousEpoch, &previousLocal)) return false;
-    const uint32_t previousYear = (uint32_t)(previousLocal.tm_year + 1900);
-    const uint32_t previousMonth = (uint32_t)(previousLocal.tm_mon + 1);
-    out.previousDate = (previousYear * 10000UL) +
-                       (previousMonth * 100UL) +
-                       (uint32_t)previousLocal.tm_mday;
+        struct tm targetLocal{};
+        if (!localtime_r(&targetEpoch, &targetLocal)) return false;
+        const uint32_t targetYear = (uint32_t)(targetLocal.tm_year + 1900);
+        const uint32_t targetMonth = (uint32_t)(targetLocal.tm_mon + 1);
+        out.completeDates[i] = (targetYear * 10000UL) +
+                               (targetMonth * 100UL) +
+                               (uint32_t)targetLocal.tm_mday;
+        targetLocal.tm_hour = 0;
+        targetLocal.tm_min = 0;
+        targetLocal.tm_sec = 0;
+        targetLocal.tm_isdst = -1;
+        const time_t targetMidnight = mktime(&targetLocal);
+        if (targetMidnight < (time_t)kMinimumValidEpoch) return false;
+        out.completeStartsUtc[i] = (uint64_t)targetMidnight;
+    }
     return true;
 }
 
@@ -203,55 +279,100 @@ void PoolHistoryModule::initializeHistory_(const LocalDayContext& day,
                                            uint32_t nowMs)
 {
     if (!storage_ || !lockState_()) return;
+    bool restoredTodayRecord = false;
+    for (uint8_t i = 0U; i < storage_->loadedRecordCount; ++i) {
+        if (storage_->loadedRecords[i].valid &&
+            storage_->loadedRecords[i].localDate == day.currentDate) {
+            restoredTodayRecord = true;
+            break;
+        }
+    }
     storage_->history.restoreForDate(
         day.currentDate,
-        day.previousDate,
         day.currentDayStartUtc,
-        storage_->hasLoadedToday ? &storage_->loadedToday : nullptr,
-        storage_->hasLoadedPreviousDay ? &storage_->loadedPreviousDay : nullptr);
+        day.completeDates,
+        storage_->loadedRecords,
+        storage_->loadedRecordCount);
     const PoolHistoryDayState restoredToday = storage_->history.todayState();
-    const PoolHistoryDayState restoredPreviousDay = storage_->history.previousDayState();
-    const bool currentRecordAlreadyStored =
-        storage_->hasLoadedToday &&
-        storage_->loadedToday.localDate == restoredToday.localDate &&
-        storage_->loadedToday.observedUntilUtc == restoredToday.observedUntilUtc &&
-        storage_->loadedToday.filtrationObservedMs == restoredToday.filtrationObservedMs;
-    const bool previousRecordAlreadyStored =
-        !restoredPreviousDay.valid ||
-        (storage_->hasLoadedPreviousDay &&
-         storage_->loadedPreviousDay.localDate == restoredPreviousDay.localDate &&
-         storage_->loadedPreviousDay.observedUntilUtc == restoredPreviousDay.observedUntilUtc &&
-         storage_->loadedPreviousDay.filtrationObservedMs == restoredPreviousDay.filtrationObservedMs);
-    storage_->todayDirty = !currentRecordAlreadyStored;
-    storage_->previousDayDirty = !previousRecordAlreadyStored;
+    storage_->todayDirty = !restoredTodayRecord;
+    for (uint8_t i = 0U; i < POOL_HISTORY_COMPLETE_DAY_COUNT; ++i) {
+        storage_->completedDayDirty[i] = false;
+    }
     unlockState_();
 
     const bool restoredCurrentObservations = restoredToday.observedUntilUtc != 0U;
-    const bool restoredPreviousRecord = restoredPreviousDay.valid;
-    storage_->loadedToday = PoolHistoryDayState{};
-    storage_->loadedPreviousDay = PoolHistoryDayState{};
-    storage_->hasLoadedToday = false;
-    storage_->hasLoadedPreviousDay = false;
+    uint8_t restoredCompleteCount = 0U;
+    for (uint8_t i = 0U; i < POOL_HISTORY_COMPLETE_DAY_COUNT; ++i) {
+        if (storage_->history.completedDayState(i).valid) ++restoredCompleteCount;
+    }
+    for (uint8_t i = 0U; i < POOL_HISTORY_COMPLETE_DAY_COUNT + 2U; ++i) {
+        storage_->loadedRecords[i] = PoolHistoryDayState{};
+    }
+    storage_->loadedRecordCount = 0U;
     storage_->initialized = true;
     storage_->lastTickMs = nowMs;
     storage_->lastTickDate = day.currentDate;
     storage_->lastMetricSampleMs = nowMs - kMetricSamplePeriodMs;
     storage_->lastPersistAttemptMs = nowMs;
-    storage_->lastFiltrationKnown =
-        readFiltrationState_(storage_->lastFiltrationRunning);
+    bool filtrationRunning = false;
+    const bool filtrationKnown = readFiltrationState_(filtrationRunning);
+    storage_->waterQualityGate.initialize(filtrationKnown, filtrationRunning);
+    storage_->lastFillingKnown = readFillingState_(storage_->lastFillingRunning,
+                                                   storage_->lastFillingFlowLPerHour);
     sampleMetrics_(nowEpoch,
                    nowMs,
-                   storage_->lastFiltrationKnown,
-                   storage_->lastFiltrationRunning);
+                   filtrationKnown,
+                   filtrationRunning);
 
-    PoolHistorySnapshot snapshot{};
-    if (getSnapshot_(snapshot)) {
-        LOGI("Ready today=%lu previous=%lu restored_today=%u restored_previous=%u",
-             (unsigned long)snapshot.today.localDate,
-             (unsigned long)snapshot.previousDay.localDate,
-             restoredCurrentObservations ? 1U : 0U,
-             restoredPreviousRecord ? 1U : 0U);
+    LOGI("Ready today=%lu previous=%lu restored_today=%u restored_complete=%u",
+         (unsigned long)restoredToday.localDate,
+         (unsigned long)storage_->history.completedDayState(0U).localDate,
+         restoredCurrentObservations ? 1U : 0U,
+         (unsigned)restoredCompleteCount);
+}
+
+bool PoolHistoryModule::readFillingState_(bool& outRunning,
+                                          float& outFlowLPerHour) const
+{
+    outRunning = false;
+    outFlowLPerHour = 0.0f;
+    if (!domainStatusService_ || !domainStatusService_->slotStatus) return false;
+    DomainSlotStatus status{};
+    if (!domainStatusService_->slotStatus(domainStatusService_->ctx,
+                                          PoolIds::ActuatorFillPump,
+                                          &status) ||
+        !status.hasPoolDevice) {
+        return false;
     }
+    outRunning = status.poolActualOn != 0U;
+    outFlowLPerHour = status.poolMeta.flowLPerHour;
+    return true;
+}
+
+void PoolHistoryModule::daytimePeriod_(uint8_t& outStartHour,
+                                       uint8_t& outEndHour) const
+{
+    outStartHour = daytimeStartHour_;
+    outEndHour = daytimeEndHour_;
+    if (outStartHour > 23U || outEndHour > 23U || outStartHour == outEndHour) {
+        outStartHour = kDefaultDayStartHour;
+        outEndHour = kDefaultDayEndHour;
+    }
+}
+
+bool PoolHistoryModule::isDaytime_(uint64_t epoch) const
+{
+    const time_t sampleEpoch = (time_t)epoch;
+    struct tm localSample{};
+    if (!localtime_r(&sampleEpoch, &localSample)) return false;
+    const uint8_t hour = (uint8_t)localSample.tm_hour;
+    uint8_t startHour = 0U;
+    uint8_t endHour = 0U;
+    daytimePeriod_(startHour, endHour);
+    if (startHour < endHour) {
+        return hour >= startHour && hour < endHour;
+    }
+    return hour >= startHour || hour < endHour;
 }
 
 bool PoolHistoryModule::readFiltrationState_(bool& outRunning) const
@@ -271,6 +392,7 @@ bool PoolHistoryModule::readFiltrationState_(bool& outRunning) const
 
 bool PoolHistoryModule::readFloatSlot_(DomainSlotId slot,
                                        uint32_t nowMs,
+                                       uint32_t maximumAgeMs,
                                        float& outValue) const
 {
     outValue = 0.0f;
@@ -281,7 +403,8 @@ bool PoolHistoryModule::readFloatSlot_(DomainSlotId slot,
         status.value.type != IO_VAL_FLOAT || !isfinite(status.value.v.f)) {
         return false;
     }
-    if (status.value.tsMs == 0U || (uint32_t)(nowMs - status.value.tsMs) > kMaximumSensorAgeMs) {
+    if (status.value.tsMs == 0U ||
+        (uint32_t)(nowMs - status.value.tsMs) > maximumAgeMs) {
         return false;
     }
     outValue = status.value.v.f;
@@ -297,12 +420,23 @@ void PoolHistoryModule::sampleMetrics_(uint64_t nowEpoch,
     float orp = 0.0f;
     float waterTemperature = 0.0f;
     float airTemperature = 0.0f;
-    const bool chemistryCanBeSampled = filtrationKnown && filtrationRunning;
-    const bool hasPh = chemistryCanBeSampled && readFloatSlot_(PoolIds::SensorPh, nowMs, ph);
-    const bool hasOrp = chemistryCanBeSampled && readFloatSlot_(PoolIds::SensorOrp, nowMs, orp);
-    const bool hasWaterTemperature =
-        readFloatSlot_(PoolIds::SensorWaterTemp, nowMs, waterTemperature);
-    const bool hasAirTemperature = readFloatSlot_(PoolIds::SensorAirTemp, nowMs, airTemperature);
+    const bool waterQualityCanBeSampled =
+        filtrationKnown && filtrationRunning && storage_ &&
+        storage_->waterQualityGate.eligible(kWaterQualityWarmupMs);
+    uint32_t waterQualityMaximumAgeMs = 0U;
+    if (waterQualityCanBeSampled) {
+        waterQualityMaximumAgeMs = storage_->waterQualityGate.maximumEligibleSampleAgeMs(
+            kWaterQualityWarmupMs, kMaximumSensorAgeMs);
+    }
+    const bool hasPh = waterQualityCanBeSampled &&
+        readFloatSlot_(PoolIds::SensorPh, nowMs, waterQualityMaximumAgeMs, ph);
+    const bool hasOrp = waterQualityCanBeSampled &&
+        readFloatSlot_(PoolIds::SensorOrp, nowMs, waterQualityMaximumAgeMs, orp);
+    const bool hasWaterTemperature = waterQualityCanBeSampled &&
+        readFloatSlot_(PoolIds::SensorWaterTemp, nowMs, waterQualityMaximumAgeMs,
+                       waterTemperature);
+    const bool hasAirTemperature = readFloatSlot_(PoolIds::SensorAirTemp, nowMs,
+                                                  kMaximumSensorAgeMs, airTemperature);
 
     if (!storage_ || !lockState_()) return;
     if (hasPh) storage_->history.addSample(PoolHistoryMetric::Ph, ph, nowEpoch);
@@ -311,6 +445,9 @@ void PoolHistoryModule::sampleMetrics_(uint64_t nowEpoch,
         storage_->history.addSample(PoolHistoryMetric::WaterTemperature,
                                     waterTemperature,
                                     nowEpoch);
+        storage_->history.addWaterTemperatureSample(waterTemperature,
+                                                    isDaytime_(nowEpoch),
+                                                    nowEpoch);
     }
     if (hasAirTemperature) {
         storage_->history.addSample(PoolHistoryMetric::AirTemperature, airTemperature, nowEpoch);
@@ -353,34 +490,35 @@ void PoolHistoryModule::persistIfDue_(uint32_t nowMs, bool force)
     }
     storage_->lastPersistAttemptMs = nowMs;
 
-    PoolHistoryDayState today{};
-    PoolHistoryDayState previousDay{};
-    bool persistToday = false;
-    bool persistPreviousDay = false;
-    if (!lockState_()) return;
-    if (storage_->todayDirty) {
-        today = storage_->history.todayState();
-        persistToday = true;
-    }
-    if (storage_->previousDayDirty) {
-        previousDay = storage_->history.previousDayState();
-        persistPreviousDay = true;
-    }
-    unlockState_();
-
-    if (persistPreviousDay) {
-        if (persistDay_(NvsKeys::PoolHistory::PreviousDay, previousDay)) {
-            storage_->previousDayDirty = false;
+    for (uint8_t i = 0U; i < POOL_HISTORY_COMPLETE_DAY_COUNT; ++i) {
+        if (!storage_->completedDayDirty[i]) continue;
+        if (!lockState_()) return;
+        storage_->persistenceStateScratch = storage_->history.completedDayState(i);
+        unlockState_();
+        const PoolHistoryDayState& day = storage_->persistenceStateScratch;
+        if (!day.valid) {
+            storage_->completedDayDirty[i] = false;
+            continue;
+        }
+        if (persistDay_(kCompletedDayKeys[i], day)) {
+            storage_->completedDayDirty[i] = false;
         } else {
-            LOGW("Previous-day persistence deferred date=%lu",
-                 (unsigned long)previousDay.localDate);
+            LOGW("Completed-day persistence deferred index=%u date=%lu",
+                 (unsigned)i,
+                 (unsigned long)day.localDate);
+            return;
         }
     }
-    if (persistToday) {
+    if (storage_->todayDirty) {
+        if (!lockState_()) return;
+        storage_->persistenceStateScratch = storage_->history.todayState();
+        unlockState_();
+        const PoolHistoryDayState& today = storage_->persistenceStateScratch;
         if (persistDay_(NvsKeys::PoolHistory::Today, today)) {
             storage_->todayDirty = false;
         } else {
-            LOGW("Current-day persistence deferred date=%lu", (unsigned long)today.localDate);
+            LOGW("Current-day persistence deferred date=%lu",
+                 (unsigned long)today.localDate);
         }
     }
 }
@@ -408,30 +546,41 @@ void PoolHistoryModule::loop()
     const uint32_t intervalMs = (uint32_t)(nowMs - storage_->lastTickMs);
     const bool dateChanged = day.currentDate != storage_->lastTickDate;
     const bool sequentialDayChange =
-        dateChanged && storage_->lastTickDate == day.previousDate;
+        dateChanged && storage_->lastTickDate == day.completeDates[0];
     const bool intervalUsable = intervalMs <= kMaximumAccrualGapMs;
 
     if (!lockState_()) {
         vTaskDelay(pdMS_TO_TICKS(kLoopPeriodMs));
         return;
     }
-    if (intervalUsable && (!dateChanged || sequentialDayChange) &&
-        storage_->lastFiltrationKnown) {
-        storage_->history.observeFiltration(intervalMs,
-                                            storage_->lastFiltrationRunning,
+    if (intervalUsable && (!dateChanged || sequentialDayChange)) {
+        if (storage_->waterQualityGate.known()) {
+            storage_->history.observeFiltration(intervalMs,
+                                                storage_->waterQualityGate.running(),
+                                                nowEpoch);
+            storage_->todayDirty = true;
+        }
+        storage_->waterQualityGate.accrue(intervalMs, true);
+        if (storage_->lastFillingKnown) {
+            storage_->history.observeRefill(intervalMs,
+                                            storage_->lastFillingRunning,
+                                            storage_->lastFillingFlowLPerHour,
+                                            false,
                                             nowEpoch);
-        storage_->todayDirty = true;
+            storage_->todayDirty = true;
+        }
+    } else {
+        storage_->waterQualityGate.accrue(intervalMs, false);
     }
     const PoolHistoryDayTransition transition =
         storage_->history.alignDay(day.currentDate,
-                                   day.previousDate,
-                                   day.currentDayStartUtc);
-    if (transition == PoolHistoryDayTransition::AdvancedOneDay) {
+                                   day.currentDayStartUtc,
+                                   day.completeDates);
+    if (transition != PoolHistoryDayTransition::None) {
         storage_->todayDirty = true;
-        storage_->previousDayDirty = true;
-    } else if (transition == PoolHistoryDayTransition::Realigned) {
-        storage_->todayDirty = true;
-        storage_->previousDayDirty = false;
+        for (uint8_t i = 0U; i < POOL_HISTORY_COMPLETE_DAY_COUNT; ++i) {
+            storage_->completedDayDirty[i] = true;
+        }
     }
     unlockState_();
 
@@ -444,19 +593,32 @@ void PoolHistoryModule::loop()
              (unsigned)transition);
     }
 
+    bool filtrationRunning = false;
+    const bool filtrationKnown = readFiltrationState_(filtrationRunning);
+    bool fillingRunning = false;
+    float fillingFlowLPerHour = 0.0f;
+    const bool fillingKnown = readFillingState_(fillingRunning, fillingFlowLPerHour);
+
+    const bool refillStarted = fillingKnown && fillingRunning &&
+        storage_->lastFillingKnown && !storage_->lastFillingRunning;
+    if (refillStarted && lockState_()) {
+        storage_->history.observeRefill(0U, false, fillingFlowLPerHour, true, nowEpoch);
+        storage_->todayDirty = true;
+        unlockState_();
+    }
+    storage_->waterQualityGate.update(filtrationKnown, filtrationRunning);
+
     storage_->lastTickMs = nowMs;
     storage_->lastTickDate = day.currentDate;
-    storage_->lastFiltrationKnown =
-        readFiltrationState_(storage_->lastFiltrationRunning);
+    storage_->lastFillingKnown = fillingKnown;
+    storage_->lastFillingRunning = fillingRunning;
+    storage_->lastFillingFlowLPerHour = fillingFlowLPerHour;
 
     const bool sampleDue = transition != PoolHistoryDayTransition::None ||
                            (uint32_t)(nowMs - storage_->lastMetricSampleMs) >=
                                kMetricSamplePeriodMs;
     if (sampleDue) {
-        sampleMetrics_(nowEpoch,
-                       nowMs,
-                       storage_->lastFiltrationKnown,
-                       storage_->lastFiltrationRunning);
+        sampleMetrics_(nowEpoch, nowMs, filtrationKnown, filtrationRunning);
     }
     persistIfDue_(nowMs, transition != PoolHistoryDayTransition::None);
     vTaskDelay(pdMS_TO_TICKS(kLoopPeriodMs));

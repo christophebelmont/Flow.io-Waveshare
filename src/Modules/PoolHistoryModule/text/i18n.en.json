@@ -1,0 +1,10 @@
+{
+  "locale": "en",
+  "translations": {
+    "cfgmods.poolhistory.periods.label": "Day and night periods",
+    "cfgdocs.poolhistory.periods.day_start_hour.label": "Daytime start",
+    "cfgdocs.poolhistory.periods.day_start_hour.help": "Local hour from which measurements are classified as daytime.",
+    "cfgdocs.poolhistory.periods.day_end_hour.label": "Daytime end",
+    "cfgdocs.poolhistory.periods.day_end_hour.help": "Local hour from which measurements are classified as nighttime."
+  }
+}

@@ -17,6 +17,7 @@
 #include "IIO.h"
 #include "II2cBus.h"
 #include "IPoolDevice.h"
+#include "IPoolConfiguration.h"
 #include "IPoolHistory.h"
 #include "IMqtt.h"
 #include "ITime.h"

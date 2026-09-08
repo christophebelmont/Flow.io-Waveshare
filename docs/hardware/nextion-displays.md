@@ -56,4 +56,11 @@ uniquement le TFT dont `display_compatibility` correspond à l'écran détecté,
 puis choisit la version la plus récente. Aucun upgrade Nextion n'est accepté
 sans cette sélection validée côté firmware.
 
+Si l'écran ne répond plus à la détection (par exemple en mode bootloader ou
+après un firmware HMI défectueux), l'interface conserve l'action de mise à jour.
+Elle demande alors de sélectionner explicitement le modèle de l'écran parmi les
+artefacts validés du manifest. Le firmware refuse une URL absente du manifest et,
+si l'identité de l'écran redevient disponible, vérifie qu'elle correspond au
+modèle choisi avant de commencer le transfert.
+
 Le contrat des pages, objets, opcodes et registres RTC est défini dans la [référence du protocole ESP / Nextion](../integration/nextion-esp-protocol.md). Les noms d'objets du fichier HMI font partie de ce contrat et ne doivent pas être modifiés sans adapter simultanément le firmware.

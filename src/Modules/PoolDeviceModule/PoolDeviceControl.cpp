@@ -72,6 +72,7 @@ PoolDeviceSvcStatus PoolDeviceModule::svcMetaImpl_(uint8_t slot, PoolDeviceSvcMe
     outMeta->enabled = s.def.enabled ? 1U : 0U;
     outMeta->blockReason = s.blockReason;
     outMeta->ioId = s.ioId;
+    outMeta->flowLPerHour = s.def.flowLPerHour;
     strncpy(outMeta->runtimeId, s.id, sizeof(outMeta->runtimeId) - 1);
     outMeta->runtimeId[sizeof(outMeta->runtimeId) - 1] = '\0';
     strncpy(outMeta->label, s.def.label, sizeof(outMeta->label) - 1);

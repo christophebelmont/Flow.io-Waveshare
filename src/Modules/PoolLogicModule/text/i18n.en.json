@@ -1,6 +1,13 @@
 {
   "locale": "en",
   "translations": {
+    "cfgmods.poollogic.pool.label": "Pool characteristics",
+    "cfgdocs.poollogic.pool.indoor.label": "Indoor pool",
+    "cfgdocs.poollogic.pool.indoor.help": "Indicates whether the pool is installed indoors.",
+    "cfgdocs.poollogic.pool.automatic_cover.label": "Automatic cover",
+    "cfgdocs.poollogic.pool.automatic_cover.help": "Indicates whether the pool has an automatic cover.",
+    "cfgdocs.poollogic.pool.cover_closed_at_night.label": "Cover closed at night",
+    "cfgdocs.poollogic.pool.cover_closed_at_night.help": "Indicates whether the cover is normally closed during the nighttime period.",
     "cfgdocs.poollogic.chlorine.dis_auto_mode.help": "Enable automatic ORP/chlore.",
     "cfgdocs.poollogic.chlorine.dis_auto_mode.label": "Auto mode ORP",
     "cfgdocs.poollogic.chlorine.dis_kd.help": "Gain dérivé of régulateur ORP.",

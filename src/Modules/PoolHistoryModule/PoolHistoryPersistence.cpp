@@ -11,10 +11,13 @@
 namespace PoolHistoryPersistence {
 namespace {
 
-constexpr uint32_t kMagic = 0x31534850UL;  // "PHS1" in little-endian storage.
-constexpr uint16_t kVersion = 1U;
+constexpr uint32_t kMagic = 0x31534850UL;  // "PHS1" remains the format-family magic.
+constexpr uint16_t kVersion = 2U;
+constexpr uint16_t kLegacyVersion = 1U;
 constexpr uint16_t kFlagValid = 0x0001U;
 constexpr uint16_t kFlagComplete = 0x0002U;
+constexpr uint16_t kFlagRefillVolumeValid = 0x0004U;
+constexpr uint16_t kFlagRefillStateObserved = 0x0008U;
 constexpr uint64_t kMaximumDayDurationMs = 48ULL * 60ULL * 60ULL * 1000ULL;
 
 class Writer {
@@ -159,7 +162,26 @@ bool validState_(const PoolHistoryDayState& state)
     for (uint8_t i = 0U; i < (uint8_t)PoolHistoryMetric::Count; ++i) {
         if (!validMetric_(state.metrics[i])) return false;
     }
+    if (!validMetric_(state.daytimeWaterTemperature) ||
+        !validMetric_(state.nighttimeWaterTemperature) ||
+        !isfinite(state.refillVolumeLitres) || state.refillVolumeLitres < 0.0) {
+        return false;
+    }
     return true;
+}
+
+bool writeMetric_(Writer& writer, const PoolHistoryMetricState& metric)
+{
+    return writer.putU32(metric.sampleCount) && writer.putFloat(metric.first) &&
+           writer.putFloat(metric.last) && writer.putFloat(metric.minimum) &&
+           writer.putFloat(metric.maximum) && writer.putDouble(metric.sum);
+}
+
+bool readMetric_(Reader& reader, PoolHistoryMetricState& metric)
+{
+    return reader.getU32(metric.sampleCount) && reader.getFloat(metric.first) &&
+           reader.getFloat(metric.last) && reader.getFloat(metric.minimum) &&
+           reader.getFloat(metric.maximum) && reader.getDouble(metric.sum);
 }
 
 }  // namespace
@@ -175,6 +197,8 @@ bool encode(const PoolHistoryDayState& state,
     Writer writer(out, outCapacity);
     uint16_t flags = kFlagValid;
     if (state.complete) flags |= kFlagComplete;
+    if (state.refillVolumeValid) flags |= kFlagRefillVolumeValid;
+    if (state.refillStateObserved) flags |= kFlagRefillStateObserved;
 
     if (!writer.putU32(kMagic) || !writer.putU16(kVersion) || !writer.putU16(flags) ||
         !writer.putU32(state.localDate) || !writer.putU64(state.dayStartUtc) ||
@@ -185,13 +209,12 @@ bool encode(const PoolHistoryDayState& state,
     }
 
     for (uint8_t i = 0U; i < (uint8_t)PoolHistoryMetric::Count; ++i) {
-        const PoolHistoryMetricState& metric = state.metrics[i];
-        if (!writer.putU32(metric.sampleCount) || !writer.putFloat(metric.first) ||
-            !writer.putFloat(metric.last) || !writer.putFloat(metric.minimum) ||
-            !writer.putFloat(metric.maximum) || !writer.putDouble(metric.sum)) {
-            return false;
-        }
+        if (!writeMetric_(writer, state.metrics[i])) return false;
     }
+    if (!writeMetric_(writer, state.daytimeWaterTemperature) ||
+        !writeMetric_(writer, state.nighttimeWaterTemperature) ||
+        !writer.putDouble(state.refillVolumeLitres) ||
+        !writer.putU32(state.refillEventCount)) return false;
 
     if (writer.size() + sizeof(uint32_t) != EncodedSize) return false;
     if (!writer.putU32(checksum_(out, writer.size()))) return false;
@@ -204,9 +227,11 @@ bool decode(const uint8_t* encoded,
             PoolHistoryDayState& outState)
 {
     outState = PoolHistoryDayState{};
-    if (!encoded || encodedLength != EncodedSize) return false;
+    if (!encoded || (encodedLength != EncodedSize && encodedLength != LegacyEncodedSize)) {
+        return false;
+    }
 
-    const size_t checksumOffset = EncodedSize - sizeof(uint32_t);
+    const size_t checksumOffset = encodedLength - sizeof(uint32_t);
     Reader checksumReader(encoded + checksumOffset, sizeof(uint32_t));
     uint32_t storedChecksum = 0U;
     if (!checksumReader.getU32(storedChecksum) ||
@@ -219,7 +244,11 @@ bool decode(const uint8_t* encoded,
     uint16_t version = 0U;
     uint16_t flags = 0U;
     if (!reader.getU32(magic) || !reader.getU16(version) || !reader.getU16(flags) ||
-        magic != kMagic || version != kVersion || (flags & kFlagValid) == 0U) {
+        magic != kMagic ||
+        (version != kVersion && version != kLegacyVersion) ||
+        (version == kVersion && encodedLength != EncodedSize) ||
+        (version == kLegacyVersion && encodedLength != LegacyEncodedSize) ||
+        (flags & kFlagValid) == 0U) {
         return false;
     }
 
@@ -234,12 +263,18 @@ bool decode(const uint8_t* encoded,
     }
 
     for (uint8_t i = 0U; i < (uint8_t)PoolHistoryMetric::Count; ++i) {
-        PoolHistoryMetricState& metric = decoded.metrics[i];
-        if (!reader.getU32(metric.sampleCount) || !reader.getFloat(metric.first) ||
-            !reader.getFloat(metric.last) || !reader.getFloat(metric.minimum) ||
-            !reader.getFloat(metric.maximum) || !reader.getDouble(metric.sum)) {
-            return false;
-        }
+        if (!readMetric_(reader, decoded.metrics[i])) return false;
+    }
+    if (version == kVersion) {
+        if (!readMetric_(reader, decoded.daytimeWaterTemperature) ||
+            !readMetric_(reader, decoded.nighttimeWaterTemperature) ||
+            !reader.getDouble(decoded.refillVolumeLitres) ||
+            !reader.getU32(decoded.refillEventCount)) return false;
+        decoded.refillVolumeValid = (flags & kFlagRefillVolumeValid) != 0U;
+        decoded.refillStateObserved = (flags & kFlagRefillStateObserved) != 0U;
+    } else {
+        decoded.refillVolumeValid = false;
+        decoded.refillStateObserved = false;
     }
 
     if (reader.size() != checksumOffset || !validState_(decoded)) return false;

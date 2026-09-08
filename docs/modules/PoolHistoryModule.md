@@ -1,70 +1,62 @@
 # PoolHistoryModule
 
-`PoolHistoryModule` constitue l'historique journalier compact qui servira aux
-futurs consommateurs d'analyse, sans dépendre d'un fournisseur d'IA ni de
-l'interface web.
+`PoolHistoryModule` agrège l’historique journalier destiné aux consommateurs
+d’analyse, notamment `AiInsightModule`. Il travaille sur le jour local courant
+et les sept dernières journées calendaires closes.
 
-## Responsabilités
+## Échantillonnage
 
-- conserver les agrégats du jour local courant et du jour précédent ;
-- échantillonner toutes les cinq minutes le pH, l'ORP et les températures eau/air ;
-- n'enregistrer le pH et l'ORP que lorsque l'état réel de la filtration est connu
-  et actif ;
-- cumuler chaque seconde le temps réel de filtration et la durée pendant laquelle
-  cet état a effectivement pu être observé ;
-- basculer les journées selon le fuseau horaire déjà appliqué par `TimeModule` ;
-- persister les deux journées dans `ConfigStore` sans bloquer la tâche métier.
+Le pH, l’ORP et la température d’eau sont échantillonnés toutes les cinq
+minutes uniquement lorsque la filtration est réellement en marche depuis au
+moins dix minutes sans interruption. Un arrêt, un état de pompe inconnu ou un
+trou d’observation supérieur à cinq minutes remet ce délai à zéro. La
+température d’air reste indépendante de cette règle.
 
-Les valeurs sont obtenues par `DomainStatusService` à partir des emplacements
-sémantiques de la piscine. Le module ne connaît donc ni identifiant IO configuré,
-ni nom de capteur matériel.
+Chaque journée conserve, pour les trois mesures d’eau, le nombre
+d’échantillons, la première et la dernière valeur, le minimum, le maximum et la
+moyenne. La température d’eau possède aussi deux agrégats séparés : journée et
+nuit. La journée est configurable par `poolhistory/periods/day_start_hour` et
+`day_end_hour` (08:00–20:00 par défaut). La variation publiée est signée :
+`moyenne nuit - moyenne jour`.
 
-## Service public
+## Filtration et remplissage
 
-Le contrat `PoolHistoryService`, enregistré sous `ServiceId::PoolHistory`, ne
-propose qu'une opération `getSnapshot`. Elle copie atomiquement :
+Le module cumule en un seul passage les durées réelles de filtration et de
+remplissage. Le temps de filtration est exposé en secondes, minutes et heures.
+Un événement de remplissage correspond à une transition constatée de la pompe
+de remplissage de l’arrêt vers la marche.
 
-- la date locale et le début de journée en UTC ;
-- les bornes UTC des observations disponibles ;
-- les durées de filtration active et observée ;
-- pour chaque mesure, le nombre d'échantillons, la première et la dernière
-  valeur, le minimum, le maximum et la moyenne.
+Le volume de remplissage est calculé avec le débit `flow_l_h` déjà configuré
+sur le slot PoolDevice de remplissage (`pdm/pd4`). Si la pompe fonctionne avec
+un débit nul ou invalide, le nombre d’événements reste disponible mais le
+volume de la journée et le total sur sept jours sont marqués indisponibles.
 
-Le champ `complete` signifie que la journée est close. Il ne garantit pas une
-couverture continue : `filtrationObservedSec` et les nombres d'échantillons
-permettent au consommateur d'évaluer explicitement cette couverture.
+La synthèse sur sept jours contient le temps total de filtration, sa moyenne
+sur les journées réellement disponibles, le volume total et moyen de
+remplissage, ainsi que le nombre total d’événements. Le nombre de journées
+disponibles est toujours exposé pour ne pas confondre absence de données et
+valeur nulle.
 
-## Persistance
+## Caractéristiques du bassin
 
-Les clés NVS `phist_today` et `phist_prev` contiennent chacune un enregistrement
-binaire de 168 octets. Le format comprend une signature, une version et un
-checksum. Une donnée incompatible ou altérée est ignorée.
+`PoolLogicModule` publie `PoolConfigurationService`. L’instantané historique
+reprend le volume déjà configuré pour le bassin, le caractère intérieur ou
+extérieur, la présence d’une couverture automatique, sa fermeture nocturne et
+la méthode de désinfection active. Les trois caractéristiques booléennes sont
+configurables sous `poollogic/pool`; la méthode active provient directement de
+`poollogic/modes/disinfection_type`.
 
-La journée courante est écrite de manière asynchrone toutes les quinze minutes.
-Le changement de jour force l'enregistrement de la journée close et de la
-nouvelle journée. Après un redémarrage, seuls le jour courant et son prédécesseur
-immédiat sont restaurés ; un enregistrement plus ancien n'est jamais exposé.
+## Persistance et mémoire
 
-Un intervalle de plus de cinq minutes sans exécution n'est pas attribué à la
-filtration, car son état pendant cette interruption ne peut pas être établi.
+Un anneau fixe contient aujourd’hui et sept jours clos, sans allocation pendant
+les boucles d’agrégation. Chaque journée est persistée séparément dans
+`ConfigStore` afin de rester compatible avec les écritures asynchrones bornées.
+Le format binaire version 2 occupe 236 octets et conserve signature, version et
+checksum. Le lecteur accepte encore les enregistrements version 1 de 168 octets;
+leurs nouvelles statistiques sont simplement indiquées comme indisponibles.
 
-## Implantation mémoire
-
-La structure `PoolHistoryModule::Storage` est construite par placement `new`
-dans une zone obtenue avec `MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT`. Elle regroupe
-l'accumulateur, les candidats chargés depuis NVS, l'état de suivi runtime et le
-buffer de sérialisation. La pile de la tâche `poolhistory` est également allouée
-en PSRAM ; les copies de journées utilisées pendant une persistance n'occupent
-donc pas la RAM interne.
-
-Il n'existe volontairement aucun repli vers la RAM interne. Si la PSRAM est
-absente ou si l'allocation échoue, le service reste enregistré mais
-`getSnapshot` renvoie `false` et la tâche n'enregistre aucune donnée. Le mutex,
-les pointeurs de services et le pointeur vers la structure restent en RAM
-interne : ce sont des éléments de contrôle de taille fixe, et non le stockage
-historique susceptible de croître.
-
-Si l'accumulateur adopte ultérieurement des allocations secondaires (par
-exemple un tableau dynamique de nombreux jours), celles-ci devront elles aussi
-utiliser explicitement `MALLOC_CAP_SPIRAM`. Le fait que l'objet parent soit en
-PSRAM ne déplace pas automatiquement les allocations réalisées par ses membres.
+L’accumulateur, les huit journées chargées, les zones de copie de persistance
+et les buffers de sérialisation sont contenus dans `PoolHistoryModule::Storage`,
+alloué exclusivement avec `MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT`. Il n’existe
+aucun repli vers la RAM interne. Les instantanés volumineux utilisés par l’IA
+sont eux aussi hébergés dans les structures de travail PSRAM du module IA.

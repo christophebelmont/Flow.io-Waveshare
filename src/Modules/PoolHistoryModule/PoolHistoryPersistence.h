@@ -11,8 +11,9 @@
 
 namespace PoolHistoryPersistence {
 
-/** Fixed encoded size for version 1; intentionally below the async NVS limit. */
-constexpr size_t EncodedSize = 168U;
+constexpr size_t LegacyEncodedSize = 168U;
+/** Fixed encoded size for version 2, including day/night temperature and refill. */
+constexpr size_t EncodedSize = 236U;
 
 bool encode(const PoolHistoryDayState& state,
             uint8_t* out,

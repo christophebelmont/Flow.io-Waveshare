@@ -44,6 +44,7 @@ public:
 private:
     static constexpr size_t kUrlLen = 192;
     static constexpr size_t kMsgLen = 120;
+    static constexpr size_t kMaxNextionRecoveryArtifacts = 8;
 
     enum class UpdateState : uint8_t {
         Idle = 0,
@@ -95,11 +96,11 @@ private:
     } cfgData_{};
 
     ConfigVariable<char, 2> updateHostVar_{
-        NVS_KEY("up_host"), "update_host", "fwupdate",
+        NVS_KEY("up_host"), "update_host", "system/fwupdate",
         ConfigType::CharArray, cfgData_.updateHost, ConfigPersistence::Persistent, sizeof(cfgData_.updateHost)
     };
     ConfigVariable<char, 2> updatePathVar_{
-        NVS_KEY("up_base_path"), "update_path", "fwupdate",
+        NVS_KEY("up_base_path"), "update_path", "system/fwupdate",
         ConfigType::CharArray, cfgData_.updatePath, ConfigPersistence::Persistent, sizeof(cfgData_.updatePath)
     };
     ServiceRegistry* services_ = nullptr;
@@ -123,6 +124,8 @@ private:
     ManifestCheckJob manifestCheckJob_{};
     FirmwareManifestCheckSnapshot manifestCheck_{};
     NextionArtifactSelection nextionSelection_{};
+    NextionArtifactSelection nextionRecoveryArtifacts_[kMaxNextionRecoveryArtifacts]{};
+    size_t nextionRecoveryArtifactCount_ = 0U;
     char* manifestPayload_ = nullptr;
     uint32_t nextManifestRequestId_ = 0;
     uint32_t bootId_ = 0U;
@@ -168,6 +171,9 @@ private:
                            size_t* payloadLenOut,
                            char* errOut,
                            size_t errOutLen);
+    bool rememberNextionRecoveryArtifact_(const NextionArtifactSelection& artifact,
+                                         char* errOut,
+                                         size_t errOutLen);
     bool runWaveshareUpdate_(const UpdateJob& job, char* errOut, size_t errOutLen);
     bool runNextionUpdate_(const UpdateJob& job, char* errOut, size_t errOutLen);
     bool runNextionReboot_(char* errOut, size_t errOutLen);

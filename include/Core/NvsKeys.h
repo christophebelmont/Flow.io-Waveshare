@@ -456,6 +456,9 @@ constexpr char OrpPumpSlot[] = "pl_sorp"; // Pool logic module persisted key for
 constexpr char HeaterSlot[] = "pl_shea"; // Pool logic module persisted key for field `pl_shea`.
 constexpr char FiltrationCalcStart[] = "pl_fcst"; // Pool logic runtime key for calculated filtration start hour.
 constexpr char FiltrationCalcStop[] = "pl_fcen"; // Pool logic runtime key for calculated filtration stop hour.
+constexpr char IndoorPool[] = "pl_indoor"; // True when the installation is an indoor pool.
+constexpr char AutomaticCover[] = "pl_cover"; // True when an automatic cover is present.
+constexpr char CoverClosedAtNight[] = "pl_covnight"; // True when the cover is normally closed overnight.
 }  // namespace PoolLogic
 
 namespace PoolDevice {
@@ -480,6 +483,15 @@ namespace PoolHistory {
 constexpr char Today[] = "phist_today";
 /** @brief Compact record for the previous local day. */
 constexpr char PreviousDay[] = "phist_prev";
+constexpr char CompletedDay0[] = "phist_d0";
+constexpr char CompletedDay1[] = "phist_d1";
+constexpr char CompletedDay2[] = "phist_d2";
+constexpr char CompletedDay3[] = "phist_d3";
+constexpr char CompletedDay4[] = "phist_d4";
+constexpr char CompletedDay5[] = "phist_d5";
+constexpr char CompletedDay6[] = "phist_d6";
+constexpr char DayStartHour[] = "ph_day_start";
+constexpr char DayEndHour[] = "ph_day_end";
 }  // namespace PoolHistory
 
 namespace AiInsight {

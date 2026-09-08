@@ -228,13 +228,25 @@ Quand un module consomme le store, le service reste l'interface à privilégier.
 
 ### `PoolHistoryService`
 
-- lecture atomique des agrégats du jour courant et du jour précédent
-- lecture des durées de filtration observée et active
+- lecture atomique du jour courant et des sept dernières journées closes
+- statistiques pH, ORP et température d’eau filtrées après dix minutes de filtration continue
+- températures d’eau de jour/nuit et variation signée nuit moins jour
+- durées de filtration et statistiques de remplissage journalières et globales
+- caractéristiques du bassin et méthode de désinfection active
+
+### `PoolConfigurationService`
+
+- volume et implantation intérieure/extérieure du bassin
+- présence et fermeture nocturne de la couverture automatique
+- méthode de désinfection actuellement sélectionnée
 
 ### `AiInsightService`
 
 - demande asynchrone de rafraîchissement du contexte météo
 - lecture de l’état de la demande et du dernier résumé météo disponible
+- préparation locale de l’aperçu météo et du prompt à partir de `PoolHistoryService`
+- demande asynchrone d’analyse du bassin auprès de l’API OpenAI Responses
+- lecture de l’état et du dernier texte d’analyse produit
 
 ### `NetworkAccessService`
 

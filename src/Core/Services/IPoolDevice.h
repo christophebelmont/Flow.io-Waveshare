@@ -29,6 +29,8 @@ struct PoolDeviceSvcMeta {
     IoId ioId = IO_ID_INVALID;
     char runtimeId[8] = {0};
     char label[24] = {0};
+    /** Configured nominal device flow, in litres per hour; zero means unknown. */
+    float flowLPerHour = 0.0f;
 };
 
 /** Service interface for slot-based pool device control. */

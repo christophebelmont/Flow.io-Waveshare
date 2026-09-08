@@ -4,6 +4,7 @@
  */
 
 #include "Modules/AiInsightModule/AiInsightModule.h"
+#include "Modules/AiInsightModule/PoolInsightPromptBuilder.h"
 
 #include "Core/CommandRegistry.h"
 #include "Core/EventBus/EventPayloads.h"
@@ -23,11 +24,20 @@
 struct AiInsightModule::Storage {
     char weatherResponse[OpenMeteoWeatherClient::ResponseCapacity + 1U]{};
     AiWeatherStatus weatherStatus{};
+    AiPoolInsightStatus insightStatus{};
     bool refreshPending = false;
     bool forceRefresh = false;
+    bool insightPending = false;
 };
 
 namespace {
+
+struct PoolInsightWork {
+    AiPoolInsightPreview preview{};
+    char apiKey[AiInsightConfig::ApiKeyCapacity]{};
+    char configuredModel[AiInsightConfig::ModelCapacity]{};
+    char resultText[AiPoolInsightStatus::TextCapacity]{};
+};
 
 void writeOptionalValue_(JsonObject object,
                          const char* name,
@@ -84,18 +94,6 @@ bool AiInsightModule::locationIsValid_(double latitude, double longitude)
            longitude >= -180.0 && longitude <= 180.0;
 }
 
-const char* AiInsightModule::weatherStateName_(AiWeatherState state)
-{
-    switch (state) {
-        case AiWeatherState::Idle: return "idle";
-        case AiWeatherState::Queued: return "queued";
-        case AiWeatherState::Loading: return "loading";
-        case AiWeatherState::Ready: return "ready";
-        case AiWeatherState::Failed: return "failed";
-    }
-    return "unknown";
-}
-
 bool AiInsightModule::requestWeatherRefresh_(bool force,
                                              char* errOut,
                                              size_t errOutLen)
@@ -130,12 +128,161 @@ bool AiInsightModule::requestWeatherRefresh_(bool force,
     return accepted;
 }
 
+bool AiInsightModule::requestPoolInsight_(bool* outReused,
+                                          char* errOut,
+                                          size_t errOutLen)
+{
+    if (outReused) *outReused = false;
+    if (errOut && errOutLen > 0U) errOut[0] = '\0';
+    if (!storage_) {
+        writeError_(errOut, errOutLen, "pool insight storage unavailable");
+        return false;
+    }
+    if (!cfgData_.enabled) {
+        writeError_(errOut, errOutLen, "AI insight is disabled");
+        return false;
+    }
+    if (cfgData_.apiKey[0] == '\0') {
+        writeError_(errOut, errOutLen, "OpenAI API key is not configured");
+        return false;
+    }
+    if (cfgData_.model[0] == '\0') {
+        writeError_(errOut, errOutLen, "OpenAI model is not configured");
+        return false;
+    }
+    if (!locationIsValid_(cfgData_.latitude, cfgData_.longitude)) {
+        writeError_(errOut, errOutLen, "installation location is invalid");
+        return false;
+    }
+
+    const uint64_t nowEpoch = currentEpoch_();
+    uint64_t reusedAgeSec = 0U;
+    bool reused = false;
+    portENTER_CRITICAL(&lock_);
+    const bool alreadyRunning = storage_->insightPending ||
+        storage_->insightStatus.state == AiPoolInsightState::Loading;
+    const bool reusable = !alreadyRunning && aiPoolInsightIsReusable(
+        storage_->insightStatus.state,
+        storage_->insightStatus.generatedAtUtc,
+        nowEpoch,
+        storage_->insightStatus.text[0] != '\0',
+        kPoolInsightReuseLifetimeSec);
+    if (reusable) {
+        reused = true;
+        reusedAgeSec = nowEpoch - storage_->insightStatus.generatedAtUtc;
+    } else if (!alreadyRunning) {
+        storage_->insightPending = true;
+        storage_->insightStatus.state = AiPoolInsightState::Queued;
+        storage_->insightStatus.updatedAtMs = millis();
+        snprintf(storage_->insightStatus.message,
+                 sizeof(storage_->insightStatus.message),
+                 "%s",
+                 "queued");
+        storage_->insightStatus.generatedAtUtc = 0U;
+        storage_->insightStatus.responseId[0] = '\0';
+        storage_->insightStatus.model[0] = '\0';
+        storage_->insightStatus.text[0] = '\0';
+    }
+    portEXIT_CRITICAL(&lock_);
+    if (alreadyRunning) {
+        writeError_(errOut, errOutLen, "pool insight request already running");
+        return false;
+    }
+    if (reused) {
+        if (outReused) *outReused = true;
+        LOGI("Pool insight cache reused age_sec=%llu lifetime_sec=%lu",
+             (unsigned long long)reusedAgeSec,
+             (unsigned long)kPoolInsightReuseLifetimeSec);
+        return true;
+    }
+
+    char weatherError[96]{};
+    if (!requestWeatherRefresh_(false, weatherError, sizeof(weatherError))) {
+        AiWeatherStatus weather{};
+        const bool weatherInProgress = getWeatherStatus_(&weather) &&
+            (weather.state == AiWeatherState::Queued ||
+             weather.state == AiWeatherState::Loading);
+        if (!weatherInProgress && weather.state != AiWeatherState::Ready) {
+            finishPoolInsightRequest_(AiPoolInsightState::Failed,
+                                      nullptr,
+                                      nullptr,
+                                      weatherError[0] ? weatherError : "weather refresh unavailable");
+            writeError_(errOut,
+                        errOutLen,
+                        weatherError[0] ? weatherError : "weather refresh unavailable");
+            return false;
+        }
+    }
+    LOGI("Pool insight request queued model=%s", cfgData_.model);
+    return true;
+}
+
 bool AiInsightModule::getWeatherStatus_(AiWeatherStatus* outStatus) const
 {
     if (!storage_ || !outStatus) return false;
     portENTER_CRITICAL(&lock_);
     *outStatus = storage_->weatherStatus;
     portEXIT_CRITICAL(&lock_);
+    return true;
+}
+
+bool AiInsightModule::getPoolInsightStatus_(AiPoolInsightStatus* outStatus) const
+{
+    if (!storage_ || !outStatus) return false;
+    portENTER_CRITICAL(&lock_);
+    *outStatus = storage_->insightStatus;
+    portEXIT_CRITICAL(&lock_);
+    return true;
+}
+
+bool AiInsightModule::buildPoolPreview_(AiPoolInsightPreview* outPreview,
+                                        char* errOut,
+                                        size_t errOutLen) const
+{
+    if (errOut && errOutLen > 0U) errOut[0] = '\0';
+    if (!outPreview) {
+        writeError_(errOut, errOutLen, "preview output is unavailable");
+        return false;
+    }
+    memset(outPreview, 0, sizeof(*outPreview));
+    outPreview->enabled = cfgData_.enabled;
+    snprintf(outPreview->model, sizeof(outPreview->model), "%s", cfgData_.model);
+
+    AiWeatherStatus weather{};
+    if (!getWeatherStatus_(&weather)) {
+        writeError_(errOut, errOutLen, "weather status is unavailable");
+        return false;
+    }
+    outPreview->weatherState = weather.state;
+    snprintf(outPreview->weatherMessage,
+             sizeof(outPreview->weatherMessage),
+             "%s",
+             weather.message);
+
+    portENTER_CRITICAL(&lock_);
+    outPreview->insightState = storage_->insightStatus.state;
+    outPreview->insightGeneratedAtUtc = storage_->insightStatus.generatedAtUtc;
+    memcpy(outPreview->insightMessage,
+           storage_->insightStatus.message,
+           sizeof(outPreview->insightMessage));
+    memcpy(outPreview->insightText,
+           storage_->insightStatus.text,
+           sizeof(outPreview->insightText));
+    portEXIT_CRITICAL(&lock_);
+
+    const bool historyAvailable = poolHistoryService_ && poolHistoryService_->getSnapshot &&
+                                  poolHistoryService_->getSnapshot(poolHistoryService_->ctx,
+                                                                  &outPreview->history);
+    outPreview->historyAvailable = historyAvailable;
+    if (!PoolInsightPromptBuilder::build(historyAvailable ? &outPreview->history : nullptr,
+                                         weather,
+                                         outPreview->weatherText,
+                                         sizeof(outPreview->weatherText),
+                                         outPreview->prompt,
+                                         sizeof(outPreview->prompt))) {
+        writeError_(errOut, errOutLen, "preview text exceeds its bounded capacity");
+        return false;
+    }
     return true;
 }
 
@@ -176,6 +323,51 @@ void AiInsightModule::finishWeatherRequest_(AiWeatherState state,
     portEXIT_CRITICAL(&lock_);
 }
 
+void AiInsightModule::finishPoolInsightRequest_(
+    AiPoolInsightState state,
+    const OpenAiResponsesParser::Result* result,
+    const char* text,
+    const char* message)
+{
+    if (!storage_) return;
+    char boundedMessage[sizeof(storage_->insightStatus.message)]{};
+    char boundedModel[sizeof(storage_->insightStatus.model)]{};
+    snprintf(boundedMessage,
+             sizeof(boundedMessage),
+             "%s",
+             message ? message : "");
+    const uint64_t generatedAtUtc = (result && text) ? currentEpoch_() : 0U;
+    const size_t textLength = text
+        ? strnlen(text, sizeof(storage_->insightStatus.text) - 1U)
+        : 0U;
+    if (result && text) {
+        snprintf(boundedModel,
+                 sizeof(boundedModel),
+                 "%s",
+                 result->model[0] ? result->model : cfgData_.model);
+    }
+
+    portENTER_CRITICAL(&lock_);
+    storage_->insightPending = false;
+    storage_->insightStatus.state = state;
+    storage_->insightStatus.updatedAtMs = millis();
+    memcpy(storage_->insightStatus.message,
+           boundedMessage,
+           sizeof(storage_->insightStatus.message));
+    if (result && text) {
+        storage_->insightStatus.generatedAtUtc = generatedAtUtc;
+        memcpy(storage_->insightStatus.responseId,
+               result->responseId,
+               sizeof(storage_->insightStatus.responseId));
+        memcpy(storage_->insightStatus.model,
+               boundedModel,
+               sizeof(storage_->insightStatus.model));
+        memcpy(storage_->insightStatus.text, text, textLength);
+        storage_->insightStatus.text[textLength] = '\0';
+    }
+    portEXIT_CRITICAL(&lock_);
+}
+
 void AiInsightModule::processWeatherRequest_()
 {
     if (!storage_) return;
@@ -204,7 +396,8 @@ void AiInsightModule::processWeatherRequest_()
                               fabs(cached.latitude - latitude) < 0.000001 &&
                               fabs(cached.longitude - longitude) < 0.000001;
     const bool cacheFresh = sameLocation && cached.fetchedAtMs != 0U &&
-                            (uint32_t)(nowMs - cached.fetchedAtMs) < kCacheLifetimeMs;
+                            (uint32_t)(nowMs - cached.fetchedAtMs) <
+                                kWeatherCacheLifetimeMs;
     if (!force && cacheFresh) {
         cached.fromCache = true;
         finishWeatherRequest_(AiWeatherState::Ready, &cached, "ready (cache)");
@@ -241,6 +434,110 @@ void AiInsightModule::processWeatherRequest_()
          (unsigned long long)weather.observedAtUtc);
 }
 
+void AiInsightModule::processPoolInsightRequest_()
+{
+    if (!storage_) return;
+
+    AiWeatherState weatherState = AiWeatherState::Idle;
+    char weatherMessage[sizeof(storage_->weatherStatus.message)]{};
+    bool shouldRun = false;
+    portENTER_CRITICAL(&lock_);
+    if (storage_->insightPending) {
+        weatherState = storage_->weatherStatus.state;
+        memcpy(weatherMessage,
+               storage_->weatherStatus.message,
+               sizeof(weatherMessage));
+        if (weatherState == AiWeatherState::Ready) {
+            storage_->insightPending = false;
+            storage_->insightStatus.state = AiPoolInsightState::Loading;
+            storage_->insightStatus.updatedAtMs = millis();
+            snprintf(storage_->insightStatus.message,
+                     sizeof(storage_->insightStatus.message),
+                     "%s",
+                     "loading");
+            shouldRun = true;
+        }
+    }
+    portEXIT_CRITICAL(&lock_);
+
+    if (weatherState == AiWeatherState::Failed) {
+        char error[128]{};
+        snprintf(error,
+                 sizeof(error),
+                 "weather unavailable: %s",
+                 weatherMessage[0] ? weatherMessage : "unknown");
+        finishPoolInsightRequest_(AiPoolInsightState::Failed,
+                                  nullptr,
+                                  nullptr,
+                                  error);
+        LOGW("Pool insight cancelled: %s", error);
+        return;
+    }
+    if (!shouldRun) return;
+    if (!networkReady_()) {
+        finishPoolInsightRequest_(AiPoolInsightState::Failed,
+                                  nullptr,
+                                  nullptr,
+                                  "network unavailable");
+        return;
+    }
+
+    void* workMemory = heap_caps_calloc(1U,
+                                        sizeof(PoolInsightWork),
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!workMemory) {
+        finishPoolInsightRequest_(AiPoolInsightState::Failed,
+                                  nullptr,
+                                  nullptr,
+                                  "pool insight PSRAM work storage unavailable");
+        return;
+    }
+    auto* work = static_cast<PoolInsightWork*>(workMemory);
+    snprintf(work->apiKey, sizeof(work->apiKey), "%s", cfgData_.apiKey);
+    snprintf(work->configuredModel,
+             sizeof(work->configuredModel),
+             "%s",
+             cfgData_.model);
+
+    char error[256]{};
+    if (!buildPoolPreview_(&work->preview, error, sizeof(error))) {
+        finishPoolInsightRequest_(AiPoolInsightState::Failed,
+                                  nullptr,
+                                  nullptr,
+                                  error[0] ? error : "pool insight prompt unavailable");
+        heap_caps_free(workMemory);
+        return;
+    }
+
+    OpenAiResponsesParser::Result result{};
+    const bool generated = openAiClient_.generate(work->apiKey,
+                                                   work->configuredModel,
+                                                   work->preview.prompt,
+                                                   result,
+                                                   work->resultText,
+                                                   sizeof(work->resultText),
+                                                   error,
+                                                   sizeof(error));
+    if (!generated) {
+        finishPoolInsightRequest_(AiPoolInsightState::Failed,
+                                  nullptr,
+                                  nullptr,
+                                  error[0] ? error : "OpenAI request failed");
+        LOGW("Pool insight generation failed: %s", error[0] ? error : "unknown");
+        heap_caps_free(workMemory);
+        return;
+    }
+
+    finishPoolInsightRequest_(AiPoolInsightState::Ready,
+                              &result,
+                              work->resultText,
+                              "ready");
+    LOGI("Pool insight ready id=%s model=%s",
+         result.responseId[0] ? result.responseId : "-",
+         result.model[0] ? result.model : work->configuredModel);
+    heap_caps_free(workMemory);
+}
+
 bool AiInsightModule::buildWeatherStatusJson_(char* out, size_t outLen) const
 {
     if (!out || outLen == 0U) return false;
@@ -249,7 +546,7 @@ bool AiInsightModule::buildWeatherStatusJson_(char* out, size_t outLen) const
 
     StaticJsonDocument<1536> document;
     document["ok"] = true;
-    document["state"] = weatherStateName_(status.state);
+    document["state"] = aiWeatherStateCode(status.state);
     document["updated_at_ms"] = status.updatedAtMs;
     document["message"] = status.message;
     JsonObject weather = document.createNestedObject("weather");
@@ -322,12 +619,16 @@ void AiInsightModule::init(ConfigStore& cfg, ServiceRegistry& services)
                  sizeof(storage_->weatherStatus.message),
                  "%s",
                  "idle");
-        LOGI("Weather storage ready bytes=%u memory=psram", (unsigned)sizeof(Storage));
+        snprintf(storage_->insightStatus.message,
+                 sizeof(storage_->insightStatus.message),
+                 "%s",
+                 "idle");
+        LOGI("AI insight storage ready bytes=%u memory=psram", (unsigned)sizeof(Storage));
     }
 
     commandService_ = services.get<CommandService>(ServiceId::Command);
-    networkAccessService_ = services.get<NetworkAccessService>(ServiceId::NetworkAccess);
     timeService_ = services.get<TimeService>(ServiceId::Time);
+    poolHistoryService_ = services.get<PoolHistoryService>(ServiceId::PoolHistory);
     if (!services.add(ServiceId::AiInsight, &service_)) {
         LOGE("Service registration failed: %s", toString(ServiceId::AiInsight));
     }
@@ -347,10 +648,17 @@ void AiInsightModule::init(ConfigStore& cfg, ServiceRegistry& services)
     }
 }
 
-void AiInsightModule::onConfigLoaded(ConfigStore&, ServiceRegistry&)
+void AiInsightModule::onConfigLoaded(ConfigStore&, ServiceRegistry& services)
 {
-    LOGI("Configured enabled=%u model=%s location_valid=%u",
+    // NetworkAccess is published by the selected network provider from its own
+    // onConfigLoaded() callback, after all module init() calls have completed.
+    networkAccessService_ = services.get<NetworkAccessService>(ServiceId::NetworkAccess);
+    if (!networkAccessService_) {
+        LOGW("Network access service unavailable after configuration load");
+    }
+    LOGI("Configured enabled=%u api_key_configured=%u model=%s location_valid=%u",
          cfgData_.enabled ? 1U : 0U,
+         cfgData_.apiKey[0] ? 1U : 0U,
          cfgData_.model[0] ? cfgData_.model : "-",
          locationIsValid_(cfgData_.latitude, cfgData_.longitude) ? 1U : 0U);
 }
@@ -358,5 +666,6 @@ void AiInsightModule::onConfigLoaded(ConfigStore&, ServiceRegistry&)
 void AiInsightModule::loop()
 {
     processWeatherRequest_();
+    processPoolInsightRequest_();
     vTaskDelay(pdMS_TO_TICKS(kLoopDelayMs));
 }

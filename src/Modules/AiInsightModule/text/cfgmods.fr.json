@@ -5,9 +5,6 @@
     "version": 1
   },
   "docs": {
-    "ai": {
-      "label_t": "cfgmods.ai.label"
-    },
     "ai/openai": {
       "label_t": "cfgmods.ai.openai.label"
     },

@@ -1790,6 +1790,8 @@
                          pageToken,
                          deferredHeavyMs > 0 ? (deferredHeavyMs + 120) : 0,
                          () => onPoolConfigPageShown(false));
+      } else {
+        stopPoolAiPreviewPolling();
       }
       if (pageId === 'page-io-summary') {
         schedulePageTask(pageId, pageToken, deferredHeavyMs, () => onIoSummaryPageShown());
@@ -1961,6 +1963,11 @@
     const poolDisinfectionModes = document.getElementById('poolDisinfectionModes');
     const poolAlarmCard = document.getElementById('poolAlarmCard');
     const poolConfigGrid = document.getElementById('poolConfigGrid');
+    const poolAiRefreshBtn = document.getElementById('poolAiRefresh');
+    const poolAiStatus = document.getElementById('poolAiStatus');
+    const poolAiInsightText = document.getElementById('poolAiInsightText');
+    const poolAiWeatherText = document.getElementById('poolAiWeatherText');
+    const poolAiPromptText = document.getElementById('poolAiPromptText');
     const calibrationSensorSelect = document.getElementById('calibrationSensorSelect');
     const calibrationLoadBtn = document.getElementById('calibrationLoadBtn');
     const calibrationComputeBtn = document.getElementById('calibrationComputeBtn');
@@ -2178,6 +2185,9 @@
     };
     let poolConfigLoadedOnce = false;
     let poolConfigReqSeq = 0;
+    let poolAiPreviewLoadedOnce = false;
+    let poolAiPreviewReqSeq = 0;
+    let poolAiPreviewPollTimer = null;
     const poolConfigModuleDefs = Object.freeze([
       Object.freeze({ module: 'poollogic/modes', titleKey: 'pool.card.modes.title', title: 'Pilotage général', icon: 'tune', noteKey: 'pool.card.modes.note', note: 'Ces interrupteurs définissent si PoolLogic pilote la piscine et quelle stratégie de traitement est retenue.' }),
       Object.freeze({ module: 'poollogic/filtration', titleKey: 'pool.card.filtration.title', title: 'Filtration', icon: 'waves', noteKey: 'pool.card.filtration.note', note: 'La plage de filtration combine contraintes horaires et température d’eau pour protéger le bassin.' }),
@@ -3650,6 +3660,21 @@
       return 0;
     }
 
+    function buildUpgradeEntry(category, artifact, baseUrl) {
+      const target = resolveArtifactTarget(category, artifact);
+      const split = splitUpgradeVersionStamp(artifact.version, formatManifestBuildDate(artifact));
+      return {
+        category: category,
+        artifact: artifact,
+        title: formatManifestArtifactTitle(category, artifact),
+        version: split.version,
+        buildDate: split.build,
+        url: joinManifestArtifactUrl(baseUrl, artifact),
+        target: target,
+        endpoint: resolveArtifactEndpoint(category, artifact, target)
+      };
+    }
+
     function upgradeManifestKeysForComponent(componentKey) {
       const key = String(componentKey || '').trim().toLowerCase();
       if (key === 'flowio') {
@@ -3678,23 +3703,33 @@
           .filter((artifact) => componentKey !== 'nextion'
             || (!!selectedNextionPath && String(artifact.path || '').trim() === selectedNextionPath))
           .forEach((artifact) => {
-            const target = resolveArtifactTarget(category, artifact);
-            const split = splitUpgradeVersionStamp(artifact.version, formatManifestBuildDate(artifact));
-            entries.push({
-              category: category,
-              artifact: artifact,
-              title: formatManifestArtifactTitle(category, artifact),
-              version: split.version,
-              buildDate: split.build,
-              url: joinManifestArtifactUrl(baseUrl, artifact),
-              target: target,
-              endpoint: resolveArtifactEndpoint(category, artifact, target)
-            });
+            entries.push(buildUpgradeEntry(category, artifact, baseUrl));
           });
       });
       if (!entries.length) return null;
       entries.sort((a, b) => compareUpgradeArtifacts(b.artifact, a.artifact));
       return entries[0];
+    }
+
+    function nextionRecoveryEntries(manifest, manifestUrl) {
+      if (!manifest || typeof manifest !== 'object') return [];
+      const baseUrl = manifestBaseUrl(manifestUrl);
+      const latestByCompatibility = new Map();
+      manifestArtifactList(manifest, 'nextion')
+        .filter((artifact) => String(artifact.display_compatibility || '').trim())
+        .filter((artifact) => joinManifestArtifactUrl(baseUrl, artifact))
+        .forEach((artifact) => {
+          const entry = buildUpgradeEntry('nextion', artifact, baseUrl);
+          if (entry.target !== 'nextion' || entry.endpoint !== '/fwupdate/nextion') return;
+          entry.compatibility = String(artifact.display_compatibility || '').trim();
+          entry.recovery = true;
+          const previous = latestByCompatibility.get(entry.compatibility);
+          if (!previous || compareUpgradeArtifacts(entry.artifact, previous.artifact) > 0) {
+            latestByCompatibility.set(entry.compatibility, entry);
+          }
+        });
+      return Array.from(latestByCompatibility.values())
+        .sort((left, right) => left.compatibility.localeCompare(right.compatibility));
     }
 
     function formatDetectedNextionVersion(rawValue) {
@@ -3726,18 +3761,25 @@
       return upgradeComponentDefs.map((def) => {
         const current = currentUpgradeVersionForComponent(def.key);
         const latest = latestUpgradeEntryForComponent(def.key, manifest, manifestUrl);
+        const recoveryRequired = def.key === 'nextion' && !nextionDisplayDetected;
+        const recoveryEntries = recoveryRequired
+          ? nextionRecoveryEntries(manifest, manifestUrl)
+          : [];
         const available = latest
           ? { version: latest.version, build: latest.buildDate }
           : { version: '-', build: '-' };
-        const nextionUnavailable = def.key === 'nextion' && (!nextionDisplayDetected || !latest);
+        const nextionUnavailable = def.key === 'nextion' && nextionDisplayDetected && !latest;
         const comparableCurrent = current.version && current.version !== '-';
         const comparableAvailable = available.version && available.version !== '-';
-        const updateAvailable = !nextionUnavailable
+        const updateAvailable = !recoveryRequired && !nextionUnavailable
           && comparableAvailable
           && (!comparableCurrent || compareFirmwareVersions(available.version, current.version) > 0);
         const unavailableMessage = nextionDisplayDetected
           ? tr('updates.nextion.noCompatibleArtifact', 'Aucun firmware Nextion compatible')
           : tr('updates.nextion.notDetected', 'Nextion non détecté');
+        const statusMessage = recoveryRequired
+          ? tr('updates.nextion.manualSelection', 'Écran non détecté : sélectionnez son modèle')
+          : (nextionUnavailable ? unavailableMessage : '');
         return Object.assign({}, def, {
           subtitle: def.key === 'nextion'
             ? (nextionDisplayCompatibility || def.subtitle)
@@ -3745,9 +3787,14 @@
           current: current,
           available: available,
           updateAvailable: updateAvailable,
-          unavailable: nextionUnavailable,
-          unavailableMessage: nextionUnavailable ? unavailableMessage : '',
-          entry: latest
+          // Nextion remains actionable in recovery mode. A compatible model is
+          // selected explicitly instead of disabling the whole row.
+          unavailable: false,
+          unavailableMessage: '',
+          statusMessage: statusMessage,
+          recoveryRequired: recoveryRequired,
+          recoveryEntries: recoveryEntries,
+          entry: recoveryRequired ? null : latest
         });
       });
     }
@@ -3777,18 +3824,47 @@
 
     function createUpgradeStatusBadge(row) {
       const badge = document.createElement('span');
-      badge.className = 'update-status-badge ' + (row.unavailable
+      badge.className = 'update-status-badge ' + (row.statusMessage
         ? 'is-unavailable'
-        : (row.updateAvailable ? 'is-available' : 'is-current'));
-      badge.textContent = row.unavailable
+        : (row.unavailable
+        ? 'is-unavailable'
+        : (row.updateAvailable ? 'is-available' : 'is-current')));
+      badge.textContent = row.statusMessage
+        ? row.statusMessage
+        : (row.unavailable
         ? row.unavailableMessage
         : (row.updateAvailable
           ? tr('updates.status.available', 'Mise à jour disponible')
-          : tr('updates.status.current', 'À jour'));
+          : tr('updates.status.current', 'À jour')));
       return badge;
     }
 
-    function createUpgradeActionButton(row) {
+    function createUpgradeActionControl(row) {
+      const control = document.createElement('div');
+      control.className = 'update-action-control';
+      let selectedEntry = row && row.entry;
+
+      if (row && row.recoveryRequired && row.recoveryEntries.length > 0) {
+        const select = document.createElement('select');
+        select.className = 'update-nextion-model-select';
+        select.setAttribute('aria-label', tr('updates.nextion.selectModel', 'Sélectionner le modèle Nextion'));
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = tr('updates.nextion.selectModel', 'Sélectionner le modèle Nextion');
+        select.appendChild(placeholder);
+        row.recoveryEntries.forEach((entry, index) => {
+          const option = document.createElement('option');
+          option.value = String(index);
+          option.textContent = entry.compatibility + ' · v' + entry.version;
+          select.appendChild(option);
+        });
+        select.addEventListener('change', () => {
+          const index = Number.parseInt(select.value, 10);
+          selectedEntry = Number.isInteger(index) ? row.recoveryEntries[index] : null;
+        });
+        control.appendChild(select);
+      }
+
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'update-action-btn';
@@ -3800,17 +3876,24 @@
       label.textContent = tr('updates.updateButton', 'Mettre à jour');
       button.appendChild(icon);
       button.appendChild(label);
-      const entry = row && row.entry;
-      button.disabled = !!(row && row.unavailable) || !(entry && entry.endpoint && entry.url);
-      button.title = button.disabled
-        ? tr('updates.checkRequired', 'Vérifiez les mises à jour avant de lancer cette action.')
-        : tr('updates.updateButton', 'Mettre à jour');
+      const isNextion = row && row.key === 'nextion';
+      button.disabled = !isNextion && (!!(row && row.unavailable) || !(selectedEntry && selectedEntry.endpoint && selectedEntry.url));
+      button.title = tr('updates.updateButton', 'Mettre à jour');
       bindClickAction(button, () => {
-        if (!entry) return;
-        if (!confirmUpgradeLaunch(entry)) return;
-        return startUpgrade(entry.target, entry.url, entry.endpoint);
+        if (!selectedEntry || !selectedEntry.endpoint || !selectedEntry.url) {
+          if (row && row.recoveryRequired && row.recoveryEntries.length > 0) {
+            setUpgradeMessage(tr('updates.nextion.selectModelRequired', 'Sélectionnez le modèle Nextion avant de continuer.'));
+            const select = control.querySelector('select');
+            if (select) select.focus();
+            return;
+          }
+          return checkFirmwareUpdates();
+        }
+        if (!confirmUpgradeLaunch(selectedEntry)) return;
+        return startUpgrade(selectedEntry.target, selectedEntry.url, selectedEntry.endpoint);
       });
-      return button;
+      control.appendChild(button);
+      return control;
     }
 
     function renderUpgradeSummaryCards(rows) {
@@ -3853,19 +3936,25 @@
         const stateIcon = document.createElement('span');
         stateIcon.className = 'ui-msr update-summary-state';
         stateIcon.setAttribute('aria-hidden', 'true');
-        stateIcon.textContent = row.unavailable ? 'link_off' : (row.updateAvailable ? 'arrow_upward' : 'horizontal_rule');
+        stateIcon.textContent = row.statusMessage
+          ? 'build'
+          : (row.unavailable ? 'link_off' : (row.updateAvailable ? 'arrow_upward' : 'horizontal_rule'));
         card.appendChild(stateIcon);
 
         const foot = document.createElement('div');
         foot.className = 'update-summary-foot';
         const dot = document.createElement('span');
-        dot.className = 'update-dot ' + (row.unavailable ? 'is-gray' : (row.updateAvailable ? 'is-green' : 'is-blue'));
+        dot.className = 'update-dot ' + (row.statusMessage || row.unavailable
+          ? 'is-gray'
+          : (row.updateAvailable ? 'is-green' : 'is-blue'));
         foot.appendChild(dot);
-        foot.appendChild(document.createTextNode(row.unavailable
-          ? row.unavailableMessage
-          : (row.updateAvailable
-            ? tr('updates.status.available', 'Mise à jour disponible')
-            : tr('updates.status.current', 'À jour'))));
+        foot.appendChild(document.createTextNode(row.statusMessage
+          ? row.statusMessage
+          : (row.unavailable
+            ? row.unavailableMessage
+            : (row.updateAvailable
+              ? tr('updates.status.available', 'Mise à jour disponible')
+              : tr('updates.status.current', 'À jour')))));
         card.appendChild(foot);
 
         upgradeCards.appendChild(card);
@@ -3909,7 +3998,7 @@
         trEl.appendChild(statusCell);
 
         const actionCell = document.createElement('td');
-        actionCell.appendChild(createUpgradeActionButton(row));
+        actionCell.appendChild(createUpgradeActionControl(row));
         trEl.appendChild(actionCell);
 
         upgradeTableBody.appendChild(trEl);
@@ -3933,6 +4022,13 @@
     function confirmUpgradeLaunch(entry) {
       const version = String(entry && entry.version ? entry.version : 'x.x.x').trim() || 'x.x.x';
       const target = upgradeTargetLabel(entry && entry.target ? entry.target : '');
+      if (entry && entry.recovery) {
+        return confirm(
+          tr('updates.nextion.confirmRecovery', 'Écran non détecté. Confirmer la mise à jour du modèle {model} vers la version {version} ? Vérifiez soigneusement le modèle sélectionné.')
+            .replace('{model}', String(entry.compatibility || 'Nextion'))
+            .replace('{version}', version)
+        );
+      }
       return confirm(
         tr('updates.confirmLaunch', 'Confirmer la mise à jour de {target} vers la version {version} ?')
           .replace('{target}', target)
@@ -7373,8 +7469,149 @@
       }
     }
 
+    function stopPoolAiPreviewPolling() {
+      if (!poolAiPreviewPollTimer) return;
+      clearTimeout(poolAiPreviewPollTimer);
+      poolAiPreviewPollTimer = null;
+    }
+
+    function renderPoolAiPreview(payload) {
+      if (poolAiInsightText) {
+        poolAiInsightText.textContent = String(payload && payload.insight_text ? payload.insight_text : '—');
+      }
+      if (poolAiWeatherText) {
+        poolAiWeatherText.textContent = String(payload && payload.weather_text ? payload.weather_text : '—');
+      }
+      if (poolAiPromptText) {
+        poolAiPromptText.textContent = String(payload && payload.prompt ? payload.prompt : '—');
+      }
+      if (!poolAiStatus) return;
+
+      poolAiStatus.classList.remove('is-ready', 'is-error');
+      const weatherState = String(payload && payload.weather_state ? payload.weather_state : 'idle');
+      const insightState = String(payload && payload.insight_state ? payload.insight_state : 'idle');
+      if (insightState === 'queued' || insightState === 'loading') {
+        poolAiStatus.textContent = tr('pool.ai.analysisPending', 'Analyse OpenAI en cours…');
+        return;
+      }
+      if (weatherState === 'queued' || weatherState === 'loading') {
+        poolAiStatus.textContent = tr('pool.ai.pending', 'Actualisation météo en cours…');
+        return;
+      }
+      if (payload && payload.enabled === false) {
+        poolAiStatus.textContent = tr('pool.ai.disabled', 'Fonction IA désactivée : le prompt est visible, mais la météo ne peut pas être actualisée.');
+        return;
+      }
+      if (payload && payload.refresh_requested && payload.refresh_accepted === false && payload.refresh_message) {
+        poolAiStatus.textContent = tr('pool.ai.error', 'Analyse IA indisponible.') + ' ' + String(payload.refresh_message);
+        poolAiStatus.classList.add('is-error');
+        return;
+      }
+      if (insightState === 'failed') {
+        const detail = String(payload && payload.insight_message ? payload.insight_message : '').trim();
+        poolAiStatus.textContent = detail
+          ? tr('pool.ai.analysisError', 'Échec de l’analyse IA.') + ' ' + detail
+          : tr('pool.ai.analysisError', 'Échec de l’analyse IA.');
+        poolAiStatus.classList.add('is-error');
+        return;
+      }
+      if (weatherState === 'failed') {
+        const detail = String(payload && payload.weather_message ? payload.weather_message : '').trim();
+        poolAiStatus.textContent = detail
+          ? tr('pool.ai.error', 'Analyse IA indisponible.') + ' ' + detail
+          : tr('pool.ai.error', 'Analyse IA indisponible.');
+        poolAiStatus.classList.add('is-error');
+        return;
+      }
+      if (weatherState === 'idle') {
+        poolAiStatus.textContent = tr('pool.ai.weatherWaiting', 'Prompt prêt, données météo en attente.');
+        return;
+      }
+      if (insightState === 'ready') {
+        poolAiStatus.textContent = tr('pool.ai.ready', 'Analyse prête.');
+        poolAiStatus.classList.add('is-ready');
+        return;
+      }
+      poolAiStatus.textContent = tr('pool.ai.analysisIdle', 'Appuyez sur le bouton pour générer l’analyse.');
+    }
+
+    async function loadPoolAiPreview(refreshWeather, pollAttempt) {
+      const attempt = Math.max(0, Number(pollAttempt) || 0);
+      const reqSeq = ++poolAiPreviewReqSeq;
+      stopPoolAiPreviewPolling();
+      if (poolAiRefreshBtn) poolAiRefreshBtn.disabled = true;
+      if (poolAiStatus && (refreshWeather || !poolAiPreviewLoadedOnce)) {
+        poolAiStatus.textContent = tr('pool.ai.loading', 'Chargement de l’analyse…');
+        poolAiStatus.classList.remove('is-ready', 'is-error');
+      }
+      try {
+        const endpoint = '/api/ai/pool-preview' + (refreshWeather ? '?refresh=1' : '');
+        const payload = await fetchOkJson(endpoint,
+                                          { cache: 'no-store' },
+                                          tr('pool.ai.error', 'Analyse IA indisponible.'));
+        if (reqSeq !== poolAiPreviewReqSeq) return;
+        renderPoolAiPreview(payload);
+        poolAiPreviewLoadedOnce = true;
+
+        const weatherState = String(payload.weather_state || 'idle');
+        const insightState = String(payload.insight_state || 'idle');
+        const pending = weatherState === 'queued' || weatherState === 'loading' ||
+          insightState === 'queued' || insightState === 'loading';
+        if (pending && attempt < 90 && getActivePageId() === 'page-pool') {
+          poolAiPreviewPollTimer = setTimeout(() => {
+            poolAiPreviewPollTimer = null;
+            runAsyncTaskSafely(() => loadPoolAiPreview(false, attempt + 1));
+          }, 1000);
+        }
+      } catch (err) {
+        if (reqSeq !== poolAiPreviewReqSeq) return;
+        if (poolAiStatus) {
+          poolAiStatus.textContent = String(err && err.message ? err.message : tr('pool.ai.error', 'Analyse IA indisponible.'));
+          poolAiStatus.classList.remove('is-ready');
+          poolAiStatus.classList.add('is-error');
+        }
+      } finally {
+        if (reqSeq === poolAiPreviewReqSeq && poolAiRefreshBtn) {
+          poolAiRefreshBtn.disabled = false;
+        }
+      }
+    }
+
+    async function requestPoolAiInsight() {
+      stopPoolAiPreviewPolling();
+      if (poolAiRefreshBtn) poolAiRefreshBtn.disabled = true;
+      if (poolAiStatus) {
+        poolAiStatus.textContent = tr('pool.ai.analysisPending', 'Analyse OpenAI en cours…');
+        poolAiStatus.classList.remove('is-ready', 'is-error');
+      }
+      try {
+        const requestResult = await fetchOkJson('/api/ai/pool-insight',
+                                                { method: 'POST', cache: 'no-store' },
+                                                tr('pool.ai.analysisError', 'Échec de l’analyse IA.'));
+        await loadPoolAiPreview(false, 0);
+        if (requestResult && requestResult.reused === true && poolAiStatus) {
+          poolAiStatus.textContent = tr('pool.ai.cached', 'Analyse existante réutilisée (moins d’une heure).');
+          poolAiStatus.classList.remove('is-error');
+          poolAiStatus.classList.add('is-ready');
+        }
+      } catch (err) {
+        if (poolAiStatus) {
+          poolAiStatus.textContent = String(err && err.message
+            ? err.message
+            : tr('pool.ai.analysisError', 'Échec de l’analyse IA.'));
+          poolAiStatus.classList.remove('is-ready');
+          poolAiStatus.classList.add('is-error');
+        }
+      } finally {
+        if (poolAiRefreshBtn) poolAiRefreshBtn.disabled = false;
+      }
+    }
+
     async function onPoolConfigPageShown(forceRefresh) {
-      await loadPoolConfig(!!forceRefresh || !poolConfigLoadedOnce);
+      await Promise.allSettled([
+        loadPoolConfig(!!forceRefresh || !poolConfigLoadedOnce),
+        loadPoolAiPreview(!!forceRefresh || !poolAiPreviewLoadedOnce, 0)
+      ]);
     }
 
     async function onUpgradePageShown() {
@@ -10890,7 +11127,8 @@
           showPoolMeasuresError(err);
         }
       });
-      bindClickAction(poolConfigRefreshBtn, () => loadPoolConfig(true));
+      bindClickAction(poolConfigRefreshBtn, () => onPoolConfigPageShown(true));
+      bindClickAction(poolAiRefreshBtn, requestPoolAiInsight);
     }
 
     function initInfoBindings() {

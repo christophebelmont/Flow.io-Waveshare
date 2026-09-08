@@ -613,6 +613,7 @@ bool FirmwareUpdateModule::startManifestCheck_(uint32_t* requestIdOut,
 
     manifestCheck_ = {};
     nextionSelection_ = {};
+    nextionRecoveryArtifactCount_ = 0U;
     manifestCheck_.requestId = nextManifestRequestId_;
     manifestCheck_.state = FirmwareManifestCheckState::Queued;
     manifestCheck_.updatedAtMs = millis();
@@ -733,6 +734,15 @@ bool FirmwareUpdateModule::startUpdate_(FirmwareUpdateTarget target,
         NextionArtifactSelection selection{};
         portENTER_CRITICAL(&lock_);
         selection = nextionSelection_;
+        if (!selection.valid && url && url[0] != '\0' &&
+            manifestCheck_.state == FirmwareManifestCheckState::Ready) {
+            for (size_t i = 0U; i < nextionRecoveryArtifactCount_; ++i) {
+                if (strcmp(url, nextionRecoveryArtifacts_[i].url) == 0) {
+                    selection = nextionRecoveryArtifacts_[i];
+                    break;
+                }
+            }
+        }
         portEXIT_CRITICAL(&lock_);
 
         if (!selection.valid) {
@@ -748,13 +758,11 @@ bool FirmwareUpdateModule::startUpdate_(FirmwareUpdateTarget target,
             hmiSvc_ = services_->get<HmiService>(ServiceId::Hmi);
         }
         HmiDisplayIdentity identity{};
-        if (!hmiSvc_ || !hmiSvc_->getLocalDisplayIdentity ||
-            !hmiSvc_->getLocalDisplayIdentity(hmiSvc_->ctx, &identity)) {
-            writeSimpleError_(errOut, errOutLen, "nextion display model not detected");
-            return false;
-        }
-        if (!isNextionDisplayCompatible(identity, selection.compatibility)) {
-            writeSimpleError_(errOut, errOutLen, "nextion display model changed since manifest check");
+        const bool displayDetected =
+            hmiSvc_ && hmiSvc_->getLocalDisplayIdentity &&
+            hmiSvc_->getLocalDisplayIdentity(hmiSvc_->ctx, &identity);
+        if (displayDetected && !isNextionDisplayCompatible(identity, selection.compatibility)) {
+            writeSimpleError_(errOut, errOutLen, "selected nextion artifact is incompatible with detected display");
             return false;
         }
 
@@ -978,12 +986,13 @@ bool FirmwareUpdateModule::runNextionUpdate_(const UpdateJob& job, char* errOut,
         hmiSvc_ = services_->get<HmiService>(ServiceId::Hmi);
     }
     HmiDisplayIdentity identity{};
-    // Compatibility is derived from the hardware model. The application
-    // version is deliberately not required: a blank/unknown version must not
-    // prevent recovery by uploading a compatible TFT.
-    if (!hmiSvc_ || !hmiSvc_->getLocalDisplayIdentity ||
-        !hmiSvc_->getLocalDisplayIdentity(hmiSvc_->ctx, &identity) ||
-        !isNextionDisplayCompatible(identity, job.nextionCompatibility)) {
+    // A display in bootloader or recovery mode may not answer the identity
+    // query. The artifact was already selected from the validated manifest;
+    // when an identity is available, it must still match that selection.
+    const bool displayDetected =
+        hmiSvc_ && hmiSvc_->getLocalDisplayIdentity &&
+        hmiSvc_->getLocalDisplayIdentity(hmiSvc_->ctx, &identity);
+    if (displayDetected && !isNextionDisplayCompatible(identity, job.nextionCompatibility)) {
         writeSimpleError_(errOut, errOutLen, "nextion display identity validation failed");
         return false;
     }
@@ -1480,25 +1489,56 @@ bool FirmwareUpdateModule::runManifestCheck_(const ManifestCheckJob& job,
             }
             ++artifactIndex;
 
-            if (!displayDetected || strcmp(identity.compatibility, compatibility) != 0) continue;
-            if (selection.valid && compareNextionVersions(version, selection.version) <= 0) continue;
-
             char artifactUrl[kUrlLen]{};
             if (!buildManifestSiblingUrl_(job.url, path, artifactUrl, sizeof(artifactUrl))) {
                 writeSimpleError_(errOut, errOutLen, "nextion artifact url is invalid");
                 return false;
             }
-            selection.valid = true;
-            snprintf(selection.path, sizeof(selection.path), "%s", path);
-            snprintf(selection.version, sizeof(selection.version), "%s", version);
-            snprintf(selection.url, sizeof(selection.url), "%s", artifactUrl);
-            selection.size = size;
+
+            NextionArtifactSelection artifactSelection{};
+            artifactSelection.valid = true;
+            snprintf(artifactSelection.compatibility,
+                     sizeof(artifactSelection.compatibility),
+                     "%s",
+                     compatibility);
+            snprintf(artifactSelection.path, sizeof(artifactSelection.path), "%s", path);
+            snprintf(artifactSelection.version, sizeof(artifactSelection.version), "%s", version);
+            snprintf(artifactSelection.url, sizeof(artifactSelection.url), "%s", artifactUrl);
+            artifactSelection.size = size;
+            if (!rememberNextionRecoveryArtifact_(artifactSelection, errOut, errOutLen)) return false;
+
+            if (!displayDetected || strcmp(identity.compatibility, compatibility) != 0) continue;
+            if (selection.valid && compareNextionVersions(version, selection.version) <= 0) continue;
+            selection = artifactSelection;
+            snprintf(selection.displayModel, sizeof(selection.displayModel), "%s", identity.model);
         }
     }
 
     if (nextionSelectionOut) *nextionSelectionOut = selection;
 
     if (payloadLenOut) *payloadLenOut = payloadLen;
+    return true;
+}
+
+bool FirmwareUpdateModule::rememberNextionRecoveryArtifact_(
+    const NextionArtifactSelection& artifact,
+    char* errOut,
+    size_t errOutLen)
+{
+    for (size_t i = 0U; i < nextionRecoveryArtifactCount_; ++i) {
+        NextionArtifactSelection& remembered = nextionRecoveryArtifacts_[i];
+        if (strcmp(remembered.compatibility, artifact.compatibility) != 0) continue;
+        if (compareNextionVersions(artifact.version, remembered.version) > 0) {
+            remembered = artifact;
+        }
+        return true;
+    }
+
+    if (nextionRecoveryArtifactCount_ >= kMaxNextionRecoveryArtifacts) {
+        writeSimpleError_(errOut, errOutLen, "manifest contains too many nextion display families");
+        return false;
+    }
+    nextionRecoveryArtifacts_[nextionRecoveryArtifactCount_++] = artifact;
     return true;
 }
 

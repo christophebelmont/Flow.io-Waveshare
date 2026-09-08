@@ -5495,6 +5495,157 @@ void WebInterfaceModule::startServer_()
                       "application/json",
                       ok ? "{\"ok\":true}" : "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"activity.clear\"}}");
     });
+    server_.on("/api/ai/pool-insight", HTTP_POST, [this](AsyncWebServerRequest* request) {
+        HttpLatencyScope latency(request, "/api/ai/pool-insight");
+        noteHttpActivity_();
+
+        const AiInsightService* aiInsight = services_
+            ? services_->get<AiInsightService>(ServiceId::AiInsight)
+            : nullptr;
+        if (!aiInsight || !aiInsight->requestPoolInsight) {
+            request->send(503,
+                          "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"NotReady\",\"where\":\"ai.pool-insight\"}}");
+            return;
+        }
+
+        bool reused = false;
+        char error[128]{};
+        if (!aiInsight->requestPoolInsight(aiInsight->ctx,
+                                           &reused,
+                                           error,
+                                           sizeof(error))) {
+            auto response = request->beginResponseStream("application/json");
+            response->setCode(409);
+            response->print("{\"ok\":false,\"err\":{\"code\":\"Rejected\",\"where\":\"ai.pool-insight\",\"msg\":");
+            printJsonEscaped_(*response, error[0] ? error : "pool insight request rejected");
+            response->print("}}");
+            addNoCacheHeaders_(response);
+            request->send(response);
+            return;
+        }
+
+        AsyncWebServerResponse* response = request->beginResponse(
+            reused ? 200 : 202,
+            "application/json",
+            reused
+                ? "{\"ok\":true,\"state\":\"ready\",\"reused\":true}"
+                : "{\"ok\":true,\"state\":\"queued\",\"reused\":false}");
+        addNoCacheHeaders_(response);
+        request->send(response);
+    });
+    server_.on("/api/ai/pool-preview", HTTP_GET, [this](AsyncWebServerRequest* request) {
+        HttpLatencyScope latency(request, "/api/ai/pool-preview");
+        noteHttpActivity_();
+
+        const AiInsightService* aiInsight = services_
+            ? services_->get<AiInsightService>(ServiceId::AiInsight)
+            : nullptr;
+        if (!aiInsight || !aiInsight->buildPoolPreview) {
+            request->send(503,
+                          "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"NotReady\",\"where\":\"ai.pool-preview\"}}");
+            return;
+        }
+
+        bool refreshAccepted = false;
+        char refreshMessage[96]{};
+        const bool refreshRequested = request->hasParam("refresh") &&
+            parseBoolParam_(request->getParam("refresh")->value().c_str(), false);
+        if (refreshRequested && aiInsight->requestWeatherRefresh) {
+            refreshAccepted = aiInsight->requestWeatherRefresh(aiInsight->ctx,
+                                                               false,
+                                                               refreshMessage,
+                                                               sizeof(refreshMessage));
+        }
+
+        void* previewMemory = heap_caps_calloc(1U,
+                                               sizeof(AiPoolInsightPreview),
+                                               MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!previewMemory) {
+            request->send(503,
+                          "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"LowMemory\",\"where\":\"ai.pool-preview.psram\"}}");
+            return;
+        }
+        auto* preview = static_cast<AiPoolInsightPreview*>(previewMemory);
+        char previewError[96]{};
+        const bool previewReady = aiInsight->buildPoolPreview(aiInsight->ctx,
+                                                              preview,
+                                                              previewError,
+                                                              sizeof(previewError));
+        if (!previewReady) {
+            LOGW("Pool insight preview unavailable: %s",
+                 previewError[0] != '\0' ? previewError : "unknown");
+            heap_caps_free(previewMemory);
+            request->send(503,
+                          "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"Unavailable\",\"where\":\"ai.pool-preview\"}}");
+            return;
+        }
+
+        constexpr size_t kPreviewJsonCapacity = 24U * 1024U;
+        auto responseState = std::make_shared<WebJsonBuffer>(kPreviewJsonCapacity);
+        if (!responseState || !responseState->valid()) {
+            heap_caps_free(previewMemory);
+            request->send(503,
+                          "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"LowMemory\",\"where\":\"ai.pool-preview.response\"}}");
+            return;
+        }
+
+        responseState->print("{\"ok\":true,\"enabled\":");
+        responseState->print(preview->enabled ? "true" : "false");
+        responseState->print(",\"history_available\":");
+        responseState->print(preview->historyAvailable ? "true" : "false");
+        responseState->print(",\"weather_state\":");
+        printJsonEscaped_(*responseState, aiWeatherStateCode(preview->weatherState));
+        responseState->print(",\"weather_message\":");
+        printJsonEscaped_(*responseState, preview->weatherMessage);
+        responseState->print(",\"insight_state\":");
+        printJsonEscaped_(*responseState, aiPoolInsightStateCode(preview->insightState));
+        responseState->print(",\"insight_message\":");
+        printJsonEscaped_(*responseState, preview->insightMessage);
+        responseState->print(",\"insight_generated_at_utc\":");
+        char generatedAtUtc[24]{};
+        snprintf(generatedAtUtc,
+                 sizeof(generatedAtUtc),
+                 "%llu",
+                 (unsigned long long)preview->insightGeneratedAtUtc);
+        responseState->print(generatedAtUtc);
+        responseState->print(",\"insight_text\":");
+        printJsonEscaped_(*responseState, preview->insightText);
+        responseState->print(",\"refresh_requested\":");
+        responseState->print(refreshRequested ? "true" : "false");
+        responseState->print(",\"refresh_accepted\":");
+        responseState->print(refreshAccepted ? "true" : "false");
+        responseState->print(",\"refresh_message\":");
+        printJsonEscaped_(*responseState, refreshMessage);
+        responseState->print(",\"model\":");
+        printJsonEscaped_(*responseState, preview->model);
+        responseState->print(",\"weather_text\":");
+        printJsonEscaped_(*responseState, preview->weatherText);
+        responseState->print(",\"prompt\":");
+        printJsonEscaped_(*responseState, preview->prompt);
+        responseState->print('}');
+        heap_caps_free(previewMemory);
+
+        if (!responseState->finish()) {
+            request->send(500,
+                          "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"Overflow\",\"where\":\"ai.pool-preview.response\"}}");
+            return;
+        }
+        AsyncWebServerResponse* response = request->beginResponse(
+            "application/json",
+            responseState->length(),
+            [responseState](uint8_t* buffer, size_t maxLen, size_t index) -> size_t {
+                return responseState->fillAt(buffer, maxLen, index);
+            }
+        );
+        addNoCacheHeaders_(response);
+        request->send(response);
+    });
     server_.on("/api/cfgdoc/index", HTTP_GET, [this, beginSpiffsAssetResponse, sendPreparedAssetResponse](AsyncWebServerRequest* request) {
         HttpLatencyScope latency(request, "/api/cfgdoc/index");
         SpiffsAssetForensicMeta forensicMeta{};

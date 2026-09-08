@@ -20,6 +20,7 @@
 #include "Core/SnprintfCheck.h"
 #include "Core/SystemLimits.h"
 #include "Core/SystemStats.h"
+#include "Core/TlsMemoryPolicy.h"
 #include "Core/ConfigDefaults.h"
 #include "Domain/Pool/PoolBehaviors.h"
 #include "Domain/Pool/PoolIds.h"
@@ -251,11 +252,14 @@ void setupProfile(AppContext& ctx)
 
     if (psramFound()) {
         heap_caps_malloc_extmem_enable(kFlowIos3PsramMallocAlwaysInternalBytes);
+        const bool tlsMemoryPolicyInstalled = TlsMemoryPolicy::installPsramPreferred();
         Board::SerialMap::logSerial().printf(
-            "[waveshare] PSRAM malloc policy threshold=%u internal_free=%lu psram_free=%lu\r\n",
+            "[waveshare] PSRAM malloc policy threshold=%u tls_psram_policy=%s internal_free=%lu psram_free=%lu\r\n",
             (unsigned)kFlowIos3PsramMallocAlwaysInternalBytes,
+            tlsMemoryPolicyInstalled ? "ready" : "failed",
             (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
             (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+        requireSetup(tlsMemoryPolicyInstalled, "install TLS PSRAM memory policy");
     }
 
     ctx.preferences.begin(NvsKeys::StorageNamespace, false);

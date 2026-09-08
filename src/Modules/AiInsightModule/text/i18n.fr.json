@@ -11,7 +11,6 @@
     "cfgdocs.system.location.latitude.label": "Latitude (degrés décimaux)",
     "cfgdocs.system.location.longitude.help": "Longitude de l’installation en degrés décimaux, comprise entre -180 et 180.",
     "cfgdocs.system.location.longitude.label": "Longitude (degrés décimaux)",
-    "cfgmods.ai.label": "Intelligence artificielle",
     "cfgmods.ai.openai.label": "OpenAI",
     "cfgmods.system.location.label": "Localisation"
   }

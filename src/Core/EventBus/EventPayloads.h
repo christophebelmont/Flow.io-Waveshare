@@ -27,7 +27,8 @@ enum class ConfigModuleId : uint8_t {
     Log,
     System,
     TftS3,
-    AiInsight
+    AiInsight,
+    PoolHistory
 };
 
 /** @brief Payload for ConfigChanged events. */

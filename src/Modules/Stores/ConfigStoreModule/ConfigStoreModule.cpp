@@ -149,7 +149,7 @@ bool ConfigStoreModule::writeRuntimeBlobAsync_(const char* key, const void* valu
     if (!value || len == 0U || len > kPersistenceBlobMax) return false;
     PersistenceRequest req{};
     req.op = PersistenceOp::WriteBlob;
-    req.len = (uint8_t)len;
+    req.len = (uint16_t)len;
     if (!copyNvsKey_(req.key, key)) return false;
     memcpy(req.bytes, value, len);
     return enqueuePersistence_(req);

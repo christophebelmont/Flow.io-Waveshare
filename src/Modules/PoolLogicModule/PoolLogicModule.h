@@ -159,6 +159,9 @@ private:
     bool orpAutoMode_ = false;
     bool heaterAutoMode_ = false;
     bool phDosePlus_ = false;
+    bool indoorPool_ = false;
+    bool automaticCoverPresent_ = false;
+    bool coverClosedAtNight_ = false;
     uint8_t disinfectionType_ = DisinfectionChlorineBromine;
     uint8_t swgControlMode_ = SwgControlContinuous;
 
@@ -292,6 +295,12 @@ private:
                                                    &disinfectionType_, ConfigPersistence::Persistent, 0};
     ConfigVariable<uint8_t,0> swgControlModeVar_{NVS_KEY(NvsKeys::PoolLogic::SwgControlMode), "swg_control_mode", "poollogic/swg", ConfigType::UInt8,
                                                  &swgControlMode_, ConfigPersistence::Persistent, 0};
+    ConfigVariable<bool,0> indoorPoolVar_{NVS_KEY(NvsKeys::PoolLogic::IndoorPool), "indoor", "poollogic/pool", ConfigType::Bool,
+                                          &indoorPool_, ConfigPersistence::Persistent, 0};
+    ConfigVariable<bool,0> automaticCoverVar_{NVS_KEY(NvsKeys::PoolLogic::AutomaticCover), "automatic_cover", "poollogic/pool", ConfigType::Bool,
+                                              &automaticCoverPresent_, ConfigPersistence::Persistent, 0};
+    ConfigVariable<bool,0> coverClosedAtNightVar_{NVS_KEY(NvsKeys::PoolLogic::CoverClosedAtNight), "cover_closed_at_night", "poollogic/pool", ConfigType::Bool,
+                                                  &coverClosedAtNight_, ConfigPersistence::Persistent, 0};
 
     ConfigVariable<float,0> tempLowVar_{NVS_KEY(NvsKeys::PoolLogic::TempLow), "wat_temp_lo_th", "poollogic/filtration", ConfigType::Float,
                                         &waterTempLowThreshold_, ConfigPersistence::Persistent, 0};
@@ -421,6 +430,12 @@ private:
     const MqttService* mqttSvc_ = nullptr;
     const AlarmService* alarmSvc_ = nullptr;
     const ActivityLogService* activityLogSvc_ = nullptr;
+    static bool serviceGetPoolCharacteristics_(void* ctx, PoolCharacteristics* outCharacteristics);
+    bool getPoolCharacteristics_(PoolCharacteristics& outCharacteristics) const;
+    PoolConfigurationService poolConfigurationSvc_{
+        &PoolLogicModule::serviceGetPoolCharacteristics_,
+        this
+    };
     MqttConfigRouteProducer* cfgMqttPub_ = nullptr;
 
     // Lifecycle
