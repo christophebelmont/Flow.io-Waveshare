@@ -119,19 +119,21 @@
               </div>
             </div>
             <div class="pool-hero-side">
-              <button id="poolConfigRefresh" class="btn-tonal btn-icon-only btn-refresh-icon pool-hero-refresh" aria-label="Rafraîchir la configuration piscine" title="Rafraîchir la configuration piscine" data-i18n-aria-label="pool.refresh" data-i18n-title="pool.refresh"><span class="refresh-icon-glyph" aria-hidden="true"></span></button>
+              <button id="poolAiRefresh" type="button" class="btn-primary pool-ai-action-btn pool-hero-action" aria-label="Générer l’analyse IA" title="Générer l’analyse IA" data-i18n-aria-label="pool.ai.refresh" data-i18n-title="pool.ai.refresh">
+                <span class="ui-msr btn-msr" aria-hidden="true">auto_awesome</span>
+                <span data-i18n="pool.ai.action">Analyse IA</span>
+              </button>
               <div id="poolModeBadges" class="pool-mode-badges" aria-live="polite"></div>
             </div>
+            <article class="pool-ai-text-block pool-ai-result-block pool-hero-ai-result" aria-live="polite">
+              <h3 id="poolAiResultTitle" data-i18n="pool.ai.result">Préconisation et explication</h3>
+              <p id="poolAiStatus" class="pool-ai-status" data-i18n="pool.ai.loading">Chargement de l’analyse…</p>
+              <pre id="poolAiInsightText">—</pre>
+            </article>
           </section>
           <section id="poolAlarmCard" class="pool-alarm-card" hidden aria-live="polite"></section>
           <section id="poolDisinfectionModes" class="pool-treatment-panel" aria-live="polite"></section>
           <section id="poolConfigGrid" class="pool-config-grid" aria-live="polite"></section>
-          <div class="pool-ai-action-row">
-            <button id="poolAiRefresh" type="button" class="btn-primary pool-ai-action-btn" aria-label="Générer l’analyse IA" title="Générer l’analyse IA" data-i18n-aria-label="pool.ai.refresh" data-i18n-title="pool.ai.refresh">
-              <span class="ui-msr btn-msr" aria-hidden="true">auto_awesome</span>
-              <span data-i18n="pool.ai.action">Analyse IA</span>
-            </button>
-          </div>
           <section id="poolAiPreview" class="pool-ai-preview" aria-live="polite">
             <div class="pool-ai-head">
               <span class="ui-msr pool-card-icon" aria-hidden="true">auto_awesome</span>
@@ -140,11 +142,6 @@
                 <p data-i18n="pool.ai.note">Génère sur demande une explication concise de l’état et de la dynamique du bassin.</p>
               </div>
             </div>
-            <p id="poolAiStatus" class="pool-ai-status" data-i18n="pool.ai.loading">Chargement de l’analyse…</p>
-            <article class="pool-ai-text-block pool-ai-result-block">
-              <h4 data-i18n="pool.ai.result">Préconisation et explication</h4>
-              <pre id="poolAiInsightText">—</pre>
-            </article>
             <details class="pool-ai-diagnostics">
               <summary>
                 <span class="ui-msr pool-ai-diagnostics-icon" aria-hidden="true">expand_more</span>

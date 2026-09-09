@@ -221,6 +221,7 @@
         const fallback = String(node.getAttribute('aria-label') || '').trim();
         node.setAttribute('aria-label', tr(key, fallback));
       });
+      refreshPoolAiResultTitle();
     }
 
     function applyWebUiLocale(locale) {
@@ -1952,7 +1953,6 @@
     const poolMeasuresDomains = document.getElementById('poolMeasuresDomains');
     const poolMeasuresStatus = document.getElementById('poolMeasuresStatus');
     const poolMeasuresGrid = document.getElementById('poolMeasuresGrid');
-    const poolConfigRefreshBtn = document.getElementById('poolConfigRefresh');
     const poolConfigTitle = document.getElementById('poolConfigTitle');
     const poolConfigSummary = document.getElementById('poolConfigSummary');
     const poolHeroState = document.getElementById('poolHeroState');
@@ -1964,6 +1964,7 @@
     const poolAlarmCard = document.getElementById('poolAlarmCard');
     const poolConfigGrid = document.getElementById('poolConfigGrid');
     const poolAiRefreshBtn = document.getElementById('poolAiRefresh');
+    const poolAiResultTitle = document.getElementById('poolAiResultTitle');
     const poolAiStatus = document.getElementById('poolAiStatus');
     const poolAiInsightText = document.getElementById('poolAiInsightText');
     const poolAiWeatherText = document.getElementById('poolAiWeatherText');
@@ -7445,7 +7446,6 @@
     async function loadPoolConfig(forceRefresh) {
       const reqSeq = ++poolConfigReqSeq;
       if (!poolConfigLoadedOnce || forceRefresh) poolConfigRenderSkeleton();
-      if (poolConfigRefreshBtn) poolConfigRefreshBtn.disabled = true;
       try {
         await poolConfigEnsureDocs().catch(() => {});
         const modules = {};
@@ -7462,10 +7462,6 @@
       } catch (err) {
         if (reqSeq !== poolConfigReqSeq) return;
         poolConfigRenderError(err);
-      } finally {
-        if (reqSeq === poolConfigReqSeq && poolConfigRefreshBtn) {
-          poolConfigRefreshBtn.disabled = false;
-        }
       }
     }
 
@@ -7475,9 +7471,37 @@
       poolAiPreviewPollTimer = null;
     }
 
+    function formatPoolAiInsightTimestamp(rawEpochSeconds) {
+      const epochSeconds = Number(rawEpochSeconds);
+      if (!Number.isFinite(epochSeconds) || epochSeconds <= 0) return '';
+      const generatedAt = new Date(Math.trunc(epochSeconds) * 1000);
+      if (!Number.isFinite(generatedAt.getTime())) return '';
+      const pad2 = (value) => String(value).padStart(2, '0');
+      return pad2(generatedAt.getDate()) + '/' +
+        pad2(generatedAt.getMonth() + 1) + ' ' +
+        pad2(generatedAt.getHours()) + ':' +
+        pad2(generatedAt.getMinutes());
+    }
+
+    function refreshPoolAiResultTitle() {
+      if (!poolAiResultTitle) return;
+      const generatedAt = String(poolAiResultTitle.dataset.generatedAt || '');
+      poolAiResultTitle.textContent = generatedAt
+        ? tr('pool.ai.resultAt', 'Préconisation et explication au {date}').replace('{date}', generatedAt)
+        : tr('pool.ai.result', 'Préconisation et explication');
+    }
+
     function renderPoolAiPreview(payload) {
+      const insightText = String(payload && payload.insight_text ? payload.insight_text : '');
       if (poolAiInsightText) {
-        poolAiInsightText.textContent = String(payload && payload.insight_text ? payload.insight_text : '—');
+        poolAiInsightText.textContent = insightText || '—';
+      }
+      if (poolAiResultTitle) {
+        const generatedAt = insightText
+          ? formatPoolAiInsightTimestamp(payload && payload.insight_generated_at_utc)
+          : '';
+        poolAiResultTitle.dataset.generatedAt = generatedAt;
+        refreshPoolAiResultTitle();
       }
       if (poolAiWeatherText) {
         poolAiWeatherText.textContent = String(payload && payload.weather_text ? payload.weather_text : '—');
@@ -7491,7 +7515,7 @@
       const weatherState = String(payload && payload.weather_state ? payload.weather_state : 'idle');
       const insightState = String(payload && payload.insight_state ? payload.insight_state : 'idle');
       if (insightState === 'queued' || insightState === 'loading') {
-        poolAiStatus.textContent = tr('pool.ai.analysisPending', 'Analyse OpenAI en cours…');
+        poolAiStatus.textContent = tr('pool.ai.analysisPending', 'Analyse IA en cours…');
         return;
       }
       if (weatherState === 'queued' || weatherState === 'loading') {
@@ -7581,7 +7605,7 @@
       stopPoolAiPreviewPolling();
       if (poolAiRefreshBtn) poolAiRefreshBtn.disabled = true;
       if (poolAiStatus) {
-        poolAiStatus.textContent = tr('pool.ai.analysisPending', 'Analyse OpenAI en cours…');
+        poolAiStatus.textContent = tr('pool.ai.analysisPending', 'Analyse IA en cours…');
         poolAiStatus.classList.remove('is-ready', 'is-error');
       }
       try {
@@ -11127,7 +11151,6 @@
           showPoolMeasuresError(err);
         }
       });
-      bindClickAction(poolConfigRefreshBtn, () => onPoolConfigPageShown(true));
       bindClickAction(poolAiRefreshBtn, requestPoolAiInsight);
     }
 

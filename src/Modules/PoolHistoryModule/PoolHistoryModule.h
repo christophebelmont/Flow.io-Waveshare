@@ -60,7 +60,7 @@ private:
     static constexpr uint64_t kMinimumValidEpoch = 1609459200ULL;
     static constexpr uint32_t kLoopPeriodMs = 1000U;
     static constexpr uint32_t kMetricSamplePeriodMs = 5U * 60U * 1000U;
-    static constexpr uint32_t kPersistPeriodMs = 15U * 60U * 1000U;
+    static constexpr uint32_t kPersistPeriodMs = 60U * 60U * 1000U;
     static constexpr uint32_t kMaximumAccrualGapMs = 5U * 60U * 1000U;
     static constexpr uint32_t kMaximumSensorAgeMs = 15U * 60U * 1000U;
     static constexpr uint32_t kWaterQualityWarmupMs = 10U * 60U * 1000U;
