@@ -65,6 +65,9 @@ public:
     void onStart(ConfigStore& cfg, ServiceRegistry& services) override;
     void loop() override;
     uint16_t taskStackSize() const override { return Limits::Mqtt::TaskStackSize; }
+    UBaseType_t taskStackCaps() const override {
+        return MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+    }
     uint32_t startDelayMs() const override {
         return 4000U;
     }
@@ -175,7 +178,7 @@ private:
     static constexpr uint8_t MaxJobs = Limits::Mqtt::Capacity::MaxJobs;
     static constexpr uint16_t RetryMinMs = 250;
     static constexpr uint16_t RetryMaxMs = 10000;
-    static constexpr uint8_t ProcessBudgetPerTick = 8;
+    static constexpr uint8_t ProcessBudgetPerTick = 1;
 
     static constexpr uint16_t HighQueueCap = Limits::Mqtt::Capacity::HighQueueCap;
     static constexpr uint16_t NormalQueueCap = Limits::Mqtt::Capacity::NormalQueueCap;
@@ -277,6 +280,10 @@ private:
     uint32_t oversizeDropCount_ = 0;
     uint32_t lastEnqueueRejectLogMs_ = 0;
     uint32_t lastDataChangedTraceLogMs_ = 0;
+    uint32_t lastPublishDispatchMs_ = 0;
+    uint32_t lastMemoryGuardLogMs_ = 0;
+    uint32_t mqttClientStackReportDueMs_ = 0;
+    bool mqttClientStackReportPending_ = false;
     uint32_t occLastReportMs_ = 0;
     uint16_t occMaxJobs_ = 0;
     uint16_t occMaxHigh_ = 0;
@@ -294,6 +301,7 @@ private:
     void setState_(MQTTState s);
     static void onRuntimeInitialSnapshotCompleteStatic_(void* ctx);
     void onRuntimeInitialSnapshotComplete_();
+    void reportClientTaskStackIfDue_(uint32_t nowMs);
     bool allocateScratchBuffers_();
     bool allocateRxQueue_();
     void refreshTopicDeviceId_();

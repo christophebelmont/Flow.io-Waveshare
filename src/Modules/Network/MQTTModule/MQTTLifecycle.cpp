@@ -139,6 +139,36 @@ void MQTTModule::onRuntimeInitialSnapshotComplete_()
     }
 }
 
+void MQTTModule::reportClientTaskStackIfDue_(uint32_t nowMs)
+{
+    if (!mqttClientStackReportPending_ ||
+        (int32_t)(nowMs - mqttClientStackReportDueMs_) < 0) {
+        return;
+    }
+
+    TaskHandle_t mqttTask = xTaskGetHandle("mqtt_task");
+    if (!mqttTask) {
+        mqttClientStackReportDueMs_ = nowMs + 5000U;
+        return;
+    }
+
+    const UBaseType_t minimumFreeBytes = uxTaskGetStackHighWaterMark(mqttTask);
+    const uint32_t configuredBytes = Limits::Mqtt::Client::TaskStackSize;
+    const uint32_t maximumUsedBytes = minimumFreeBytes < configuredBytes
+        ? configuredBytes - (uint32_t)minimumFreeBytes
+        : 0U;
+    const int outboxBytes = client_ ? esp_mqtt_client_get_outbox_size(client_) : -1;
+    const uint32_t internalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    LOGI("client resources stack=%luB used_max=%luB free_min=%luB outbox=%dB internal_free=%lu internal_largest=%lu",
+         (unsigned long)configuredBytes,
+         (unsigned long)maximumUsedBytes,
+         (unsigned long)minimumFreeBytes,
+         outboxBytes,
+         (unsigned long)heap_caps_get_free_size(internalCaps),
+         (unsigned long)heap_caps_get_largest_free_block(internalCaps));
+    mqttClientStackReportPending_ = false;
+}
+
 bool MQTTModule::allocateScratchBuffers_()
 {
     if (scratch_) return true;
@@ -571,6 +601,8 @@ void MQTTModule::loop()
             }
             break;
     }
+
+    reportClientTaskStackIfDue_(nowMs);
 
     vTaskDelay(pdMS_TO_TICKS(Limits::Mqtt::Timing::LoopDelayMs));
 }

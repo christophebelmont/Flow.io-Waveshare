@@ -84,6 +84,11 @@ bool MQTTModule::ensureClient_()
     cfg.session.last_will.qos = 1;
     cfg.session.last_will.retain = 1;
     cfg.network.disable_auto_reconnect = true;
+    cfg.network.timeout_ms = Limits::Mqtt::Client::NetworkTimeoutMs;
+    cfg.task.stack_size = (int)Limits::Mqtt::Client::TaskStackSize;
+    cfg.buffer.size = Limits::Mqtt::Client::BufferSize;
+    cfg.buffer.out_size = Limits::Mqtt::Client::BufferSize;
+    cfg.outbox.limit = Limits::Mqtt::Client::OutboxLimitBytes;
 #else
     cfg.uri = brokerUri_;
     cfg.client_id = deviceId_;
@@ -130,6 +135,8 @@ void MQTTModule::destroyClient_()
     (void)esp_mqtt_client_destroy(client_);
     client_ = nullptr;
     clientStarted_ = false;
+    mqttClientStackReportPending_ = false;
+    mqttClientStackReportDueMs_ = 0U;
 }
 
 void MQTTModule::connectMqtt_()
@@ -215,6 +222,8 @@ void MQTTModule::onConnect_(bool)
         setMqttRuntimeFullSnapshotPublished(*dataStore_, false);
     }
     setState_(MQTTState::Connected);
+    mqttClientStackReportDueMs_ = millis() + Limits::Mqtt::Timing::ClientStackReportDelayMs;
+    mqttClientStackReportPending_ = true;
 
     (void)enqueue(ProducerIdStatus, StatusMsgOnline, MqttPublishPriority::High, 0);
     if (cfgProducer_) {

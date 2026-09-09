@@ -184,7 +184,23 @@ constexpr uint32_t NetWarmupMs = 2000;
 constexpr uint32_t ConnectTimeoutMs = 10000;
 /** @brief Main MQTT task loop delay in ms (`MQTTModule::loop`). */
 constexpr uint32_t LoopDelayMs = 50;
+/** @brief Minimum interval between two MQTT publish dispatches. */
+constexpr uint32_t PublishDispatchIntervalMs = 100U;
+/** @brief Delay after connection before reporting the ESP-MQTT task stack watermark. */
+constexpr uint32_t ClientStackReportDelayMs = 30000U;
 }  // namespace Timing
+
+/** @brief ESP-MQTT client resource limits. */
+namespace Client {
+/** @brief ESP-MQTT worker stack, sized from the measured target high-water mark. */
+constexpr uint32_t TaskStackSize = 4U * 1024U;
+/** @brief Input and output MQTT buffers, allocated from PSRAM by the platform policy. */
+constexpr int BufferSize = 2 * 1024;
+/** @brief Maximum number of bytes retained by the ESP-MQTT QoS outbox. */
+constexpr uint64_t OutboxLimitBytes = 8U * 1024U;
+/** @brief Maximum duration of a blocking MQTT network operation. */
+constexpr int NetworkTimeoutMs = 3000;
+}  // namespace Client
 
 /** @brief MQTT reconnect backoff profile. */
 namespace Backoff {
@@ -324,10 +340,10 @@ constexpr uint32_t DiscoveryStepMs = 200;
 
 /** @brief Shared heap guards before network publishes (MQTT and HA discovery). */
 namespace NetworkPublish {
-/** @brief Minimum free 8-bit heap (bytes) required before attempting publish. */
-constexpr uint32_t MinFreeHeapBytes = 4000U;
-/** @brief Minimum largest 8-bit free block (bytes) required before attempting publish. */
-constexpr uint32_t MinLargestBlockBytes = 4096U;
+/** @brief Internal RAM reserve required before attempting a network publish. */
+constexpr uint32_t MinInternalFreeBytes = 16U * 1024U;
+/** @brief Largest internal block required before attempting a network publish. */
+constexpr uint32_t MinInternalLargestBlockBytes = 6U * 1024U;
 }  // namespace NetworkPublish
 
 /** @brief Boot orchestration timings used in `main.cpp` staged startup. */

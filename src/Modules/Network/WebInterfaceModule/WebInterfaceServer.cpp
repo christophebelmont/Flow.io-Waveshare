@@ -5127,7 +5127,6 @@ void WebInterfaceModule::startServer_()
             return nullptr;
         }
         response->addHeader("Vary", "Accept-Encoding");
-        response->addHeader("Connection", "close");
         if (hasGzip) {
             response->addHeader("Content-Encoding", "gzip");
         }

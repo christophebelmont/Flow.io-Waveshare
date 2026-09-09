@@ -54,12 +54,15 @@ MemoryPressureState deriveMemoryPressureState_(const SystemStatsSnapshot& snap)
     const uint32_t largestBytes = snap.heap.internalLargestFreeBlock;
     const uint8_t frag = snap.heap.internalFragPercent;
 
-    // Keep "shedding" below 20KB free heap, then tighten higher states to
-    // reduce warning churn while preserving severe-state protection.
-    if (freeBytes < 12000U && largestBytes < 5000U && frag > 55U) return MemoryPressureState::Panic;
-    if (freeBytes < 16000U && largestBytes < 7000U && frag > 45U) return MemoryPressureState::Critical;
-    if (freeBytes < 20000U && largestBytes < 10000U && frag > 35U) return MemoryPressureState::Shedding;
-    if (freeBytes < 24000U && largestBytes < 14000U && frag > 28U) return MemoryPressureState::Constrained;
+    // Absolute internal-memory shortages are sufficient to escalate. Heap
+    // fragmentation may escalate earlier, but can never hide a low-free state.
+    if (freeBytes < 6000U || largestBytes < 2048U) return MemoryPressureState::Panic;
+    if (freeBytes < 12000U || largestBytes < 4096U) return MemoryPressureState::Critical;
+    if (freeBytes < 16000U || largestBytes < 6144U ||
+        (freeBytes < 20000U && frag > 35U)) return MemoryPressureState::Shedding;
+    if (freeBytes < 24000U || largestBytes < 10000U || frag > 45U) {
+        return MemoryPressureState::Constrained;
+    }
     return MemoryPressureState::Normal;
 }
 
@@ -78,16 +81,16 @@ MemoryPressureState applyMemoryPressureHysteresis_(const SystemStatsSnapshot& sn
     // alternate and emit a warning on every sysmon pass.
     switch (previous) {
     case MemoryPressureState::Panic:
-        if (freeBytes < 14000U && largestBytes < 6000U && frag > 50U) return previous;
+        if (freeBytes < 8000U || largestBytes < 3072U) return previous;
         break;
     case MemoryPressureState::Critical:
-        if (freeBytes < 18000U && largestBytes < 8500U && frag > 40U) return previous;
+        if (freeBytes < 14000U || largestBytes < 5120U) return previous;
         break;
     case MemoryPressureState::Shedding:
-        if (freeBytes < 24000U && largestBytes < 12000U && frag > 30U) return previous;
+        if (freeBytes < 20000U || largestBytes < 8192U) return previous;
         break;
     case MemoryPressureState::Constrained:
-        if (freeBytes < 28000U && largestBytes < 16000U && frag > 22U) return previous;
+        if (freeBytes < 28000U || largestBytes < 12288U || frag > 35U) return previous;
         break;
     case MemoryPressureState::Normal:
     default:

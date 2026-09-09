@@ -7634,7 +7634,7 @@
     async function onPoolConfigPageShown(forceRefresh) {
       await Promise.allSettled([
         loadPoolConfig(!!forceRefresh || !poolConfigLoadedOnce),
-        loadPoolAiPreview(!!forceRefresh || !poolAiPreviewLoadedOnce, 0)
+        loadPoolAiPreview(true, 0)
       ]);
     }
 

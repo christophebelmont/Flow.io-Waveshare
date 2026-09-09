@@ -363,17 +363,30 @@ bool MQTTModule::tryPublishNow_(const char* topic, const char* payload, uint8_t 
     if (state_ != MQTTState::Connected) return false;
     if (!client_) return false;
 
-    const uint32_t freeHeap = heap_caps_get_free_size(MALLOC_CAP_8BIT);
-    const uint32_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
-    if (freeHeap < Limits::NetworkPublish::MinFreeHeapBytes ||
-        largest < Limits::NetworkPublish::MinLargestBlockBytes) {
+    const uint32_t internalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    const uint32_t freeInternal = heap_caps_get_free_size(internalCaps);
+    const uint32_t largestInternal = heap_caps_get_largest_free_block(internalCaps);
+    if (freeInternal < Limits::NetworkPublish::MinInternalFreeBytes ||
+        largestInternal < Limits::NetworkPublish::MinInternalLargestBlockBytes) {
+        const uint32_t nowMs = millis();
+        if (lastMemoryGuardLogMs_ == 0U ||
+            (uint32_t)(nowMs - lastMemoryGuardLogMs_) >= 5000U) {
+            lastMemoryGuardLogMs_ = nowMs;
+            LOGW("publish deferred: internal memory reserve free=%lu largest=%lu required_free=%lu required_largest=%lu",
+                 (unsigned long)freeInternal,
+                 (unsigned long)largestInternal,
+                 (unsigned long)Limits::NetworkPublish::MinInternalFreeBytes,
+                 (unsigned long)Limits::NetworkPublish::MinInternalLargestBlockBytes);
+        }
         return false;
     }
 
     if (qos > 0U) {
-        static constexpr int kMaxOutboxBytes = 12 * 1024;
         const int outboxBytes = esp_mqtt_client_get_outbox_size(client_);
-        if (outboxBytes >= kMaxOutboxBytes) return false;
+        if (outboxBytes < 0 ||
+            (uint64_t)outboxBytes >= Limits::Mqtt::Client::OutboxLimitBytes) {
+            return false;
+        }
     }
 
     const int packetId = esp_mqtt_client_publish(client_, topic, payload, 0, qos, retain ? 1 : 0);
@@ -382,6 +395,12 @@ bool MQTTModule::tryPublishNow_(const char* topic, const char* payload, uint8_t 
 
 void MQTTModule::processJobs_(uint32_t nowMs)
 {
+    if (lastPublishDispatchMs_ != 0U &&
+        (uint32_t)(nowMs - lastPublishDispatchMs_) <
+            Limits::Mqtt::Timing::PublishDispatchIntervalMs) {
+        return;
+    }
+
     for (uint8_t budget = 0; budget < ProcessBudgetPerTick; ++budget) {
         if (!scratch_) return;
 
@@ -433,6 +452,7 @@ void MQTTModule::processJobs_(uint32_t nowMs)
                                              sizeof(scratch_->payload),
                                              ctx.topic,
                                              nullptr);
+                    lastPublishDispatchMs_ = nowMs;
                     published = tryPublishNow_(ctx.topic, ctx.payload, ctx.qos, ctx.retain);
                 }
             }
