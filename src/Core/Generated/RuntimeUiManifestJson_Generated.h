@@ -111,7 +111,21 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
       "displayConfig": {
         "flagRole": "resettable",
         "columnLabel": "Reset"
-      }
+      },
+      "actions": [
+        {
+          "id": "acknowledge",
+          "command": "alarms.reset",
+          "presentation": "button",
+          "input": {
+            "name": "id",
+            "type": "uint32"
+          },
+          "refreshDomains": [
+            "alarm"
+          ]
+        }
+      ]
     },
     {
       "id": 903,
@@ -184,7 +198,22 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
       "displayConfig": {
         "activeText": "En marche",
         "inactiveText": "Arret"
-      }
+      },
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.filtration.write",
+          "presentation": "switch",
+          "input": {
+            "name": "value",
+            "type": "bool"
+          },
+          "refreshDomains": [
+            "mode",
+            "equipements"
+          ]
+        }
+      ]
     },
     {
       "id": 2302,
@@ -203,7 +232,22 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
       "enum": null,
       "flags": null,
       "display": "boolean",
-      "displayConfig": null
+      "displayConfig": null,
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.ph_pump.write",
+          "presentation": "switch",
+          "input": {
+            "name": "value",
+            "type": "bool"
+          },
+          "refreshDomains": [
+            "mode",
+            "equipements"
+          ]
+        }
+      ]
     },
     {
       "id": 2303,
@@ -222,7 +266,22 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
       "enum": null,
       "flags": null,
       "display": "boolean",
-      "displayConfig": null
+      "displayConfig": null,
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.dis_pump.write",
+          "presentation": "switch",
+          "input": {
+            "name": "value",
+            "type": "bool"
+          },
+          "refreshDomains": [
+            "mode",
+            "equipements"
+          ]
+        }
+      ]
     },
     {
       "id": 2304,
@@ -241,7 +300,22 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
       "enum": null,
       "flags": null,
       "display": "boolean",
-      "displayConfig": null
+      "displayConfig": null,
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.robot.write",
+          "presentation": "switch",
+          "input": {
+            "name": "value",
+            "type": "bool"
+          },
+          "refreshDomains": [
+            "mode",
+            "equipements"
+          ]
+        }
+      ]
     },
     {
       "id": 2401,
@@ -263,7 +337,22 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
       "displayConfig": {
         "activeText": "Actif",
         "inactiveText": "Manuel"
-      }
+      },
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.auto_mode.set",
+          "presentation": "switch",
+          "input": {
+            "name": "value",
+            "type": "bool"
+          },
+          "refreshDomains": [
+            "mode",
+            "equipements"
+          ]
+        }
+      ]
     },
     {
       "id": 2402,
@@ -285,7 +374,22 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
       "displayConfig": {
         "activeText": "Actif",
         "inactiveText": "Arret"
-      }
+      },
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.winter_mode.set",
+          "presentation": "switch",
+          "input": {
+            "name": "value",
+            "type": "bool"
+          },
+          "refreshDomains": [
+            "mode",
+            "equipements"
+          ]
+        }
+      ]
     },
     {
       "id": 2403,
@@ -307,7 +411,22 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
       "displayConfig": {
         "activeText": "Actif",
         "inactiveText": "Arret"
-      }
+      },
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.ph_auto_mode.set",
+          "presentation": "switch",
+          "input": {
+            "name": "value",
+            "type": "bool"
+          },
+          "refreshDomains": [
+            "mode",
+            "equipements"
+          ]
+        }
+      ]
     },
     {
       "id": 2404,
@@ -329,7 +448,22 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
       "displayConfig": {
         "activeText": "Actif",
         "inactiveText": "Arret"
-      }
+      },
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.dis_auto_mode.set",
+          "presentation": "switch",
+          "input": {
+            "name": "value",
+            "type": "bool"
+          },
+          "refreshDomains": [
+            "mode",
+            "equipements"
+          ]
+        }
+      ]
     },
     {
       "id": 2101,

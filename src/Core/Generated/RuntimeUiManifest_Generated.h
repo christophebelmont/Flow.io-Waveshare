@@ -9,12 +9,40 @@
 
 #include "Core/RuntimeUi.h"
 
+enum class RuntimeUiActionInputType : uint8_t {
+    None = 0,
+    Bool,
+    UInt32
+};
+
+struct RuntimeUiActionManifestItem {
+    RuntimeUiId runtimeId;
+    const char* actionId;
+    const char* command;
+    const char* inputName;
+    RuntimeUiActionInputType inputType;
+};
+
 struct RuntimeUiManifestItem {
     RuntimeUiId id;
     const char* key;
     const char* type;
     const char* unit;
 };
+
+inline constexpr RuntimeUiActionManifestItem kRuntimeUiActionManifestItems[] = {
+    {902, "acknowledge", "alarms.reset", "id", RuntimeUiActionInputType::UInt32},
+    {2301, "set", "poollogic.filtration.write", "value", RuntimeUiActionInputType::Bool},
+    {2302, "set", "poollogic.ph_pump.write", "value", RuntimeUiActionInputType::Bool},
+    {2303, "set", "poollogic.dis_pump.write", "value", RuntimeUiActionInputType::Bool},
+    {2304, "set", "poollogic.robot.write", "value", RuntimeUiActionInputType::Bool},
+    {2401, "set", "poollogic.auto_mode.set", "value", RuntimeUiActionInputType::Bool},
+    {2402, "set", "poollogic.winter_mode.set", "value", RuntimeUiActionInputType::Bool},
+    {2403, "set", "poollogic.ph_auto_mode.set", "value", RuntimeUiActionInputType::Bool},
+    {2404, "set", "poollogic.dis_auto_mode.set", "value", RuntimeUiActionInputType::Bool},
+};
+
+inline constexpr size_t kRuntimeUiActionManifestItemCount = 9U;
 
 inline constexpr RuntimeUiManifestItem kRuntimeUiManifestItems[] = {
     {901, "alarms.active_mask", "uint32", nullptr},
@@ -63,6 +91,21 @@ inline constexpr const RuntimeUiManifestItem* findRuntimeUiManifestItem(RuntimeU
 {
     for (size_t i = 0; i < kRuntimeUiManifestItemCount; ++i) {
         if (kRuntimeUiManifestItems[i].id == id) return &kRuntimeUiManifestItems[i];
+    }
+    return nullptr;
+}
+
+inline constexpr const RuntimeUiActionManifestItem* findRuntimeUiActionManifestItem(
+    RuntimeUiId runtimeId, const char* actionId)
+{
+    if (!actionId) return nullptr;
+    for (size_t i = 0; i < kRuntimeUiActionManifestItemCount; ++i) {
+        const RuntimeUiActionManifestItem& item = kRuntimeUiActionManifestItems[i];
+        if (item.runtimeId != runtimeId) continue;
+        const char* left = item.actionId;
+        const char* right = actionId;
+        while (*left != '\0' && *left == *right) { ++left; ++right; }
+        if (*left == '\0' && *right == '\0') return &item;
     }
     return nullptr;
 }

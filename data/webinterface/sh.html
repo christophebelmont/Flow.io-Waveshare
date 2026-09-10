@@ -86,32 +86,31 @@
             <div class="pool-hero-main">
               <span class="ui-msr pool-hero-icon" aria-hidden="true">pool</span>
               <div class="pool-hero-copy">
-                <h2 id="poolConfigTitle" data-i18n="pool.overview.title">État général</h2>
-                <div id="poolHeroState" class="pool-hero-state is-ok" aria-live="polite">
-                  <span class="ui-msr pool-hero-state-icon" aria-hidden="true">check_circle</span>
-                  <span data-i18n="pool.state.normalStatus">État normal</span>
-                </div>
-                <p id="poolConfigSummary" data-i18n="pool.summary">Lecture des paramètres utilisateur de filtration, traitement, chauffage et remplissage.</p>
+                <h2 id="poolConfigTitle" class="is-loading" aria-busy="true"></h2>
+                <div id="poolHeroState" class="pool-hero-state is-loading" aria-live="polite" aria-busy="true"></div>
+                <p id="poolConfigSummary" class="is-loading" aria-busy="true"></p>
                 <div class="pool-filtration-daybar" aria-hidden="true">
-                  <span id="poolFiltrationStart" class="pool-daybar-time">--:--</span>
+                  <span id="poolFiltrationStart" class="pool-daybar-time is-loading">--:--</span>
                   <span class="pool-daybar-track"><span id="poolFiltrationFill" class="pool-daybar-fill"></span></span>
-                  <span id="poolFiltrationStop" class="pool-daybar-time">--:--</span>
+                  <span id="poolFiltrationStop" class="pool-daybar-time is-loading">--:--</span>
                 </div>
               </div>
             </div>
             <div class="pool-hero-side">
-              <button id="poolAiRefresh" type="button" class="btn-primary pool-ai-action-btn pool-hero-action" aria-label="Générer l’analyse IA" title="Générer l’analyse IA" data-i18n-aria-label="pool.ai.refresh" data-i18n-title="pool.ai.refresh">
-                <span class="ui-msr btn-msr" aria-hidden="true">auto_awesome</span>
-                <span data-i18n="pool.ai.action">Analyse IA</span>
-              </button>
-              <div id="poolModeBadges" class="pool-mode-badges" aria-live="polite"></div>
+              <div class="pool-hero-ai-toolbar">
+                <button id="poolAiRefresh" type="button" class="btn-primary pool-ai-action-btn pool-hero-action" aria-label="Générer l’analyse IA" title="Générer l’analyse IA" data-i18n-aria-label="pool.ai.refresh" data-i18n-title="pool.ai.refresh">
+                  <span class="ui-msr btn-msr" aria-hidden="true">auto_awesome</span>
+                  <span data-i18n="pool.ai.action">Analyse IA</span>
+                </button>
+                <p id="poolAiStatus" class="pool-ai-status" role="status" aria-live="polite" data-i18n="pool.ai.loading">Chargement de l’analyse…</p>
+              </div>
+              <article class="pool-hero-ai-result" aria-live="polite">
+                <h3 id="poolAiResultTitle" data-i18n="pool.ai.result">Préconisation et explication</h3>
+                <pre id="poolAiInsightText">—</pre>
+              </article>
             </div>
           </section>
-          <section class="dashboard-measures-panel" aria-labelledby="dashboardMeasuresTitle">
-            <div class="dashboard-section-head">
-              <h2 id="dashboardMeasuresTitle" class="control-section-title ui-heading-inline"><span class="ui-msr pool-card-icon dashboard-section-icon" aria-hidden="true">monitoring</span><span data-i18n="dashboard.liveMeasures">Mesures en direct</span></h2>
-              <button id="poolMeasuresRefresh" class="btn-tonal btn-icon-only btn-refresh-icon measure-refresh-btn" aria-label="Rafraîchir les mesures" title="Rafraîchir les mesures" data-i18n-aria-label="dashboard.refresh" data-i18n-title="dashboard.refresh"><span class="refresh-icon-glyph" aria-hidden="true"></span></button>
-            </div>
+          <section class="dashboard-measures-panel" aria-label="Domaines de mesures" data-i18n-aria-label="dashboard.domains.aria">
             <div id="poolMeasuresDomains" class="measure-domain-tabs" role="tablist" aria-label="Domaines de mesures" data-i18n-aria-label="dashboard.domains.aria"></div>
             <div class="measure-results-shell">
               <div id="poolMeasuresGrid" class="status-grid measure-status-grid"></div>
@@ -119,38 +118,21 @@
           </section>
           <section id="poolDisinfectionModes" class="pool-treatment-panel" aria-live="polite"></section>
           <section id="poolConfigGrid" class="pool-config-grid" aria-live="polite"></section>
-          <details id="poolAiPreview" class="pool-ai-preview">
-            <summary class="pool-ai-head">
-              <span class="ui-msr pool-card-icon" aria-hidden="true">auto_awesome</span>
-              <div class="pool-card-title-wrap">
-                <h3 data-i18n="pool.ai.title">Analyse IA du bassin</h3>
-                <p data-i18n="pool.ai.note">Génère sur demande une explication concise de l’état et de la dynamique du bassin.</p>
-              </div>
-              <span class="ui-msr pool-ai-panel-toggle" aria-hidden="true">expand_more</span>
+          <details id="poolAiPreview" class="pool-ai-diagnostics pool-ai-diagnostics-bottom">
+            <summary>
+              <span class="ui-msr pool-ai-diagnostics-icon" aria-hidden="true">expand_more</span>
+              <span class="pool-ai-details-closed" data-i18n="pool.ai.showDetails">Afficher la météo et le prompt</span>
+              <span class="pool-ai-details-open" data-i18n="pool.ai.hideDetails">Masquer la météo et le prompt</span>
             </summary>
-            <div class="pool-ai-panel-body">
-              <article class="pool-ai-text-block pool-ai-result-block" aria-live="polite">
-                <h3 id="poolAiResultTitle" data-i18n="pool.ai.result">Préconisation et explication</h3>
-                <p id="poolAiStatus" class="pool-ai-status" data-i18n="pool.ai.loading">Chargement de l’analyse…</p>
-                <pre id="poolAiInsightText">—</pre>
+            <div class="pool-ai-diagnostics-grid">
+              <article class="pool-ai-text-block">
+                <h4 data-i18n="pool.ai.weather">Météo</h4>
+                <pre id="poolAiWeatherText">—</pre>
               </article>
-              <details class="pool-ai-diagnostics">
-                <summary>
-                  <span class="ui-msr pool-ai-diagnostics-icon" aria-hidden="true">expand_more</span>
-                  <span class="pool-ai-details-closed" data-i18n="pool.ai.showDetails">Afficher la météo et le prompt</span>
-                  <span class="pool-ai-details-open" data-i18n="pool.ai.hideDetails">Masquer la météo et le prompt</span>
-                </summary>
-                <div class="pool-ai-diagnostics-grid">
-                  <article class="pool-ai-text-block">
-                    <h4 data-i18n="pool.ai.weather">Météo</h4>
-                    <pre id="poolAiWeatherText">—</pre>
-                  </article>
-                  <article class="pool-ai-text-block">
-                    <h4 data-i18n="pool.ai.prompt">Prompt préparé</h4>
-                    <pre id="poolAiPromptText">—</pre>
-                  </article>
-                </div>
-              </details>
+              <article class="pool-ai-text-block">
+                <h4 data-i18n="pool.ai.prompt">Prompt préparé</h4>
+                <pre id="poolAiPromptText">—</pre>
+              </article>
             </div>
           </details>
         </div>

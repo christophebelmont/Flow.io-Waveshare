@@ -11,6 +11,15 @@
         "activeText_t": "runtimeui.poollogic.v01.display.activeText",
         "inactiveText_t": "runtimeui.poollogic.v01.display.inactiveText"
       },
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.auto_mode.set",
+          "presentation": "switch",
+          "input": { "name": "value", "type": "bool" },
+          "refreshDomains": ["mode", "equipements"]
+        }
+      ],
       "order": 50,
       "label_t": "runtimeui.poollogic.v01.label",
       "group_t": "runtimeui.poollogic.v01.group"
@@ -25,6 +34,15 @@
         "activeText_t": "runtimeui.poollogic.v02.display.activeText",
         "inactiveText_t": "runtimeui.poollogic.v02.display.inactiveText"
       },
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.winter_mode.set",
+          "presentation": "switch",
+          "input": { "name": "value", "type": "bool" },
+          "refreshDomains": ["mode", "equipements"]
+        }
+      ],
       "order": 60,
       "label_t": "runtimeui.poollogic.v02.label",
       "group_t": "runtimeui.poollogic.v02.group"
@@ -39,6 +57,15 @@
         "activeText_t": "runtimeui.poollogic.v03.display.activeText",
         "inactiveText_t": "runtimeui.poollogic.v03.display.inactiveText"
       },
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.ph_auto_mode.set",
+          "presentation": "switch",
+          "input": { "name": "value", "type": "bool" },
+          "refreshDomains": ["mode", "equipements"]
+        }
+      ],
       "order": 70,
       "label_t": "runtimeui.poollogic.v03.label",
       "group_t": "runtimeui.poollogic.v03.group"
@@ -53,6 +80,15 @@
         "activeText_t": "runtimeui.poollogic.v04.display.activeText",
         "inactiveText_t": "runtimeui.poollogic.v04.display.inactiveText"
       },
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.dis_auto_mode.set",
+          "presentation": "switch",
+          "input": { "name": "value", "type": "bool" },
+          "refreshDomains": ["mode", "equipements"]
+        }
+      ],
       "order": 80,
       "label_t": "runtimeui.poollogic.v04.label",
       "group_t": "runtimeui.poollogic.v04.group"

@@ -85,6 +85,20 @@
         "flagRole": "resettable",
         "columnLabel_t": "runtimeui.alarms.v02.display.columnLabel"
       },
+      "actions": [
+        {
+          "id": "acknowledge",
+          "command": "alarms.reset",
+          "presentation": "button",
+          "input": {
+            "name": "id",
+            "type": "uint32"
+          },
+          "refreshDomains": [
+            "alarm"
+          ]
+        }
+      ],
       "order": 20,
       "label_t": "runtimeui.alarms.v02.label",
       "group_t": "runtimeui.alarms.v02.group"

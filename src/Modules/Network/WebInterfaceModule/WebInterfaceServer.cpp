@@ -106,6 +106,34 @@ static bool parseBoolParam_(const char* in, bool fallback)
     return fallback;
 }
 
+static bool parseStrictBoolParam_(const char* in, bool& out)
+{
+    if (!in || in[0] == '\0') return false;
+    if (strcasecmp(in, "1") == 0 || strcasecmp(in, "true") == 0) {
+        out = true;
+        return true;
+    }
+    if (strcasecmp(in, "0") == 0 || strcasecmp(in, "false") == 0) {
+        out = false;
+        return true;
+    }
+    return false;
+}
+
+static bool parseStrictUInt32Param_(const char* in, uint32_t& out)
+{
+    if (!in || in[0] == '\0' || in[0] == '-') return false;
+    uint32_t parsed = 0U;
+    for (const char* cursor = in; *cursor != '\0'; ++cursor) {
+        if (*cursor < '0' || *cursor > '9') return false;
+        const uint32_t digit = (uint32_t)(*cursor - '0');
+        if (parsed > ((UINT32_MAX - digit) / 10U)) return false;
+        parsed = (parsed * 10U) + digit;
+    }
+    out = parsed;
+    return true;
+}
+
 static bool copyRequestParamValue_(AsyncWebServerRequest* request,
                                    const char* name,
                                    bool post,
@@ -2382,6 +2410,7 @@ struct WaveshareAlarmDashboardSlotConfig {
 struct WaveshareAlarmDashboardSlotState {
     bool available = false;
     bool latched = false;
+    bool resettable = false;
     bool conditionKnown = false;
     bool conditionTrue = false;
 };
@@ -3586,6 +3615,8 @@ bool waveshareReadAlarmDashboardSlotState_(const AlarmService* alarmSvc,
     if (deserializeJson(doc, stateJson)) return false;
     out.available = true;
     out.latched = (doc["a"] | 0U) != 0U;
+    out.resettable = alarmSvc->isResettable &&
+                     alarmSvc->isResettable(alarmSvc->ctx, (AlarmId)alarmId);
     const uint8_t condition = doc["c"] | 2U;
     out.conditionKnown = condition != (uint8_t)AlarmCondState::Unknown;
     out.conditionTrue = condition == (uint8_t)AlarmCondState::True;
@@ -3687,6 +3718,8 @@ void sendWaveshareAlarmDashboardSlotsResponse_(AsyncResponseStream& response,
         response.print(available ? "true" : "false");
         response.print(",\"latched\":");
         response.print(state.latched ? "true" : "false");
+        response.print(",\"resettable\":");
+        response.print(state.resettable ? "true" : "false");
         response.print(",\"condition_known\":");
         response.print(state.conditionKnown ? "true" : "false");
         response.print(",\"condition_true\":");
@@ -6732,6 +6765,107 @@ void WebInterfaceModule::startServer_()
                                    sizeof(kRuntimeUiManifestJson) - 1U);
         addNoCacheHeaders_(response);
         request->send(response);
+    });
+
+    server_.on("/api/runtime/action", HTTP_POST, [this](AsyncWebServerRequest* request) {
+        HttpLatencyScope latency(request,
+                                 "/api/runtime/action",
+                                 kHttpLatencyFlowCfgInfoMs,
+                                 kHttpLatencyFlowCfgWarnMs);
+
+        char runtimeIdText[12] = {0};
+        char actionId[40] = {0};
+        uint32_t runtimeIdRaw = 0U;
+        if (!copyRequestParamValue_(request, "runtime_id", true, runtimeIdText, sizeof(runtimeIdText), "") ||
+            !parseStrictUInt32Param_(runtimeIdText, runtimeIdRaw) ||
+            runtimeIdRaw == 0U || runtimeIdRaw > UINT16_MAX ||
+            !copyRequestParamValue_(request, "action_id", true, actionId, sizeof(actionId), "")) {
+            request->send(400, "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"BadRequest\",\"where\":\"runtime.action.identity\"}}");
+            return;
+        }
+
+        const RuntimeUiActionManifestItem* action =
+            findRuntimeUiActionManifestItem((RuntimeUiId)runtimeIdRaw, actionId);
+        if (!action) {
+            request->send(404, "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"NotFound\",\"where\":\"runtime.action.manifest\"}}");
+            return;
+        }
+
+        char args[96] = {0};
+        if (action->inputType == RuntimeUiActionInputType::None) {
+            snprintf(args, sizeof(args), "{}");
+        } else {
+            char inputText[32] = {0};
+            if (!copyRequestParamValue_(request, "input", true, inputText, sizeof(inputText), "")) {
+                request->send(400, "application/json",
+                              "{\"ok\":false,\"err\":{\"code\":\"MissingValue\",\"where\":\"runtime.action.input\"}}");
+                return;
+            }
+
+            if (action->inputType == RuntimeUiActionInputType::Bool) {
+                bool value = false;
+                if (!parseStrictBoolParam_(inputText, value)) {
+                    request->send(400, "application/json",
+                                  "{\"ok\":false,\"err\":{\"code\":\"InvalidArg\",\"where\":\"runtime.action.input.bool\"}}");
+                    return;
+                }
+                snprintf(args,
+                         sizeof(args),
+                         "{\"%s\":%s}",
+                         action->inputName,
+                         value ? "true" : "false");
+            } else if (action->inputType == RuntimeUiActionInputType::UInt32) {
+                uint32_t value = 0U;
+                if (!parseStrictUInt32Param_(inputText, value)) {
+                    request->send(400, "application/json",
+                                  "{\"ok\":false,\"err\":{\"code\":\"InvalidArg\",\"where\":\"runtime.action.input.uint32\"}}");
+                    return;
+                }
+                snprintf(args,
+                         sizeof(args),
+                         "{\"%s\":%lu}",
+                         action->inputName,
+                         (unsigned long)value);
+            } else {
+                request->send(500, "application/json",
+                              "{\"ok\":false,\"err\":{\"code\":\"InvalidMode\",\"where\":\"runtime.action.input.type\"}}");
+                return;
+            }
+        }
+
+        if (!cmdSvc_ && services_) {
+            cmdSvc_ = services_->get<CommandService>(ServiceId::Command);
+        }
+        if (!cmdSvc_ || !cmdSvc_->execute) {
+            request->send(503, "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"NotReady\",\"where\":\"runtime.action.command\"}}");
+            return;
+        }
+
+        char reply[220] = {0};
+        LOGI("runtime action id=%u action=%s cmd=%s",
+             (unsigned)runtimeIdRaw,
+             action->actionId,
+             action->command);
+        const bool ok = cmdSvc_->execute(cmdSvc_->ctx,
+                                         action->command,
+                                         args,
+                                         nullptr,
+                                         reply,
+                                         sizeof(reply));
+        if (!ok) {
+            request->send(409,
+                          "application/json",
+                          reply[0] != '\0'
+                              ? reply
+                              : "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"runtime.action.command\"}}");
+            return;
+        }
+        request->send(200,
+                      "application/json",
+                      reply[0] != '\0' ? reply : "{\"ok\":true}");
     });
 
     server_.on("/api/runtime/alarms", HTTP_GET, [this](AsyncWebServerRequest* request) {

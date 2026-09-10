@@ -11,6 +11,15 @@
         "activeText_t": "runtimeui.pooldev.v01.display.activeText",
         "inactiveText_t": "runtimeui.pooldev.v01.display.inactiveText"
       },
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.filtration.write",
+          "presentation": "switch",
+          "input": { "name": "value", "type": "bool" },
+          "refreshDomains": ["mode", "equipements"]
+        }
+      ],
       "order": 70,
       "label_t": "runtimeui.pooldev.v01.label",
       "group_t": "runtimeui.pooldev.v01.group"
@@ -21,6 +30,15 @@
       "type": "bool",
       "domain": "equipements",
       "display": "boolean",
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.ph_pump.write",
+          "presentation": "switch",
+          "input": { "name": "value", "type": "bool" },
+          "refreshDomains": ["mode", "equipements"]
+        }
+      ],
       "order": 80,
       "label_t": "runtimeui.pooldev.v02.label",
       "group_t": "runtimeui.pooldev.v02.group"
@@ -31,6 +49,15 @@
       "type": "bool",
       "domain": "equipements",
       "display": "boolean",
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.dis_pump.write",
+          "presentation": "switch",
+          "input": { "name": "value", "type": "bool" },
+          "refreshDomains": ["mode", "equipements"]
+        }
+      ],
       "order": 90,
       "label_t": "runtimeui.pooldev.v03.label",
       "group_t": "runtimeui.pooldev.v03.group"
@@ -41,6 +68,15 @@
       "type": "bool",
       "domain": "equipements",
       "display": "boolean",
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.robot.write",
+          "presentation": "switch",
+          "input": { "name": "value", "type": "bool" },
+          "refreshDomains": ["mode", "equipements"]
+        }
+      ],
       "order": 100,
       "label_t": "runtimeui.pooldev.v04.label",
       "group_t": "runtimeui.pooldev.v04.group"

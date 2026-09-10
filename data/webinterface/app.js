@@ -555,7 +555,7 @@
     }
 
     function createRuntimeDomainState() {
-      return { loading: false, entries: [], values: [], sondeSlots: [], alarmSlots: [], error: '', requestSeq: 0 };
+      return { loading: true, entries: [], values: [], sondeSlots: [], alarmSlots: [], error: '', requestSeq: 0 };
     }
 
     function ensureRuntimeDomainState() {
@@ -1914,7 +1914,6 @@
     const flowStatusRaw = document.getElementById('flowStatusRaw');
     const ioSummaryCards = document.getElementById('ioSummaryCards');
     const ioSummaryTables = document.getElementById('ioSummaryTables');
-    const poolMeasuresRefreshBtn = document.getElementById('poolMeasuresRefresh');
     const poolMeasuresDomains = document.getElementById('poolMeasuresDomains');
     const poolMeasuresGrid = document.getElementById('poolMeasuresGrid');
     const poolConfigTitle = document.getElementById('poolConfigTitle');
@@ -1923,7 +1922,6 @@
     const poolFiltrationStart = document.getElementById('poolFiltrationStart');
     const poolFiltrationStop = document.getElementById('poolFiltrationStop');
     const poolFiltrationFill = document.getElementById('poolFiltrationFill');
-    const poolModeBadges = document.getElementById('poolModeBadges');
     const poolDisinfectionModes = document.getElementById('poolDisinfectionModes');
     const poolConfigGrid = document.getElementById('poolConfigGrid');
     const poolAiRefreshBtn = document.getElementById('poolAiRefresh');
@@ -2147,12 +2145,15 @@
       sondes: createRuntimeDomainState(),
       alarm: createRuntimeDomainState()
     };
+    let runtimeActionBusyKey = '';
+    const runtimeActionFeedback = new Map();
     let selectedMobileMeasureDomain = runtimeMeasureDomainKeys[0];
     let poolDashboardSlotsCache = null;
     let poolDashboardSlotsFetchedAt = 0;
     let poolDashboardSlotsLoadPromise = null;
     let poolConfigLoadedOnce = false;
     let poolConfigReqSeq = 0;
+    let poolConfigModulesCache = null;
     let poolAiPreviewLoadedOnce = false;
     let poolAiPreviewReqSeq = 0;
     let poolAiPreviewPollTimer = null;
@@ -5896,11 +5897,12 @@
           const idx = Number(slot && slot.slot);
           return {
             slot: Number.isFinite(idx) ? idx : 999,
+            alarmId: Number.isFinite(Number(slot && slot.alarm_id)) ? Number(slot.alarm_id) : 0,
             label: String(slot && slot.label ? slot.label : '').trim(),
-            bgColor: String(slot && slot.bg_color ? slot.bg_color : '').trim(),
             enabled: !!(slot && slot.enabled),
             available: !!(slot && slot.available),
             latched: !!(slot && slot.latched),
+            resettable: !!(slot && slot.resettable),
             conditionKnown: !!(slot && slot.condition_known),
             conditionTrue: !!(slot && slot.condition_true)
           };
@@ -5964,7 +5966,10 @@
         if (!available) tile.classList.add('is-empty');
 
         const bgColor = slot && isValidHexColor(slot.bgColor) ? slot.bgColor : '';
-        if (bgColor) tile.style.background = bgColor;
+        if (bgColor) {
+          tile.classList.add('has-custom-bg');
+          tile.style.background = bgColor;
+        }
 
         const title = document.createElement('div');
         title.className = 'status-sonde-slot-title';
@@ -6111,17 +6116,174 @@
       const value = (!runtimeValue || runtimeValue.status === 'not_found' || runtimeValue.status === 'unavailable')
         ? null
         : (typeof runtimeValue.value === 'boolean' ? runtimeValue.value : null);
+      const stateKnown = typeof value === 'boolean';
       const booleanTexts = (opts.booleanTexts && typeof opts.booleanTexts === 'object') ? opts.booleanTexts : {};
+      const action = runtimeMeasureSwitchAction(entry);
+      const actionKey = action ? runtimeActionKey(entry, action) : '';
 
-      return buildFlowReadonlyStateTile(
+      return buildDashboardDualStateTile(
         String(runtimeMeasureResolvedLabel(entry, opts) || 'Etat'),
         value,
         {
           activeText: booleanTexts.activeText || displayConfig.activeText,
           inactiveText: booleanTexts.inactiveText || displayConfig.inactiveText,
-          unknownText: booleanTexts.unknownText || displayConfig.unknownText
+          unknownText: booleanTexts.unknownText || displayConfig.unknownText,
+          action: action,
+          pending: !!actionKey && runtimeActionBusyKey === actionKey,
+          disabled: !stateKnown || (!!runtimeActionBusyKey && runtimeActionBusyKey !== actionKey),
+          feedback: actionKey ? runtimeActionFeedback.get(actionKey) : null,
+          onAction: action
+            ? () => executeRuntimeAction(entry, action, !value)
+            : null
         }
       );
+    }
+
+    function runtimeMeasureSwitchAction(entry) {
+      const actions = Array.isArray(entry && entry.actions) ? entry.actions : [];
+      return actions.find((action) => {
+        const input = action && action.input && typeof action.input === 'object' ? action.input : {};
+        return action && action.presentation === 'switch' && input.type === 'bool';
+      }) || null;
+    }
+
+    function runtimeActionKey(entry, action, inputValue) {
+      const base = String(Number(entry && entry.id)) + ':' + String(action && action.id ? action.id : '');
+      return action && action.presentation === 'button' && inputValue !== undefined
+        ? base + ':' + String(inputValue)
+        : base;
+    }
+
+    function runtimeActionRefreshDomains(entry, action) {
+      const declared = Array.isArray(action && action.refreshDomains) ? action.refreshDomains : [];
+      const domains = declared
+        .map((domain) => normalizeRuntimeMeasureDomainKey(domain))
+        .filter((domain, index, all) => !!domain && all.indexOf(domain) === index);
+      const entryDomain = normalizeRuntimeMeasureDomainKey(entry && entry.domain);
+      if (!domains.length && entryDomain) domains.push(entryDomain);
+      return domains;
+    }
+
+    function setRuntimeActionFeedback(actionKey, message) {
+      const revision = Date.now();
+      runtimeActionFeedback.set(actionKey, { message: String(message || ''), revision: revision });
+      setTimeout(() => {
+        const current = runtimeActionFeedback.get(actionKey);
+        if (!current || current.revision !== revision) return;
+        runtimeActionFeedback.delete(actionKey);
+        refreshPoolMeasuresView();
+      }, 7000);
+    }
+
+    async function executeRuntimeAction(entry, action, inputValue) {
+      const actionKey = runtimeActionKey(entry, action, inputValue);
+      if (!actionKey || runtimeActionBusyKey) return;
+
+      runtimeActionBusyKey = actionKey;
+      runtimeActionFeedback.delete(actionKey);
+      refreshPoolMeasuresView();
+
+      try {
+        const body = new URLSearchParams();
+        body.set('runtime_id', String(Number(entry.id)));
+        body.set('action_id', String(action.id));
+        if (action.input && action.input.type !== 'none') {
+          body.set('input', String(inputValue));
+        }
+        const response = await fetchWithBusyRetry('/api/runtime/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+          body: body.toString()
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data || data.ok !== true) {
+          throw new Error(
+            extractApiErrorMessage(data, '') || tr('dashboard.action.error', 'Commande refusée')
+          );
+        }
+
+        const refreshDomains = runtimeActionRefreshDomains(entry, action);
+        if (refreshDomains.includes('alarm') || refreshDomains.includes('sondes')) {
+          invalidatePoolDashboardSlots();
+        }
+        await Promise.allSettled(
+          refreshDomains.map((domain) => loadPoolMeasureDomain(domain, false))
+        );
+      } catch (err) {
+        const detail = err && err.message ? err.message : String(err);
+        setRuntimeActionFeedback(
+          actionKey,
+          tr('dashboard.action.errorDetail', 'Commande refusée : {error}').replace('{error}', detail)
+        );
+      } finally {
+        runtimeActionBusyKey = '';
+        refreshPoolMeasuresView();
+      }
+    }
+
+    function buildDashboardDualStateTile(label, value, options) {
+      const stateKnown = typeof value === 'boolean';
+      const opts = options && typeof options === 'object' ? options : {};
+      const activeText = typeof opts.activeText === 'string' && opts.activeText.trim()
+        ? opts.activeText.trim()
+        : 'Actif';
+      const inactiveText = typeof opts.inactiveText === 'string' && opts.inactiveText.trim()
+        ? opts.inactiveText.trim()
+        : 'Inactif';
+      const unknownText = typeof opts.unknownText === 'string' && opts.unknownText.trim()
+        ? opts.unknownText.trim()
+        : 'Indisponible';
+      const action = opts.action && typeof opts.action === 'object' ? opts.action : null;
+      const pending = !!opts.pending;
+      const feedback = opts.feedback && typeof opts.feedback === 'object' ? opts.feedback : null;
+      const stateText = feedback && feedback.message
+        ? feedback.message
+        : (pending
+          ? tr('dashboard.action.pending', 'Application…')
+          : (stateKnown ? (value ? activeText : inactiveText) : unknownText));
+
+      const tile = document.createElement(action ? 'button' : 'div');
+      tile.className = 'status-dual-tile ' + (stateKnown ? (value ? 'is-true' : 'is-false') : 'is-empty');
+      if (pending) tile.classList.add('is-pending');
+      if (feedback) tile.classList.add('is-error');
+      tile.setAttribute('role', action ? 'switch' : 'img');
+      tile.setAttribute('aria-label', label + ' : ' + stateText);
+      if (action) {
+        tile.type = 'button';
+        tile.disabled = !!opts.disabled || pending;
+        tile.setAttribute('aria-checked', stateKnown && value ? 'true' : 'false');
+        tile.setAttribute('aria-busy', pending ? 'true' : 'false');
+        if (feedback && feedback.message) tile.title = feedback.message;
+        if (typeof opts.onAction === 'function') {
+          tile.addEventListener('click', opts.onAction);
+        }
+      }
+
+      const title = document.createElement('div');
+      title.className = 'status-dual-title';
+      title.textContent = label;
+      tile.appendChild(title);
+
+      const state = document.createElement('div');
+      state.className = 'status-dual-state';
+      const dot = document.createElement('span');
+      dot.className = 'status-dual-dot';
+      dot.setAttribute('aria-hidden', 'true');
+      state.appendChild(dot);
+      const text = document.createElement('span');
+      text.textContent = stateText;
+      state.appendChild(text);
+      tile.appendChild(state);
+
+      const switchTrack = document.createElement('span');
+      switchTrack.className = 'status-dual-switch';
+      switchTrack.setAttribute('aria-hidden', 'true');
+      const switchThumb = document.createElement('span');
+      switchThumb.className = 'status-dual-thumb';
+      switchTrack.appendChild(switchThumb);
+      tile.appendChild(switchTrack);
+
+      return tile;
     }
 
     function buildRuntimeMeasureBadgeNode(entry, runtimeValue) {
@@ -6234,28 +6396,115 @@
       return String(group.groupKey || '').trim().localeCompare('Alarmes', 'fr', { sensitivity: 'base' }) === 0;
     }
 
-    function buildRuntimeAlarmStateNode(value) {
+    function buildDashboardAlarmIndicator(kind, value) {
       const known = typeof value === 'boolean';
-      const node = document.createElement('div');
-      node.className = 'status-alarm-slot-state ' + (known ? (value ? 'is-true' : 'is-false') : 'is-empty');
-
-      const dot = document.createElement('span');
-      dot.className = 'status-state-dot';
-      node.appendChild(dot);
-
-      const text = document.createElement('span');
-      text.className = 'status-alarm-slot-state-text';
-      text.textContent = known ? (value ? 'Déclenchée' : 'OK') : 'Indispo';
-      node.appendChild(text);
+      const node = document.createElement('span');
+      node.className = 'status-alarm-indicator status-alarm-indicator-' + kind
+        + (known ? (value ? ' is-on' : ' is-off') : ' is-unknown');
+      const label = kind === 'condition'
+        ? tr('dashboard.alarm.condition', 'Condition')
+        : tr('dashboard.alarm.latch', 'Latch');
+      node.setAttribute('role', 'img');
+      node.setAttribute(
+        'aria-label',
+        label + ' : ' + (known ? (value ? 'ON' : 'OFF') : tr('dashboard.alarm.unknown', 'indisponible'))
+      );
+      if (kind === 'latch') {
+        node.classList.add(value === true ? 'is-locked' : 'is-unlocked');
+      }
       return node;
     }
 
-    function buildRuntimeAlarmConditionNode(value) {
-      const known = typeof value === 'boolean';
-      const node = document.createElement('div');
-      node.className = 'status-alarm-slot-condition ' + (known ? (value ? 'is-true' : 'is-false') : 'is-empty');
-      node.textContent = known ? ('Statut: ' + (value ? 'KO' : 'OK')) : 'Statut: ?';
-      return node;
+    function decorateDashboardAlarmTile(tile, conditionValue, latchValue) {
+      const conditionKnown = typeof conditionValue === 'boolean';
+      const latchKnown = typeof latchValue === 'boolean';
+      if (!conditionKnown || !latchKnown) {
+        tile.classList.add('is-empty');
+        return;
+      }
+      if (conditionValue && latchValue) {
+        tile.classList.add('is-active');
+        return;
+      }
+      if (!conditionValue && latchValue) {
+        tile.classList.add('is-latched');
+        return;
+      }
+      if (!conditionValue && !latchValue) {
+        tile.classList.add('is-ok');
+        return;
+      }
+      tile.classList.add('is-condition-only');
+    }
+
+    function appendDashboardAlarmIndicators(tile, conditionValue, latchValue) {
+      const indicators = document.createElement('div');
+      indicators.className = 'status-alarm-indicators';
+      indicators.appendChild(buildDashboardAlarmIndicator('condition', conditionValue));
+      indicators.appendChild(buildDashboardAlarmIndicator('latch', latchValue));
+      tile.appendChild(indicators);
+    }
+
+    function runtimeMeasureAlarmAction(entries) {
+      for (const entry of entries || []) {
+        const actions = Array.isArray(entry && entry.actions) ? entry.actions : [];
+        const action = actions.find((candidate) => {
+          const input = candidate && candidate.input && typeof candidate.input === 'object'
+            ? candidate.input
+            : {};
+          return candidate && candidate.presentation === 'button' && input.type === 'uint32';
+        });
+        if (action) return { entry: entry, action: action };
+      }
+      return null;
+    }
+
+    function buildDashboardAlarmTile(options) {
+      const opts = options && typeof options === 'object' ? options : {};
+      const label = String(opts.label || tr('dashboard.alarm.default', 'Alarme'));
+      const actionBinding = opts.actionBinding && typeof opts.actionBinding === 'object'
+        ? opts.actionBinding
+        : null;
+      const inputValue = Number(opts.inputValue);
+      const actionable = !!actionBinding && opts.resettable === true &&
+        Number.isInteger(inputValue) && inputValue >= 0;
+      const actionKey = actionable
+        ? runtimeActionKey(actionBinding.entry, actionBinding.action, inputValue)
+        : '';
+      const pending = !!actionKey && runtimeActionBusyKey === actionKey;
+      const feedback = actionKey ? runtimeActionFeedback.get(actionKey) : null;
+      const tile = document.createElement(actionable ? 'button' : 'div');
+      tile.className = 'status-alarm-slot';
+      decorateDashboardAlarmTile(tile, opts.conditionValue, opts.latchValue);
+      if (actionable) tile.classList.add('is-actionable');
+      if (pending) tile.classList.add('is-pending');
+      if (feedback) tile.classList.add('is-error');
+
+      const stateLabel = label + ', condition '
+        + (opts.conditionValue === null ? '?' : (opts.conditionValue ? 'ON' : 'OFF'))
+        + ', latch ' + (opts.latchValue === null ? '?' : (opts.latchValue ? 'ON' : 'OFF'));
+      tile.setAttribute('aria-label', actionable
+        ? stateLabel + '. ' + tr('dashboard.alarm.acknowledge', 'Cliquer pour acquitter')
+        : stateLabel);
+
+      if (actionable) {
+        tile.type = 'button';
+        tile.disabled = pending || (!!runtimeActionBusyKey && runtimeActionBusyKey !== actionKey);
+        tile.setAttribute('aria-busy', pending ? 'true' : 'false');
+        tile.title = feedback && feedback.message
+          ? feedback.message
+          : tr('dashboard.alarm.acknowledgeNamed', 'Acquitter {alarm}').replace('{alarm}', label);
+        tile.addEventListener('click', () => {
+          executeRuntimeAction(actionBinding.entry, actionBinding.action, inputValue);
+        });
+      }
+
+      const title = document.createElement('div');
+      title.className = 'status-alarm-slot-title';
+      title.textContent = label;
+      tile.appendChild(title);
+      appendDashboardAlarmIndicators(tile, opts.conditionValue, opts.latchValue);
+      return tile;
     }
 
     function buildRuntimeAlarmGrid(entries, valueById) {
@@ -6269,48 +6518,41 @@
       });
 
       const activeEntry = columnsByRole.get('active') || null;
+      const resettableEntry = columnsByRole.get('resettable') || null;
       const conditionEntry = columnsByRole.get('condition') || null;
       if (!flagDefs.length || (!activeEntry && !conditionEntry)) return null;
 
       const activeMaskValue = activeEntry ? runtimeMeasureMaskValue(valueById.get(Number(activeEntry.id))) : null;
+      const resettableMaskValue = resettableEntry
+        ? runtimeMeasureMaskValue(valueById.get(Number(resettableEntry.id)))
+        : null;
       const conditionMaskValue = conditionEntry ? runtimeMeasureMaskValue(valueById.get(Number(conditionEntry.id))) : null;
-      const maxSlots = 8;
+      const maxSlots = Math.min(flagDefs.length, 8);
 
       const grid = document.createElement('div');
       grid.className = 'status-alarm-slot-grid';
 
       for (let index = 0; index < maxSlots; index += 1) {
-        const flag = flagDefs[index] || null;
-        const tile = document.createElement('div');
-        tile.className = 'status-alarm-slot';
-
-        if (!flag) {
-          tile.classList.add('is-empty');
-          grid.appendChild(tile);
-          continue;
-        }
-
-        const title = document.createElement('div');
-        title.className = 'status-alarm-slot-title';
-        title.textContent = flag.label;
-        tile.appendChild(title);
-
-        const footer = document.createElement('div');
-        footer.className = 'status-alarm-slot-row';
-
-        const activeValue = activeMaskValue === null ? null : ((activeMaskValue & flag.mask) !== 0);
+        const flag = flagDefs[index];
+        const latchValue = activeMaskValue === null ? null : ((activeMaskValue & flag.mask) !== 0);
+        const resettable = resettableMaskValue !== null && ((resettableMaskValue & flag.mask) !== 0);
         const conditionValue = conditionMaskValue === null ? null : ((conditionMaskValue & flag.mask) !== 0);
-        footer.appendChild(buildRuntimeAlarmStateNode(activeValue));
-        footer.appendChild(buildRuntimeAlarmConditionNode(conditionValue));
-
-        tile.appendChild(footer);
+        const slot = Math.log2(flag.mask);
+        const tile = buildDashboardAlarmTile({
+          label: flag.label,
+          conditionValue: conditionValue,
+          latchValue: latchValue,
+          resettable: resettable,
+          inputValue: Number.isInteger(slot) ? slot : null,
+          actionBinding: null
+        });
         grid.appendChild(tile);
       }
 
       return grid;
     }
 
-    function buildPoolAlarmSlotsGrid(slots) {
+    function buildPoolAlarmSlotsGrid(slots, entries) {
       const cleanSlots = Array(8).fill(null);
       if (Array.isArray(slots)) {
         slots.forEach((slot) => {
@@ -6321,31 +6563,23 @@
 
       const grid = document.createElement('div');
       grid.className = 'status-alarm-slot-grid';
+      const actionBinding = runtimeMeasureAlarmAction(entries);
 
       for (let i = 0; i < 8; i += 1) {
         const slot = cleanSlots[i] || null;
-        const tile = document.createElement('div');
-        tile.className = 'status-alarm-slot';
         const enabled = !!(slot && slot.enabled);
-        if (!enabled) {
-          tile.classList.add('is-empty');
-          grid.appendChild(tile);
-          continue;
-        }
+        if (!enabled) continue;
 
-        const bgColor = slot && isValidHexColor(slot.bgColor) ? slot.bgColor : '';
-        if (bgColor) tile.style.background = bgColor;
-
-        const title = document.createElement('div');
-        title.className = 'status-alarm-slot-title';
-        title.textContent = slot && slot.label ? slot.label : 'Alarme';
-        tile.appendChild(title);
-
-        const footer = document.createElement('div');
-        footer.className = 'status-alarm-slot-row';
-        footer.appendChild(buildRuntimeAlarmStateNode(slot && slot.available ? !!slot.latched : null));
-        footer.appendChild(buildRuntimeAlarmConditionNode(slot && slot.available && slot.conditionKnown ? !!slot.conditionTrue : null));
-        tile.appendChild(footer);
+        const latchValue = enabled && slot.available ? !!slot.latched : null;
+        const conditionValue = enabled && slot.available && slot.conditionKnown ? !!slot.conditionTrue : null;
+        const tile = buildDashboardAlarmTile({
+          label: slot && slot.label ? slot.label : tr('dashboard.alarm.default', 'Alarme'),
+          conditionValue: conditionValue,
+          latchValue: latchValue,
+          resettable: enabled && slot.available && slot.resettable,
+          inputValue: slot.alarmId,
+          actionBinding: actionBinding
+        });
         grid.appendChild(tile);
       }
 
@@ -6462,14 +6696,13 @@
           + ' status-card-runtime-domain-' + runtimeMeasureCssSlug(group.domainKey)
           + ' status-card-runtime-group-' + runtimeMeasureCssSlug(group.groupKey);
         decorateDashboardMeasureCard(card, group.domainKey);
-        const isPoolModeGroup =
-          String(group.domainKey || '').trim().toLowerCase() === 'mode' &&
-          String(group.groupKey || '').trim().localeCompare('Mode', 'fr', { sensitivity: 'base' }) === 0;
+        const cleanGroupDomain = String(group.domainKey || '').trim().toLowerCase();
+        const isPoolEquipmentGroup = cleanGroupDomain === 'equipements' || cleanGroupDomain === 'equipment';
         const isPoolSondesGroup = isPoolSondesGroupKey(group.domainKey, group.groupKey);
-        const isPoolAlarmGroup = String(group.domainKey || '').trim().toLowerCase() === 'alarm';
+        const isPoolAlarmGroup = cleanGroupDomain === 'alarm';
         const groupDisplayOptions = {
           displayLabelResolver: (entry) => runtimeMeasureDisplayLabel(entry),
-          booleanTexts: isPoolModeGroup
+          booleanTexts: isPoolEquipmentGroup
             ? {
               activeText: 'Marche',
               inactiveText: 'Arrêt'
@@ -6485,7 +6718,7 @@
           return;
         }
         if (isPoolAlarmGroup && alarmSlots.length) {
-          card.appendChild(buildPoolAlarmSlotsGrid(alarmSlots));
+          card.appendChild(buildPoolAlarmSlotsGrid(alarmSlots, group.entries));
           fragment.appendChild(card);
           return;
         }
@@ -6550,7 +6783,7 @@
         if (flagEntries.length) {
           if (isRuntimeAlarmGroup(group)) {
             const alarmGrid = alarmSlots.length
-              ? buildPoolAlarmSlotsGrid(alarmSlots)
+              ? buildPoolAlarmSlotsGrid(alarmSlots, flagEntries)
               : buildRuntimeAlarmGrid(flagEntries, valueById);
             if (alarmGrid) {
               card.appendChild(alarmGrid);
@@ -6630,6 +6863,27 @@
       return Array.isArray(domainState.entries) && domainState.entries.length > 0;
     }
 
+    function buildDashboardRuntimeSkeletonCard(domainKey) {
+      const card = document.createElement('div');
+      card.className = 'status-card status-card-runtime status-card-skeleton';
+      decorateDashboardMeasureCard(card, domainKey);
+
+      const head = document.createElement('div');
+      head.className = 'dashboard-runtime-skeleton-head';
+      head.appendChild(createSkeletonLine('dashboard-runtime-skeleton-icon', 0));
+      head.appendChild(createSkeletonLine('dashboard-runtime-skeleton-title', 0));
+      card.appendChild(head);
+
+      const grid = document.createElement('div');
+      grid.className = 'dashboard-runtime-skeleton-grid';
+      const tileCount = domainKey === 'alarm' || domainKey === 'sondes' ? 4 : 3;
+      for (let index = 0; index < tileCount; index += 1) {
+        grid.appendChild(createSkeletonLine('dashboard-runtime-skeleton-tile', 0));
+      }
+      card.appendChild(grid);
+      return card;
+    }
+
     function renderPoolMeasuresGrid() {
       if (!poolMeasuresGrid) return;
       poolMeasuresGrid.innerHTML = '';
@@ -6641,15 +6895,7 @@
         const state = poolMeasureDomainState[domainKey];
         const hasRenderableData = poolMeasureDomainHasRenderableData(domainKey, state);
         if (state.loading && !hasRenderableData) {
-          const card = document.createElement('div');
-          card.className = 'status-card';
-          decorateDashboardMeasureCard(card, domainKey);
-          const summary = document.createElement('p');
-          summary.className = 'status-card-summary';
-          summary.textContent = tr('dashboard.loading', 'Chargement en cours...');
-          card.appendChild(buildDashboardMeasureCardHeader(domainKey));
-          card.appendChild(summary);
-          poolMeasuresGrid.appendChild(card);
+          poolMeasuresGrid.appendChild(buildDashboardRuntimeSkeletonCard(domainKey));
           renderedCardCount += 1;
           return;
         }
@@ -6726,7 +6972,7 @@
           ? await fetchPoolSondeSlots().catch(() => [])
           : [];
         const alarmSlots = cleanDomain === 'alarm'
-          ? await fetchPoolAlarmSlots().catch(() => [])
+          ? await fetchPoolAlarmSlots()
           : [];
         if (state.requestSeq !== requestSeq) return;
         state.entries = entries;
@@ -6734,6 +6980,9 @@
         state.sondeSlots = sondeSlots;
         state.alarmSlots = alarmSlots;
         state.error = '';
+        if (cleanDomain === 'alarm' && poolConfigModulesCache) {
+          poolConfigRenderHero(poolConfigModulesCache, alarmSlots);
+        }
       } catch (err) {
         if (state.requestSeq !== requestSeq) return;
         if (!hadRenderableData) {
@@ -6955,30 +7204,6 @@
       }
     }
 
-    function poolConfigRenderModeBadges(modules) {
-      if (!poolModeBadges) return;
-      poolModeBadges.innerHTML = '';
-      const modes = modules['poollogic/modes'] || {};
-      const items = [
-        [tr('pool.badge.poollogic', 'PoolLogic'), poolConfigBoolLabel(modes.enabled, tr('pool.state.active', 'Actif'), tr('pool.state.disabled', 'Désactivé')), toBool(modes.enabled), 'bolt'],
-        [tr('pool.badge.auto', 'Auto'), poolConfigBoolLabel(modes.auto_mode, tr('pool.state.automatic', 'Automatique'), tr('pool.state.manual', 'Manuel')), toBool(modes.auto_mode), 'settings'],
-        [tr('pool.badge.winter', 'Hiver'), poolConfigBoolLabel(modes.winter_mode, tr('pool.state.forced', 'Forcé'), tr('pool.state.normal', 'Normal')), toBool(modes.winter_mode), 'ac_unit']
-      ];
-      items.forEach((item) => {
-        const badge = document.createElement('span');
-        badge.className = 'pool-mode-badge' + (item[2] ? ' is-on' : ' is-off');
-        const icon = document.createElement('span');
-        icon.className = 'ui-msr pool-mode-badge-icon';
-        icon.setAttribute('aria-hidden', 'true');
-        icon.textContent = item[3];
-        const label = document.createElement('span');
-        label.textContent = item[0] + ' · ' + item[1];
-        badge.appendChild(icon);
-        badge.appendChild(label);
-        poolModeBadges.appendChild(badge);
-      });
-    }
-
     function poolConfigHeroSummary(modules, start, stop) {
       const source = modules && typeof modules === 'object' ? modules : {};
       const modes = source['poollogic/modes'] || {};
@@ -7019,10 +7244,13 @@
       const start = poolConfigFormatHour(startValue);
       const stop = poolConfigFormatHour(stopValue);
       if (poolConfigTitle) {
+        poolConfigTitle.classList.remove('is-loading');
+        poolConfigTitle.removeAttribute('aria-busy');
         poolConfigTitle.textContent = tr('pool.overview.title', 'État Général');
       }
       if (poolHeroState) {
         poolHeroState.className = 'pool-hero-state ' + (alarms.length ? 'is-alert' : 'is-ok');
+        poolHeroState.removeAttribute('aria-busy');
         poolHeroState.innerHTML = '';
         const icon = document.createElement('span');
         icon.className = 'ui-msr pool-hero-state-icon';
@@ -7036,14 +7264,21 @@
         poolHeroState.appendChild(label);
       }
       if (poolConfigSummary) {
+        poolConfigSummary.classList.remove('is-loading');
+        poolConfigSummary.removeAttribute('aria-busy');
         poolConfigSummary.textContent = poolConfigHeroSummary(modules, start, stop);
       }
-      if (poolFiltrationStart) poolFiltrationStart.textContent = start;
-      if (poolFiltrationStop) poolFiltrationStop.textContent = stop;
+      if (poolFiltrationStart) {
+        poolFiltrationStart.classList.remove('is-loading');
+        poolFiltrationStart.textContent = start;
+      }
+      if (poolFiltrationStop) {
+        poolFiltrationStop.classList.remove('is-loading');
+        poolFiltrationStop.textContent = stop;
+      }
       if (poolFiltrationFill) {
         poolFiltrationFill.style.width = poolConfigDayProgress(startValue, stopValue).toFixed(1) + '%';
       }
-      poolConfigRenderModeBadges(modules);
     }
 
     function poolConfigRenderDisinfection(modules) {
@@ -7237,6 +7472,30 @@
     }
 
     function poolConfigRenderSkeleton() {
+      if (poolConfigTitle) {
+        poolConfigTitle.textContent = '';
+        poolConfigTitle.classList.add('is-loading');
+        poolConfigTitle.setAttribute('aria-busy', 'true');
+      }
+      if (poolHeroState) {
+        poolHeroState.innerHTML = '';
+        poolHeroState.className = 'pool-hero-state is-loading';
+        poolHeroState.setAttribute('aria-busy', 'true');
+      }
+      if (poolConfigSummary) {
+        poolConfigSummary.textContent = '';
+        poolConfigSummary.classList.add('is-loading');
+        poolConfigSummary.setAttribute('aria-busy', 'true');
+      }
+      if (poolFiltrationStart) {
+        poolFiltrationStart.textContent = '--:--';
+        poolFiltrationStart.classList.add('is-loading');
+      }
+      if (poolFiltrationStop) {
+        poolFiltrationStop.textContent = '--:--';
+        poolFiltrationStop.classList.add('is-loading');
+      }
+      if (poolFiltrationFill) poolFiltrationFill.style.width = '0';
       if (poolDisinfectionModes) {
         poolDisinfectionModes.hidden = false;
         poolDisinfectionModes.innerHTML = '';
@@ -7263,6 +7522,35 @@
     }
 
     function poolConfigRenderError(err) {
+      const detailText = String(err || tr('pool.error.readFailed', 'Lecture de la configuration impossible.'));
+      if (poolConfigTitle) {
+        poolConfigTitle.classList.remove('is-loading');
+        poolConfigTitle.removeAttribute('aria-busy');
+        poolConfigTitle.textContent = tr('pool.overview.title', 'État général');
+      }
+      if (poolHeroState) {
+        poolHeroState.className = 'pool-hero-state is-alert';
+        poolHeroState.removeAttribute('aria-busy');
+        poolHeroState.innerHTML = '';
+        const icon = document.createElement('span');
+        icon.className = 'ui-msr pool-hero-state-icon';
+        icon.setAttribute('aria-hidden', 'true');
+        icon.textContent = 'error';
+        const label = document.createElement('span');
+        label.textContent = tr('pool.state.unavailable', 'État indisponible');
+        poolHeroState.appendChild(icon);
+        poolHeroState.appendChild(label);
+      }
+      if (poolConfigSummary) {
+        poolConfigSummary.classList.remove('is-loading');
+        poolConfigSummary.removeAttribute('aria-busy');
+        poolConfigSummary.textContent = detailText;
+      }
+      [poolFiltrationStart, poolFiltrationStop].forEach((node) => {
+        if (!node) return;
+        node.classList.remove('is-loading');
+        node.textContent = '--:--';
+      });
       if (poolDisinfectionModes) {
         poolDisinfectionModes.innerHTML = '';
         poolDisinfectionModes.hidden = true;
@@ -7282,7 +7570,7 @@
       const title = document.createElement('h3');
       title.textContent = tr('pool.error.title', 'Configuration piscine indisponible');
       const detail = document.createElement('p');
-      detail.textContent = String(err || tr('pool.error.readFailed', 'Lecture de la configuration impossible.'));
+      detail.textContent = detailText;
       copy.appendChild(title);
       copy.appendChild(detail);
       head.appendChild(icon);
@@ -7304,8 +7592,9 @@
           if (reqSeq !== poolConfigReqSeq) return;
           modules[payload.module] = payload.data;
         }
-        const alarmSlots = await fetchPoolAlarmSlots().catch(() => []);
+        const alarmSlots = await fetchPoolAlarmSlots();
         if (reqSeq !== poolConfigReqSeq) return;
+        poolConfigModulesCache = modules;
         poolConfigRender(modules, alarmSlots);
         poolConfigLoadedOnce = true;
       } catch (err) {
@@ -10995,9 +11284,6 @@
         } catch (err) {
           flowStatusChip.textContent = 'erreur lecture statut';
         }
-      });
-      bindClickAction(poolMeasuresRefreshBtn, async () => {
-        await refreshPoolMeasures(true);
       });
       bindClickAction(poolAiRefreshBtn, requestPoolAiInsight);
     }

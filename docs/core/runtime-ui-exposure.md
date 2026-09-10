@@ -139,6 +139,43 @@ Champs utilisés actuellement:
 - `flags`
 - `display`
 - `displayConfig`
+- `actions` (optionnel)
+
+## Actions déclaratives
+
+Une valeur peut exposer une ou plusieurs actions explicitement autorisées. Le
+navigateur transmet uniquement le couple `runtime_id` / `action_id`: le nom de
+commande est résolu côté firmware depuis le manifeste généré et ne peut donc
+pas être choisi librement par le client.
+
+```json
+"actions": [
+  {
+    "id": "set",
+    "command": "poollogic.auto_mode.set",
+    "presentation": "switch",
+    "input": { "name": "value", "type": "bool" },
+    "refreshDomains": ["mode", "equipements"]
+  }
+]
+```
+
+Présentations prises en charge par le schéma:
+
+- `switch`
+- `button`
+
+Types d'entrée pris en charge par la route générique:
+
+- aucune entrée (`input` omis)
+- `bool`
+- `uint32`
+
+L'acquittement d'alarme utilise ce contrat sous la forme d'un bouton appelant
+`alarms.reset` avec une entrée `uint32` nommée `id`. Le bouton n'est activé que
+lorsque le service d'alarmes déclare l'alarme acquittable. L'identifiant vient
+directement du slot retourné par le backend, sans dépendre de sa position ni
+effectuer de mapping par libellé dans l'interface.
 
 ## Génération du manifeste
 
@@ -169,6 +206,19 @@ Chemin actuel:
 2. le backend découpe la demande en lots bornés
 3. le firmware résout chaque `runtimeId` dans `RuntimeUiRegistry`
 4. la réponse compacte est convertie en JSON homogène pour le navigateur
+
+## Exécution d'une action
+
+Le client appelle `POST /api/runtime/action` avec les paramètres de formulaire:
+
+- `runtime_id`
+- `action_id`
+- `input` lorsque l'action déclare une entrée
+
+Le backend vérifie l'identité dans `RuntimeUiActionManifestItem`, construit un
+argument JSON typé puis délègue l'exécution à `CommandService`. Une action non
+déclarée dans le manifeste est refusée avant d'atteindre la registry de
+commandes.
 
 ## Coexistence avec les anciens snapshots
 
