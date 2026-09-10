@@ -24,7 +24,7 @@ function applyBrand(meta) {
   const profile = String((meta && (meta.profile || meta.profile_name)) || "").toLowerCase();
   const product = String((meta && meta.product_name) || "");
   const isDisplay = product === "Flow Connect Display" || profile.indexOf("flowconnectdisplay") >= 0 || profile.indexOf("flow_connect_display") >= 0;
-  const name = isDisplay ? "Flow Connect Display" : profile === "micronova" ? "Pellet" : "Flow";
+  const name = isDisplay ? "Flow Connect Display" : "Flow";
   const suffix = document.querySelector(".brand-io");
   $("brandName").textContent = name;
   if (suffix) suffix.textContent = isDisplay ? "" : ".io";

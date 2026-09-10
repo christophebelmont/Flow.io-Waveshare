@@ -37,7 +37,6 @@
     const remoteMenuIconFontHref = 'https://fonts.googleapis.com/icon?family=Material+Symbols+Rounded&display=block';
     const remoteMenuIconLigatures = {
       'icon-measures': 'water_damage',
-      'icon-pool': 'pool',
       'icon-io': 'lan',
       'icon-calibration': 'science',
       'icon-terminal': 'list_alt',
@@ -242,7 +241,7 @@
           syncMenuIconFallbacks();
           renderInfoPanel();
           refreshPoolMeasuresView();
-          if (getActivePageId() === 'page-pool' && poolConfigLoadedOnce) {
+          if (getActivePageId() === 'page-dashboard' && poolConfigLoadedOnce) {
             loadPoolConfig(true).catch(() => {});
           }
           refreshCfgDocLocaleRuntime(false).catch(() => {});
@@ -272,7 +271,7 @@
         syncMenuIconFallbacks();
         renderInfoPanel();
         refreshPoolMeasuresView();
-        if (getActivePageId() === 'page-pool' && poolConfigLoadedOnce) {
+        if (getActivePageId() === 'page-dashboard' && poolConfigLoadedOnce) {
           loadPoolConfig(true).catch(() => {});
         }
         refreshCfgDocLocaleRuntime(true).catch(() => {});
@@ -476,10 +475,6 @@
         if (!node) return;
         node.textContent = checkText;
       });
-      document.querySelectorAll('.measure-domain-chip-check').forEach((node) => {
-        if (!node) return;
-        node.textContent = checkText;
-      });
       document.querySelectorAll('.control-field-apply').forEach((node) => {
         if (!node) return;
         node.textContent = checkText;
@@ -518,22 +513,17 @@
       const rawDeviceName = String(data.devicename || data.deviceName || '').trim();
       webDeviceName = rawDeviceName || 'flowio';
       webLocalRuntime = data.local_runtime === true;
-      runtimeMeasureDomainKeys = runtimeDomainsForProfile();
       ensureRuntimeDomainState();
       runtimeManifestDomainCache = null;
       runtimeManifestDomainLoadPromise = null;
-      if (isMicronovaProfile()) {
-        poolMeasureDomainState.micronova.active = true;
-      }
-      if (webLocalRuntime && !isMicronovaProfile()) {
+      if (webLocalRuntime) {
         logSourceMeta.supervisor.label = 'flow.io';
       } else {
         logSourceMeta.supervisor.label = 'Supervisor';
       }
       applyLogSourceUi();
-      document.body.classList.toggle('profile-micronova', isMicronovaProfile());
       applyProfileUiText();
-      renderPoolMeasureDomainButtons();
+      renderMeasureDomainTabs();
     }
 
     async function applyMenuIconModeFromMeta(data) {
@@ -542,10 +532,6 @@
       networkTransport = normalizeNetworkTransport(data && (data.network_transport || data.transport));
       const remoteReady = await ensureRemoteMenuIconFontLoaded().catch(() => false);
       applyMenuIconSourcePreference(remoteReady);
-    }
-
-    function isMicronovaProfile() {
-      return webProfileKey === 'micronova';
     }
 
     function isWaveshareProfile() {
@@ -568,14 +554,8 @@
       return key === 'supervisor' || key.indexOf('supervisor') === 0;
     }
 
-    function runtimeDomainsForProfile() {
-      return isMicronovaProfile()
-        ? ['micronova', 'alarm']
-        : ['mode', 'equipements', 'sondes', 'alarm'];
-    }
-
     function createRuntimeDomainState() {
-      return { active: false, loading: false, entries: [], values: [], sondeSlots: [], alarmSlots: [], error: '', requestSeq: 0 };
+      return { loading: false, entries: [], values: [], sondeSlots: [], alarmSlots: [], error: '', requestSeq: 0 };
     }
 
     function ensureRuntimeDomainState() {
@@ -603,13 +583,6 @@
       if (action) action.hidden = !visible;
     }
 
-    function setPageMenuVisible(pageId, visible) {
-      const item = document.querySelector('[data-page="' + pageId + '"]');
-      const page = document.getElementById(pageId);
-      if (item) item.hidden = !visible;
-      if (page) page.hidden = !visible;
-    }
-
     function setBrandWordmark(firstPart) {
       const first = String(firstPart || '').trim() || 'Flow';
       document.querySelectorAll('.brand-flow').forEach((node) => {
@@ -623,22 +596,18 @@
 
     function applyProfileUiText() {
       if (!document.body) return;
-      setBrandWordmark(isMicronovaProfile() ? 'Pellet' : 'Flow');
-      if (isMicronovaProfile()) {
-        setPageMenuVisible('page-calibration', false);
-        setPageMenuVisible('page-pool', false);
-      }
+      setBrandWordmark('Flow');
       if (rebootDeviceTargetSelect) {
         const labelsByTarget = {
-          supervisor: isMicronovaProfile() ? 'Micronova' : 'Supervisor',
+          supervisor: 'Supervisor',
           flow_soft: 'flow.io soft',
           flow_hard: 'flow.io hard',
           nextion: 'Nextion',
           factory_reset: 'Init Usine'
         };
-        const blockValues = isMicronovaProfile()
-          ? new Set(['flow_soft', 'flow_hard', 'nextion', 'factory_reset'])
-          : (isWaveshareProfile() ? new Set(['supervisor', 'flow_hard']) : new Set());
+        const blockValues = isWaveshareProfile()
+          ? new Set(['supervisor', 'flow_hard'])
+          : new Set();
         const hiddenValues = isWaveshareProfile()
           ? new Set(['supervisor', 'flow_hard'])
           : new Set();
@@ -1781,17 +1750,13 @@
       if (pageId === 'page-activity-log') {
         schedulePageTask(pageId, pageToken, deferredHeavyMs, () => refreshActivityLog(false));
       }
-      if (pageId === 'page-pool-measures') {
-        schedulePageTask(pageId, pageToken, deferredHeavyMs, () => onPoolMeasuresPageShown());
-      } else {
-        stopPoolMeasuresTimer();
-      }
-      if (pageId === 'page-pool') {
+      if (pageId === 'page-dashboard') {
         schedulePageTask(pageId,
                          pageToken,
                          deferredHeavyMs > 0 ? (deferredHeavyMs + 120) : 0,
-                         () => onPoolConfigPageShown(false));
+                         () => onDashboardPageShown(false));
       } else {
+        stopPoolMeasuresTimer();
         stopPoolAiPreviewPolling();
       }
       if (pageId === 'page-io-summary') {
@@ -1853,8 +1818,8 @@
       try {
         const params = new URLSearchParams(window.location.search || '');
         let requestedPage = String(params.get('page') || '').trim();
-        if (requestedPage === 'page-status') {
-          requestedPage = 'page-pool-measures';
+        if (requestedPage === 'page-status' || requestedPage === 'page-pool' || requestedPage === 'page-pool-measures') {
+          requestedPage = 'page-dashboard';
         }
         if (requestedPage && pages.some((el) => el.id === requestedPage)) {
           return requestedPage;
@@ -1865,7 +1830,7 @@
       if (activePage && activePage.id) {
         return activePage.id;
       }
-      return 'page-pool-measures';
+      return 'page-dashboard';
     }
 
     menuItems.forEach((item) => item.addEventListener('click', () => showPage(item.dataset.page)));
@@ -1951,7 +1916,6 @@
     const ioSummaryTables = document.getElementById('ioSummaryTables');
     const poolMeasuresRefreshBtn = document.getElementById('poolMeasuresRefresh');
     const poolMeasuresDomains = document.getElementById('poolMeasuresDomains');
-    const poolMeasuresStatus = document.getElementById('poolMeasuresStatus');
     const poolMeasuresGrid = document.getElementById('poolMeasuresGrid');
     const poolConfigTitle = document.getElementById('poolConfigTitle');
     const poolConfigSummary = document.getElementById('poolConfigSummary');
@@ -1961,7 +1925,6 @@
     const poolFiltrationFill = document.getElementById('poolFiltrationFill');
     const poolModeBadges = document.getElementById('poolModeBadges');
     const poolDisinfectionModes = document.getElementById('poolDisinfectionModes');
-    const poolAlarmCard = document.getElementById('poolAlarmCard');
     const poolConfigGrid = document.getElementById('poolConfigGrid');
     const poolAiRefreshBtn = document.getElementById('poolAiRefresh');
     const poolAiResultTitle = document.getElementById('poolAiResultTitle');
@@ -2175,15 +2138,19 @@
     let infoFlowLastAttemptAt = 0;
     let infoFlowLastSuccessAt = 0;
     let infoFlowRefreshPromise = null;
-    let runtimeMeasureDomainKeys = runtimeDomainsForProfile();
+    const runtimeMeasureDomainKeys = Object.freeze(['mode', 'equipements', 'sondes', 'alarm']);
     let runtimeManifestDomainCache = null;
     let runtimeManifestDomainLoadPromise = null;
     const poolMeasureDomainState = {
       mode: createRuntimeDomainState(),
+      equipements: createRuntimeDomainState(),
       sondes: createRuntimeDomainState(),
-      micronova: createRuntimeDomainState(),
       alarm: createRuntimeDomainState()
     };
+    let selectedMobileMeasureDomain = runtimeMeasureDomainKeys[0];
+    let poolDashboardSlotsCache = null;
+    let poolDashboardSlotsFetchedAt = 0;
+    let poolDashboardSlotsLoadPromise = null;
     let poolConfigLoadedOnce = false;
     let poolConfigReqSeq = 0;
     let poolAiPreviewLoadedOnce = false;
@@ -2233,7 +2200,6 @@
         note: 'Dosage hebdomadaire calculé depuis le volume du bassin, la charge et la température.'
       })
     ]);
-    const poolMeasureDomainAnimations = {};
     const upgradeReconnectFetchTimeoutMs = 1400;
     const upgradeTargetDefs = {
       flowios3: { manifestKey: 'flowios3', target: 'flowios3', endpoint: '/fwupdate/waveshare', label: 'FlowIOS3', order: 10 },
@@ -2284,7 +2250,7 @@
     const upgradeReconnectStageTimer = createTimeoutRunner(() => enterUpgradeReconnectPhase());
     const upgradeReconnectMonitor = createIntervalRunner(() => probeUpgradeReconnect(), 1500);
     const poolMeasuresPoller = createIntervalRunner(() => {
-      if (getActivePageId() !== 'page-pool-measures' || document.hidden) return;
+      if (getActivePageId() !== 'page-dashboard' || document.hidden) return;
       return refreshPoolMeasures(false);
     }, 10000);
     const ioSummaryPoller = createIntervalRunner(() => {
@@ -3518,7 +3484,7 @@
     function manifestCategoryVisibleForProfile(category) {
       const key = String(category || '').trim().toLowerCase();
       if (!key) return false;
-      if (isMicronovaProfile() || isSupervisorProfile()) {
+      if (isSupervisorProfile()) {
         return key === 'flowios3' || key === 'esp32s3' || key === 'waveshare'
           || key === 'spiffs' || key === 'flowios3-spiffs' || key === 'esp32s3-spiffs' || key === 'waveshare-spiffs'
           || key === 'nextion';
@@ -4040,9 +4006,7 @@
     function confirmRebootLaunch(selectedAction) {
       const action = String(selectedAction || 'supervisor');
       const messages = {
-        supervisor: isMicronovaProfile()
-          ? tr('updates.confirmRebootMicronova', 'Confirmer le redémarrage de Micronova ?')
-          : tr('updates.confirmRebootSupervisor', 'Confirmer le redémarrage du Supervisor ?'),
+        supervisor: tr('updates.confirmRebootSupervisor', 'Confirmer le redémarrage du Supervisor ?'),
         flow_soft: tr('updates.confirmRebootFlowSoft', 'Confirmer le redémarrage logiciel de flow.io ?'),
         flow_hard: tr('updates.confirmRebootFlowHard', 'Confirmer le redémarrage matériel de flow.io ?'),
         nextion: tr('updates.confirmRebootNextion', 'Confirmer le redémarrage de Nextion ?'),
@@ -5685,11 +5649,6 @@
       poolMeasuresPoller.stop();
     }
 
-    function showPoolMeasuresError(err) {
-      if (!poolMeasuresStatus) return;
-      poolMeasuresStatus.textContent = 'Chargement mesures echoue: ' + err;
-    }
-
     function startPoolMeasuresTimer() {
       poolMeasuresPoller.start();
     }
@@ -5720,8 +5679,8 @@
       return cache;
     }
 
-    function activePoolMeasureDomainKeys() {
-      return runtimeMeasureDomainKeys.filter((domainKey) => poolMeasureDomainState[domainKey].active);
+    function dashboardMeasureDomainKeys() {
+      return runtimeMeasureDomainKeys.slice();
     }
 
     function registerRuntimeManifestEntry(cache, entry) {
@@ -5744,7 +5703,7 @@
       if (!forceRefresh && runtimeManifestDomainCache) {
         return runtimeManifestDomainCache;
       }
-      if (!forceRefresh && runtimeManifestDomainLoadPromise) {
+      if (runtimeManifestDomainLoadPromise) {
         return runtimeManifestDomainLoadPromise;
       }
 
@@ -5776,9 +5735,8 @@
     function formatRuntimeDomainLabel(domain) {
       const key = String(domain || '').trim().toLowerCase();
       if (key === 'mode') return 'Mode';
-      if (key === 'equipements') return tr('dashboard.domain.equipements', 'Equipements');
+      if (key === 'equipements') return tr('dashboard.domain.equipements', 'Équipements');
       if (key === 'sondes') return 'Sondes';
-      if (key === 'micronova') return 'Micronova';
       if (key === 'mqtt') return 'MQTT';
       if (key === 'wifi') return tr('header.wifi', 'Réseau');
       if (key === 'i2c') return 'I2C';
@@ -5786,6 +5744,37 @@
       if (key === 'alarm') return 'Alarmes';
       if (!key) return 'Runtime';
       return key.charAt(0).toUpperCase() + key.slice(1);
+    }
+
+    function runtimeMeasureDomainIcon(domain) {
+      const icons = {
+        mode: 'tune',
+        equipements: 'settings',
+        sondes: 'sensors',
+        alarm: 'notifications_active'
+      };
+      const key = normalizeRuntimeMeasureDomainKey(domain);
+      return icons[key] || 'monitoring';
+    }
+
+    function buildDashboardMeasureCardHeader(domainKey, titleText) {
+      const head = document.createElement('div');
+      head.className = 'pool-card-head dashboard-measure-card-head';
+
+      const icon = document.createElement('span');
+      icon.className = 'ui-msr pool-card-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.textContent = runtimeMeasureDomainIcon(domainKey);
+
+      const titleWrap = document.createElement('div');
+      titleWrap.className = 'pool-card-title-wrap';
+      const title = document.createElement('h3');
+      title.textContent = String(titleText || formatRuntimeDomainLabel(domainKey));
+      titleWrap.appendChild(title);
+
+      head.appendChild(icon);
+      head.appendChild(titleWrap);
+      return head;
     }
 
     function formatRuntimeGroupCardTitle(domain, group) {
@@ -5849,13 +5838,34 @@
       return data.values;
     }
 
+    function invalidatePoolDashboardSlots() {
+      poolDashboardSlotsCache = null;
+      poolDashboardSlotsFetchedAt = 0;
+    }
+
     async function fetchPoolDashboardSlots() {
-      const data = await fetchOkJson(
-        '/api/runtime/dashboard_slots',
-        { cache: 'no-store' },
-        'lecture slots tableau de bord indisponible'
-      );
-      return data && typeof data === 'object' ? data : {};
+      const cacheAgeMs = Date.now() - poolDashboardSlotsFetchedAt;
+      if (poolDashboardSlotsCache && cacheAgeMs >= 0 && cacheAgeMs < 5000) {
+        return poolDashboardSlotsCache;
+      }
+      if (poolDashboardSlotsLoadPromise) return poolDashboardSlotsLoadPromise;
+
+      poolDashboardSlotsLoadPromise = (async () => {
+        const data = await fetchOkJson(
+          '/api/runtime/dashboard_slots',
+          { cache: 'no-store' },
+          'lecture slots tableau de bord indisponible'
+        );
+        poolDashboardSlotsCache = data && typeof data === 'object' ? data : {};
+        poolDashboardSlotsFetchedAt = Date.now();
+        return poolDashboardSlotsCache;
+      })();
+
+      try {
+        return await poolDashboardSlotsLoadPromise;
+      } finally {
+        poolDashboardSlotsLoadPromise = null;
+      }
     }
 
     async function fetchPoolSondeSlots() {
@@ -6403,6 +6413,15 @@
       return table;
     }
 
+    function decorateDashboardMeasureCard(card, domainKey) {
+      if (!card) return card;
+      const cleanDomain = normalizeRuntimeMeasureDomainKey(domainKey);
+      if (!cleanDomain) return card;
+      card.dataset.runtimeDomain = cleanDomain;
+      card.classList.toggle('is-mobile-selected', cleanDomain === selectedMobileMeasureDomain);
+      return card;
+    }
+
     function buildPoolMeasureCards(entries, values, options) {
       const fragment = document.createDocumentFragment();
       const opts = options && typeof options === 'object' ? options : {};
@@ -6429,6 +6448,12 @@
         }
         group.entries.push(entry);
       });
+      if (sondeSlots.length && !groups.some((group) => String(group.domainKey).toLowerCase() === 'sondes')) {
+        groups.push({ name: formatRuntimeDomainLabel('sondes'), domainKey: 'sondes', groupKey: 'Sondes', entries: [] });
+      }
+      if (alarmSlots.length && !groups.some((group) => String(group.domainKey).toLowerCase() === 'alarm')) {
+        groups.push({ name: formatRuntimeDomainLabel('alarm'), domainKey: 'alarm', groupKey: 'Alarmes', entries: [] });
+      }
 
       groups.forEach((group) => {
         const card = document.createElement('div');
@@ -6436,10 +6461,12 @@
           'status-card status-card-runtime'
           + ' status-card-runtime-domain-' + runtimeMeasureCssSlug(group.domainKey)
           + ' status-card-runtime-group-' + runtimeMeasureCssSlug(group.groupKey);
+        decorateDashboardMeasureCard(card, group.domainKey);
         const isPoolModeGroup =
           String(group.domainKey || '').trim().toLowerCase() === 'mode' &&
           String(group.groupKey || '').trim().localeCompare('Mode', 'fr', { sensitivity: 'base' }) === 0;
         const isPoolSondesGroup = isPoolSondesGroupKey(group.domainKey, group.groupKey);
+        const isPoolAlarmGroup = String(group.domainKey || '').trim().toLowerCase() === 'alarm';
         const groupDisplayOptions = {
           displayLabelResolver: (entry) => runtimeMeasureDisplayLabel(entry),
           booleanTexts: isPoolModeGroup
@@ -6450,12 +6477,15 @@
             : null
         };
 
-        const heading = document.createElement('h3');
-        heading.textContent = group.name;
-        card.appendChild(heading);
+        card.appendChild(buildDashboardMeasureCardHeader(group.domainKey, group.name));
 
         if (isPoolSondesGroup) {
           card.appendChild(buildPoolSondeSlotsGrid(sondeSlots));
+          fragment.appendChild(card);
+          return;
+        }
+        if (isPoolAlarmGroup && alarmSlots.length) {
+          card.appendChild(buildPoolAlarmSlotsGrid(alarmSlots));
           fragment.appendChild(card);
           return;
         }
@@ -6547,89 +6577,48 @@
       return fragment;
     }
 
-    function renderPoolMeasureDomainButtons() {
+    function renderMeasureDomainTabs() {
       if (!poolMeasuresDomains) return;
       poolMeasuresDomains.innerHTML = '';
-      runtimeMeasureDomainKeys.forEach((domainKey) => {
+      runtimeMeasureDomainKeys.forEach((domainKey, index) => {
         const state = poolMeasureDomainState[domainKey];
-        const animation = takePoolMeasureDomainAnimation(domainKey);
+        const selected = domainKey === selectedMobileMeasureDomain;
         const button = document.createElement('button');
         button.type = 'button';
-        button.className = 'measure-domain-chip'
-          + (state.active ? ' active' : '')
-          + (state.loading ? ' is-loading' : '')
-          + (animation ? ' is-pulsing' : '')
-          + (animation && animation.activating ? ' is-activating' : '');
-        button.setAttribute('aria-pressed', state.active ? 'true' : 'false');
-        button.setAttribute('aria-label', (state.active ? 'Masquer ' : 'Afficher ') + formatRuntimeDomainLabel(domainKey));
-        if (animation) {
-          button.style.setProperty('--measure-ripple-x', animation.x);
-          button.style.setProperty('--measure-ripple-y', animation.y);
-        }
-
-        const check = document.createElement('span');
-        check.className = 'measure-domain-chip-check';
-        check.setAttribute('aria-hidden', 'true');
-        check.textContent = iconCheckText();
-        button.appendChild(check);
-
-        const label = document.createElement('span');
-        label.className = 'measure-domain-chip-label';
-        label.textContent = formatRuntimeDomainLabel(domainKey);
-        button.appendChild(label);
-
-        button.addEventListener('pointerdown', () => {
-          button.classList.add('is-pressing');
+        button.className = 'measure-domain-tab' + (selected ? ' is-selected' : '') + (state.loading ? ' is-loading' : '');
+        button.id = 'measureDomainTab-' + domainKey;
+        button.dataset.domain = domainKey;
+        button.setAttribute('role', 'tab');
+        button.setAttribute('aria-selected', selected ? 'true' : 'false');
+        button.setAttribute('aria-controls', 'poolMeasuresGrid');
+        button.tabIndex = selected ? 0 : -1;
+        button.textContent = formatRuntimeDomainLabel(domainKey);
+        button.addEventListener('click', () => {
+          selectMobileMeasureDomain(domainKey);
         });
-        ['pointerup', 'pointerleave', 'pointercancel', 'blur'].forEach((eventName) => {
-          button.addEventListener(eventName, () => {
-            button.classList.remove('is-pressing');
-          });
-        });
-        button.addEventListener('click', async (event) => {
-          primePoolMeasureDomainAnimation(domainKey, event, !state.active);
-          await togglePoolMeasureDomain(domainKey);
+        button.addEventListener('keydown', (event) => {
+          if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End') return;
+          event.preventDefault();
+          let nextIndex = index;
+          if (event.key === 'Home') nextIndex = 0;
+          if (event.key === 'End') nextIndex = runtimeMeasureDomainKeys.length - 1;
+          if (event.key === 'ArrowLeft') nextIndex = (index - 1 + runtimeMeasureDomainKeys.length) % runtimeMeasureDomainKeys.length;
+          if (event.key === 'ArrowRight') nextIndex = (index + 1) % runtimeMeasureDomainKeys.length;
+          const nextDomain = runtimeMeasureDomainKeys[nextIndex];
+          selectMobileMeasureDomain(nextDomain);
+          const nextTab = document.getElementById('measureDomainTab-' + nextDomain);
+          if (nextTab) nextTab.focus();
         });
         poolMeasuresDomains.appendChild(button);
       });
     }
 
-    function primePoolMeasureDomainAnimation(domainKey, event, activating) {
+    function selectMobileMeasureDomain(domainKey) {
       const cleanDomain = normalizeRuntimeMeasureDomainKey(domainKey);
       if (!cleanDomain) return;
-      let x = '50%';
-      let y = '50%';
-      const target = event && event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
-      if (target) {
-        const rect = target.getBoundingClientRect();
-        const clientX = typeof event.clientX === 'number' ? event.clientX : rect.left + (rect.width / 2);
-        const clientY = typeof event.clientY === 'number' ? event.clientY : rect.top + (rect.height / 2);
-        const ratioX = Math.max(0, Math.min(100, ((clientX - rect.left) / Math.max(rect.width, 1)) * 100));
-        const ratioY = Math.max(0, Math.min(100, ((clientY - rect.top) / Math.max(rect.height, 1)) * 100));
-        x = ratioX.toFixed(1) + '%';
-        y = ratioY.toFixed(1) + '%';
-      }
-      poolMeasureDomainAnimations[cleanDomain] = {
-        until: Date.now() + 720,
-        activating: !!activating,
-        rendered: false,
-        x,
-        y
-      };
-    }
-
-    function takePoolMeasureDomainAnimation(domainKey) {
-      const cleanDomain = normalizeRuntimeMeasureDomainKey(domainKey);
-      if (!cleanDomain) return null;
-      const animation = poolMeasureDomainAnimations[cleanDomain];
-      if (!animation) return null;
-      if (animation.until <= Date.now()) {
-        delete poolMeasureDomainAnimations[cleanDomain];
-        return null;
-      }
-      if (animation.rendered) return null;
-      animation.rendered = true;
-      return animation;
+      selectedMobileMeasureDomain = cleanDomain;
+      renderMeasureDomainTabs();
+      renderPoolMeasuresGrid();
     }
 
     function poolMeasureDomainHasRenderableData(domainKey, state) {
@@ -6645,28 +6634,20 @@
       if (!poolMeasuresGrid) return;
       poolMeasuresGrid.innerHTML = '';
 
-      const activeDomains = activePoolMeasureDomainKeys();
-      if (!activeDomains.length) {
-        const empty = document.createElement('div');
-        empty.className = 'measure-domain-empty';
-        empty.textContent = tr('dashboard.empty.activateBadge', 'Activez un badge pour charger un domaine.');
-        poolMeasuresGrid.appendChild(empty);
-        return;
-      }
+      const domainKeys = dashboardMeasureDomainKeys();
 
       let renderedCardCount = 0;
-      activeDomains.forEach((domainKey) => {
+      domainKeys.forEach((domainKey) => {
         const state = poolMeasureDomainState[domainKey];
         const hasRenderableData = poolMeasureDomainHasRenderableData(domainKey, state);
         if (state.loading && !hasRenderableData) {
           const card = document.createElement('div');
           card.className = 'status-card';
-          const heading = document.createElement('h3');
-          heading.textContent = formatRuntimeDomainLabel(domainKey);
+          decorateDashboardMeasureCard(card, domainKey);
           const summary = document.createElement('p');
           summary.className = 'status-card-summary';
           summary.textContent = tr('dashboard.loading', 'Chargement en cours...');
-          card.appendChild(heading);
+          card.appendChild(buildDashboardMeasureCardHeader(domainKey));
           card.appendChild(summary);
           poolMeasuresGrid.appendChild(card);
           renderedCardCount += 1;
@@ -6675,26 +6656,24 @@
         if (state.error && !hasRenderableData) {
           const card = document.createElement('div');
           card.className = 'status-card';
-          const heading = document.createElement('h3');
-          heading.textContent = formatRuntimeDomainLabel(domainKey);
+          decorateDashboardMeasureCard(card, domainKey);
           const summary = document.createElement('p');
           summary.className = 'status-card-summary';
           summary.textContent = state.error;
-          card.appendChild(heading);
+          card.appendChild(buildDashboardMeasureCardHeader(domainKey));
           card.appendChild(summary);
           poolMeasuresGrid.appendChild(card);
           renderedCardCount += 1;
           return;
         }
-        if (!state.entries.length) {
+        if (!state.entries.length && !hasRenderableData) {
           const card = document.createElement('div');
           card.className = 'status-card';
-          const heading = document.createElement('h3');
-          heading.textContent = formatRuntimeDomainLabel(domainKey);
+          decorateDashboardMeasureCard(card, domainKey);
           const summary = document.createElement('p');
           summary.className = 'status-card-summary';
           summary.textContent = tr('dashboard.empty.domainNoRuntime', 'Aucune valeur runtime exposee pour ce domaine.');
-          card.appendChild(heading);
+          card.appendChild(buildDashboardMeasureCardHeader(domainKey));
           card.appendChild(summary);
           poolMeasuresGrid.appendChild(card);
           renderedCardCount += 1;
@@ -6711,79 +6690,27 @@
       if (renderedCardCount === 0) {
         const empty = document.createElement('div');
         empty.className = 'measure-domain-empty';
-        empty.textContent = tr('dashboard.empty.activeDomainsNoRuntime', 'Aucune valeur runtime disponible pour les domaines actifs.');
+        empty.textContent = tr('dashboard.empty.activeDomainsNoRuntime', 'Aucune valeur runtime disponible pour les domaines du tableau de bord.');
         poolMeasuresGrid.appendChild(empty);
       }
     }
 
-    function refreshPoolMeasuresStatus() {
-      if (!poolMeasuresStatus) return;
-      const activeDomains = activePoolMeasureDomainKeys();
-      const domainLabel = (count) => count > 1
-        ? tr('dashboard.status.domains.plural', 'Domaines')
-        : tr('dashboard.status.domains.singular', 'Domaine');
-      const valueLabel = (count) => count > 1
-        ? tr('dashboard.status.values.plural', 'Valeurs')
-        : tr('dashboard.status.values.singular', 'Valeur');
-      if (!activeDomains.length) {
-        poolMeasuresStatus.textContent =
-          tr('dashboard.status.domains.singular', 'Domaine') + ': 0 | ' +
-          tr('dashboard.status.values.singular', 'Valeur') + ': 0';
-        return;
-      }
-
-      let loadingCount = 0;
-      let errorCount = 0;
-      let valueCount = 0;
-      activeDomains.forEach((domainKey) => {
-        const state = poolMeasureDomainState[domainKey];
-        if (state.loading) loadingCount += 1;
-        if (state.error) errorCount += 1;
-        valueCount += state.entries.length;
-        if (domainKey === 'sondes') {
-          valueCount += Array.isArray(state.sondeSlots) ? state.sondeSlots.length : 0;
-          valueCount += Array.isArray(state.alarmSlots) ? state.alarmSlots.length : 0;
-        }
-      });
-
-      if (loadingCount > 0) {
-        poolMeasuresStatus.textContent =
-          tr('dashboard.status.loading', 'Chargement') + ': ' +
-          loadingCount + ' ' +
-          tr(loadingCount > 1 ? 'dashboard.status.domainWord.plural' : 'dashboard.status.domainWord.singular', loadingCount > 1 ? 'domaines' : 'domaine');
-        return;
-      }
-      if (errorCount > 0) {
-        poolMeasuresStatus.textContent =
-          tr('dashboard.status.errors', 'Erreur(s)') + ': ' +
-          errorCount + ' ' +
-          tr(errorCount > 1 ? 'dashboard.status.domainWord.plural' : 'dashboard.status.domainWord.singular', errorCount > 1 ? 'domaines' : 'domaine');
-        return;
-      }
-      poolMeasuresStatus.textContent =
-        domainLabel(activeDomains.length) + ': ' + activeDomains.length + ' | ' +
-        valueLabel(valueCount) + ': ' + valueCount;
-    }
-
     function refreshPoolMeasuresView() {
-      renderPoolMeasureDomainButtons();
+      renderMeasureDomainTabs();
       renderPoolMeasuresGrid();
-      refreshPoolMeasuresStatus();
     }
 
     async function loadPoolMeasureDomain(domainKey, forceRefresh) {
       const cleanDomain = normalizeRuntimeMeasureDomainKey(domainKey);
       if (!cleanDomain) return;
       const state = poolMeasureDomainState[cleanDomain];
-      if (!state.active) return;
       const hadRenderableData = poolMeasureDomainHasRenderableData(cleanDomain, state);
       const requestSeq = state.requestSeq + 1;
       state.requestSeq = requestSeq;
       state.loading = true;
       state.error = '';
       if (hadRenderableData) {
-        renderPoolMeasureDomainButtons();
-        refreshPoolMeasuresStatus();
+        renderMeasureDomainTabs();
       } else {
         refreshPoolMeasuresView();
       }
@@ -6824,49 +6751,15 @@
       }
     }
 
-    async function refreshActivePoolMeasureDomains(forceRefresh) {
-      const activeDomains = activePoolMeasureDomainKeys();
-      if (!activeDomains.length) {
-        refreshPoolMeasuresView();
-        return;
-      }
-      for (const domainKey of activeDomains) {
-        if (!poolMeasureDomainState[domainKey].active) continue;
-        await loadPoolMeasureDomain(domainKey, !!forceRefresh);
-      }
-    }
-
-    async function togglePoolMeasureDomain(domainKey) {
-      const cleanDomain = normalizeRuntimeMeasureDomainKey(domainKey);
-      if (!cleanDomain) return;
-      const state = poolMeasureDomainState[cleanDomain];
-      if (state.active) {
-        state.active = false;
-        state.loading = false;
-        state.error = '';
-        state.sondeSlots = [];
-        state.requestSeq += 1;
-        refreshPoolMeasuresView();
-        return;
-      }
-      state.active = true;
-      await loadPoolMeasureDomain(cleanDomain, false);
+    async function refreshDashboardMeasureDomains(forceRefresh) {
+      if (forceRefresh) invalidatePoolDashboardSlots();
+      await Promise.allSettled(
+        dashboardMeasureDomainKeys().map((domainKey) => loadPoolMeasureDomain(domainKey, !!forceRefresh))
+      );
     }
 
     async function refreshPoolMeasures(forceRefresh) {
-      await refreshActivePoolMeasureDomains(!!forceRefresh);
-    }
-
-    async function onPoolMeasuresPageShown() {
-      refreshPoolMeasuresView();
-      startPoolMeasuresTimer();
-      if (activePoolMeasureDomainKeys().length) {
-        try {
-          await refreshActivePoolMeasureDomains(false);
-        } catch (err) {
-          showPoolMeasuresError(err);
-        }
-      }
+      await refreshDashboardMeasureDomains(!!forceRefresh);
     }
 
     function poolConfigDisinfectionLabel(value) {
@@ -7155,6 +7048,7 @@
 
     function poolConfigRenderDisinfection(modules) {
       if (!poolDisinfectionModes) return;
+      poolDisinfectionModes.hidden = false;
       poolDisinfectionModes.innerHTML = '';
       const modes = modules['poollogic/modes'] || {};
       const selectedType = Number(modes.disinfection_type);
@@ -7165,15 +7059,18 @@
       const selector = document.createElement('div');
       selector.className = 'pool-treatment-selector';
       const selectorHead = document.createElement('div');
-      selectorHead.className = 'pool-treatment-title';
+      selectorHead.className = 'pool-card-head pool-treatment-title';
       const selectorIcon = document.createElement('span');
-      selectorIcon.className = 'ui-msr pool-treatment-title-icon';
+      selectorIcon.className = 'ui-msr pool-card-icon pool-treatment-title-icon';
       selectorIcon.setAttribute('aria-hidden', 'true');
       selectorIcon.textContent = 'water_drop';
+      const selectorTitleWrap = document.createElement('div');
+      selectorTitleWrap.className = 'pool-card-title-wrap';
       const selectorTitle = document.createElement('h3');
       selectorTitle.textContent = tr('pool.treatment.title', 'Traitement de l’eau');
+      selectorTitleWrap.appendChild(selectorTitle);
       selectorHead.appendChild(selectorIcon);
-      selectorHead.appendChild(selectorTitle);
+      selectorHead.appendChild(selectorTitleWrap);
       selector.appendChild(selectorHead);
 
       const choiceGroup = document.createElement('div');
@@ -7249,52 +7146,8 @@
         })
         .map((slot) => {
           const label = String(slot.label || '').trim() || tr('pool.alarm.defaultLabel', 'Alarme piscine');
-          const state = slot.conditionTrue === true
-            ? tr('pool.alarm.state.activeCondition', 'condition active')
-            : tr('pool.alarm.state.latched', 'alarme mémorisée');
-          return { label, state };
+          return { label };
         });
-    }
-
-    function poolConfigRenderAlarms(alarmSlots) {
-      if (!poolAlarmCard) return;
-      const alarms = poolConfigActiveAlarms(alarmSlots);
-      poolAlarmCard.innerHTML = '';
-      poolAlarmCard.hidden = alarms.length === 0;
-      if (alarms.length === 0) return;
-
-      const head = document.createElement('div');
-      head.className = 'pool-alarm-head';
-      const icon = document.createElement('span');
-      icon.className = 'ui-msr pool-alarm-icon';
-      icon.setAttribute('aria-hidden', 'true');
-      icon.textContent = 'warning';
-      const titleWrap = document.createElement('div');
-      titleWrap.className = 'pool-alarm-title-wrap';
-      const title = document.createElement('h3');
-      title.textContent = alarms.length > 1 ? tr('pool.alarm.title.plural', 'Alarmes piscine en cours') : tr('pool.alarm.title.singular', 'Alarme piscine en cours');
-      const intro = document.createElement('p');
-      intro.textContent = tr('pool.alarm.intro', 'PoolLogic signale une attention requise avant de laisser les automatismes fonctionner sans surveillance.');
-      titleWrap.appendChild(title);
-      titleWrap.appendChild(intro);
-      head.appendChild(icon);
-      head.appendChild(titleWrap);
-      poolAlarmCard.appendChild(head);
-
-      const list = document.createElement('div');
-      list.className = 'pool-alarm-list';
-      alarms.forEach((alarm) => {
-        const row = document.createElement('div');
-        row.className = 'pool-alarm-row';
-        const label = document.createElement('b');
-        label.textContent = alarm.label;
-        const state = document.createElement('span');
-        state.textContent = alarm.state;
-        row.appendChild(label);
-        row.appendChild(state);
-        list.appendChild(row);
-      });
-      poolAlarmCard.appendChild(list);
     }
 
     function poolConfigRenderFiltrationCard(def, data) {
@@ -7380,12 +7233,12 @@
       const source = modules && typeof modules === 'object' ? modules : {};
       poolConfigRenderHero(source, alarmSlots);
       poolConfigRenderDisinfection(source);
-      poolConfigRenderAlarms([]);
       poolConfigRenderGeneralCards(source);
     }
 
     function poolConfigRenderSkeleton() {
       if (poolDisinfectionModes) {
+        poolDisinfectionModes.hidden = false;
         poolDisinfectionModes.innerHTML = '';
         for (let i = 0; i < 2; i += 1) {
           const card = document.createElement('article');
@@ -7407,17 +7260,12 @@
           poolConfigGrid.appendChild(card);
         }
       }
-      if (poolAlarmCard) {
-        poolAlarmCard.hidden = true;
-        poolAlarmCard.innerHTML = '';
-      }
     }
 
     function poolConfigRenderError(err) {
-      if (poolDisinfectionModes) poolDisinfectionModes.innerHTML = '';
-      if (poolAlarmCard) {
-        poolAlarmCard.hidden = true;
-        poolAlarmCard.innerHTML = '';
+      if (poolDisinfectionModes) {
+        poolDisinfectionModes.innerHTML = '';
+        poolDisinfectionModes.hidden = true;
       }
       if (!poolConfigGrid) return;
       poolConfigGrid.innerHTML = '';
@@ -7446,6 +7294,7 @@
     async function loadPoolConfig(forceRefresh) {
       const reqSeq = ++poolConfigReqSeq;
       if (!poolConfigLoadedOnce || forceRefresh) poolConfigRenderSkeleton();
+      if (forceRefresh) invalidatePoolDashboardSlots();
       try {
         await poolConfigEnsureDocs().catch(() => {});
         const modules = {};
@@ -7581,7 +7430,7 @@
         const insightState = String(payload.insight_state || 'idle');
         const pending = weatherState === 'queued' || weatherState === 'loading' ||
           insightState === 'queued' || insightState === 'loading';
-        if (pending && attempt < 90 && getActivePageId() === 'page-pool') {
+        if (pending && attempt < 90 && getActivePageId() === 'page-dashboard') {
           poolAiPreviewPollTimer = setTimeout(() => {
             poolAiPreviewPollTimer = null;
             runAsyncTaskSafely(() => loadPoolAiPreview(false, attempt + 1));
@@ -7631,10 +7480,13 @@
       }
     }
 
-    async function onPoolConfigPageShown(forceRefresh) {
+    async function onDashboardPageShown(forceRefresh) {
+      refreshPoolMeasuresView();
+      startPoolMeasuresTimer();
       await Promise.allSettled([
+        refreshDashboardMeasureDomains(!!forceRefresh),
         loadPoolConfig(!!forceRefresh || !poolConfigLoadedOnce),
-        loadPoolAiPreview(true, 0)
+        loadPoolAiPreview(false, 0)
       ]);
     }
 
@@ -11145,11 +10997,7 @@
         }
       });
       bindClickAction(poolMeasuresRefreshBtn, async () => {
-        try {
-          await refreshPoolMeasures(true);
-        } catch (err) {
-          showPoolMeasuresError(err);
-        }
+        await refreshPoolMeasures(true);
       });
       bindClickAction(poolAiRefreshBtn, requestPoolAiInsight);
     }
@@ -11236,8 +11084,8 @@
         if (!confirmRebootLaunch(selected)) return;
         const actionMap = {
           supervisor: {
-            countdown: isMicronovaProfile() ? 'Reboot Micronova' : 'Reboot Supervisor',
-            failure: isMicronovaProfile() ? 'Reboot Micronova échoué' : 'Reboot Supervisor échoué',
+            countdown: 'Reboot Supervisor',
+            failure: 'Reboot Supervisor échoué',
             runner: () => callSystemAction('supervisor', 'reboot')
           },
           flow_soft: {
@@ -11310,15 +11158,18 @@
       document.addEventListener('visibilitychange', () => {
         const activePageId = getActivePageId();
         const onUpgradePage = activePageId === 'page-system';
+        const onDashboardPage = activePageId === 'page-dashboard';
         if (document.hidden || !onUpgradePage) {
           stopUpgradeStatusPolling();
         } else {
           startUpgradeStatusPolling(true);
         }
-        if (document.hidden || activePageId !== 'page-pool-measures') {
+        if (document.hidden || !onDashboardPage) {
           stopPoolMeasuresTimer();
+          stopPoolAiPreviewPolling();
         } else {
           startPoolMeasuresTimer();
+          refreshPoolMeasures(false).catch(() => {});
         }
         if (document.hidden || activePageId !== 'page-io-summary') {
           stopIoSummaryTimer();
