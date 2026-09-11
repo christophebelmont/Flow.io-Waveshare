@@ -11,10 +11,10 @@ Conçue autour d’une <b>architecture ouverte et modulaire</b>, la solution s�
 Ce dépôt regroupe l’ensemble des composants logiciels et matériels nécessaires au déploiement du système. Schémas électroniques, Gerber, firmware, applications, documentation et outils de configuration sont mis à disposition afin de permettre à chacun de construire, personnaliser et exploiter sa propre solution en toute autonomie.
 </p>
 
-## Une plateforme ouverte sur les équipements et la domotique
+## La plateforme ouverte pour la piscine connectée
 
 <p align="center">
-  <img src="docs/pictures/flowio-communication-protocols.svg" alt="Interfaces et protocoles pris en charge par flow.io : Ethernet, Wi-Fi, HTTP, WebSocket, MQTT, Home Assistant, NTP, mDNS, UDP, RS485, Modbus RTU, UART, Nextion, I2C, 1-Wire, SPI et radio 433 MHz" width="1000"><br>
+  <img src="docs/pictures/flowio-communication-protocols.png" alt="Interfaces et protocoles pris en charge par flow.io : Ethernet, Wi-Fi, HTTP, WebSocket, MQTT, Home Assistant, NTP, mDNS, UDP, RS485, Modbus RTU, UART, Nextion, I2C, 1-Wire, SPI et radio 433 MHz" width="1000"><br>
   <em>Les interfaces réseau, bus matériels et protocoles applicatifs disponibles autour du cœur flow.io.</em>
 </p>
 
