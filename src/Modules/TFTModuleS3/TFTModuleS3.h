@@ -12,6 +12,7 @@
 #include "Core/Module.h"
 #include "Core/RuntimeUi.h"
 #include "Core/Services/Services.h"
+#include "Domain/Pool/PoolIds.h"
 #include "Modules/Network/MQTTModule/MqttConfigRouteProducer.h"
 
 struct BoardSpec;
@@ -60,7 +61,7 @@ private:
     struct ConfigData {
         bool enabled = true;
         bool autoOff60s = true;
-        IoId motionIoId = (IoId)(IO_ID_DI_BASE + 8U);
+        IoId motionIoId = ioIdFromSlot(digitalInputSlot(PoolInputSlots::Pir));
     };
 
     enum class Page : uint8_t {

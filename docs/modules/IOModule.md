@@ -68,7 +68,7 @@ Capacités compile-time actuelles dans `src/Modules/IOModule/IOModule.h`:
 
 | Capacité | Valeur |
 |---|---:|
-| entrées analogiques | 16 |
+| entrées analogiques | 21 |
 | entrées digitales | 13 |
 | sorties digitales | 16 |
 | slots de configuration correspondants | 16 / 13 / 16 |
@@ -142,7 +142,7 @@ Ports déclarés actuellement:
 
 Le profil Waveshare instancie aujourd'hui:
 
-- 16 entrées analogiques (`a00..a15`)
+- 21 entrées analogiques (`a00..a20`)
 - 13 entrées digitales (`i00..i12`)
 - 16 sorties digitales (`d00..d15`)
 
@@ -165,11 +165,11 @@ Le profil Waveshare instancie aujourd'hui:
 
 | Rôle par défaut | Port physique par défaut | Mode |
 |---|---|---|
-| `SensorPir` | `PortGpio11Input` | état |
-| `SensorPhLevel` | `PortGpio8Input` | état |
-| `SensorChlorineLevel` | `PortGpio7Input` | état |
-| `SensorPoolLevel` | `PortGpio6Input` | état |
-| `SensorWaterMeter` | `PortGpio5Input` | compteur, actif bas (`actif=0`), front montant, debounce `100000 us` |
+| `SensorPir` (`i07`) | `PortGpio11Input` | état |
+| `SensorPhLevel` (`i04`) | `PortGpio8Input` | état |
+| `SensorChlorineLevel` (`i03`) | `PortGpio7Input` | état |
+| `SensorPoolLevel` (`i02`) | `PortGpio6Input` | état |
+| `SensorWaterMeter` (`i01`) | `PortGpio5Input` | compteur, actif bas (`actif=0`), front montant, debounce `100000 us` |
 
 ### Sorties digitales
 

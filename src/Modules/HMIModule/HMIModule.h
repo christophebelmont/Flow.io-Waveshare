@@ -65,7 +65,7 @@ private:
             true;
         bool nextionEnabled = true;
         IoId nextionMotionIoId =
-            (IoId)(IO_ID_DI_BASE + 8U);
+            ioIdFromSlot(digitalInputSlot(PoolInputSlots::Pir));
         bool remoteUdpEnabled =
 #ifdef FLOW_HMI_REMOTE_UDP
             (FLOW_HMI_REMOTE_UDP != 0);
@@ -163,11 +163,11 @@ private:
     IoId orpIoId_ = ioIdFromSlot(analogInputSlot(0));
     IoId psiIoId_ = ioIdFromSlot(analogInputSlot(2));
     IoId airTempIoId_ = ioIdFromSlot(analogInputSlot(5));
-    IoId poolLevelIoId_ = ioIdFromSlot(digitalInputSlot(11));
-    IoId phLevelIoId_ = ioIdFromSlot(digitalInputSlot(9));
-    IoId chlorineLevelIoId_ = ioIdFromSlot(digitalInputSlot(10));
+    IoId poolLevelIoId_ = ioIdFromSlot(digitalInputSlot(PoolInputSlots::PoolLevel));
+    IoId phLevelIoId_ = ioIdFromSlot(digitalInputSlot(PoolInputSlots::PhLevel));
+    IoId chlorineLevelIoId_ = ioIdFromSlot(digitalInputSlot(PoolInputSlots::ChlorineLevel));
     IoId waterTempIoId_ = ioIdFromSlot(analogInputSlot(4));
-    IoId waterCounterIoId_ = ioIdFromSlot(digitalInputSlot(12));
+    IoId waterCounterIoId_ = ioIdFromSlot(digitalInputSlot(PoolInputSlots::WaterMeter));
     uint8_t filtrationDeviceSlot_ = PoolIds::DeviceFiltrationPump;
     uint8_t phPumpDeviceSlot_ = PoolIds::DevicePhPump;
     uint8_t orpPumpDeviceSlot_ = PoolIds::DeviceChlorinePump;

@@ -18,7 +18,7 @@ signifie « non connecté ». Un binding peut être changé en configuration san
 le rôle métier ni les topics runtime de l'IO slot.
 
 Les valeurs du profil décrivent uniquement la carte Flow.io actuelle. La capacité IO compilée est
-`{16, 13, 16, 16, 13, 16}`: 16 analogiques, 13 entrées digitales, 16 sorties digitales,
+`{21, 13, 16, 21, 13, 16}`: 21 analogiques, 13 entrées digitales, 16 sorties digitales,
 puis les trois capacités de configuration correspondantes.
 
 ## Topologie matérielle
@@ -102,18 +102,18 @@ le texte « Entrée » ou « Sortie » est disponible au survol et au focus clav
 
 | ID | Constante | Kind/canal | Affectation par défaut |
 |---:|---|---|---|
-| 201 | `PortGpio5Input` | GPIO5 | `i12`, Water Meter |
-| 202 | `PortGpio6Input` | GPIO6 | `i11`, Pool Level |
-| 203 | `PortGpio7Input` | GPIO7 | `i10`, Chlorine Level |
-| 204 | `PortGpio8Input` | GPIO8 | `i09`, pH Level |
-| 205 | `PortGpio9Input` | GPIO9 | `i05`, libre |
+| 201 | `PortGpio5Input` | GPIO5 | `i01`, Water Meter |
+| 202 | `PortGpio6Input` | GPIO6 | `i02`, Pool Level |
+| 203 | `PortGpio7Input` | GPIO7 | `i03`, Chlorine Level |
+| 204 | `PortGpio8Input` | GPIO8 | `i04`, pH Level |
+| 205 | `PortGpio9Input` | GPIO9 | `i05`, Flow Meter |
 | 206 | `PortGpio10Input` | GPIO10 | `i06`, libre |
-| 207 | `PortGpio11Input` | GPIO11 | `i08`, PIR |
-| 220 | `PortMcpInGpa0` | MCP GPA0 / canal 0 | Non affecté |
-| 221 | `PortMcpInGpa1` | MCP GPA1 / canal 1 | Non affecté |
-| 222 | `PortMcpInGpa2` | MCP GPA2 / canal 2 | Non affecté |
-| 223 | `PortMcpInGpa3` | MCP GPA3 / canal 3 | Non affecté |
-| 224 | `PortMcpInGpa4` | MCP GPA4 / canal 4 | Non affecté |
+| 207 | `PortGpio11Input` | GPIO11 | `i07`, PIR |
+| 220 | `PortMcpInGpa0` | MCP GPA0 / canal 0 | `i08` |
+| 221 | `PortMcpInGpa1` | MCP GPA1 / canal 1 | `i09` |
+| 222 | `PortMcpInGpa2` | MCP GPA2 / canal 2 | `i10` |
+| 223 | `PortMcpInGpa3` | MCP GPA3 / canal 3 | `i11` |
+| 224 | `PortMcpInGpa4` | MCP GPA4 / canal 4 | `i12` |
 | 225 | `PortMcpInGpa5` | MCP GPA5 / canal 5 | Non affecté |
 | 226 | `PortMcpInGpa6` | MCP GPA6 / canal 6 | Non affecté |
 | 240..245 | `PortGpio*Input` | GPIO1, 2, 21, 45, 47, 48 | Builds sans TFT uniquement |
@@ -147,7 +147,7 @@ Avec le TFT actif, les six GPIO réservés ne doivent être liés à aucun IO sl
 
 Les IO slots portent les identifiants runtime stables publiés par `IOModule`:
 
-- `a00..a15` pour les mesures analogiques;
+- `a00..a20` pour les mesures analogiques;
 - `i00..i12` pour les entrées digitales;
 - `d00..d15` pour les sorties digitales.
 
@@ -175,8 +175,13 @@ défaut du profil.
 | `a13` | a13 | 0 | Non connecté |
 | `a14` | a14 | 0 | Non connecté |
 | `a15` | a15 | 0 | Non connecté |
+| `a16` | a16 | 0 | Non connecté |
+| `a17` | a17 | 0 | Non connecté |
+| `a18` | a18 | 0 | Non connecté |
+| `a19` | a19 | 0 | Non connecté |
+| `a20` | a20 | 0 | Non connecté |
 
-Les slots `a08..a15` sont disponibles et configurables, mais restent non connectés
+Les slots `a08..a20` sont disponibles et configurables, mais restent non connectés
 par défaut. Les bindings SHT40, BMP280, BME688, les autres mesures INA226 et
 l'ADS1115 externe restent sélectionnables. Aucun de ces slots libres n'est associé
 à un rôle métier du domaine Pool.
@@ -185,19 +190,15 @@ l'ADS1115 externe restent sélectionnables. Aucun de ces slots libres n'est asso
 
 | IO slot | Nom | Binding port | Mode |
 |---|---|---:|---|
-| `i00` | Factory Reset | Non connecté (GPIO4 réservé au système) | État |
-| `i01` | GPIO05 | Non connecté | État |
-| `i02` | GPIO06 | Non connecté | État |
-| `i03` | GPIO07 | Non connecté | État |
-| `i04` | GPIO08 | Non connecté | État |
-| `i05` | GPIO09 | 205 | État |
+| `i00` | Factory Reset | GPIO4 réservé au gestionnaire système | Reset usine, actif bas |
+| `i01` | Water Meter | 201 / GPIO5 | Compteur, actif bas (`actif=0`), front montant, debounce 100 ms |
+| `i02` | Pool Level | 202 / GPIO6 | État |
+| `i03` | Chlorine Level | 203 / GPIO7 | État |
+| `i04` | pH Level | 204 / GPIO8 | État |
+| `i05` | Flow Meter | 205 / GPIO9 | État |
 | `i06` | GPIO10 | 206 | État |
-| `i07` | GPIO11 | Non connecté | État |
-| `i08` | PIR | 207 / GPIO11 | État, actif haut |
-| `i09` | pH Level | 204 / GPIO8 | État |
-| `i10` | Chlorine Level | 203 / GPIO7 | État |
-| `i11` | Pool Level | 202 / GPIO6 | État |
-| `i12` | Water Meter | 201 / GPIO5 | Compteur, actif bas (`actif=0`), front montant, debounce 100 ms |
+| `i07` | PIR | 207 / GPIO11 | État, actif haut |
+| `i08..i12` | MCP GPA0..4 | 220..224 | État, libres |
 
 ### Sorties digitales
 
@@ -242,11 +243,11 @@ résolu ensuite par `IOModule`.
 | 6 | `SensorAirTemp` | Analogique | `a05` |
 | 7 | `SensorCurrent` | Analogique | `a06` |
 | 8 | `SensorVoltage` | Analogique | `a07` |
-| 9 | `SensorPir` | Entrée digitale | `i08` |
-| 10 | `SensorPhLevel` | Entrée digitale | `i09` |
-| 11 | `SensorChlorineLevel` | Entrée digitale | `i10` |
-| 12 | `SensorPoolLevel` | Entrée digitale | `i11` |
-| 13 | `SensorWaterMeter` | Compteur digital | `i12` |
+| 9 | `SensorPir` | Entrée digitale | `i07` |
+| 10 | `SensorPhLevel` | Entrée digitale | `i04` |
+| 11 | `SensorChlorineLevel` | Entrée digitale | `i03` |
+| 12 | `SensorPoolLevel` | Entrée digitale | `i02` |
+| 13 | `SensorWaterMeter` | Compteur digital | `i01` |
 | 14 | `ActuatorFiltrationPump` | Sortie digitale | `d00` |
 | 15 | `ActuatorPhPump` | Sortie digitale | `d01` |
 | 16 | `ActuatorChlorinePump` | Sortie digitale | `d02` |

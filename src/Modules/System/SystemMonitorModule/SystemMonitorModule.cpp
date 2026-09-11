@@ -31,6 +31,10 @@ static constexpr uint32_t kWebWatchdogClientIdleFactor = 2U;
 static constexpr uint8_t kWebWatchdogMaxFailuresCap = 20U;
 static constexpr uint32_t kPressurePanicRebootDelayMs = 5000U;
 static constexpr uint32_t kPressureCriticalRebootDelayMs = 15000U;
+static constexpr uint32_t kPressureSheddingRecoveryFloorFreeBytes = 18000U;
+static constexpr uint32_t kPressureSheddingRecoveryFreeBytes = 22000U;
+static constexpr uint32_t kPressureSheddingRecoveryLargestBytes = 8192U;
+static constexpr uint8_t kPressureSheddingRecoveryFragPercent = 30U;
 static constexpr MqttConfigRouteProducer::Route kSysMonCfgRoutes[] = {
     {1, {(uint8_t)ConfigModuleId::SystemMonitor, kSysMonCfgBranch}, "sysmon", "sysmon", (uint8_t)MqttPublishPriority::Normal, nullptr},
 };
@@ -87,7 +91,16 @@ MemoryPressureState applyMemoryPressureHysteresis_(const SystemStatsSnapshot& sn
         if (freeBytes < 14000U || largestBytes < 5120U) return previous;
         break;
     case MemoryPressureState::Shedding:
-        if (freeBytes < 20000U || largestBytes < 8192U) return previous;
+        // Shedding can be entered by the combination of less than 20 KiB free
+        // and more than 35% fragmentation. Require a margin on both sides of
+        // that compound condition before recovering, otherwise ordinary
+        // short-lived allocations make the state alternate around 20 KiB.
+        if (freeBytes < kPressureSheddingRecoveryFloorFreeBytes ||
+            largestBytes < kPressureSheddingRecoveryLargestBytes ||
+            (freeBytes < kPressureSheddingRecoveryFreeBytes &&
+             frag > kPressureSheddingRecoveryFragPercent)) {
+            return previous;
+        }
         break;
     case MemoryPressureState::Constrained:
         if (freeBytes < 28000U || largestBytes < 12288U || frag > 35U) return previous;

@@ -41,7 +41,7 @@ Les slots `d08..d15` correspondent aux sorties du MCP23017 et n'ont pas de rôle
 Affectation logique Pool par défaut :
 
 - analogiques : `a00` ORP, `a01` pH, `a02` pression, `a03` libre, `a04` température eau, `a05` température air, `a06` courant et `a07` tension ;
-- digitales : `i08` PIR, `i09` niveau cuve pH, `i10` niveau cuve désinfection, `i11` niveau bassin et `i12` compteur d'eau.
+- digitales : `i07` PIR, `i04` niveau cuve pH, `i03` niveau cuve désinfection, `i02` niveau bassin et `i01` compteur d'eau.
 
 Les slots numériques restent stables même si leur `binding_port` est modifié en configuration. La [cartographie IO](../core/waveshare-io-map.md) donne les ports physiques, les ressources libres et les réservations du TFT.
 
@@ -195,7 +195,7 @@ En auto:
 
 ## 5.7 Remplissage
 
-- basé sur le capteur de niveau bassin (`i11` par défaut)
+- basé sur le capteur de niveau bassin (`i02` par défaut)
 - si le niveau bas est actif : marche
 - quand niveau revient OK: maintien ON jusqu’à atteindre au moins `fill_min_on_s`
 

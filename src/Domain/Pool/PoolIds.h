@@ -45,3 +45,19 @@ constexpr uint8_t SensorCount = 13;
 constexpr uint8_t DomainSlotCount = 21;
 
 }  // namespace PoolIds
+
+namespace PoolInputSlots {
+
+// Canonical logical input slots for the pool installation.
+// GPIO4 remains owned by the system reset handler; it is represented by i00
+// but is not exposed as a configurable IOModule binding.
+constexpr uint8_t FactoryReset = 0;
+constexpr uint8_t WaterMeter = 1;
+constexpr uint8_t PoolLevel = 2;
+constexpr uint8_t ChlorineLevel = 3;
+constexpr uint8_t PhLevel = 4;
+constexpr uint8_t FlowMeter = 5;
+constexpr uint8_t Spare = 6;
+constexpr uint8_t Pir = 7;
+
+}  // namespace PoolInputSlots

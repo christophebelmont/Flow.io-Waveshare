@@ -818,11 +818,11 @@ void HMIModule::init(ConfigStore& cfg, ServiceRegistry& services)
     orpIoId_ = ioIdFromSlot(analogInputSlot(0));
     psiIoId_ = ioIdFromSlot(analogInputSlot(2));
     airTempIoId_ = ioIdFromSlot(analogInputSlot(5));
-    poolLevelIoId_ = ioIdFromSlot(digitalInputSlot(11));
-    phLevelIoId_ = ioIdFromSlot(digitalInputSlot(9));
-    chlorineLevelIoId_ = ioIdFromSlot(digitalInputSlot(10));
+    poolLevelIoId_ = ioIdFromSlot(digitalInputSlot(PoolInputSlots::PoolLevel));
+    phLevelIoId_ = ioIdFromSlot(digitalInputSlot(PoolInputSlots::PhLevel));
+    chlorineLevelIoId_ = ioIdFromSlot(digitalInputSlot(PoolInputSlots::ChlorineLevel));
     waterTempIoId_ = ioIdFromSlot(analogInputSlot(4));
-    waterCounterIoId_ = ioIdFromSlot(digitalInputSlot(12));
+    waterCounterIoId_ = ioIdFromSlot(digitalInputSlot(PoolInputSlots::WaterMeter));
     phRuntimeIndex_ = kInvalidRuntimeIndex;
     orpRuntimeIndex_ = kInvalidRuntimeIndex;
     psiRuntimeIndex_ = kInvalidRuntimeIndex;

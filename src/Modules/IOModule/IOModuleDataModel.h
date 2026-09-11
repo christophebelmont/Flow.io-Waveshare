@@ -6,7 +6,9 @@
 
 #include <stdint.h>
 
-constexpr uint8_t IO_MAX_ENDPOINTS = 45;
+#include "Core/SystemLimits.h"
+
+constexpr uint8_t IO_MAX_ENDPOINTS = (uint8_t)Limits::Io::MaxEndpoints;
 
 enum IOValueType : uint8_t {
     IO_VALUE_BOOL = 0,

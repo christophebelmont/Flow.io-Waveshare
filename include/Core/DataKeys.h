@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include "Core/EventBus/EventPayloads.h"
+#include "Core/SystemLimits.h"
 
 namespace DataKeys {
 
@@ -43,7 +44,7 @@ constexpr DataKey HaDeviceId = 12;
 /** @brief Reserved base for IO endpoint runtime keys (`IORuntime`). */
 constexpr DataKey IoBase = 40;
 /** @brief Reserved IO runtime key count for the active board profile. */
-constexpr uint8_t IoReservedCount = 45;
+constexpr uint8_t IoReservedCount = (uint8_t)Limits::Io::MaxEndpoints;
 /** @brief End-exclusive bound for IO runtime key range. */
 constexpr DataKey IoEndExclusive = IoBase + IoReservedCount;
 

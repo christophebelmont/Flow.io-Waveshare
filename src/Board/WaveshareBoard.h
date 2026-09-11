@@ -55,7 +55,7 @@ inline constexpr uint32_t kWaveshareESP32S3InterlinkI2cHz = 400000U;
  *   Not stored in NVS. These are compile-time sizing limits, so the compiled
  *   values always apply.
  */
-inline constexpr IoCapacitySpec kWaveshareESP32S3IoCapacity{16, 13, 16, 16, 13, 16};
+inline constexpr IoCapacitySpec kWaveshareESP32S3IoCapacity{21, 13, 16, 21, 13, 16};
 
 /*
  * MQTT task and queue capacities.
@@ -287,7 +287,7 @@ inline constexpr IoPointSpec kWaveshareESP32S3IoPoints[] = {
     {"pool_level", IoCapability::DigitalIn, BoardSignal::DigitalIn2, 6, false, 0},
     {"chlorine_level", IoCapability::DigitalIn, BoardSignal::DigitalIn3, 7, false, 0},
     {"ph_level", IoCapability::DigitalIn, BoardSignal::DigitalIn4, 8, false, 0},
-    {"gpio9_unused", IoCapability::DigitalIn, BoardSignal::DigitalIn5, 9, false, 0},
+    {"flow_meter", IoCapability::DigitalIn, BoardSignal::DigitalIn5, 9, false, 0},
     {"gpio10_unused", IoCapability::DigitalIn, BoardSignal::DigitalIn6, 10, false, 0},
     {"pir", IoCapability::DigitalIn, BoardSignal::DigitalIn7, 11, false, 0},
     {"water_temperature_ds18b20", IoCapability::OneWireTemp, BoardSignal::TempProbe1, 20, false, 0},

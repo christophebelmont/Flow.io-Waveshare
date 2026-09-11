@@ -6203,12 +6203,15 @@
         }
 
         const refreshDomains = runtimeActionRefreshDomains(entry, action);
-        if (refreshDomains.includes('alarm') || refreshDomains.includes('sondes')) {
-          invalidatePoolDashboardSlots();
-        }
-        await Promise.allSettled(
-          refreshDomains.map((domain) => loadPoolMeasureDomain(domain, false))
-        );
+        // A runtime command can change both PoolLogic's operating mode and its
+        // safety conditions. Always discard the shared dashboard snapshot so
+        // the overview and its alarm text are rebuilt from the post-command
+        // state, even when the action only declares mode/equipment domains.
+        invalidatePoolDashboardSlots();
+        const refreshTasks = refreshDomains
+          .map((domain) => loadPoolMeasureDomain(domain, false));
+        refreshTasks.push(refreshPoolOverview(false));
+        await Promise.allSettled(refreshTasks);
       } catch (err) {
         const detail = err && err.message ? err.message : String(err);
         setRuntimeActionFeedback(
@@ -7008,7 +7011,10 @@
     }
 
     async function refreshPoolMeasures(forceRefresh) {
-      await refreshDashboardMeasureDomains(!!forceRefresh);
+      await Promise.allSettled([
+        refreshDashboardMeasureDomains(!!forceRefresh),
+        refreshPoolOverview(!!forceRefresh)
+      ]);
     }
 
     function poolConfigDisinfectionLabel(value) {
@@ -7278,6 +7284,28 @@
       }
       if (poolFiltrationFill) {
         poolFiltrationFill.style.width = poolConfigDayProgress(startValue, stopValue).toFixed(1) + '%';
+      }
+    }
+
+    async function refreshPoolOverview(forceRefresh) {
+      if (forceRefresh) invalidatePoolDashboardSlots();
+
+      const results = await Promise.allSettled([
+        poolConfigFetchModule('poollogic/modes'),
+        fetchPoolAlarmSlots()
+      ]);
+      const modesResult = results[0];
+      const alarmsResult = results[1];
+
+      if (modesResult.status === 'fulfilled') {
+        const payload = modesResult.value;
+        poolConfigModulesCache = Object.assign({}, poolConfigModulesCache || {}, {
+          [payload.module]: payload.data
+        });
+      }
+
+      if (poolConfigModulesCache && alarmsResult.status === 'fulfilled') {
+        poolConfigRenderHero(poolConfigModulesCache, alarmsResult.value);
       }
     }
 

@@ -2780,7 +2780,7 @@ bool waveshareReadDashboardRuntimeValue_(DataStore* dataStore,
                 if (valueId == 2U) ioId = ioIdFromSlot(analogInputSlot(5));
                 else if (valueId == 3U) ioId = ioIdFromSlot(analogInputSlot(1));
                 else if (valueId == 4U) ioId = ioIdFromSlot(analogInputSlot(0));
-                else if (valueId == 5U) ioId = ioIdFromSlot(digitalInputSlot(12));
+                else if (valueId == 5U) ioId = ioIdFromSlot(digitalInputSlot(PoolInputSlots::WaterMeter));
                 else if (valueId == 6U) ioId = ioIdFromSlot(analogInputSlot(2));
                 return waveshareReadDashboardIoValue_(ioSvc, ioId, out) ||
                        waveshareReadDashboardPoolSensorDataStore_(dataStore, valueId, out);

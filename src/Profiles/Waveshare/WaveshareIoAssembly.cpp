@@ -33,7 +33,7 @@ namespace {
 
 using Profiles::Waveshare::ModuleInstances;
 namespace FlowIoLayout = Profiles::Waveshare::IoLayout;
-static constexpr uint8_t kFlowIoAnalogHaSlots = 16;
+static constexpr uint8_t kFlowIoAnalogHaSlots = Limits::Io::MaxAnalogEndpoints;
 
 struct FlowIoAnalogHaSpec {
     const char* objectSuffix = nullptr;
@@ -70,19 +70,19 @@ constexpr FlowIoAnalogHaSpec kAnalogHaSpecs[kFlowIoAnalogHaSlots] = {
 };
 
 constexpr FlowIoDigitalHaSpec kDigitalHaSpecs[] = {
-    {0, "io_factory_reset", "Factory Reset", "mdi:restart-alert", nullptr},
-    {1, "io_gpio05", "GPIO05", "mdi:electric-switch", nullptr},
-    {2, "io_gpio06", "GPIO06", "mdi:electric-switch", nullptr},
-    {3, "io_gpio07", "GPIO07", "mdi:electric-switch", nullptr},
-    {4, "io_gpio08", "GPIO08", "mdi:electric-switch", nullptr},
-    {5, "io_gpio09", "GPIO09", "mdi:electric-switch", nullptr},
-    {6, "io_gpio10", "GPIO10", "mdi:electric-switch", nullptr},
-    {7, "io_gpio11", "GPIO11", "mdi:electric-switch", nullptr},
-    {8, "io_pir", "PIR", "mdi:motion-sensor", nullptr},
-    {9, "io_ph_lvl", "pH Level", "mdi:flask-outline", nullptr},
-    {10, "io_chl_lvl", "Chlorine Level", "mdi:test-tube", nullptr},
-    {11, "io_pool_lvl", "Pool Level", "mdi:waves-arrow-up", nullptr},
-    {12, "io_wat_meter", "Water Meter", "mdi:water-sync", "L"},
+    {PoolInputSlots::FactoryReset, "io_factory_reset", "Factory Reset", "mdi:restart-alert", nullptr},
+    {PoolInputSlots::WaterMeter, "io_wat_meter", "Water Meter", "mdi:water-sync", "L"},
+    {PoolInputSlots::PoolLevel, "io_pool_lvl", "Pool Level", "mdi:waves-arrow-up", nullptr},
+    {PoolInputSlots::ChlorineLevel, "io_chl_lvl", "Chlorine Level", "mdi:test-tube", nullptr},
+    {PoolInputSlots::PhLevel, "io_ph_lvl", "pH Level", "mdi:flask-outline", nullptr},
+    {PoolInputSlots::FlowMeter, "io_flow_meter", "Flow Meter", "mdi:waves-arrow-right", nullptr},
+    {PoolInputSlots::Spare, "io_gpio10", "GPIO10", "mdi:electric-switch", nullptr},
+    {PoolInputSlots::Pir, "io_pir", "PIR", "mdi:motion-sensor", nullptr},
+    {8, "io_mcp_gpa0", "MCP GPA0", "mdi:electric-switch", nullptr},
+    {9, "io_mcp_gpa1", "MCP GPA1", "mdi:electric-switch", nullptr},
+    {10, "io_mcp_gpa2", "MCP GPA2", "mdi:electric-switch", nullptr},
+    {11, "io_mcp_gpa3", "MCP GPA3", "mdi:electric-switch", nullptr},
+    {12, "io_mcp_gpa4", "MCP GPA4", "mdi:electric-switch", nullptr},
 };
 
 struct FlowIoDiscoveryHeap {
@@ -267,19 +267,14 @@ const char* waveshareDigitalInputNameForDomainSlot(DomainSlotId domainSlot)
 const char* waveshareDigitalInputNameForLogical(uint8_t logicalIdx)
 {
     switch (logicalIdx) {
-        case 0: return "Factory Reset";
-        case 1: return "GPIO05";
-        case 2: return "GPIO06";
-        case 3: return "GPIO07";
-        case 4: return "GPIO08";
-        case 5: return "GPIO09";
-        case 6: return "GPIO10";
-        case 7: return "GPIO11";
-        case 8: return "PIR";
-        case 9: return "pH Level";
-        case 10: return "Chlorine Level";
-        case 11: return "Pool Level";
-        case 12: return "Water Meter";
+        case PoolInputSlots::FactoryReset: return "Factory Reset";
+        case PoolInputSlots::WaterMeter: return "Water Meter";
+        case PoolInputSlots::PoolLevel: return "Pool Level";
+        case PoolInputSlots::ChlorineLevel: return "Chlorine Level";
+        case PoolInputSlots::PhLevel: return "pH Level";
+        case PoolInputSlots::FlowMeter: return "Flow Meter";
+        case PoolInputSlots::Spare: return "GPIO10";
+        case PoolInputSlots::Pir: return "PIR";
         default: return "DIN";
     }
 }

@@ -52,14 +52,14 @@ Le bus I2C utilise par défaut le TCA9554 `0x20`, le MCP23017 `0x21`, l'INA226 `
 
 | Fonction | GPIO | IO slot | Binding port |
 |---|---:|---|---:|
-| Reset NVS + reboot | 4 | Réservé au système | — |
-| Water Meter | 5 | `i12` | 201 |
-| Pool Level | 6 | `i11` | 202 |
-| Chlorine Level | 7 | `i10` | 203 |
-| pH Level | 8 | `i09` | 204 |
-| Libre | 9 | `i05` | 205 |
+| Reset NVS + reboot | 4 | `i00` (réservé au système) | — |
+| Water Meter | 5 | `i01` | 201 |
+| Pool Level | 6 | `i02` | 202 |
+| Chlorine Level | 7 | `i03` | 203 |
+| pH Level | 8 | `i04` | 204 |
+| Flow Meter | 9 | `i05` | 205 |
 | Libre | 10 | `i06` | 206 |
-| PIR écrans | 11 | `i08` | 207 |
+| PIR écrans | 11 | `i07` | 207 |
 
 GPIO4 n'est pas exposé comme entrée configurable. Maintenir son bouton appuyé
 pendant 5 secondes efface le ConfigStore et les paramètres Wi-Fi en NVS, puis
@@ -126,7 +126,7 @@ domain_slot -> io_slot -> binding_port -> driver/canal physique
 Exemples:
 
 - `SensorWaterTemp -> a04 -> 120 -> DS18B20 GPIO20`;
-- `SensorPoolLevel -> i11 -> 202 -> GPIO6`;
+- `SensorPoolLevel -> i02 -> 202 -> GPIO6`;
 - `ActuatorFiltrationPump -> d00 -> 300 -> TCA9554 EXIO1`.
 
 Consulter la [cartographie exhaustive](../core/waveshare-io-map.md) avant de câbler les capteurs ou de modifier un binding.

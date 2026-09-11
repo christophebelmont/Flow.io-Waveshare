@@ -914,7 +914,7 @@ bool IOModule::writeRuntimeUiValue(uint8_t valueId, IRuntimeUiWriter& writer) co
         case RuntimeUiWaterCounter: {
             IoValue value{};
             const IoStatus st = ioReadValue_(
-                ioIdFromSlot(digitalInputSlot(12)),
+                ioIdFromSlot(digitalInputSlot(PoolInputSlots::WaterMeter)),
                 &value
             );
             if (st != IO_OK || !value.valid) {

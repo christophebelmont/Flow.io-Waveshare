@@ -6,10 +6,11 @@ Le profil Waveshare prend en charge les extensions ci-dessous. Elles sont indép
 
 | Extension | Interface | Adresse ou GPIO | État dans flow.io |
 |---|---|---|---|
-| PIR | numérique actif haut | GPIO11, `i08` | affecté au rôle PIR par défaut |
+| PIR | numérique actif haut | GPIO11, `i07` | affecté au rôle PIR par défaut |
 | M5Stack ENV-IV | I2C | SHT40 `0x44`, BMP280 `0x76` | drivers disponibles, bindings sélectionnables |
 | M5Stack ENV-Pro / BME688 | I2C | `0x77` | driver disponible, bindings sélectionnables |
-| compteur d'eau à impulsions | entrée numérique | GPIO5, `i12` | compteur actif bas, front montant, debounce 100 ms |
+| compteur d'eau à impulsions | entrée numérique | GPIO5, `i01` | compteur actif bas, front montant, debounce 100 ms |
+| détecteur de débit | entrée numérique | GPIO9, `i05` | entrée d'état affectée au Flow Meter par défaut |
 | TFA Venice | RF 433 MHz | émetteur sur GPIO3 | driver disponible, désactivé par défaut |
 | panneau Flow.io LED | I2C | PCF8574A `0x3C` | driver dédié, sorties actives bas |
 | MCP23017 | I2C | `0x21` | GPA0..GPA6 entrées, GPB0..GPB7 sorties |

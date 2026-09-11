@@ -80,6 +80,13 @@ struct IoCapacitySpec {
     uint8_t digitalOutputConfigSlots = 8; // Number of digital output config slots exposed by config/NVS.
 };
 
+constexpr uint16_t ioEndpointCapacity(const IoCapacitySpec& capacity)
+{
+    return (uint16_t)capacity.analogEndpoints +
+           (uint16_t)capacity.digitalInputs +
+           (uint16_t)capacity.digitalOutputs;
+}
+
 struct MqttCapacitySpec {
     uint16_t taskStackSize = 5712;
     uint8_t rxQueueLen = 8;

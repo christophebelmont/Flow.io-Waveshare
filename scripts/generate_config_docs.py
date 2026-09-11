@@ -10,6 +10,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 Import = type("Import", (), {})
 
+# End-inclusive logical I/O slot limits exposed by the Waveshare profile.
+# Keep these aligned with kWaveshareESP32S3IoCapacity in WaveshareBoard.h.
+WAVESHARE_ANALOG_LAST_SLOT = 20
+WAVESHARE_DIGITAL_INPUT_LAST_SLOT = 12
+WAVESHARE_DIGITAL_OUTPUT_LAST_SLOT = 15
+
 try:
     Import("env")  # type: ignore
 except Exception:
@@ -603,17 +609,32 @@ def main() -> None:
     if profile == "waveshare":
         # The Waveshare runtime reserves GPIO4 for factory reset and exposes
         # GPIO5..GPIO11 plus five logical Pool inputs.
-        _expand_digital_input_slot_docs(cfgdocs_docs, 12)
-        _expand_digital_input_slot_docs(cfgmods_docs, 12)
-        _expand_digital_input_slot_translations(i18n, 12)
-        _prune_io_slot_docs(cfgdocs_docs, analog_last=15, digital_last=12, output_last=15)
-        _prune_io_slot_docs(cfgmods_docs, analog_last=15, digital_last=12, output_last=15)
+        _expand_digital_input_slot_docs(cfgdocs_docs, WAVESHARE_DIGITAL_INPUT_LAST_SLOT)
+        _expand_digital_input_slot_docs(cfgmods_docs, WAVESHARE_DIGITAL_INPUT_LAST_SLOT)
+        _expand_digital_input_slot_translations(i18n, WAVESHARE_DIGITAL_INPUT_LAST_SLOT)
+        _prune_io_slot_docs(
+            cfgdocs_docs,
+            analog_last=WAVESHARE_ANALOG_LAST_SLOT,
+            digital_last=WAVESHARE_DIGITAL_INPUT_LAST_SLOT,
+            output_last=WAVESHARE_DIGITAL_OUTPUT_LAST_SLOT,
+        )
+        _prune_io_slot_docs(
+            cfgmods_docs,
+            analog_last=WAVESHARE_ANALOG_LAST_SLOT,
+            digital_last=WAVESHARE_DIGITAL_INPUT_LAST_SLOT,
+            output_last=WAVESHARE_DIGITAL_OUTPUT_LAST_SLOT,
+        )
         _prune_pool_device_docs(cfgdocs_docs, last_slot=7)
         _prune_pool_device_docs(cfgmods_docs, last_slot=7)
 
     combined_meta = _resolve_meta_i18n(_merge_meta_dict(cfgdocs_meta, cfgmods_meta), i18n)
     if profile == "waveshare":
-        combined_meta = _prune_io_slot_meta(combined_meta, analog_last=15, digital_last=12, output_last=15)
+        combined_meta = _prune_io_slot_meta(
+            combined_meta,
+            analog_last=WAVESHARE_ANALOG_LAST_SLOT,
+            digital_last=WAVESHARE_DIGITAL_INPUT_LAST_SLOT,
+            output_last=WAVESHARE_DIGITAL_OUTPUT_LAST_SLOT,
+        )
     combined_meta = _apply_profile_specific_io_enum_sets(combined_meta, profile, tft_enabled)
 
     merged_docs = _resolved_docs(dict(cfgdocs_docs), i18n)

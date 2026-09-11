@@ -238,6 +238,7 @@ constexpr uint8_t MaxDigitalOutputs = BoardCapacityProfile::kIoCapacity.digitalO
 constexpr uint8_t AnalogConfigSlots = BoardCapacityProfile::kIoCapacity.analogConfigSlots;
 constexpr uint8_t DigitalInputConfigSlots = BoardCapacityProfile::kIoCapacity.digitalInputConfigSlots;
 constexpr uint8_t DigitalOutputConfigSlots = BoardCapacityProfile::kIoCapacity.digitalOutputConfigSlots;
+constexpr uint16_t MaxEndpoints = ioEndpointCapacity(BoardCapacityProfile::kIoCapacity);
 constexpr uint8_t MaxDomainSlots = 20;
 constexpr uint8_t MaxDomainIoSlotBindings = 20;
 // pd07 remains the water-heater device; eight indices are therefore required
@@ -247,6 +248,7 @@ constexpr uint8_t MaxPoolDevices = 8;
 static_assert(MaxAnalogEndpoints > 0, "IO analogEndpoints must be at least 1");
 static_assert(MaxDigitalInputs > 0, "IO digitalInputs must be at least 1");
 static_assert(MaxDigitalOutputs > 0, "IO digitalOutputs must be at least 1");
+static_assert(MaxEndpoints <= UINT8_MAX, "IO endpoint capacity must fit runtime endpoint indices");
 static_assert(AnalogConfigSlots >= 6, "IO analogConfigSlots must keep legacy a00..a05 config vars");
 static_assert(DigitalInputConfigSlots >= 5, "IO digitalInputConfigSlots must keep legacy i00..i04 config vars");
 static_assert(DigitalOutputConfigSlots >= 8, "IO digitalOutputConfigSlots must keep legacy d00..d07 config vars");
