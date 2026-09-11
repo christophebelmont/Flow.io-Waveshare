@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/pictures/Logo_flowio.png" alt="Logo flow.io" width="336">
+  <img src="docs/pictures/Logo_flowio.png" alt="Logo flow.io" width="600">
 </p>
 <p>
 Profiter de sa <b>piscine</b> devrait être synonyme de détente, pas de contraintes. Cette plateforme open source automatise la surveillance de la qualité de l’eau et le pilotage des équipements afin de maintenir un <b>bassin propre</b>, sain et équilibré tout au long de l’année.
