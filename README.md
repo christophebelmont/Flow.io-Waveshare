@@ -11,6 +11,15 @@ Conçue autour d’une <b>architecture ouverte et modulaire</b>, la solution s�
 Ce dépôt regroupe l’ensemble des composants logiciels et matériels nécessaires au déploiement du système. Schémas électroniques, Gerber, firmware, applications, documentation et outils de configuration sont mis à disposition afin de permettre à chacun de construire, personnaliser et exploiter sa propre solution en toute autonomie.
 </p>
 
+## Une plateforme ouverte sur les équipements et la domotique
+
+<p align="center">
+  <img src="docs/pictures/flowio-communication-protocols.svg" alt="Interfaces et protocoles pris en charge par flow.io : Ethernet, Wi-Fi, HTTP, WebSocket, MQTT, Home Assistant, NTP, mDNS, UDP, RS485, Modbus RTU, UART, Nextion, I2C, 1-Wire, SPI et radio 433 MHz" width="1000"><br>
+  <em>Les interfaces réseau, bus matériels et protocoles applicatifs disponibles autour du cœur flow.io.</em>
+</p>
+
+flow.io peut dialoguer avec les services du réseau local, les systèmes domotiques, les interfaces utilisateur et les équipements techniques de la piscine. L’architecture sépare les transports physiques des protocoles et des drivers métier : plusieurs fabricants peuvent ainsi être intégrés sans lier la logique de la piscine à un modèle particulier.
+
 ## Exemple d'installation
 
 <p align="center">
@@ -130,6 +139,12 @@ L'installation de référence associe un contrôleur industriel [Waveshare ESP32
 </p>
 
 Le contrôleur [Waveshare ESP32-S3-POE-ETH-8DI-8RO](https://www.waveshare.com/product/iot-communication/esp32-s3-eth-8di-8ro.htm) assure le fonctionnement autonome. Il inclut une alimentation isolée et stabilisée, des ports Ethernet ou Wi-Fi, des entrées sorties isolées par optocoupleur, une Real Time Clock (RTC) pour la gestion du temps et une interface RS485 pour contrôler les équipements qui utilisent ce protocole. Le contrôleur existe en version POE pour alimenter l'ensemble du système flow.io via le port Ethernet.
+
+### RS485 et Modbus RTU
+
+Le port RS485 isolé du contrôleur Waveshare est pris en charge par un maître Modbus RTU asynchrone intégré à `IOModule`. Il permet à plusieurs modules d’équipements de partager le même bus série, avec sérialisation des requêtes, priorités, contrôle CRC, gestion des réponses d’exception, délais d’attente et nouvelles tentatives.
+
+Le premier squelette métier disponible est `VariableSpeedPumpModule`, destiné aux pompes de filtration à vitesse variable. Les registres, facteurs d’échelle et valeurs de commande restent décrits dans un profil propre à chaque constructeur : flow.io n’essaie pas de déduire le modèle à partir de son nom et n’active aucun registre d’écriture non validé. Voir la [documentation du maître RS485/Modbus](docs/modules/ModbusMaster.md) et celle du [module de pompe à vitesse variable](docs/modules/VariableSpeedPumpModule.md).
 
 La carte flow.io Companion regroupe les raccordements utiles à la piscine sur des borniers et connecteurs clairement identifiés : sondes pH et ORP, pression, températures, niveaux, compteur d'eau, afficheur et extensions. Elle simplifie le câblage et permet une intégration plus compacte et plus lisible dans le coffret technique. La carte est prévue pour s'intégrer dans un boitier DIN standard.
 

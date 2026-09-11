@@ -47,6 +47,8 @@ Les dépendances déclarées dans `platformio.ini` sont installées automatiquem
 ### Intégrer et diagnostiquer
 
 - [Topologie et conventions MQTT](core/mqtt-topics.md)
+- [Intégrer un équipement RS485 / Modbus RTU](modules/ModbusMaster.md)
+- [Définir une pompe à vitesse variable Modbus](modules/VariableSpeedPumpModule.md)
 - [Matrice de qualité des modules](core/module-quality-gates.md)
 - [Historique de la spécialisation Waveshare](../MIGRATION.md)
 
@@ -107,6 +109,8 @@ La [cartographie IO](core/waveshare-io-map.md) contient les valeurs par défaut 
 
 - [AlarmModule](modules/AlarmModule.md)
 - [IOModule](modules/IOModule.md)
+- [Maître RS485 / Modbus RTU](modules/ModbusMaster.md)
+- [VariableSpeedPumpModule](modules/VariableSpeedPumpModule.md)
 - [PoolLogicModule](modules/PoolLogicModule.md)
 - [PoolDeviceModule](modules/PoolDeviceModule.md)
 - [PoolHistoryModule](modules/PoolHistoryModule.md)

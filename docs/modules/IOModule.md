@@ -8,13 +8,15 @@ Le module regroupe actuellement:
 
 - l'inventaire des endpoints IO exposés aux autres modules
 - les drivers GPIO, ADS1115, DS18B20, TCA9554, MCP23017 et PCF8574
+- le transport RS485 et le maître Modbus RTU partagés par les modules d'équipements
 - le scheduler d'acquisition
 - la persistance et l'application de la configuration IO
 - les snapshots runtime pour MQTT
 - les valeurs Runtime UI liées aux mesures principales
 - la synchronisation Home Assistant des capteurs et sorties déclarés par le profil
 
-Le service public exposé au reste du firmware est `IOServiceV2`.
+Les services publics exposés au reste du firmware sont `IOServiceV2` et
+`ModbusMasterService`.
 
 La cartographie complète du profil Waveshare est documentée dans
 [`docs/core/waveshare-io-map.md`](../core/waveshare-io-map.md), avec les tables
@@ -52,6 +54,7 @@ Jobs planifiés en interne:
 ## Services exposés
 
 - `io` -> `IOServiceV2`
+- `modbus_master` -> `ModbusMasterService`
 
 Fonctions principales de `IOServiceV2`:
 
@@ -61,6 +64,12 @@ Fonctions principales de `IOServiceV2`:
 - écriture digitale: `writeDigital`
 - lecture analogique: `readAnalog`
 - suivi du cycle IO: `tick`, `lastCycle`
+
+`ModbusMasterService` propose des transactions asynchrones pour les fonctions
+Modbus RTU `0x03`, `0x04`, `0x06` et `0x10`. Les modules consommateurs
+soumettent une requête puis interrogent son résultat avec l'identifiant de
+transaction retourné. Le détail du transport, de la file et des erreurs est
+décrit dans la [documentation RS485 / Modbus](ModbusMaster.md).
 
 ## Capacités statiques
 
