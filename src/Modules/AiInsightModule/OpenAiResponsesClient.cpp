@@ -84,7 +84,8 @@ bool writeError_(char* out, size_t outLen, const char* message)
 
 bool OpenAiResponsesClient::generate(const char* apiKey,
                                      const char* model,
-                                     const char* prompt,
+                                     const char* instructions,
+                                     const char* input,
                                      OpenAiResponsesParser::Result& resultOut,
                                      char* textOut,
                                      size_t textOutLen,
@@ -102,8 +103,12 @@ bool OpenAiResponsesClient::generate(const char* apiKey,
         writeError_(errOut, errOutLen, "OpenAI model is not configured");
         return false;
     }
-    if (!prompt || prompt[0] == '\0') {
-        writeError_(errOut, errOutLen, "OpenAI prompt is empty");
+    if (!instructions || instructions[0] == '\0') {
+        writeError_(errOut, errOutLen, "OpenAI instructions are empty");
+        return false;
+    }
+    if (!input || input[0] == '\0') {
+        writeError_(errOut, errOutLen, "OpenAI input is empty");
         return false;
     }
     if (!textOut || textOutLen == 0U) {
@@ -124,7 +129,8 @@ bool OpenAiResponsesClient::generate(const char* apiKey,
         return false;
     }
     requestDocument["model"] = model;
-    requestDocument["input"] = prompt;
+    requestDocument["instructions"] = instructions;
+    requestDocument["input"] = input;
     requestDocument["max_output_tokens"] = kMaxOutputTokens;
     requestDocument["store"] = false;
     const size_t requiredRequestBytes = measureJson(requestDocument) + 1U;

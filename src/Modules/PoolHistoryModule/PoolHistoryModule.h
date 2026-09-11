@@ -77,6 +77,7 @@ private:
     void loadPersisted_(ConfigStore& cfg);
     void initializeHistory_(const LocalDayContext& day, uint64_t nowEpoch, uint32_t nowMs);
     bool readFiltrationState_(bool& outRunning) const;
+    bool readHeatingState_(bool& outRunning) const;
     bool readFillingState_(bool& outRunning, float& outFlowLPerHour) const;
     bool readFloatSlot_(DomainSlotId slot,
                         uint32_t nowMs,
@@ -84,6 +85,7 @@ private:
                         float& outValue) const;
     void daytimePeriod_(uint8_t& outStartHour, uint8_t& outEndHour) const;
     bool isDaytime_(uint64_t epoch) const;
+    static PoolHistoryDayPeriod dayPeriod_(uint64_t epoch);
     void sampleMetrics_(uint64_t nowEpoch, uint32_t nowMs, bool filtrationKnown,
                         bool filtrationRunning);
     void persistIfDue_(uint32_t nowMs, bool force);

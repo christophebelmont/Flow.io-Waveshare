@@ -12,8 +12,7 @@ namespace PoolHistoryPersistence {
 namespace {
 
 constexpr uint32_t kMagic = 0x31534850UL;  // "PHS1" remains the format-family magic.
-constexpr uint16_t kVersion = 2U;
-constexpr uint16_t kLegacyVersion = 1U;
+constexpr uint16_t kVersion = 3U;
 constexpr uint16_t kFlagValid = 0x0001U;
 constexpr uint16_t kFlagComplete = 0x0002U;
 constexpr uint16_t kFlagRefillVolumeValid = 0x0004U;
@@ -150,15 +149,28 @@ bool validMetric_(const PoolHistoryMetricState& metric)
            metric.last >= metric.minimum && metric.last <= metric.maximum;
 }
 
+bool validActivity_(const PoolHistoryActivityState& activity)
+{
+    for (uint8_t i = 0U; i < POOL_HISTORY_DAY_PERIOD_COUNT; ++i) {
+        if (activity.runningMs[i] > activity.observedMs[i]) return false;
+    }
+    return true;
+}
+
 bool validState_(const PoolHistoryDayState& state)
 {
     if (!state.valid || !plausibleDate_(state.localDate) || state.dayStartUtc == 0U) return false;
     if ((state.observedFromUtc == 0U) != (state.observedUntilUtc == 0U)) return false;
     if (state.observedFromUtc > state.observedUntilUtc) return false;
-    if (state.filtrationObservedMs > kMaximumDayDurationMs ||
-        state.filtrationRunningMs > state.filtrationObservedMs) {
-        return false;
+    if (!validActivity_(state.filtration) || !validActivity_(state.heating)) return false;
+    uint64_t filtrationObservedMs = 0U;
+    uint64_t heatingObservedMs = 0U;
+    for (uint8_t i = 0U; i < POOL_HISTORY_DAY_PERIOD_COUNT; ++i) {
+        filtrationObservedMs += state.filtration.observedMs[i];
+        heatingObservedMs += state.heating.observedMs[i];
     }
+    if (filtrationObservedMs > kMaximumDayDurationMs ||
+        heatingObservedMs > kMaximumDayDurationMs) return false;
     for (uint8_t i = 0U; i < (uint8_t)PoolHistoryMetric::Count; ++i) {
         if (!validMetric_(state.metrics[i])) return false;
     }
@@ -184,6 +196,24 @@ bool readMetric_(Reader& reader, PoolHistoryMetricState& metric)
            reader.getFloat(metric.maximum) && reader.getDouble(metric.sum);
 }
 
+bool writeActivity_(Writer& writer, const PoolHistoryActivityState& activity)
+{
+    for (uint8_t i = 0U; i < POOL_HISTORY_DAY_PERIOD_COUNT; ++i) {
+        if (!writer.putU32(activity.runningMs[i]) ||
+            !writer.putU32(activity.observedMs[i])) return false;
+    }
+    return true;
+}
+
+bool readActivity_(Reader& reader, PoolHistoryActivityState& activity)
+{
+    for (uint8_t i = 0U; i < POOL_HISTORY_DAY_PERIOD_COUNT; ++i) {
+        if (!reader.getU32(activity.runningMs[i]) ||
+            !reader.getU32(activity.observedMs[i])) return false;
+    }
+    return true;
+}
+
 }  // namespace
 
 bool encode(const PoolHistoryDayState& state,
@@ -203,8 +233,8 @@ bool encode(const PoolHistoryDayState& state,
     if (!writer.putU32(kMagic) || !writer.putU16(kVersion) || !writer.putU16(flags) ||
         !writer.putU32(state.localDate) || !writer.putU64(state.dayStartUtc) ||
         !writer.putU64(state.observedFromUtc) || !writer.putU64(state.observedUntilUtc) ||
-        !writer.putU64(state.filtrationRunningMs) ||
-        !writer.putU64(state.filtrationObservedMs)) {
+        !writeActivity_(writer, state.filtration) ||
+        !writeActivity_(writer, state.heating)) {
         return false;
     }
 
@@ -227,9 +257,7 @@ bool decode(const uint8_t* encoded,
             PoolHistoryDayState& outState)
 {
     outState = PoolHistoryDayState{};
-    if (!encoded || (encodedLength != EncodedSize && encodedLength != LegacyEncodedSize)) {
-        return false;
-    }
+    if (!encoded || encodedLength != EncodedSize) return false;
 
     const size_t checksumOffset = encodedLength - sizeof(uint32_t);
     Reader checksumReader(encoded + checksumOffset, sizeof(uint32_t));
@@ -244,10 +272,7 @@ bool decode(const uint8_t* encoded,
     uint16_t version = 0U;
     uint16_t flags = 0U;
     if (!reader.getU32(magic) || !reader.getU16(version) || !reader.getU16(flags) ||
-        magic != kMagic ||
-        (version != kVersion && version != kLegacyVersion) ||
-        (version == kVersion && encodedLength != EncodedSize) ||
-        (version == kLegacyVersion && encodedLength != LegacyEncodedSize) ||
+        magic != kMagic || version != kVersion ||
         (flags & kFlagValid) == 0U) {
         return false;
     }
@@ -257,25 +282,20 @@ bool decode(const uint8_t* encoded,
     decoded.complete = (flags & kFlagComplete) != 0U;
     if (!reader.getU32(decoded.localDate) || !reader.getU64(decoded.dayStartUtc) ||
         !reader.getU64(decoded.observedFromUtc) || !reader.getU64(decoded.observedUntilUtc) ||
-        !reader.getU64(decoded.filtrationRunningMs) ||
-        !reader.getU64(decoded.filtrationObservedMs)) {
+        !readActivity_(reader, decoded.filtration) ||
+        !readActivity_(reader, decoded.heating)) {
         return false;
     }
 
     for (uint8_t i = 0U; i < (uint8_t)PoolHistoryMetric::Count; ++i) {
         if (!readMetric_(reader, decoded.metrics[i])) return false;
     }
-    if (version == kVersion) {
-        if (!readMetric_(reader, decoded.daytimeWaterTemperature) ||
-            !readMetric_(reader, decoded.nighttimeWaterTemperature) ||
-            !reader.getDouble(decoded.refillVolumeLitres) ||
-            !reader.getU32(decoded.refillEventCount)) return false;
-        decoded.refillVolumeValid = (flags & kFlagRefillVolumeValid) != 0U;
-        decoded.refillStateObserved = (flags & kFlagRefillStateObserved) != 0U;
-    } else {
-        decoded.refillVolumeValid = false;
-        decoded.refillStateObserved = false;
-    }
+    if (!readMetric_(reader, decoded.daytimeWaterTemperature) ||
+        !readMetric_(reader, decoded.nighttimeWaterTemperature) ||
+        !reader.getDouble(decoded.refillVolumeLitres) ||
+        !reader.getU32(decoded.refillEventCount)) return false;
+    decoded.refillVolumeValid = (flags & kFlagRefillVolumeValid) != 0U;
+    decoded.refillStateObserved = (flags & kFlagRefillStateObserved) != 0U;
 
     if (reader.size() != checksumOffset || !validState_(decoded)) return false;
     outState = decoded;

@@ -12,7 +12,8 @@ class OpenAiResponsesClient {
 public:
     bool generate(const char* apiKey,
                   const char* model,
-                  const char* prompt,
+                  const char* instructions,
+                  const char* input,
                   OpenAiResponsesParser::Result& resultOut,
                   char* textOut,
                   size_t textOutLen,
@@ -20,9 +21,9 @@ public:
                   size_t errOutLen) const;
 
 private:
-    static constexpr size_t kRequestCapacity = 24U * 1024U;
+    static constexpr size_t kRequestCapacity = 40U * 1024U;
     static constexpr size_t kResponseCapacity = 24U * 1024U;
-    static constexpr size_t kRequestJsonCapacity = 16U * 1024U;
+    static constexpr size_t kRequestJsonCapacity = 32U * 1024U;
     static constexpr size_t kResponseJsonCapacity = 32U * 1024U;
     static constexpr uint32_t kConnectTimeoutMs = 10000U;
     static constexpr uint32_t kRequestTimeoutMs = 45000U;

@@ -35,6 +35,9 @@ struct PoolHistoryModule::Storage {
     bool todayDirty = false;
     bool completedDayDirty[POOL_HISTORY_COMPLETE_DAY_COUNT]{};
     PoolHistorySamplingGate waterQualityGate{};
+    bool lastHeatingKnown = false;
+    bool lastHeatingRunning = false;
+    PoolHistoryDayPeriod lastDayPeriod = PoolHistoryDayPeriod::Night;
     bool lastFillingKnown = false;
     bool lastFillingRunning = false;
     float lastFillingFlowLPerHour = 0.0f;
@@ -90,9 +93,15 @@ bool PoolHistoryModule::getSnapshot_(PoolHistorySnapshot& outSnapshot) const
     LocalDayContext day{};
     if (!currentEpoch_(generatedAtUtc) || !localDayContext_(generatedAtUtc, day)) return false;
     PoolCharacteristics pool{};
+    PoolOperatingConfiguration operatingConfiguration{};
     if (poolConfigurationService_ && poolConfigurationService_->getCharacteristics) {
         (void)poolConfigurationService_->getCharacteristics(
             poolConfigurationService_->ctx, &pool);
+    }
+    if (poolConfigurationService_ &&
+        poolConfigurationService_->getOperatingConfiguration) {
+        (void)poolConfigurationService_->getOperatingConfiguration(
+            poolConfigurationService_->ctx, &operatingConfiguration);
     }
     uint8_t daytimeStartHour = 0U;
     uint8_t daytimeEndHour = 0U;
@@ -104,6 +113,7 @@ bool PoolHistoryModule::getSnapshot_(PoolHistorySnapshot& outSnapshot) const
                                daytimeStartHour,
                                daytimeEndHour,
                                pool,
+                               operatingConfiguration,
                                outSnapshot);
     unlockState_();
     return true;
@@ -316,6 +326,8 @@ void PoolHistoryModule::initializeHistory_(const LocalDayContext& day,
     storage_->lastPersistAttemptMs = nowMs;
     bool filtrationRunning = false;
     const bool filtrationKnown = readFiltrationState_(filtrationRunning);
+    storage_->lastHeatingKnown = readHeatingState_(storage_->lastHeatingRunning);
+    storage_->lastDayPeriod = dayPeriod_(nowEpoch);
     storage_->waterQualityGate.initialize(filtrationKnown, filtrationRunning);
     storage_->lastFillingKnown = readFillingState_(storage_->lastFillingRunning,
                                                    storage_->lastFillingFlowLPerHour);
@@ -390,6 +402,31 @@ bool PoolHistoryModule::readFiltrationState_(bool& outRunning) const
     return true;
 }
 
+bool PoolHistoryModule::readHeatingState_(bool& outRunning) const
+{
+    outRunning = false;
+    if (!domainStatusService_ || !domainStatusService_->slotStatus) return false;
+    DomainSlotStatus status{};
+    if (!domainStatusService_->slotStatus(domainStatusService_->ctx,
+                                          PoolIds::ActuatorWaterHeater,
+                                          &status) ||
+        !status.hasPoolDevice) {
+        return false;
+    }
+    outRunning = status.poolActualOn != 0U;
+    return true;
+}
+
+PoolHistoryDayPeriod PoolHistoryModule::dayPeriod_(uint64_t epoch)
+{
+    const time_t sampleEpoch = (time_t)epoch;
+    struct tm localSample{};
+    if (!localtime_r(&sampleEpoch, &localSample)) return PoolHistoryDayPeriod::Night;
+    const uint8_t index = (uint8_t)localSample.tm_hour / 6U;
+    return static_cast<PoolHistoryDayPeriod>(
+        index < POOL_HISTORY_DAY_PERIOD_COUNT ? index : 0U);
+}
+
 bool PoolHistoryModule::readFloatSlot_(DomainSlotId slot,
                                        uint32_t nowMs,
                                        uint32_t maximumAgeMs,
@@ -437,6 +474,12 @@ void PoolHistoryModule::sampleMetrics_(uint64_t nowEpoch,
                        waterTemperature);
     const bool hasAirTemperature = readFloatSlot_(PoolIds::SensorAirTemp, nowMs,
                                                   kMaximumSensorAgeMs, airTemperature);
+    PoolOperatingConfiguration operatingConfiguration{};
+    const bool hasOperatingConfiguration = poolConfigurationService_ &&
+        poolConfigurationService_->getOperatingConfiguration &&
+        poolConfigurationService_->getOperatingConfiguration(
+            poolConfigurationService_->ctx, &operatingConfiguration) &&
+        operatingConfiguration.available;
 
     if (!storage_ || !lockState_()) return;
     if (hasPh) storage_->history.addSample(PoolHistoryMetric::Ph, ph, nowEpoch);
@@ -452,7 +495,25 @@ void PoolHistoryModule::sampleMetrics_(uint64_t nowEpoch,
     if (hasAirTemperature) {
         storage_->history.addSample(PoolHistoryMetric::AirTemperature, airTemperature, nowEpoch);
     }
-    if (hasPh || hasOrp || hasWaterTemperature || hasAirTemperature) {
+    if (hasOperatingConfiguration) {
+        if (operatingConfiguration.phSetpointValid) {
+            storage_->history.addSample(PoolHistoryMetric::PhSetpoint,
+                                        operatingConfiguration.phSetpoint,
+                                        nowEpoch);
+        }
+        if (operatingConfiguration.orpSetpointValid) {
+            storage_->history.addSample(PoolHistoryMetric::OrpSetpoint,
+                                        operatingConfiguration.orpSetpointMv,
+                                        nowEpoch);
+        }
+        if (operatingConfiguration.heaterSetpointValid) {
+            storage_->history.addSample(PoolHistoryMetric::HeaterSetpoint,
+                                        operatingConfiguration.heaterSetpointC,
+                                        nowEpoch);
+        }
+    }
+    if (hasPh || hasOrp || hasWaterTemperature || hasAirTemperature ||
+        hasOperatingConfiguration) {
         storage_->todayDirty = true;
     }
     unlockState_();
@@ -555,9 +616,19 @@ void PoolHistoryModule::loop()
     }
     if (intervalUsable && (!dateChanged || sequentialDayChange)) {
         if (storage_->waterQualityGate.known()) {
-            storage_->history.observeFiltration(intervalMs,
-                                                storage_->waterQualityGate.running(),
-                                                nowEpoch);
+            storage_->history.observeActivity(&PoolHistoryDayState::filtration,
+                                              storage_->lastDayPeriod,
+                                              intervalMs,
+                                              storage_->waterQualityGate.running(),
+                                              nowEpoch);
+            storage_->todayDirty = true;
+        }
+        if (storage_->lastHeatingKnown) {
+            storage_->history.observeActivity(&PoolHistoryDayState::heating,
+                                              storage_->lastDayPeriod,
+                                              intervalMs,
+                                              storage_->lastHeatingRunning,
+                                              nowEpoch);
             storage_->todayDirty = true;
         }
         storage_->waterQualityGate.accrue(intervalMs, true);
@@ -595,6 +666,8 @@ void PoolHistoryModule::loop()
 
     bool filtrationRunning = false;
     const bool filtrationKnown = readFiltrationState_(filtrationRunning);
+    bool heatingRunning = false;
+    const bool heatingKnown = readHeatingState_(heatingRunning);
     bool fillingRunning = false;
     float fillingFlowLPerHour = 0.0f;
     const bool fillingKnown = readFillingState_(fillingRunning, fillingFlowLPerHour);
@@ -613,6 +686,9 @@ void PoolHistoryModule::loop()
     storage_->lastFillingKnown = fillingKnown;
     storage_->lastFillingRunning = fillingRunning;
     storage_->lastFillingFlowLPerHour = fillingFlowLPerHour;
+    storage_->lastHeatingKnown = heatingKnown;
+    storage_->lastHeatingRunning = heatingRunning;
+    storage_->lastDayPeriod = dayPeriod_(nowEpoch);
 
     const bool sampleDue = transition != PoolHistoryDayTransition::None ||
                            (uint32_t)(nowMs - storage_->lastMetricSampleMs) >=

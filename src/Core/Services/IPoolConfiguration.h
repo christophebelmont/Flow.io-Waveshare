@@ -34,7 +34,24 @@ struct PoolCharacteristics {
     PoolDisinfectionMethod disinfectionMethod = PoolDisinfectionMethod::Disabled;
 };
 
+/** @brief Current typed regulation settings exposed by PoolLogic. */
+struct PoolOperatingConfiguration {
+    bool available = false;
+    bool filtrationAutoMode = false;
+    bool phAutoMode = false;
+    bool orpAutoMode = false;
+    bool heaterAutoMode = false;
+    bool phSetpointValid = false;
+    float phSetpoint = 0.0f;
+    bool orpSetpointValid = false;
+    float orpSetpointMv = 0.0f;
+    bool heaterSetpointValid = false;
+    float heaterSetpointC = 0.0f;
+};
+
 struct PoolConfigurationService {
     bool (*getCharacteristics)(void* ctx, PoolCharacteristics* outCharacteristics);
+    bool (*getOperatingConfiguration)(void* ctx,
+                                      PoolOperatingConfiguration* outConfiguration);
     void* ctx;
 };

@@ -14,17 +14,19 @@ struct WeatherValueSummary {
     float value = 0.0f;
 };
 
-struct WeatherRangeSummary {
-    bool valid = false;
-    uint16_t sampleCount = 0U;
-    float minimum = 0.0f;
-    float maximum = 0.0f;
-};
+constexpr uint8_t POOL_WEATHER_DAILY_CAPACITY = 9U;
 
-struct WeatherAggregateSummary {
+struct PoolWeatherDaySummary {
     bool valid = false;
-    uint16_t sampleCount = 0U;
-    float value = 0.0f;
+    bool forecast = false;
+    uint32_t localDate = 0U;
+    WeatherValueSummary minimumAirTemperatureC{};
+    WeatherValueSummary maximumAirTemperatureC{};
+    WeatherValueSummary meanAirTemperatureC{};
+    WeatherValueSummary precipitationMm{};
+    WeatherValueSummary meanCloudCoverPercent{};
+    WeatherValueSummary maximumWindSpeedKmh{};
+    WeatherValueSummary shortwaveRadiationMjM2{};
 };
 
 struct PoolWeatherSnapshot {
@@ -39,13 +41,9 @@ struct PoolWeatherSnapshot {
     WeatherValueSummary currentAirTemperatureC{};
     WeatherValueSummary currentCloudCoverPercent{};
     WeatherValueSummary currentWindSpeedKmh{};
-    WeatherRangeSummary previous24hAirTemperatureC{};
-    WeatherRangeSummary forecast24hAirTemperatureC{};
-    WeatherAggregateSummary previous24hPrecipitationMm{};
-    WeatherAggregateSummary forecast24hPrecipitationMm{};
-    WeatherAggregateSummary forecast24hCloudCoverPercent{};
-    WeatherAggregateSummary forecast24hMaximumWindSpeedKmh{};
-    WeatherAggregateSummary forecast24hShortwaveRadiationWm2{};
+    uint32_t currentLocalDate = 0U;
+    uint8_t dailyCount = 0U;
+    PoolWeatherDaySummary daily[POOL_WEATHER_DAILY_CAPACITY]{};
 };
 
 enum class AiWeatherState : uint8_t {
@@ -125,8 +123,9 @@ struct AiPoolInsightStatus {
  * PSRAM rather than on a task stack or in internal DRAM.
  */
 struct AiPoolInsightPreview {
-    static constexpr size_t WeatherTextCapacity = 1536U;
-    static constexpr size_t PromptCapacity = 12288U;
+    static constexpr size_t InstructionsCapacity = 8192U;
+    static constexpr size_t WeatherTextCapacity = 4096U;
+    static constexpr size_t PromptCapacity = 20U * 1024U;
 
     bool enabled = false;
     bool historyAvailable = false;
@@ -138,6 +137,7 @@ struct AiPoolInsightPreview {
     char weatherMessage[96]{};
     char insightMessage[256]{};
     char insightText[AiPoolInsightStatus::TextCapacity]{};
+    char instructions[InstructionsCapacity]{};
     char weatherText[WeatherTextCapacity]{};
     char prompt[PromptCapacity]{};
 };

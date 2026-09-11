@@ -13,7 +13,15 @@ enum class PoolHistoryMetric : uint8_t {
     Orp,
     WaterTemperature,
     AirTemperature,
+    PhSetpoint,
+    OrpSetpoint,
+    HeaterSetpoint,
     Count
+};
+
+struct PoolHistoryActivityState {
+    uint32_t runningMs[POOL_HISTORY_DAY_PERIOD_COUNT]{};
+    uint32_t observedMs[POOL_HISTORY_DAY_PERIOD_COUNT]{};
 };
 
 struct PoolHistoryMetricState {
@@ -32,8 +40,8 @@ struct PoolHistoryDayState {
     uint64_t dayStartUtc = 0U;
     uint64_t observedFromUtc = 0U;
     uint64_t observedUntilUtc = 0U;
-    uint64_t filtrationRunningMs = 0U;
-    uint64_t filtrationObservedMs = 0U;
+    PoolHistoryActivityState filtration{};
+    PoolHistoryActivityState heating{};
     PoolHistoryMetricState metrics[(uint8_t)PoolHistoryMetric::Count]{};
     PoolHistoryMetricState daytimeWaterTemperature{};
     PoolHistoryMetricState nighttimeWaterTemperature{};
@@ -93,7 +101,11 @@ public:
 
     void addSample(PoolHistoryMetric metric, float value, uint64_t observedAtUtc);
     void addWaterTemperatureSample(float value, bool daytime, uint64_t observedAtUtc);
-    void observeFiltration(uint32_t intervalMs, bool running, uint64_t observedAtUtc);
+    void observeActivity(PoolHistoryActivityState PoolHistoryDayState::* activity,
+                         PoolHistoryDayPeriod period,
+                         uint32_t intervalMs,
+                         bool running,
+                         uint64_t observedAtUtc);
     void observeRefill(uint32_t intervalMs,
                        bool running,
                        float flowLPerHour,
@@ -106,6 +118,7 @@ public:
         uint8_t daytimeStartHour,
         uint8_t daytimeEndHour,
         const PoolCharacteristics& pool,
+        const PoolOperatingConfiguration& currentOperatingConfiguration,
         PoolHistorySnapshot& out) const;
 
     const PoolHistoryDayState& todayState() const { return today_; }
@@ -118,6 +131,8 @@ private:
     static void noteObservation_(PoolHistoryDayState& day, uint64_t observedAtUtc);
     static void fillMetricSummary_(const PoolHistoryMetricState& state,
                                    PoolHistoryMetricSummary& out);
+    static void fillActivitySummary_(const PoolHistoryActivityState& state,
+                                     PoolHistoryActivitySummary& out);
     static void fillDaySummary_(const PoolHistoryDayState& state,
                                 PoolHistoryDaySummary& out);
     static void addMetricValue_(PoolHistoryMetricState& state,

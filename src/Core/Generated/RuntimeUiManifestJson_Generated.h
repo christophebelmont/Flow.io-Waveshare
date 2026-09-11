@@ -435,7 +435,7 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
       "module": "poollogic",
       "valueId": 4,
       "key": "pool.dis_auto_mode",
-      "label": "D\u00e9sinfection Auto",
+      "label": "Traitement auto",
       "type": "bool",
       "domain": "mode",
       "group": "Mode",

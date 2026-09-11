@@ -19,10 +19,18 @@ nuit. La journée est configurable par `poolhistory/periods/day_start_hour` et
 `day_end_hour` (08:00–20:00 par défaut). La variation publiée est signée :
 `moyenne nuit - moyenne jour`.
 
+Les consignes pH, ORP et chauffage sont échantillonnées dans le même historique
+typé. Chaque journée en conserve le début, la fin, le minimum, le maximum et la
+moyenne. La configuration actuelle et les modes automatiques restent exposés
+une seule fois dans l’instantané global.
+
 ## Filtration et remplissage
 
-Le module cumule en un seul passage les durées réelles de filtration et de
-remplissage. Le temps de filtration est exposé en secondes, minutes et heures.
+Le module cumule en un seul passage les durées réelles de filtration, chauffage
+et remplissage. La filtration et le chauffage conservent séparément leur durée
+active et leur durée réellement observée pour quatre périodes locales fixes :
+nuit 00:00–06:00, matin 06:00–12:00, après-midi 12:00–18:00 et soir
+18:00–24:00. Les totaux restent exposés en secondes, minutes et heures.
 Un événement de remplissage correspond à une transition constatée de la pompe
 de remplissage de l’arrêt vers la marche.
 
@@ -51,9 +59,9 @@ configurables sous `poollogic/pool`; la méthode active provient directement de
 Un anneau fixe contient aujourd’hui et sept jours clos, sans allocation pendant
 les boucles d’agrégation. Chaque journée est persistée séparément dans
 `ConfigStore` afin de rester compatible avec les écritures asynchrones bornées.
-Le format binaire version 2 occupe 236 octets et conserve signature, version et
-checksum. Le lecteur accepte encore les enregistrements version 1 de 168 octets;
-leurs nouvelles statistiques sont simplement indiquées comme indisponibles.
+Le format binaire version 3 occupe 368 octets et conserve signature, version et
+checksum. Les versions antérieures ne sont volontairement pas reconnues : la
+NVS doit être effacée lors de cette mise à niveau.
 
 L’accumulateur, les huit journées chargées, les zones de copie de persistance
 et les buffers de sérialisation sont contenus dans `PoolHistoryModule::Storage`,

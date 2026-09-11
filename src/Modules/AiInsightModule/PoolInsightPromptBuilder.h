@@ -11,6 +11,7 @@
 
 class PoolInsightPromptBuilder {
 public:
+    static const char* instructions();
     static bool build(const PoolHistorySnapshot* history,
                       const AiWeatherStatus& weather,
                       char* weatherText,

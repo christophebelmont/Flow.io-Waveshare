@@ -47,29 +47,6 @@ void writeOptionalValue_(JsonObject object,
     else object[name] = nullptr;
 }
 
-void writeRange_(JsonObject object,
-                 const char* name,
-                 const WeatherRangeSummary& range)
-{
-    JsonObject target = object.createNestedObject(name);
-    target["valid"] = range.valid;
-    target["samples"] = range.sampleCount;
-    if (range.valid) {
-        target["min"] = range.minimum;
-        target["max"] = range.maximum;
-    }
-}
-
-void writeAggregate_(JsonObject object,
-                     const char* name,
-                     const WeatherAggregateSummary& aggregate)
-{
-    JsonObject target = object.createNestedObject(name);
-    target["valid"] = aggregate.valid;
-    target["samples"] = aggregate.sampleCount;
-    if (aggregate.valid) target["value"] = aggregate.value;
-}
-
 }  // namespace
 
 AiInsightModule::~AiInsightModule()
@@ -281,6 +258,15 @@ bool AiInsightModule::buildPoolPreview_(AiPoolInsightPreview* outPreview,
                                          outPreview->prompt,
                                          sizeof(outPreview->prompt))) {
         writeError_(errOut, errOutLen, "preview text exceeds its bounded capacity");
+        return false;
+    }
+    const int instructionsLength = snprintf(outPreview->instructions,
+                                            sizeof(outPreview->instructions),
+                                            "%s",
+                                            PoolInsightPromptBuilder::instructions());
+    if (instructionsLength <= 0 ||
+        (size_t)instructionsLength >= sizeof(outPreview->instructions)) {
+        writeError_(errOut, errOutLen, "OpenAI instructions exceed bounded capacity");
         return false;
     }
     return true;
@@ -512,6 +498,7 @@ void AiInsightModule::processPoolInsightRequest_()
     OpenAiResponsesParser::Result result{};
     const bool generated = openAiClient_.generate(work->apiKey,
                                                    work->configuredModel,
+                                                   work->preview.instructions,
                                                    work->preview.prompt,
                                                    result,
                                                    work->resultText,
@@ -544,7 +531,7 @@ bool AiInsightModule::buildWeatherStatusJson_(char* out, size_t outLen) const
     AiWeatherStatus status{};
     if (!getWeatherStatus_(&status)) return false;
 
-    StaticJsonDocument<1536> document;
+    StaticJsonDocument<4096> document;
     document["ok"] = true;
     document["state"] = aiWeatherStateCode(status.state);
     document["updated_at_ms"] = status.updatedAtMs;
@@ -559,13 +546,22 @@ bool AiInsightModule::buildWeatherStatusJson_(char* out, size_t outLen) const
     writeOptionalValue_(weather, "current_temperature_c", status.weather.currentAirTemperatureC);
     writeOptionalValue_(weather, "current_cloud_cover_percent", status.weather.currentCloudCoverPercent);
     writeOptionalValue_(weather, "current_wind_speed_kmh", status.weather.currentWindSpeedKmh);
-    writeRange_(weather, "previous_24h_temperature_c", status.weather.previous24hAirTemperatureC);
-    writeRange_(weather, "forecast_24h_temperature_c", status.weather.forecast24hAirTemperatureC);
-    writeAggregate_(weather, "previous_24h_precipitation_mm", status.weather.previous24hPrecipitationMm);
-    writeAggregate_(weather, "forecast_24h_precipitation_mm", status.weather.forecast24hPrecipitationMm);
-    writeAggregate_(weather, "forecast_24h_cloud_cover_percent", status.weather.forecast24hCloudCoverPercent);
-    writeAggregate_(weather, "forecast_24h_max_wind_speed_kmh", status.weather.forecast24hMaximumWindSpeedKmh);
-    writeAggregate_(weather, "forecast_24h_shortwave_radiation_wm2", status.weather.forecast24hShortwaveRadiationWm2);
+    weather["current_local_date"] = status.weather.currentLocalDate;
+    JsonArray daily = weather.createNestedArray("daily");
+    for (uint8_t i = 0U; i < status.weather.dailyCount; ++i) {
+        const PoolWeatherDaySummary& source = status.weather.daily[i];
+        JsonObject day = daily.createNestedObject();
+        day["valid"] = source.valid;
+        day["local_date"] = source.localDate;
+        day["forecast"] = source.forecast;
+        writeOptionalValue_(day, "temperature_min_c", source.minimumAirTemperatureC);
+        writeOptionalValue_(day, "temperature_max_c", source.maximumAirTemperatureC);
+        writeOptionalValue_(day, "temperature_mean_c", source.meanAirTemperatureC);
+        writeOptionalValue_(day, "precipitation_mm", source.precipitationMm);
+        writeOptionalValue_(day, "cloud_cover_mean_percent", source.meanCloudCoverPercent);
+        writeOptionalValue_(day, "wind_speed_max_kmh", source.maximumWindSpeedKmh);
+        writeOptionalValue_(day, "shortwave_radiation_mj_m2", source.shortwaveRadiationMjM2);
+    }
 
     const size_t required = measureJson(document) + 1U;
     if (required > outLen) return false;

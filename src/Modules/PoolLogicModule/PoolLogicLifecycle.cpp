@@ -213,6 +213,33 @@ bool PoolLogicModule::getPoolCharacteristics_(PoolCharacteristics& outCharacteri
     return true;
 }
 
+bool PoolLogicModule::serviceGetPoolOperatingConfiguration_(
+    void* ctx,
+    PoolOperatingConfiguration* outConfiguration)
+{
+    PoolLogicModule* self = static_cast<PoolLogicModule*>(ctx);
+    return self && outConfiguration &&
+           self->getPoolOperatingConfiguration_(*outConfiguration);
+}
+
+bool PoolLogicModule::getPoolOperatingConfiguration_(
+    PoolOperatingConfiguration& outConfiguration) const
+{
+    outConfiguration = PoolOperatingConfiguration{};
+    outConfiguration.available = true;
+    outConfiguration.filtrationAutoMode = autoMode_;
+    outConfiguration.phAutoMode = phAutoMode_;
+    outConfiguration.orpAutoMode = orpAutoMode_;
+    outConfiguration.heaterAutoMode = heaterAutoMode_;
+    outConfiguration.phSetpointValid = std::isfinite(phSetpoint_);
+    outConfiguration.phSetpoint = phSetpoint_;
+    outConfiguration.orpSetpointValid = std::isfinite(orpSetpoint_);
+    outConfiguration.orpSetpointMv = orpSetpoint_;
+    outConfiguration.heaterSetpointValid = std::isfinite(heaterSetpoint_);
+    outConfiguration.heaterSetpointC = heaterSetpoint_;
+    return true;
+}
+
 void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
 {
     constexpr uint8_t kCfgModuleId = (uint8_t)ConfigModuleId::PoolLogic;

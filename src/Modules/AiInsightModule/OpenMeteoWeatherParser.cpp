@@ -1,16 +1,15 @@
 /**
  * @file OpenMeteoWeatherParser.cpp
- * @brief Strict parser for the bounded Open-Meteo request used by Flow.io.
+ * @brief Strict parser for current and daily Open-Meteo pool context.
  */
 
 #include "Modules/AiInsightModule/OpenMeteoWeatherParser.h"
 
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 namespace {
-
-constexpr size_t kMaximumHourlySamples = 64U;
 
 bool writeError_(char* out, size_t outLen, const char* message)
 {
@@ -32,49 +31,45 @@ bool readFiniteFloat_(JsonVariantConst value, float& out)
     return true;
 }
 
-void setValue_(WeatherValueSummary& summary, float value)
+void readOptionalValue_(JsonVariantConst value, WeatherValueSummary& out)
 {
-    summary.valid = true;
-    summary.value = value;
+    float parsed = 0.0f;
+    if (!readFiniteFloat_(value, parsed)) return;
+    out.valid = true;
+    out.value = parsed;
 }
 
-void addRange_(WeatherRangeSummary& summary, float value)
+bool parseLocalDate_(const char* isoDateTime, uint32_t& outDate)
 {
-    if (!summary.valid) {
-        summary.valid = true;
-        summary.minimum = value;
-        summary.maximum = value;
-    } else {
-        if (value < summary.minimum) summary.minimum = value;
-        if (value > summary.maximum) summary.maximum = value;
-    }
-    if (summary.sampleCount < UINT16_MAX) ++summary.sampleCount;
+    outDate = 0U;
+    if (!isoDateTime || strlen(isoDateTime) < 10U ||
+        isoDateTime[4] != '-' || isoDateTime[7] != '-') return false;
+    unsigned year = 0U;
+    unsigned month = 0U;
+    unsigned day = 0U;
+    if (sscanf(isoDateTime, "%4u-%2u-%2u", &year, &month, &day) != 3 ||
+        year < 2021U || year > 2199U || month < 1U || month > 12U ||
+        day < 1U || day > 31U) return false;
+    outDate = (uint32_t)year * 10000U + (uint32_t)month * 100U + (uint32_t)day;
+    return true;
 }
 
-void addTotal_(WeatherAggregateSummary& summary, float value)
+bool arraysAligned_(size_t expected,
+                    JsonArrayConst minimumTemperature,
+                    JsonArrayConst maximumTemperature,
+                    JsonArrayConst meanTemperature,
+                    JsonArrayConst precipitation,
+                    JsonArrayConst cloudCover,
+                    JsonArrayConst windSpeed,
+                    JsonArrayConst radiation)
 {
-    if (!summary.valid) {
-        summary.valid = true;
-        summary.value = 0.0f;
-    }
-    summary.value += value;
-    if (summary.sampleCount < UINT16_MAX) ++summary.sampleCount;
-}
-
-void addMaximum_(WeatherAggregateSummary& summary, float value)
-{
-    if (!summary.valid || value > summary.value) summary.value = value;
-    summary.valid = true;
-    if (summary.sampleCount < UINT16_MAX) ++summary.sampleCount;
-}
-
-void finishAverage_(WeatherAggregateSummary& summary)
-{
-    if (!summary.valid || summary.sampleCount == 0U) {
-        summary = WeatherAggregateSummary{};
-        return;
-    }
-    summary.value /= (float)summary.sampleCount;
+    return !minimumTemperature.isNull() && !maximumTemperature.isNull() &&
+           !meanTemperature.isNull() && !precipitation.isNull() &&
+           !cloudCover.isNull() && !windSpeed.isNull() && !radiation.isNull() &&
+           minimumTemperature.size() == expected && maximumTemperature.size() == expected &&
+           meanTemperature.size() == expected && precipitation.size() == expected &&
+           cloudCover.size() == expected && windSpeed.size() == expected &&
+           radiation.size() == expected;
 }
 
 }  // namespace
@@ -97,17 +92,18 @@ bool parse(JsonVariantConst root,
     }
 
     const JsonObjectConst current = root["current"].as<JsonObjectConst>();
-    const JsonObjectConst hourly = root["hourly"].as<JsonObjectConst>();
-    if (current.isNull() || hourly.isNull()) {
-        writeError_(errOut, errOutLen, "weather response misses current or hourly data");
+    const JsonObjectConst daily = root["daily"].as<JsonObjectConst>();
+    if (current.isNull() || daily.isNull()) {
+        writeError_(errOut, errOutLen, "weather response misses current or daily data");
         return false;
     }
 
-    const uint64_t observedAtUtc = current["time"] | 0ULL;
+    uint32_t currentLocalDate = 0U;
+    const char* currentTime = current["time"] | static_cast<const char*>(nullptr);
     float currentTemperature = 0.0f;
     float currentCloudCover = 0.0f;
     float currentWindSpeed = 0.0f;
-    if (observedAtUtc == 0U ||
+    if (!parseLocalDate_(currentTime, currentLocalDate) ||
         !readFiniteFloat_(current["temperature_2m"], currentTemperature) ||
         !readFiniteFloat_(current["cloud_cover"], currentCloudCover) ||
         !readFiniteFloat_(current["wind_speed_10m"], currentWindSpeed)) {
@@ -115,67 +111,62 @@ bool parse(JsonVariantConst root,
         return false;
     }
 
-    const JsonArrayConst times = hourly["time"].as<JsonArrayConst>();
-    const JsonArrayConst temperatures = hourly["temperature_2m"].as<JsonArrayConst>();
-    const JsonArrayConst precipitation = hourly["precipitation"].as<JsonArrayConst>();
-    const JsonArrayConst cloudCover = hourly["cloud_cover"].as<JsonArrayConst>();
-    const JsonArrayConst windSpeed = hourly["wind_speed_10m"].as<JsonArrayConst>();
-    const JsonArrayConst shortwaveRadiation = hourly["shortwave_radiation"].as<JsonArrayConst>();
-    const size_t sampleCount = times.size();
-    if (times.isNull() || temperatures.isNull() || precipitation.isNull() ||
-        cloudCover.isNull() || windSpeed.isNull() || shortwaveRadiation.isNull() ||
-        sampleCount == 0U || sampleCount > kMaximumHourlySamples ||
-        temperatures.size() != sampleCount || precipitation.size() != sampleCount ||
-        cloudCover.size() != sampleCount || windSpeed.size() != sampleCount ||
-        shortwaveRadiation.size() != sampleCount) {
-        writeError_(errOut, errOutLen, "weather hourly arrays are invalid");
+    const JsonArrayConst dates = daily["time"].as<JsonArrayConst>();
+    const JsonArrayConst minimumTemperature = daily["temperature_2m_min"].as<JsonArrayConst>();
+    const JsonArrayConst maximumTemperature = daily["temperature_2m_max"].as<JsonArrayConst>();
+    const JsonArrayConst meanTemperature = daily["temperature_2m_mean"].as<JsonArrayConst>();
+    const JsonArrayConst precipitation = daily["precipitation_sum"].as<JsonArrayConst>();
+    const JsonArrayConst cloudCover = daily["cloud_cover_mean"].as<JsonArrayConst>();
+    const JsonArrayConst windSpeed = daily["wind_speed_10m_max"].as<JsonArrayConst>();
+    const JsonArrayConst radiation = daily["shortwave_radiation_sum"].as<JsonArrayConst>();
+    const size_t dayCount = dates.size();
+    if (dates.isNull() || dayCount != POOL_WEATHER_DAILY_CAPACITY ||
+        !arraysAligned_(dayCount, minimumTemperature, maximumTemperature,
+                        meanTemperature, precipitation, cloudCover, windSpeed,
+                        radiation)) {
+        writeError_(errOut, errOutLen, "weather daily arrays are invalid");
         return false;
     }
 
     out.latitude = latitude;
     out.longitude = longitude;
-    out.observedAtUtc = observedAtUtc;
+    out.observedAtUtc = fetchedAtUtc;
     out.fetchedAtUtc = fetchedAtUtc;
-    setValue_(out.currentAirTemperatureC, currentTemperature);
-    setValue_(out.currentCloudCoverPercent, currentCloudCover);
-    setValue_(out.currentWindSpeedKmh, currentWindSpeed);
+    out.currentLocalDate = currentLocalDate;
+    out.currentAirTemperatureC = {true, currentTemperature};
+    out.currentCloudCoverPercent = {true, currentCloudCover};
+    out.currentWindSpeedKmh = {true, currentWindSpeed};
 
-    for (size_t i = 0U; i < sampleCount; ++i) {
-        const uint64_t timestamp = times[i] | 0ULL;
-        if (timestamp == 0U) continue;
-        const bool previousPeriod = timestamp <= observedAtUtc;
-
-        float value = 0.0f;
-        if (readFiniteFloat_(temperatures[i], value)) {
-            addRange_(previousPeriod ? out.previous24hAirTemperatureC
-                                     : out.forecast24hAirTemperatureC,
-                      value);
+    uint8_t historicalDayCount = 0U;
+    uint32_t previousDate = 0U;
+    for (size_t i = 0U; i < dayCount; ++i) {
+        const char* dateText = dates[i] | static_cast<const char*>(nullptr);
+        PoolWeatherDaySummary& day = out.daily[out.dailyCount];
+        if (!parseLocalDate_(dateText, day.localDate) ||
+            (previousDate != 0U && day.localDate <= previousDate)) {
+            writeError_(errOut, errOutLen, "weather daily date is invalid");
+            out = PoolWeatherSnapshot{};
+            return false;
         }
-        if (readFiniteFloat_(precipitation[i], value)) {
-            addTotal_(previousPeriod ? out.previous24hPrecipitationMm
-                                     : out.forecast24hPrecipitationMm,
-                      value);
-        }
-        if (!previousPeriod && readFiniteFloat_(cloudCover[i], value)) {
-            addTotal_(out.forecast24hCloudCoverPercent, value);
-        }
-        if (!previousPeriod && readFiniteFloat_(windSpeed[i], value)) {
-            addMaximum_(out.forecast24hMaximumWindSpeedKmh, value);
-        }
-        if (!previousPeriod && readFiniteFloat_(shortwaveRadiation[i], value)) {
-            addTotal_(out.forecast24hShortwaveRadiationWm2, value);
-        }
+        previousDate = day.localDate;
+        day.valid = true;
+        day.forecast = day.localDate >= currentLocalDate;
+        if (!day.forecast) ++historicalDayCount;
+        readOptionalValue_(minimumTemperature[i], day.minimumAirTemperatureC);
+        readOptionalValue_(maximumTemperature[i], day.maximumAirTemperatureC);
+        readOptionalValue_(meanTemperature[i], day.meanAirTemperatureC);
+        readOptionalValue_(precipitation[i], day.precipitationMm);
+        readOptionalValue_(cloudCover[i], day.meanCloudCoverPercent);
+        readOptionalValue_(windSpeed[i], day.maximumWindSpeedKmh);
+        readOptionalValue_(radiation[i], day.shortwaveRadiationMjM2);
+        ++out.dailyCount;
     }
 
-    finishAverage_(out.forecast24hCloudCoverPercent);
-    finishAverage_(out.forecast24hShortwaveRadiationWm2);
-    if (!out.previous24hAirTemperatureC.valid ||
-        !out.forecast24hAirTemperatureC.valid) {
-        writeError_(errOut, errOutLen, "weather time ranges are incomplete");
+    if (historicalDayCount != 7U) {
+        writeError_(errOut, errOutLen, "weather response does not contain seven past days");
         out = PoolWeatherSnapshot{};
         return false;
     }
-
     out.available = true;
     return true;
 }

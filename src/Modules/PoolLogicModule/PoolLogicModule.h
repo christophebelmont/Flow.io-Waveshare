@@ -432,8 +432,13 @@ private:
     const ActivityLogService* activityLogSvc_ = nullptr;
     static bool serviceGetPoolCharacteristics_(void* ctx, PoolCharacteristics* outCharacteristics);
     bool getPoolCharacteristics_(PoolCharacteristics& outCharacteristics) const;
+    static bool serviceGetPoolOperatingConfiguration_(
+        void* ctx,
+        PoolOperatingConfiguration* outConfiguration);
+    bool getPoolOperatingConfiguration_(PoolOperatingConfiguration& outConfiguration) const;
     PoolConfigurationService poolConfigurationSvc_{
         &PoolLogicModule::serviceGetPoolCharacteristics_,
+        &PoolLogicModule::serviceGetPoolOperatingConfiguration_,
         this
     };
     MqttConfigRouteProducer* cfgMqttPub_ = nullptr;

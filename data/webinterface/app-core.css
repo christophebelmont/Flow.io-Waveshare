@@ -675,7 +675,8 @@ body.web-icons-disabled .control-field-apply{font-size:15px;font-weight:800;lett
   .system-card-firmware,.system-actions-redesign .upgrade-journey{order:2;}
   .system-card-actions .upgrade-journey{order:3;max-width:none;}
   .status-grid,.control-layout,.calibration-grid,.calibration-summary-grid,.form-grid{grid-template-columns:1fr;}
-  .measure-domain-tabs{display:grid;grid-template-columns:repeat(4,minmax(max-content,1fr));gap:6px;overflow-x:auto;padding:2px;}
+  .measure-domain-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;overflow-x:hidden;padding:2px;}
+  .measure-domain-tab{padding-right:6px;padding-left:6px;}
   .measure-status-grid > [data-runtime-domain]{display:none;}
   .measure-status-grid > [data-runtime-domain].is-mobile-selected{display:block;}
   .info-card-stack{grid-template-columns:1fr;}

@@ -9,6 +9,14 @@
 #include "Core/Services/IPoolConfiguration.h"
 
 constexpr uint8_t POOL_HISTORY_COMPLETE_DAY_COUNT = 7U;
+constexpr uint8_t POOL_HISTORY_DAY_PERIOD_COUNT = 4U;
+
+enum class PoolHistoryDayPeriod : uint8_t {
+    Night = 0,
+    Morning,
+    Afternoon,
+    Evening,
+};
 
 /** @brief Aggregated values for one metric during one local calendar day. */
 struct PoolHistoryMetricSummary {
@@ -19,6 +27,21 @@ struct PoolHistoryMetricSummary {
     float minimum = 0.0f;
     float maximum = 0.0f;
     float average = 0.0f;
+};
+
+struct PoolHistoryActivityPeriodSummary {
+    bool valid = false;
+    uint32_t runningSec = 0U;
+    uint32_t observedSec = 0U;
+};
+
+struct PoolHistoryActivitySummary {
+    bool valid = false;
+    uint32_t runningSec = 0U;
+    uint32_t runningMinutes = 0U;
+    float runningHours = 0.0f;
+    uint32_t observedSec = 0U;
+    PoolHistoryActivityPeriodSummary periods[POOL_HISTORY_DAY_PERIOD_COUNT]{};
 };
 
 /** @brief Pool observations for one local calendar day. */
@@ -33,19 +56,17 @@ struct PoolHistoryDaySummary {
     /** Bounds of the observations actually collected by Flow.io. */
     uint64_t observedFromUtc = 0U;
     uint64_t observedUntilUtc = 0U;
-    /** Actual filtration running time observed during the day. */
-    bool filtrationRuntimeValid = false;
-    uint32_t filtrationRunningSec = 0U;
-    uint32_t filtrationRuntimeMinutes = 0U;
-    float filtrationRuntimeHours = 0.0f;
-    /** Total interval over which the filtration state was observed. */
-    uint32_t filtrationObservedSec = 0U;
+    PoolHistoryActivitySummary filtration{};
+    PoolHistoryActivitySummary heating{};
     PoolHistoryMetricSummary ph{};
     PoolHistoryMetricSummary orp{};
     PoolHistoryMetricSummary waterTemperature{};
     PoolHistoryMetricSummary airTemperature{};
     PoolHistoryMetricSummary daytimeWaterTemperature{};
     PoolHistoryMetricSummary nighttimeWaterTemperature{};
+    PoolHistoryMetricSummary phSetpoint{};
+    PoolHistoryMetricSummary orpSetpoint{};
+    PoolHistoryMetricSummary heaterSetpoint{};
     /** Signed variation: nighttime average minus daytime average. */
     bool dayToNightTemperatureVariationValid = false;
     float dayToNightTemperatureVariationC = 0.0f;
@@ -79,6 +100,7 @@ struct PoolHistorySnapshot {
     uint8_t daytimeStartHour = 8U;
     uint8_t daytimeEndHour = 20U;
     PoolCharacteristics pool{};
+    PoolOperatingConfiguration currentOperatingConfiguration{};
     PoolHistoryDaySummary today{};
     /** Compatibility alias for completeDays[0]. */
     PoolHistoryDaySummary previousDay{};

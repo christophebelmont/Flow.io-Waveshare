@@ -24,8 +24,9 @@ PoolHistorySnapshot snapshotForSep04(const PoolHistoryAccumulator& history)
 {
     PoolHistorySnapshot snapshot{};
     PoolCharacteristics pool{};
+    PoolOperatingConfiguration operating{};
     history.snapshot(1788500615ULL, kDatesForSep04, kStartsForSep04,
-                     8U, 20U, pool, snapshot);
+                     8U, 20U, pool, operating, snapshot);
     return snapshot;
 }
 
@@ -46,8 +47,16 @@ void test_daily_metrics_filtration_temperature_and_refill_are_aggregated()
     history.addSample(PoolHistoryMetric::WaterTemperature, 26.0f, 1788500600ULL);
     history.addWaterTemperatureSample(26.0f, true, 1788500600ULL);
     history.addWaterTemperatureSample(24.0f, false, 1788500600ULL);
-    history.observeFiltration(3600000U, true, 1788500610ULL);
-    history.observeFiltration(60000U, false, 1788500615ULL);
+    history.observeActivity(&PoolHistoryDayState::filtration,
+                            PoolHistoryDayPeriod::Morning,
+                            3600000U, true, 1788500610ULL);
+    history.observeActivity(&PoolHistoryDayState::filtration,
+                            PoolHistoryDayPeriod::Morning,
+                            60000U, false, 1788500615ULL);
+    history.observeActivity(&PoolHistoryDayState::heating,
+                            PoolHistoryDayPeriod::Evening,
+                            1800000U, true, 1788500615ULL);
+    history.addSample(PoolHistoryMetric::HeaterSetpoint, 28.0f, 1788500615ULL);
     history.observeRefill(1800000U, true, 2.0f, true, 1788500615ULL);
 
     const PoolHistorySnapshot snapshot = snapshotForSep04(history);
@@ -56,8 +65,12 @@ void test_daily_metrics_filtration_temperature_and_refill_are_aggregated()
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, 7.10f, snapshot.today.ph.minimum);
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, 7.40f, snapshot.today.ph.maximum);
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, 7.233333f, snapshot.today.ph.average);
-    TEST_ASSERT_EQUAL_UINT32(60U, snapshot.today.filtrationRuntimeMinutes);
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, snapshot.today.filtrationRuntimeHours);
+    TEST_ASSERT_EQUAL_UINT32(60U, snapshot.today.filtration.runningMinutes);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, snapshot.today.filtration.runningHours);
+    TEST_ASSERT_EQUAL_UINT32(60U,
+        snapshot.today.filtration.periods[(uint8_t)PoolHistoryDayPeriod::Morning].runningSec / 60U);
+    TEST_ASSERT_EQUAL_UINT32(30U, snapshot.today.heating.runningMinutes);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 28.0f, snapshot.today.heaterSetpoint.average);
     TEST_ASSERT_TRUE(snapshot.today.dayToNightTemperatureVariationValid);
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, -2.0f,
                              snapshot.today.dayToNightTemperatureVariationC);
@@ -92,15 +105,18 @@ void test_day_rollover_exposes_only_complete_days()
     PoolHistoryAccumulator history{};
     history.alignDay(20260904U, 1788472800ULL, kDatesForSep04);
     history.addSample(PoolHistoryMetric::Orp, 680.0f, 1788559100ULL);
-    history.observeFiltration(7200000U, true, 1788559160ULL);
+    history.observeActivity(&PoolHistoryDayState::filtration,
+                            PoolHistoryDayPeriod::Evening,
+                            7200000U, true, 1788559160ULL);
     TEST_ASSERT_EQUAL_UINT8((uint8_t)PoolHistoryDayTransition::AdvancedOneDay,
                             (uint8_t)history.alignDay(20260905U, 1788559200ULL,
                                                       kDatesForSep05));
 
     PoolHistorySnapshot snapshot{};
     PoolCharacteristics pool{};
+    PoolOperatingConfiguration operating{};
     history.snapshot(1788559210ULL, kDatesForSep05, kStartsForSep05,
-                     8U, 20U, pool, snapshot);
+                     8U, 20U, pool, operating, snapshot);
     TEST_ASSERT_TRUE(snapshot.completeDays[0].valid);
     TEST_ASSERT_TRUE(snapshot.completeDays[0].complete);
     TEST_ASSERT_EQUAL_UINT32(20260904U, snapshot.completeDays[0].localDate);
@@ -156,8 +172,15 @@ void test_seven_complete_days_and_pool_characteristics_are_exposed()
         records[i].complete = true;
         records[i].localDate = kDatesForSep04[i];
         records[i].dayStartUtc = kStartsForSep04[i];
-        records[i].filtrationRunningMs = (uint64_t)(i + 1U) * 3600000ULL;
-        records[i].filtrationObservedMs = 24ULL * 3600000ULL;
+        const uint32_t runningHours = (uint32_t)i + 1U;
+        records[i].filtration.runningMs[0] =
+            (runningHours < 6U ? runningHours : 6U) * 3600000UL;
+        records[i].filtration.runningMs[1] =
+            (runningHours > 6U ? runningHours - 6U : 0U) * 3600000UL;
+        records[i].filtration.observedMs[0] = 6UL * 3600000UL;
+        records[i].filtration.observedMs[1] = 6UL * 3600000UL;
+        records[i].filtration.observedMs[2] = 6UL * 3600000UL;
+        records[i].filtration.observedMs[3] = 6UL * 3600000UL;
         records[i].refillVolumeValid = true;
         records[i].refillStateObserved = true;
         records[i].refillVolumeLitres = (double)(i + 1U);
@@ -175,8 +198,13 @@ void test_seven_complete_days_and_pool_characteristics_are_exposed()
     pool.coverClosedAtNight = true;
     pool.disinfectionMethod = PoolDisinfectionMethod::ActiveOxygen;
     PoolHistorySnapshot snapshot{};
+    PoolOperatingConfiguration operating{};
+    operating.available = true;
+    operating.heaterAutoMode = true;
+    operating.heaterSetpointValid = true;
+    operating.heaterSetpointC = 28.0f;
     history.snapshot(1788500615ULL, kDatesForSep04, kStartsForSep04,
-                     7U, 19U, pool, snapshot);
+                     7U, 19U, pool, operating, snapshot);
     TEST_ASSERT_EQUAL_UINT8(7U, snapshot.last7Days.availableDayCount);
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 28.0f, snapshot.last7Days.totalFiltrationHours);
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 4.0f,
@@ -190,15 +218,22 @@ void test_seven_complete_days_and_pool_characteristics_are_exposed()
                             (uint8_t)snapshot.pool.disinfectionMethod);
     TEST_ASSERT_EQUAL_UINT8(7U, snapshot.daytimeStartHour);
     TEST_ASSERT_EQUAL_UINT8(19U, snapshot.daytimeEndHour);
+    TEST_ASSERT_TRUE(snapshot.currentOperatingConfiguration.heaterAutoMode);
 }
 
-void test_persistence_v2_round_trip_and_checksum_validation()
+void test_persistence_v3_round_trip_and_checksum_validation()
 {
     PoolHistoryAccumulator history{};
     history.alignDay(20260904U, 1788472800ULL, kDatesForSep04);
     history.addSample(PoolHistoryMetric::WaterTemperature, 24.5f, 1788500000ULL);
     history.addWaterTemperatureSample(24.5f, true, 1788500000ULL);
-    history.observeFiltration(12345U, true, 1788500012ULL);
+    history.observeActivity(&PoolHistoryDayState::filtration,
+                            PoolHistoryDayPeriod::Morning,
+                            12345U, true, 1788500012ULL);
+    history.observeActivity(&PoolHistoryDayState::heating,
+                            PoolHistoryDayPeriod::Afternoon,
+                            54321U, true, 1788500012ULL);
+    history.addSample(PoolHistoryMetric::PhSetpoint, 7.2f, 1788500012ULL);
     history.observeRefill(3600000U, true, 1.5f, true, 1788500012ULL);
 
     uint8_t encoded[PoolHistoryPersistence::EncodedSize]{};
@@ -208,8 +243,14 @@ void test_persistence_v2_round_trip_and_checksum_validation()
     TEST_ASSERT_EQUAL_UINT32((uint32_t)PoolHistoryPersistence::EncodedSize,
                              (uint32_t)encodedLength);
     PoolHistoryDayState decoded{};
+    TEST_ASSERT_FALSE(PoolHistoryPersistence::decode(encoded, 236U, decoded));
     TEST_ASSERT_TRUE(PoolHistoryPersistence::decode(encoded, encodedLength, decoded));
-    TEST_ASSERT_EQUAL_UINT64(12345ULL, decoded.filtrationRunningMs);
+    TEST_ASSERT_EQUAL_UINT32(12345U,
+        decoded.filtration.runningMs[(uint8_t)PoolHistoryDayPeriod::Morning]);
+    TEST_ASSERT_EQUAL_UINT32(54321U,
+        decoded.heating.runningMs[(uint8_t)PoolHistoryDayPeriod::Afternoon]);
+    TEST_ASSERT_EQUAL_UINT32(1U,
+        decoded.metrics[(uint8_t)PoolHistoryMetric::PhSetpoint].sampleCount);
     TEST_ASSERT_EQUAL_UINT32(1U, decoded.daytimeWaterTemperature.sampleCount);
     TEST_ASSERT_TRUE(decoded.refillVolumeValid);
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.5f, (float)decoded.refillVolumeLitres);
@@ -227,6 +268,6 @@ int main()
     RUN_TEST(test_restore_places_records_in_expected_calendar_slots_and_marks_missing_days);
     RUN_TEST(test_unknown_refill_flow_invalidates_volume_but_keeps_events);
     RUN_TEST(test_seven_complete_days_and_pool_characteristics_are_exposed);
-    RUN_TEST(test_persistence_v2_round_trip_and_checksum_validation);
+    RUN_TEST(test_persistence_v3_round_trip_and_checksum_validation);
     return UNITY_END();
 }

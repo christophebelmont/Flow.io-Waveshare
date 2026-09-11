@@ -111,6 +111,7 @@
     "dashboard.empty.domainNoRuntime": "No runtime value exposed for this domain.",
     "dashboard.empty.activeDomainsNoRuntime": "No runtime value available for dashboard domains.",
     "dashboard.domain.equipements": "Equipment",
+    "dashboard.domain.equipements.short": "Equip.",
     "dashboard.action.pending": "Applying…",
     "dashboard.action.error": "Command rejected",
     "dashboard.action.errorDetail": "Command rejected: {error}",

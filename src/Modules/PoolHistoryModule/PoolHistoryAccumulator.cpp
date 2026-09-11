@@ -244,13 +244,30 @@ void PoolHistoryAccumulator::observeRefill(uint32_t intervalMs,
     noteObservation_(today_, observedAtUtc);
 }
 
-void PoolHistoryAccumulator::observeFiltration(uint32_t intervalMs,
-                                               bool running,
-                                               uint64_t observedAtUtc)
+void PoolHistoryAccumulator::observeActivity(
+    PoolHistoryActivityState PoolHistoryDayState::* activity,
+    PoolHistoryDayPeriod period,
+    uint32_t intervalMs,
+    bool running,
+    uint64_t observedAtUtc)
 {
-    if (!today_.valid || intervalMs == 0U) return;
-    today_.filtrationObservedMs += intervalMs;
-    if (running) today_.filtrationRunningMs += intervalMs;
+    const uint8_t periodIndex = static_cast<uint8_t>(period);
+    if (!today_.valid || !activity || intervalMs == 0U ||
+        periodIndex >= POOL_HISTORY_DAY_PERIOD_COUNT) {
+        return;
+    }
+    PoolHistoryActivityState& state = today_.*activity;
+    const uint32_t observedHeadroom = UINT32_MAX - state.observedMs[periodIndex];
+    const uint32_t accruedMs = intervalMs < observedHeadroom
+        ? intervalMs
+        : observedHeadroom;
+    state.observedMs[periodIndex] += accruedMs;
+    if (running) {
+        const uint32_t runningHeadroom = UINT32_MAX - state.runningMs[periodIndex];
+        state.runningMs[periodIndex] += accruedMs < runningHeadroom
+            ? accruedMs
+            : runningHeadroom;
+    }
     noteObservation_(today_, observedAtUtc);
 }
 
@@ -268,6 +285,28 @@ void PoolHistoryAccumulator::fillMetricSummary_(const PoolHistoryMetricState& st
     out.average = (float)(state.sum / (double)state.sampleCount);
 }
 
+void PoolHistoryAccumulator::fillActivitySummary_(
+    const PoolHistoryActivityState& state,
+    PoolHistoryActivitySummary& out)
+{
+    out = PoolHistoryActivitySummary{};
+    uint64_t totalRunningMs = 0U;
+    uint64_t totalObservedMs = 0U;
+    for (uint8_t i = 0U; i < POOL_HISTORY_DAY_PERIOD_COUNT; ++i) {
+        PoolHistoryActivityPeriodSummary& period = out.periods[i];
+        period.valid = state.observedMs[i] > 0U;
+        period.runningSec = secondsFromMs_(state.runningMs[i]);
+        period.observedSec = secondsFromMs_(state.observedMs[i]);
+        totalRunningMs += state.runningMs[i];
+        totalObservedMs += state.observedMs[i];
+    }
+    out.valid = totalObservedMs > 0U;
+    out.runningSec = secondsFromMs_(totalRunningMs);
+    out.runningMinutes = out.runningSec / 60U;
+    out.runningHours = (float)((double)totalRunningMs / 3600000.0);
+    out.observedSec = secondsFromMs_(totalObservedMs);
+}
+
 void PoolHistoryAccumulator::fillDaySummary_(const PoolHistoryDayState& state,
                                              PoolHistoryDaySummary& out)
 {
@@ -280,11 +319,8 @@ void PoolHistoryAccumulator::fillDaySummary_(const PoolHistoryDayState& state,
     out.dayStartUtc = state.dayStartUtc;
     out.observedFromUtc = state.observedFromUtc;
     out.observedUntilUtc = state.observedUntilUtc;
-    out.filtrationRuntimeValid = state.filtrationObservedMs > 0U;
-    out.filtrationRunningSec = secondsFromMs_(state.filtrationRunningMs);
-    out.filtrationRuntimeMinutes = out.filtrationRunningSec / 60U;
-    out.filtrationRuntimeHours = (float)((double)state.filtrationRunningMs / 3600000.0);
-    out.filtrationObservedSec = secondsFromMs_(state.filtrationObservedMs);
+    fillActivitySummary_(state.filtration, out.filtration);
+    fillActivitySummary_(state.heating, out.heating);
     fillMetricSummary_(state.metrics[(uint8_t)PoolHistoryMetric::Ph], out.ph);
     fillMetricSummary_(state.metrics[(uint8_t)PoolHistoryMetric::Orp], out.orp);
     fillMetricSummary_(state.metrics[(uint8_t)PoolHistoryMetric::WaterTemperature],
@@ -293,6 +329,12 @@ void PoolHistoryAccumulator::fillDaySummary_(const PoolHistoryDayState& state,
                        out.airTemperature);
     fillMetricSummary_(state.daytimeWaterTemperature, out.daytimeWaterTemperature);
     fillMetricSummary_(state.nighttimeWaterTemperature, out.nighttimeWaterTemperature);
+    fillMetricSummary_(state.metrics[(uint8_t)PoolHistoryMetric::PhSetpoint],
+                       out.phSetpoint);
+    fillMetricSummary_(state.metrics[(uint8_t)PoolHistoryMetric::OrpSetpoint],
+                       out.orpSetpoint);
+    fillMetricSummary_(state.metrics[(uint8_t)PoolHistoryMetric::HeaterSetpoint],
+                       out.heaterSetpoint);
     if (out.daytimeWaterTemperature.valid && out.nighttimeWaterTemperature.valid) {
         out.dayToNightTemperatureVariationValid = true;
         out.dayToNightTemperatureVariationC =
@@ -311,6 +353,7 @@ void PoolHistoryAccumulator::snapshot(
     uint8_t daytimeStartHour,
     uint8_t daytimeEndHour,
     const PoolCharacteristics& pool,
+    const PoolOperatingConfiguration& currentOperatingConfiguration,
     PoolHistorySnapshot& out) const
 {
     memset(&out, 0, sizeof(out));
@@ -318,6 +361,7 @@ void PoolHistoryAccumulator::snapshot(
     out.daytimeStartHour = daytimeStartHour;
     out.daytimeEndHour = daytimeEndHour;
     out.pool = pool;
+    out.currentOperatingConfiguration = currentOperatingConfiguration;
     out.last7Days.requestedDayCount = POOL_HISTORY_COMPLETE_DAY_COUNT;
     fillDaySummary_(today_, out.today);
     uint64_t filtrationTotalMs = 0U;
@@ -330,9 +374,11 @@ void PoolHistoryAccumulator::snapshot(
         if (state) {
             fillDaySummary_(*state, day);
             ++out.last7Days.availableDayCount;
-            if (day.filtrationRuntimeValid) {
+            if (day.filtration.valid) {
                 ++out.last7Days.filtrationAvailableDayCount;
-                filtrationTotalMs += state->filtrationRunningMs;
+                for (uint8_t period = 0U; period < POOL_HISTORY_DAY_PERIOD_COUNT; ++period) {
+                    filtrationTotalMs += state->filtration.runningMs[period];
+                }
             }
             out.last7Days.totalRefillEventCount += day.refillEventCount;
             if (!day.refillEventsValid) allAvailableRefillEventsValid = false;

@@ -111,6 +111,7 @@
     "dashboard.empty.domainNoRuntime": "Aucune valeur runtime exposée pour ce domaine.",
     "dashboard.empty.activeDomainsNoRuntime": "Aucune valeur runtime disponible pour les domaines du tableau de bord.",
     "dashboard.domain.equipements": "Équipements",
+    "dashboard.domain.equipements.short": "Équip.",
     "dashboard.action.pending": "Application…",
     "dashboard.action.error": "Commande refusée",
     "dashboard.action.errorDetail": "Commande refusée : {error}",

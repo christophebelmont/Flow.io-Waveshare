@@ -5616,7 +5616,7 @@ void WebInterfaceModule::startServer_()
             return;
         }
 
-        constexpr size_t kPreviewJsonCapacity = 24U * 1024U;
+        constexpr size_t kPreviewJsonCapacity = 48U * 1024U;
         auto responseState = std::make_shared<WebJsonBuffer>(kPreviewJsonCapacity);
         if (!responseState || !responseState->valid()) {
             heap_caps_free(previewMemory);
@@ -5657,6 +5657,8 @@ void WebInterfaceModule::startServer_()
         printJsonEscaped_(*responseState, preview->model);
         responseState->print(",\"weather_text\":");
         printJsonEscaped_(*responseState, preview->weatherText);
+        responseState->print(",\"instructions\":");
+        printJsonEscaped_(*responseState, preview->instructions);
         responseState->print(",\"prompt\":");
         printJsonEscaped_(*responseState, preview->prompt);
         responseState->print('}');

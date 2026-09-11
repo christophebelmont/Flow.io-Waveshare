@@ -29,8 +29,9 @@ constexpr uint16_t kForecastPort = 443U;
 constexpr char kForecastUrlFormat[] =
     "https://%s/v1/forecast?latitude=%.6f&longitude=%.6f"
     "&current=temperature_2m,cloud_cover,wind_speed_10m"
-    "&hourly=temperature_2m,precipitation,cloud_cover,wind_speed_10m,shortwave_radiation"
-    "&past_hours=24&forecast_hours=24&timeformat=unixtime&timezone=GMT";
+    "&daily=temperature_2m_min,temperature_2m_max,temperature_2m_mean,"
+    "precipitation_sum,cloud_cover_mean,wind_speed_10m_max,shortwave_radiation_sum"
+    "&past_days=7&forecast_days=2&timeformat=iso8601&timezone=auto";
 
 struct SpiRamJsonAllocator {
     void* allocate(size_t size)

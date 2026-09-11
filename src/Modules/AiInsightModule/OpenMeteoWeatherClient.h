@@ -11,7 +11,7 @@
 
 class OpenMeteoWeatherClient {
 public:
-    static constexpr size_t ResponseCapacity = 14U * 1024U;
+    static constexpr size_t ResponseCapacity = 8U * 1024U;
 
     bool fetch(double latitude,
                double longitude,
@@ -25,6 +25,6 @@ public:
 private:
     static constexpr uint32_t kConnectTimeoutMs = 8000U;
     static constexpr uint32_t kRequestTimeoutMs = 15000U;
-    static constexpr size_t kJsonCapacity = 16U * 1024U;
+    static constexpr size_t kJsonCapacity = 12U * 1024U;
     static constexpr size_t kUrlCapacity = 512U;
 };

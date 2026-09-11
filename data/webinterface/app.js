@@ -5747,6 +5747,12 @@
       return key.charAt(0).toUpperCase() + key.slice(1);
     }
 
+    function formatRuntimeDomainTabLabel(domain) {
+      const key = String(domain || '').trim().toLowerCase();
+      if (key === 'equipements') return tr('dashboard.domain.equipements.short', 'Équip.');
+      return formatRuntimeDomainLabel(key);
+    }
+
     function runtimeMeasureDomainIcon(domain) {
       const icons = {
         mode: 'tune',
@@ -6828,7 +6834,10 @@
         button.setAttribute('aria-selected', selected ? 'true' : 'false');
         button.setAttribute('aria-controls', 'poolMeasuresGrid');
         button.tabIndex = selected ? 0 : -1;
-        button.textContent = formatRuntimeDomainLabel(domainKey);
+        const fullLabel = formatRuntimeDomainLabel(domainKey);
+        button.textContent = formatRuntimeDomainTabLabel(domainKey);
+        button.setAttribute('aria-label', fullLabel);
+        button.title = fullLabel;
         button.addEventListener('click', () => {
           selectMobileMeasureDomain(domainKey);
         });
@@ -7673,7 +7682,11 @@
         poolAiWeatherText.textContent = String(payload && payload.weather_text ? payload.weather_text : '—');
       }
       if (poolAiPromptText) {
-        poolAiPromptText.textContent = String(payload && payload.prompt ? payload.prompt : '—');
+        const instructions = String(payload && payload.instructions ? payload.instructions : '');
+        const input = String(payload && payload.prompt ? payload.prompt : '');
+        poolAiPromptText.textContent = instructions && input
+          ? instructions + '\n\nDONNÉES DYNAMIQUES ENVOYÉES\n\n' + input
+          : (instructions || input || '—');
       }
       if (!poolAiStatus) return;
 
