@@ -77,10 +77,10 @@ async function main() {
 
     await open();
     assert.equal(await page.locator('tbody tr').count(), 3, 'Every registered device has a row');
-    assert.equal(await page.locator('.runtime-counter-state.is-running').count(), 1, 'Running state comes from firmware data');
+    assert.equal(await page.locator('dialog .runtime-counter-state').count(), 0, 'The equipment state is only shown by the toggle');
     assert.equal(await page.locator('.runtime-counter-details').evaluate(element => element.open), false, 'Reset explanation starts collapsed');
     assert(!(await page.locator('dialog').textContent()).includes('flow.io'), 'The popup has no flow.io logo');
-    assert.equal(await resetDevice('COMP08 (pd15)').textContent(), '↺', 'Row actions use compact glyphs');
+    assert.equal(await resetDevice('COMP08 (pd15)').locator('svg').count(), 1, 'Row actions use the compact reset icon');
     assert.equal(await page.locator('thead th').count(), 7, 'Device, On/Off, four periods and action columns');
     assert.equal(config.buttonText, 'Gérer les équipements');
     assert(await row('Filtration (pd0)').getByRole('switch').isChecked());

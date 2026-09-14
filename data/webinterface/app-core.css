@@ -1109,3 +1109,69 @@ body.web-icons-disabled .control-field-apply{font-size:15px;font-weight:800;lett
 :root[data-theme="dark"] .activity-severity-info .activity-row-title strong,:root[data-theme="dark"] .activity-severity-info .activity-row-icon{color:var(--primary);}
 @media (max-width: 760px){.activity-toolbar{gap:10px}.activity-range-card{min-width:0;width:100%;box-sizing:border-box}.activity-day-title{font-size:16px}.activity-day-events{border-radius:10px}.activity-row{grid-template-columns:58px 42px minmax(0,1fr);min-height:78px;padding:0 10px 0 2px}.activity-row-time{padding-right:6px;font-size:11px}.activity-row-icon{width:34px;height:34px;border-width:4px;font-size:19px}.activity-row-main{padding:12px 0}.activity-row-title{font-size:14px}.activity-row-detail{font-size:12px}.logs-overlay{padding:8px}.logs-overlay-panel{width:calc(100vw - 16px);height:calc(100vh - 16px);border-radius:8px}.logs-overlay-head{align-items:flex-start;flex-direction:column}.logs-overlay-actions{justify-content:flex-start}.logs-overlay-terminal{font-size:10px}}
 :root[data-theme="dark"] .overlay{background:rgba(0,0,0,0.68);}
+
+/* Equipment management: reference layout with persistent live table cells. */
+.runtime-management-dialog{width:min(900px,calc(100% - 32px));padding:16px;border:0;border-radius:20px;background:var(--bg);}
+.runtime-management-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px;padding:0 2px;}
+.runtime-management-heading{min-width:0;}
+.runtime-management-dialog h2{font-size:20px;line-height:1.2;font-weight:650;letter-spacing:-.2px;margin:0 0 4px;}
+.runtime-management-dialog .runtime-counter-count{font-size:12px;margin:0;}
+.runtime-management-dialog .runtime-management-actions{flex-wrap:nowrap;gap:8px;margin:0;flex-shrink:0;}
+.runtime-management-actions button{min-height:40px;font-size:12px;font-weight:500;border-radius:9px;padding:8px 12px;gap:8px;}
+.runtime-management-actions svg,.runtime-management-footer svg{width:16px;height:16px;flex-shrink:0;}
+.runtime-management-dialog .runtime-management-actions .runtime-management-all-action{color:var(--text-muted);border:1px solid var(--border);background:var(--surface);}
+.runtime-management-dialog .runtime-management-actions .runtime-management-all-action:hover{color:var(--text);border-color:var(--text-muted);background:var(--surface-soft);}
+.runtime-management-dialog .runtime-management-actions .runtime-management-close{min-width:84px;color:#fff;background:#245bbb;border:1px solid #245bbb;}
+.runtime-management-dialog .runtime-management-actions .runtime-management-close:hover{color:#fff;background:#194a9e;border-color:#194a9e;}
+.runtime-management-panel{padding:8px 10px 0;border:1px solid var(--border);border-radius:12px;background:var(--surface);overflow:hidden;}
+.runtime-management-dialog .runtime-counter-table{min-width:700px;border-collapse:separate;border-spacing:0;}
+.runtime-management-dialog .runtime-counter-table th,.runtime-management-dialog .runtime-counter-table td{padding:6px 8px;text-align:left;border-bottom:1px solid color-mix(in srgb,var(--border) 45%,transparent);}
+.runtime-management-dialog .runtime-counter-table thead th{background:transparent;font-size:11px;padding-top:8px;padding-bottom:10px;}
+.runtime-management-dialog .runtime-counter-table th:first-child{min-width:200px;width:28%;}
+.runtime-management-dialog .runtime-counter-table th:last-child,.runtime-management-dialog .runtime-counter-table td:last-child{text-align:right;width:40px;}
+.runtime-management-dialog .runtime-counter-table tbody th{font-size:12px;font-weight:500;}
+.runtime-management-dialog .runtime-counter-device.is-alternate{background:color-mix(in srgb,var(--surface-soft) 55%,var(--surface));}
+.runtime-management-dialog .runtime-counter-device td:first-child,.runtime-management-dialog .runtime-counter-device th:first-child{border-radius:8px 0 0 8px;}
+.runtime-management-dialog .runtime-counter-device td:last-child{border-radius:0 8px 8px 0;}
+.runtime-management-dialog .runtime-counter-device:hover,.runtime-management-dialog .runtime-counter-device:focus-within{background:var(--surface-soft);}
+.runtime-management-dialog .runtime-counter-device.is-selected{background:color-mix(in srgb,var(--danger) 8%,var(--surface));}
+.runtime-management-name{display:flex;align-items:center;gap:10px;}
+.runtime-management-identity{display:flex;align-items:baseline;gap:6px;flex:1;min-width:0;white-space:nowrap;}
+.runtime-management-identity > span:first-child{overflow:hidden;text-overflow:ellipsis;}
+.runtime-management-dialog .runtime-counter-device-id{margin:0;font-size:11px;}
+.runtime-management-icon{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;flex-shrink:0;color:var(--text-muted);background:var(--surface-soft);}
+.runtime-management-icon svg{width:19px;height:19px;}
+.runtime-management-icon.tone-blue{color:#4898fb;background:color-mix(in srgb,#4898fb 11%,var(--surface));}
+.runtime-management-icon.tone-green{color:#4cc5a2;background:color-mix(in srgb,#4cc5a2 12%,var(--surface));}
+.runtime-management-icon.tone-purple{color:#9975ed;background:color-mix(in srgb,#9975ed 12%,var(--surface));}
+.runtime-management-icon.tone-cyan{color:#1fc0e5;background:color-mix(in srgb,#1fc0e5 12%,var(--surface));}
+.runtime-management-icon.tone-amber{color:#f4b440;background:color-mix(in srgb,#f4b440 13%,var(--surface));}
+.runtime-management-icon.tone-orange{color:#ff9c46;background:color-mix(in srgb,#ff9c46 12%,var(--surface));}
+.runtime-management-icon.tone-red{color:#ed6673;background:color-mix(in srgb,#ed6673 11%,var(--surface));}
+.runtime-management-dialog .runtime-counter-duration{font-size:12px;font-weight:500;line-height:1.5;}
+.runtime-management-dialog .runtime-counter-volume{font-size:11px;line-height:1.4;margin-top:2px;}
+.runtime-management-dialog .runtime-action-switch-control{justify-content:flex-start;font-size:11px;gap:6px;min-width:76px;}
+.runtime-management-dialog .runtime-action-switch-control .md3-switch{width:44px;height:44px;flex-shrink:0;}
+.runtime-management-dialog .runtime-action-switch-control .md3-switch .md3-track{left:2px;width:40px;height:22px;background:color-mix(in srgb,var(--text-muted) 30%,var(--surface));}
+.runtime-management-dialog .runtime-action-switch-control .md3-switch .md3-thumb{left:4px;top:calc(50% - 9px);width:18px;height:18px;background:#fff;box-shadow:0 1px 4px rgba(7,26,53,.25);}
+.runtime-management-dialog .runtime-action-switch-control .md3-switch input:checked + .md3-track{background:var(--success);}
+.runtime-management-dialog .runtime-action-switch-control .md3-switch input:checked + .md3-track + .md3-thumb{background:#fff;transform:translateX(18px);}
+.runtime-management-dialog .runtime-action-switch-control .md3-switch input:disabled + .md3-track{opacity:.5;}
+.runtime-management-dialog .runtime-action-switch-control .md3-switch input:disabled + .md3-track + .md3-thumb{opacity:.75;}
+.runtime-management-dialog .runtime-counter-table .runtime-counter-reset{width:32px;height:32px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text-muted);}
+.runtime-management-dialog .runtime-counter-table .runtime-counter-reset svg{width:18px;height:18px;}
+.runtime-management-dialog .runtime-counter-table .runtime-counter-reset:hover{color:var(--primary);border-color:var(--primary);background:var(--surface-soft);}
+.runtime-management-footer{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:12px 2px;}
+.runtime-management-dialog .runtime-counter-legend{display:flex;align-items:center;gap:7px;font-size:11px;margin:0;}
+.runtime-management-dialog .runtime-counter-details{font-size:11px;margin:0;max-width:420px;}
+.runtime-management-dialog .runtime-counter-details summary{display:flex;align-items:center;justify-content:flex-end;gap:9px;list-style:none;margin-left:auto;}
+.runtime-management-dialog .runtime-counter-details summary::-webkit-details-marker{display:none;}
+.runtime-management-dialog .runtime-counter-details[open] summary svg{transform:rotate(180deg);}
+.runtime-management-dialog .runtime-counter-details p{font-size:12px;}
+.runtime-management-dialog .runtime-action-dialog-feedback:not(:empty){padding:0 4px;}
+@media(max-width:800px){.runtime-management-header{flex-wrap:wrap;gap:12px;}.runtime-management-dialog .runtime-management-actions{margin-left:auto;}.runtime-management-dialog h2{font-size:20px;}.runtime-management-footer{flex-wrap:wrap;gap:14px;}.runtime-management-dialog .runtime-counter-details{margin-left:auto;}}
+@media(max-width:480px){.runtime-management-dialog{width:calc(100% - 24px);max-height:calc(100% - 24px);padding:12px 10px;}.runtime-management-header{padding:0 2px;margin-bottom:14px;}.runtime-management-dialog h2{font-size:18px;letter-spacing:-.2px;}.runtime-management-dialog .runtime-management-actions{width:100%;justify-content:flex-end;gap:8px;}.runtime-management-actions button{padding:8px 10px;min-height:40px;font-size:12px;gap:8px;}.runtime-management-dialog .runtime-management-actions .runtime-management-close{min-width:80px;}.runtime-management-panel{padding:8px 8px 0;}.runtime-management-footer{padding:12px 2px;}.runtime-management-dialog .runtime-counter-legend,.runtime-management-dialog .runtime-counter-details{font-size:11px;}}
+.runtime-management-dialog.is-safe-action .runtime-counter-device.is-selected{background:color-mix(in srgb,var(--primary) 8%,var(--surface));}
+.runtime-alarm-dialog .runtime-counter-table{min-width:620px;}
+.runtime-alarm-dialog .runtime-counter-table .btn-compact{min-height:32px;padding:6px 10px;font-weight:500;}
+.runtime-alarm-dialog .runtime-counter-table.has-text-actions th:not(:last-child),.runtime-alarm-dialog .runtime-counter-table.has-text-actions td:not(:last-child){text-align:left;}

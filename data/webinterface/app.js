@@ -65,6 +65,7 @@
     let infoLastMac = '-';
     let webProfileKey = 'supervisor';
     let webLocalRuntime = false;
+    let webRuntimeEventsAvailable = false;
     let hideMenuSvg = false;
     let disableWebIcons = false;
     let unifyStatusCardIcons = false;
@@ -513,6 +514,8 @@
       const rawDeviceName = String(data.devicename || data.deviceName || '').trim();
       webDeviceName = rawDeviceName || 'flowio';
       webLocalRuntime = data.local_runtime === true;
+      webRuntimeEventsAvailable = data.runtime_events === true;
+      if (getActivePageId() === 'page-dashboard' && !document.hidden) dashboardLiveUpdates.start();
       ensureRuntimeDomainState();
       runtimeManifestDomainCache = null;
       runtimeManifestDomainLoadPromise = null;
@@ -659,6 +662,7 @@
         const rawDeviceName = String(initialMeta.devicename || initialMeta.deviceName || '').trim();
         webDeviceName = rawDeviceName || 'flowio';
         webLocalRuntime = initialMeta.local_runtime === true;
+        webRuntimeEventsAvailable = initialMeta.runtime_events === true;
         networkMode = normalizeNetworkMode(initialMeta.network_mode);
         networkTransport = normalizeNetworkTransport(initialMeta.network_transport || initialMeta.transport);
       }
@@ -2147,11 +2151,15 @@
     };
     let runtimeActionBusyKey = '';
     let runtimeActionDialog = null;
+    let runtimeActionDialogRefresh = null;
     const runtimeActionFeedback = new Map();
+    const dashboardDualStateTileViews = new WeakMap();
+    const dashboardBooleanCardViews = new WeakMap();
     let selectedMobileMeasureDomain = runtimeMeasureDomainKeys[0];
     let poolDashboardSlotsCache = null;
     let poolDashboardSlotsFetchedAt = 0;
     let poolDashboardSlotsLoadPromise = null;
+    let poolDashboardSlotsGeneration = 0;
     let poolConfigLoadedOnce = false;
     let poolConfigReqSeq = 0;
     let poolConfigModulesCache = null;
@@ -2251,9 +2259,16 @@
     const infoSupervisorPoller = createIntervalRunner(() => pollInfoSupervisorTick(), infoSupervisorRefreshMs);
     const upgradeReconnectStageTimer = createTimeoutRunner(() => enterUpgradeReconnectPhase());
     const upgradeReconnectMonitor = createIntervalRunner(() => probeUpgradeReconnect(), 1500);
+    const dashboardLiveUpdates = createDashboardLiveUpdates({
+      isActive: () => getActivePageId() === 'page-dashboard' && !document.hidden,
+      canStream: () => webLocalRuntime && webRuntimeEventsAvailable && typeof EventSource === 'function',
+      openSource: () => new EventSource('/api/runtime/events'),
+      invalidate: () => invalidatePoolDashboardSlots(),
+      refresh: (domains) => refreshDashboardLiveDomains(domains)
+    });
     const poolMeasuresPoller = createIntervalRunner(() => {
       if (getActivePageId() !== 'page-dashboard' || document.hidden) return;
-      return refreshPoolMeasures(false);
+      dashboardLiveUpdates.poll();
     }, 10000);
     const ioSummaryPoller = createIntervalRunner(() => {
       if (getActivePageId() !== 'page-io-summary' || document.hidden) return;
@@ -5647,12 +5662,146 @@
       await refreshIoSummary(!ioSummaryLoadedOnce);
     }
 
+    function createDashboardLiveUpdates(options) {
+      const allDomains = 15;
+      let source = null;
+      let connected = false;
+      let revision = null;
+      let lastMessageAt = 0;
+      let lastFullRefreshAt = 0;
+      let pending = 0;
+      let running = false;
+      let timer = null;
+      let reconnectTimer = null;
+      let session = 0;
+
+      function schedule(delay = 80) {
+        if (timer !== null || running || !pending || !options.isActive()) return;
+        timer = setTimeout(flush, delay);
+      }
+
+      function mark(domains) {
+        if (!domains || !options.isActive()) return;
+        // Invalidate immediately, including when an HTTP read is still in flight.
+        options.invalidate();
+        pending |= domains;
+        schedule();
+      }
+
+      async function flush() {
+        timer = null;
+        if (running || !pending || !options.isActive()) return;
+        const domains = pending;
+        const requestSession = session;
+        pending = 0;
+        running = true;
+        let retryDelay = 80;
+        try {
+          await options.refresh(domains);
+          if (requestSession === session && domains === allDomains) lastFullRefreshAt = Date.now();
+        } catch (err) {
+          if (requestSession === session) pending |= domains;
+          retryDelay = 2000;
+        } finally {
+          running = false;
+          schedule(retryDelay);
+        }
+      }
+
+      function disconnect() {
+        const previous = source;
+        source = null;
+        connected = false;
+        if (previous) previous.close();
+      }
+
+      function start() {
+        if (!options.isActive() || !options.canStream() || source) return;
+        revision = null;
+        const current = options.openSource();
+        source = current;
+        current.onopen = () => {
+          if (source !== current) return;
+          connected = true;
+          lastMessageAt = Date.now();
+          mark(allDomains);
+        };
+        current.addEventListener('runtime', (event) => {
+          if (source !== current) return;
+          let data;
+          try { data = JSON.parse(event.data); } catch (err) { return; }
+          if (!data || !Number.isInteger(data.revision) || data.revision < 1 || data.revision > 4294967295 ||
+              !Number.isInteger(data.domains) || data.domains < 0 || data.domains > allDomains) return;
+          connected = true;
+          lastMessageAt = Date.now();
+          const expected = revision === 4294967295 ? 1 : revision + 1;
+          const missed = revision !== null && data.revision !== revision &&
+            (data.domains === 0 || data.revision !== expected);
+          revision = data.revision;
+          mark(missed ? allDomains : data.domains);
+        });
+        current.onerror = () => {
+          if (source !== current) return;
+          const wasConnected = connected;
+          connected = false;
+          if (wasConnected) mark(allDomains);
+          // Native EventSource retries transport losses. HTTP rejection can
+          // leave it CLOSED, so retry that case explicitly while the page is visible.
+          if (current.readyState === 2 && reconnectTimer === null) {
+            reconnectTimer = setTimeout(() => {
+              reconnectTimer = null;
+              if (source !== current) return;
+              disconnect();
+              start();
+            }, 3000);
+          }
+        };
+      }
+
+      function isConnected() {
+        return connected && Date.now() - lastMessageAt < 35000;
+      }
+
+      function poll() {
+        if (!options.isActive()) return;
+        if (connected && !isConnected()) disconnect();
+        start();
+        if (!isConnected() || Date.now() - lastFullRefreshAt >= 60000) mark(allDomains);
+        else mark(8); // Sensor readings continue to refresh every ten seconds.
+      }
+
+      function stop() {
+        ++session;
+        disconnect();
+        if (timer !== null) clearTimeout(timer);
+        if (reconnectTimer !== null) clearTimeout(reconnectTimer);
+        timer = null;
+        reconnectTimer = null;
+        pending = 0;
+      }
+
+      return { start, stop, poll, isConnected };
+    }
+
+    async function refreshDashboardLiveDomains(domains) {
+      const bindings = [['mode', 1], ['equipements', 2], ['alarm', 4], ['sondes', 8]];
+      const selected = bindings.filter(([, mask]) => (domains & mask) !== 0).map(([domain]) => domain);
+      const tasks = selected.map((domain) => loadPoolMeasureDomain(domain, false));
+      tasks.push(refreshRuntimeActionDialog(selected));
+      if (domains & 7) tasks.push(refreshPoolOverview(false));
+      await Promise.all(tasks);
+      const failed = selected.find((domain) => poolMeasureDomainState[domain].error);
+      if (failed) throw new Error(poolMeasureDomainState[failed].error);
+    }
+
     function stopPoolMeasuresTimer() {
       poolMeasuresPoller.stop();
+      dashboardLiveUpdates.stop();
     }
 
     function startPoolMeasuresTimer() {
       poolMeasuresPoller.start();
+      dashboardLiveUpdates.start();
     }
 
     function normalizeRuntimeMeasureDomainKey(domain) {
@@ -5847,6 +5996,7 @@
     }
 
     function invalidatePoolDashboardSlots() {
+      ++poolDashboardSlotsGeneration;
       poolDashboardSlotsCache = null;
       poolDashboardSlotsFetchedAt = 0;
     }
@@ -5859,14 +6009,20 @@
       if (poolDashboardSlotsLoadPromise) return poolDashboardSlotsLoadPromise;
 
       poolDashboardSlotsLoadPromise = (async () => {
-        const data = await fetchOkJson(
-          '/api/runtime/dashboard_slots',
-          { cache: 'no-store' },
-          'lecture slots tableau de bord indisponible'
-        );
-        poolDashboardSlotsCache = data && typeof data === 'object' ? data : {};
-        poolDashboardSlotsFetchedAt = Date.now();
-        return poolDashboardSlotsCache;
+        // An invalidation during the read must not repopulate the cache with
+        // the old snapshot. All callers share the subsequent fresh read.
+        for (;;) {
+          const generation = poolDashboardSlotsGeneration;
+          const data = await fetchOkJson(
+            '/api/runtime/dashboard_slots',
+            { cache: 'no-store' },
+            'lecture slots tableau de bord indisponible'
+          );
+          if (generation !== poolDashboardSlotsGeneration) continue;
+          poolDashboardSlotsCache = data && typeof data === 'object' ? data : {};
+          poolDashboardSlotsFetchedAt = Date.now();
+          return poolDashboardSlotsCache;
+        }
       })();
 
       try {
@@ -6128,7 +6284,7 @@
       const action = runtimeMeasureSwitchAction(entry);
       const actionKey = action ? runtimeActionKey(entry, action) : '';
 
-      return buildDashboardDualStateTile(
+      const tile = buildDashboardDualStateTile(
         String(runtimeMeasureResolvedLabel(entry, opts) || 'Etat'),
         value,
         {
@@ -6144,6 +6300,8 @@
             : null
         }
       );
+      tile.dataset.runtimeValueId = String(Number(entry.id));
+      return tile;
     }
 
     function runtimeMeasureSwitchAction(entry) {
@@ -6160,6 +6318,11 @@
       return action && action.presentation === 'button' && inputValue !== undefined
         ? base + ':' + String(inputValue)
         : base;
+    }
+
+    async function refreshRuntimeActionDialog(domains) {
+      const current = runtimeActionDialogRefresh;
+      if (current && domains.includes(current.domain)) await current.refresh();
     }
 
     function runtimeActionRefreshDomains(entry, action) {
@@ -6267,44 +6430,117 @@
         { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' mL';
     }
 
+    function buildRuntimeActionIcon(kind) {
+      const paths = {
+        waves: ['M3 7c3-4 6 4 9 0s6 4 9 0', 'M3 12c3-4 6 4 9 0s6 4 9 0', 'M3 17c3-4 6 4 9 0s6 4 9 0'],
+        drop: ['M12 3S5 11 5 15a7 7 0 0 0 14 0c0-4-7-12-7-12Z'],
+        flask: ['M9 3h6M10 3v6L5 18a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3', 'M8 15h8'],
+        robot: ['M12 3v4M9 4v3M15 4v3', 'M7 9h10a4 4 0 0 1 4 4v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-4a4 4 0 0 1 4-4Z', 'M8 14h.01M16 14h.01M9 17h6'],
+        fill: ['M12 3v8M8 7l4-4 4 4', 'M3 15c3-4 6 4 9 0s6 4 9 0', 'M3 20c3-4 6 4 9 0s6 4 9 0'],
+        bolt: ['m13 2-9 12h7l-1 8 10-13h-7l1-7Z'],
+        light: ['M9 18h6M10 21h4', 'M8 15a7 7 0 1 1 8 0c-1 1-1 2-1 3H9c0-1 0-2-1-3Z'],
+        thermometer: ['M9 5a3 3 0 0 1 6 0v9a5 5 0 1 1-6 0V5Z', 'M12 7v10', 'M12 17a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z'],
+        bell: ['M6 9a6 6 0 0 1 12 0v5l2 3H4l2-3V9Z', 'M10 21h4M12 2v1'],
+        equipment: ['M5 4h14v16H5Z', 'M9 8h6M9 12h6M9 16h2'],
+        reset: ['M4 10a8 8 0 1 0 3-5', 'M4 3v7h7'],
+        check: ['m5 12 4 4L19 6'],
+        info: ['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z', 'M12 11v6M12 7h.01'],
+        chevron: ['m6 9 6 6 6-6']
+      };
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('fill', 'none');
+      svg.setAttribute('stroke', 'currentColor');
+      svg.setAttribute('stroke-width', '1.8');
+      svg.setAttribute('stroke-linecap', 'round');
+      svg.setAttribute('stroke-linejoin', 'round');
+      svg.setAttribute('aria-hidden', 'true');
+      (paths[kind] || paths.equipment).forEach((data) => {
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', data);
+        svg.appendChild(path);
+      });
+      return svg;
+    }
+
+    function runtimeEquipmentAppearance(domainSlot) {
+      // PoolIds domain actuator identities; labels and device indices can change.
+      const appearances = {
+        14: { icon: 'waves', tone: 'blue' },
+        15: { icon: 'drop', tone: 'blue' },
+        16: { icon: 'flask', tone: 'green' },
+        17: { icon: 'robot', tone: 'purple' },
+        18: { icon: 'fill', tone: 'cyan' },
+        19: { icon: 'bolt', tone: 'amber' },
+        20: { icon: 'thermometer', tone: 'red' },
+        22: { icon: 'light', tone: 'orange' }
+      };
+      return appearances[domainSlot] || { icon: 'equipment', tone: 'neutral' };
+    }
+
+    function setRuntimeActionText(element, value) {
+      if (element.textContent !== value) element.textContent = value;
+    }
+
+    function setRuntimeActionAttribute(element, name, value) {
+      if (element.getAttribute(name) !== value) element.setAttribute(name, value);
+    }
+
+    function setRuntimeActionDisabled(element, value) {
+      if (element.disabled !== value) element.disabled = value;
+    }
+
     function buildRuntimeActionCell(target, column, buildSwitch) {
       const cell = document.createElement('td');
+      let update;
       if (column.muted) cell.className = 'runtime-counter-secondary';
       if (column.type === 'switch') {
         cell.className = 'runtime-action-switch-cell';
-        cell.appendChild(buildSwitch(target, column));
+        const control = buildSwitch(target, column);
+        cell.appendChild(control.element);
+        update = control.update;
       } else if (column.type === 'datetime') {
-        const value = runtimeCounterValue(target, column.key);
-        const date = typeof value === 'number' && value > 0 ? new Date(value * 1000) : null;
-        if (!date || !Number.isFinite(date.getTime())) {
-          cell.textContent = '—';
-        } else {
+        const empty = document.createElement('span');
+        empty.textContent = '—';
+        const day = document.createElement('div');
+        day.className = 'runtime-counter-volume';
+        const time = document.createElement('div');
+        time.className = 'runtime-counter-duration';
+        cell.append(empty, day, time);
+        update = (current) => {
+          const value = runtimeCounterValue(current, column.key);
+          const date = typeof value === 'number' && value > 0 ? new Date(value * 1000) : null;
+          const valid = !!date && Number.isFinite(date.getTime());
+          if (empty.hidden !== valid) empty.hidden = valid;
+          if (day.hidden !== !valid) day.hidden = !valid;
+          if (time.hidden !== !valid) time.hidden = !valid;
+          if (!valid) return;
           const locale = document.documentElement.lang || 'fr';
-          const day = document.createElement('div');
-          day.className = 'runtime-counter-volume';
-          day.textContent = date.toLocaleDateString(locale, { day: '2-digit', month: 'short', year: 'numeric' });
-          const time = document.createElement('div');
-          time.className = 'runtime-counter-duration';
-          time.textContent = date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-          cell.append(day, time);
-        }
+          setRuntimeActionText(day, date.toLocaleDateString(locale, { day: '2-digit', month: 'short', year: 'numeric' }));
+          setRuntimeActionText(time, date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }));
+        };
       } else if (column.type === 'enum') {
-        const value = runtimeCounterValue(target, column.key);
-        const state = column.states.find((item) => item.value === value);
         const badge = document.createElement('span');
-        badge.className = 'runtime-action-state runtime-action-state-' + (state ? state.tone : 'neutral');
-        badge.textContent = state ? state.label : '—';
         cell.appendChild(badge);
+        update = (current) => {
+          const value = runtimeCounterValue(current, column.key);
+          const state = column.states.find((item) => item.value === value);
+          setRuntimeActionAttribute(badge, 'class', 'runtime-action-state runtime-action-state-' + (state ? state.tone : 'neutral'));
+          setRuntimeActionText(badge, state ? state.label : '—');
+        };
       } else {
         const duration = document.createElement('div');
         duration.className = 'runtime-counter-duration';
-        duration.textContent = formatRuntimeCounterDuration(runtimeCounterValue(target, column.durationKey));
         const volume = document.createElement('div');
         volume.className = 'runtime-counter-volume';
-        volume.textContent = formatRuntimeCounterVolume(runtimeCounterValue(target, column.volumeKey));
         cell.append(duration, volume);
+        update = (current) => {
+          setRuntimeActionText(duration, formatRuntimeCounterDuration(runtimeCounterValue(current, column.durationKey)));
+          setRuntimeActionText(volume, formatRuntimeCounterVolume(runtimeCounterValue(current, column.volumeKey)));
+        };
       }
-      return cell;
+      update(target);
+      return { element: cell, update };
     }
 
     async function openRuntimeActionDialog(entry, config, trigger) {
@@ -6316,6 +6552,11 @@
 
       const dialog = document.createElement('dialog');
       dialog.className = 'runtime-action-dialog';
+      const equipmentLayout = config.layout === 'equipment-management';
+      const alarmLayout = config.layout === 'alarm-management';
+      const managementLayout = equipmentLayout || alarmLayout;
+      dialog.classList.toggle('runtime-management-dialog', managementLayout);
+      dialog.classList.toggle('runtime-alarm-dialog', alarmLayout);
       dialog.classList.toggle('is-safe-action', config.destructive === false);
       const actionClass = config.destructive === false ? 'btn-tonal' : 'btn-tonal danger-action';
       dialog.setAttribute('aria-labelledby', 'runtimeActionDialogTitle');
@@ -6356,26 +6597,61 @@
       const legend = document.createElement('div');
       legend.className = 'runtime-counter-legend';
       legend.textContent = config.metricsLabel;
-      buttons.append(legend, close, resetAll);
-      dialog.append(title, count, tableContainer, feedback, buttons, details);
+      if (managementLayout) {
+        const header = document.createElement('div');
+        header.className = 'runtime-management-header';
+        const heading = document.createElement('div');
+        heading.className = 'runtime-management-heading';
+        heading.append(title, count);
+        buttons.classList.add('runtime-management-actions');
+        close.classList.add('runtime-management-close');
+        close.prepend(buildRuntimeActionIcon('check'));
+        resetAll.classList.add('runtime-management-all-action');
+        resetAll.prepend(buildRuntimeActionIcon(equipmentLayout ? 'reset' : 'check'));
+        buttons.append(resetAll, close);
+        header.append(heading, buttons);
+        const panel = document.createElement('div');
+        panel.className = 'runtime-management-panel';
+        const footer = document.createElement('div');
+        footer.className = 'runtime-management-footer';
+        legend.prepend(buildRuntimeActionIcon('info'));
+        summary.prepend(buildRuntimeActionIcon('chevron'));
+        footer.append(legend, details);
+        panel.append(tableContainer, feedback, footer);
+        dialog.append(header, panel);
+      } else {
+        buttons.append(legend, close, resetAll);
+        dialog.append(title, count, tableContainer, feedback, buttons, details);
+      }
       document.body.appendChild(dialog);
       runtimeActionDialog = dialog;
       let pending = false;
       let loading = false;
+      let backgroundLoading = false;
       let targets = [];
+      let rowViews = [];
       let rowButtons = [];
       let switchControls = [];
       let selection = null;
       let confirmationRow = null;
       let confirmationButtons = [];
+      let tableRefreshPromise = null;
+      let tableReadFailed = false;
+      let commandCompletion = Promise.resolve();
       const eligible = (target) => !config.eligibleKey || runtimeCounterValue(target, config.eligibleKey) === true;
+      const automatic = (target) => !!config.automaticKey && runtimeCounterValue(target, config.automaticKey) === true;
+      runtimeActionDialogRefresh = {
+        domain: normalizeRuntimeMeasureDomainKey(entry.domain),
+        refresh: refreshLiveTable
+      };
 
       function updateControls() {
-        close.disabled = pending;
-        resetAll.disabled = pending || loading || !targets.some(eligible);
-        rowButtons.forEach(({ button, target }) => { button.disabled = pending || loading || !eligible(target); });
-        switchControls.forEach(({ input, available }) => { input.disabled = pending || loading || !available; });
-        confirmationButtons.forEach((button) => { button.disabled = pending || loading; });
+        const blocked = pending || (loading && !backgroundLoading);
+        setRuntimeActionDisabled(close, pending);
+        setRuntimeActionDisabled(resetAll, blocked || !targets.some(eligible));
+        rowButtons.forEach(({ button, target }) => { setRuntimeActionDisabled(button, blocked || !eligible(target)); });
+        switchControls.forEach(({ input, available }) => { setRuntimeActionDisabled(input, blocked || !available); });
+        confirmationButtons.forEach((button) => { setRuntimeActionDisabled(button, blocked); });
       }
 
       function clearConfirmation(restoreFocus = true) {
@@ -6389,7 +6665,7 @@
       }
 
       function selectTarget(target, action, value, button, row = null) {
-        if (pending || loading || runtimeActionBusyKey || !eligible(target)) return;
+        if (pending || (loading && !backgroundLoading) || runtimeActionBusyKey || !eligible(target)) return;
         const sameTarget = selection && selection.action === action && selection.value === value;
         clearConfirmation(false);
         if (sameTarget) {
@@ -6397,6 +6673,11 @@
           return;
         }
         selection = { target, action, value, button, row };
+        renderConfirmation();
+      }
+
+      function renderConfirmation(focus = true) {
+        const { target, row } = selection;
         if (row) row.classList.add('is-selected');
         confirmationRow = document.createElement('tr');
         confirmationRow.className = 'runtime-counter-confirmation';
@@ -6423,7 +6704,9 @@
         confirm.className = actionClass + ' btn-compact runtime-counter-confirm';
         confirm.textContent = config.confirmButtonText;
         confirm.setAttribute('aria-describedby', copy.id);
-        confirm.addEventListener('click', () => resetTarget(target, action, value));
+        confirm.addEventListener('click', () => {
+          if (selection) resetTarget(selection.target, selection.action, selection.value);
+        });
         confirmationButtons = [cancel, confirm];
         controls.append(cancel, confirm);
         line.append(copy, controls);
@@ -6431,16 +6714,56 @@
         confirmationRow.appendChild(cell);
         if (row) row.after(confirmationRow);
         else tableContainer.querySelector('tbody').appendChild(confirmationRow);
-        confirm.focus();
+        if (focus) confirm.focus();
       }
 
-      function renderTable(updatedSlots = []) {
+      function captureTableInteraction() {
+        const active = document.activeElement;
+        return {
+          selection,
+          active,
+          focusedSwitch: switchControls.find(({ input }) => input === active),
+          focusedRow: rowButtons.find(({ button }) => button === active),
+          focusedConfirmation: confirmationButtons.indexOf(active),
+          scrollLeft: tableContainer.scrollLeft,
+          scrollTop: tableContainer.scrollTop
+        };
+      }
+
+      function renderTable(updatedSlots = [], interaction = null) {
+        // Keep cells and listeners mounted while the row structure is stable.
+        const sameRows = targets.length > 0 && targets.length === rowViews.length && targets.every((target, index) => {
+          const previous = rowViews[index].target;
+          return target.value === previous.value && ('actualOn' in target) === ('actualOn' in previous) &&
+            !!target.deviceId === !!previous.deviceId &&
+            automatic(target) === automatic(previous);
+        });
+        if (sameRows) {
+          targets = targets.map((current, index) => {
+            const view = rowViews[index];
+            // Existing event handlers share this row's current data object.
+            Object.keys(view.target).forEach((key) => { if (!(key in current)) delete view.target[key]; });
+            Object.assign(view.target, current);
+            updateRow(view);
+            if (updatedSlots.includes(current.value)) view.row.classList.add('is-updated');
+            return view.target;
+          });
+          if (!interaction) clearConfirmation(false);
+          else if (selection && selection.row && !eligible(selection.target)) clearConfirmation();
+          else if (selection && !selection.row && config.eligibleKey) {
+            selection.target[config.eligibleKey] = targets.some(eligible);
+            if (!eligible(selection.target)) clearConfirmation();
+          }
+          updateCount();
+          return;
+        }
+        const previousSelection = interaction && interaction.selection;
         clearConfirmation(false);
         tableContainer.replaceChildren();
         rowButtons = [];
         switchControls = [];
-        count.textContent = config.countText.replace('{count}', String(targets.length))
-          .replace('{eligible}', String(targets.filter(eligible).length));
+        rowViews = [];
+        updateCount();
         if (!targets.length) return;
         const table = document.createElement('table');
         table.className = 'runtime-counter-table';
@@ -6469,37 +6792,53 @@
         targets.forEach((target) => {
           const row = document.createElement('tr');
           row.className = 'runtime-counter-device';
+          row.addEventListener('animationend', (event) => {
+            if (event.target === row) row.classList.remove('is-updated');
+          });
           if (updatedSlots.includes(target.value)) row.classList.add('is-updated');
           const name = document.createElement('th');
           name.scope = 'row';
-          name.setAttribute('aria-label', target.label);
-          const indicator = document.createElement('span');
-          indicator.className = 'runtime-counter-state';
-          indicator.setAttribute('role', 'img');
-          const actualKnown = typeof target.actualOn === 'boolean';
-          indicator.classList.toggle('is-running', actualKnown && target.actualOn);
-          indicator.setAttribute('aria-label', actualKnown
-            ? (target.actualOn ? tr('dashboard.action.running', 'En marche') : tr('dashboard.action.stopped', 'À l’arrêt'))
-            : tr('dashboard.action.unknownState', 'État indisponible'));
+          const indicator = managementLayout ? null : document.createElement('span');
+          if (indicator) {
+            indicator.className = 'runtime-counter-state';
+            indicator.setAttribute('role', 'img');
+          }
           const label = document.createElement('span');
-          label.textContent = target.name || target.label;
-          if ('actualOn' in target) name.appendChild(indicator);
-          name.appendChild(label);
+          const identity = document.createElement('div');
+          identity.className = 'runtime-management-identity';
+          let iconHost = null;
+          if (managementLayout) {
+            const content = document.createElement('div');
+            content.className = 'runtime-management-name';
+            iconHost = document.createElement('span');
+            identity.appendChild(label);
+            content.append(iconHost, identity);
+            name.appendChild(content);
+          } else {
+            if ('actualOn' in target) name.appendChild(indicator);
+            name.appendChild(label);
+          }
+          let deviceId = null;
           if (target.deviceId) {
-            const deviceId = document.createElement('span');
+            deviceId = document.createElement('span');
             deviceId.className = 'runtime-counter-device-id';
-            deviceId.textContent = target.deviceId;
-            name.appendChild(deviceId);
+            (managementLayout ? identity : name).appendChild(deviceId);
           }
           row.appendChild(name);
-          config.columns.forEach((column) => row.appendChild(buildRuntimeActionCell(target, column, buildSwitch)));
+          const cells = config.columns.map((column) => buildRuntimeActionCell(target, column, buildSwitch));
+          cells.forEach((cell) => row.appendChild(cell.element));
+          const view = { target, row, name, indicator, label, deviceId, cells, iconHost,
+            iconKind: null, reset: null };
+          if (managementLayout && rowViews.length % 2 === 1) row.classList.add('is-alternate');
+          rowViews.push(view);
           const actionCell = document.createElement('td');
-          if (config.automaticKey && runtimeCounterValue(target, config.automaticKey) === true) {
-            const automatic = document.createElement('span');
-            automatic.className = 'runtime-counter-volume';
-            automatic.textContent = config.automaticText;
-            actionCell.appendChild(automatic);
+          if (automatic(target)) {
+            const automaticLabel = document.createElement('span');
+            automaticLabel.className = 'runtime-counter-volume';
+            automaticLabel.textContent = config.automaticText;
+            actionCell.appendChild(automaticLabel);
             row.appendChild(actionCell);
+            updateRow(view);
             body.appendChild(row);
             return;
           }
@@ -6510,27 +6849,95 @@
             reset.textContent = config.rowButtonText;
           } else {
             reset.className = 'runtime-counter-reset';
-            const glyph = document.createElement('span');
-            glyph.textContent = '↺';
-            glyph.setAttribute('aria-hidden', 'true');
-            reset.appendChild(glyph);
+            if (equipmentLayout) reset.appendChild(buildRuntimeActionIcon('reset'));
+            else {
+              const glyph = document.createElement('span');
+              glyph.textContent = '↺';
+              glyph.setAttribute('aria-hidden', 'true');
+              reset.appendChild(glyph);
+            }
           }
-          reset.title = config.rowButtonText + ' — ' + target.label;
-          reset.setAttribute('aria-label', config.rowButtonText + ' — ' + target.label);
+          view.reset = reset;
           reset.addEventListener('click', () => selectTarget(target, inputAction, target.value, reset, row));
           actionCell.appendChild(reset);
           row.appendChild(actionCell);
           rowButtons.push({ button: reset, target: target });
+          updateRow(view);
           body.appendChild(row);
         });
         table.append(caption, head, body);
         tableContainer.appendChild(table);
+        if (previousSelection) {
+          const previous = previousSelection;
+          const selectedRow = previous.row && rowButtons.find(({ target }) => target.value === previous.value);
+          const target = selectedRow ? selectedRow.target : previous.row ? null : {
+            label: config.allLabel,
+            ...(config.eligibleKey ? { [config.eligibleKey]: targets.some(eligible) } : {})
+          };
+          if (target && eligible(target)) {
+            selection = { target, action: previous.action, value: previous.value,
+              button: selectedRow ? selectedRow.button : resetAll,
+              row: selectedRow ? selectedRow.button.closest('tr') : null };
+            renderConfirmation(false);
+          }
+        }
+        if (interaction) {
+          const { active, focusedSwitch, focusedRow, focusedConfirmation, scrollLeft, scrollTop } = interaction;
+          const control = focusedSwitch
+            ? switchControls.find(({ target, column }) =>
+              target.value === focusedSwitch.target.value && column === focusedSwitch.column)?.input
+            : focusedRow
+              ? rowButtons.find(({ target }) => target.value === focusedRow.target.value)?.button
+              : focusedConfirmation >= 0 ? confirmationButtons[focusedConfirmation] : null;
+          if (document.activeElement === active || document.activeElement === document.body) {
+            if (control) control.focus({ preventScroll: true });
+            else if (active && !active.isConnected) close.focus({ preventScroll: true });
+          }
+          tableContainer.scrollLeft = scrollLeft;
+          tableContainer.scrollTop = scrollTop;
+        }
+      }
+
+      function updateCount() {
+        setRuntimeActionText(count, config.countText.replace('{count}', String(targets.length))
+          .replace('{eligible}', String(targets.filter(eligible).length)));
+      }
+
+      function updateRow(view) {
+        const { target, name, indicator, label, deviceId, cells, iconHost, reset } = view;
+        if (iconHost) {
+          const appearance = equipmentLayout ? runtimeEquipmentAppearance(target.domainSlot) : {
+            icon: 'bell', tone: target.condition === 1 ? 'red'
+              : target.condition === 2 || target.latchState === 1 ? 'amber' : 'neutral'
+          };
+          setRuntimeActionAttribute(iconHost, 'class', 'runtime-management-icon tone-' + appearance.tone);
+          if (view.iconKind !== appearance.icon) {
+            iconHost.replaceChildren(buildRuntimeActionIcon(appearance.icon));
+            view.iconKind = appearance.icon;
+          }
+        }
+        setRuntimeActionAttribute(name, 'aria-label', target.label);
+        if (indicator) {
+          const actualKnown = typeof target.actualOn === 'boolean';
+          const running = actualKnown && target.actualOn;
+          if (indicator.classList.contains('is-running') !== running) indicator.classList.toggle('is-running', running);
+          setRuntimeActionAttribute(indicator, 'aria-label', actualKnown
+            ? (target.actualOn ? tr('dashboard.action.running', 'En marche') : tr('dashboard.action.stopped', 'À l’arrêt'))
+            : tr('dashboard.action.unknownState', 'État indisponible'));
+        }
+        setRuntimeActionText(label, target.name || target.label);
+        if (deviceId) setRuntimeActionText(deviceId, target.deviceId);
+        if (reset) {
+          setRuntimeActionAttribute(reset, 'title', config.rowButtonText + ' — ' + target.label);
+          setRuntimeActionAttribute(reset, 'aria-label', config.rowButtonText + ' — ' + target.label);
+        }
+        cells.forEach((cell) => cell.update(target));
       }
 
       function buildSwitch(target, column) {
-        const state = runtimeCounterValue(target, column.key);
+        let state;
         const action = actions.find((item) => item.id === column.action);
-        const available = !!action && typeof state === 'boolean' && runtimeCounterValue(target, column.eligibleKey) === true;
+        let available = false;
         const wrapper = document.createElement('div');
         wrapper.className = 'runtime-action-switch-control';
         const label = document.createElement('label');
@@ -6539,8 +6946,6 @@
         input.type = 'checkbox';
         input.setAttribute('role', 'switch');
         input.setAttribute('aria-label', column.label + ' — ' + target.label);
-        input.checked = state === true;
-        input.disabled = !available;
         const track = document.createElement('span');
         track.className = 'md3-track';
         const thumb = document.createElement('span');
@@ -6549,24 +6954,51 @@
         thumb.setAttribute('aria-hidden', 'true');
         label.append(input, track, thumb);
         const status = document.createElement('span');
-        status.textContent = typeof state === 'boolean' ? (state ? 'On' : 'Off') : '—';
-        input.title = available ? target.label : tr('dashboard.action.unavailable', 'Commande indisponible');
         input.addEventListener('change', () => {
           const requested = input.checked;
           // Keep displaying the confirmed state while the firmware applies the command.
           input.checked = state === true;
-          if (!available || pending || loading || runtimeActionBusyKey) return;
+          if (!available || pending || (loading && !backgroundLoading) || runtimeActionBusyKey) return;
           clearConfirmation(false);
           applyTargetAction(target, action, requested, runtimeCounterValue(target, column.targetKey),
             tr('dashboard.action.stateUpdated', 'État de {target} actualisé').replace('{target}', target.label));
         });
-        switchControls.push({ input, available });
+        const control = { input, available, target, column };
+        switchControls.push(control);
         wrapper.append(label, status);
-        return wrapper;
+        return { element: wrapper, update: (current) => {
+          state = runtimeCounterValue(current, column.key);
+          available = !!action && typeof state === 'boolean' && runtimeCounterValue(current, column.eligibleKey) === true;
+          control.available = available;
+          if (input.checked !== (state === true)) input.checked = state === true;
+          setRuntimeActionText(status, typeof state === 'boolean' ? (state ? 'On' : 'Off') : '—');
+          setRuntimeActionAttribute(input, 'aria-label', column.label + ' — ' + current.label);
+          setRuntimeActionAttribute(input, 'title', available ? current.label : tr('dashboard.action.unavailable', 'Commande indisponible'));
+        } };
       }
 
-      async function refreshTable(updatedSlots = []) {
+      function refreshTable(updatedSlots = [], preserveInteraction = false) {
+        if (tableRefreshPromise) return tableRefreshPromise;
+        tableRefreshPromise = readTable(updatedSlots, preserveInteraction).finally(() => {
+          tableRefreshPromise = null;
+        });
+        return tableRefreshPromise;
+      }
+
+      async function refreshLiveTable() {
+        // A command owns its post-action read. Read again afterwards so a
+        // later physical-state notification is not replaced by that snapshot.
+        await commandCompletion;
+        if (tableRefreshPromise) await tableRefreshPromise;
+        if (!dialog.isConnected) return;
+        const ok = await refreshTable([], true);
+        if (!ok && dialog.isConnected) throw new Error(feedback.textContent);
+      }
+
+      async function readTable(updatedSlots, preserveInteraction) {
+        const interaction = preserveInteraction ? captureTableInteraction() : null;
         loading = true;
+        backgroundLoading = preserveInteraction;
         updateControls();
         try {
           const data = await fetchOkJson(config.optionsUrl, { cache: 'no-store' },
@@ -6578,25 +7010,33 @@
             throw new Error(config.errorText || tr('dashboard.action.targetsError', 'Liste des équipements indisponible'));
           }
           targets = data.options;
-          renderTable(updatedSlots);
+          if (interaction) interaction.selection = selection;
+          renderTable(updatedSlots, interaction);
+          if (tableReadFailed) {
+            feedback.textContent = '';
+            feedback.classList.remove('is-error');
+            tableReadFailed = false;
+          }
           if (!targets.length) feedback.textContent = config.emptyText || tr('dashboard.action.noTargets', 'Aucun équipement enregistré');
           return true;
         } catch (err) {
           if (!dialog.isConnected) return false;
           // Do not keep stale numbers visible after a failed post-reset read.
           targets = [];
+          tableReadFailed = true;
           renderTable();
           feedback.textContent = err && err.message ? err.message : String(err);
           feedback.classList.add('is-error');
           return false;
         } finally {
           loading = false;
+          backgroundLoading = false;
           updateControls();
         }
       }
 
       async function resetTarget(target, action, value) {
-        if (pending || loading || runtimeActionBusyKey || !eligible(target)) return;
+        if (pending || (loading && !backgroundLoading) || runtimeActionBusyKey || !eligible(target)) return;
         if (!selection || selection.action !== action || selection.value !== value) return;
         await applyTargetAction(target, action, value, undefined, config.successText.replace('{target}', target.label));
       }
@@ -6605,10 +7045,15 @@
         const updatedSlots = targetValue !== undefined ? [target.value]
           : (value === undefined ? targets.filter(eligible).map((item) => item.value) : [value]);
         pending = true;
+        let completeCommand;
+        commandCompletion = new Promise((resolve) => { completeCommand = resolve; });
         updateControls();
         feedback.classList.remove('is-error');
         feedback.textContent = tr('dashboard.action.pending', 'Application…');
         try {
+          // A background read can coexist with a click; finish it before the
+          // command so its earlier snapshot cannot overwrite the action read.
+          if (tableRefreshPromise) await tableRefreshPromise;
           const ok = await executeRuntimeAction(entry, action, value, targetValue);
           if (ok) {
             feedback.textContent = success;
@@ -6621,6 +7066,7 @@
           }
         } finally {
           pending = false;
+          completeCommand();
           updateControls();
           if (confirmationRow) confirmationButtons[1].focus();
           else close.focus();
@@ -6641,6 +7087,7 @@
       });
       dialog.addEventListener('close', () => {
         runtimeActionDialog = null;
+        runtimeActionDialogRefresh = null;
         dialog.remove();
         const currentTrigger = trigger.isConnected ? trigger
           : document.querySelector('[data-runtime-dialog-id="' + Number(entry.id) + '"]');
@@ -6653,68 +7100,96 @@
     }
 
     function buildDashboardDualStateTile(label, value, options) {
-      const stateKnown = typeof value === 'boolean';
-      const opts = options && typeof options === 'object' ? options : {};
-      const activeText = typeof opts.activeText === 'string' && opts.activeText.trim()
-        ? opts.activeText.trim()
-        : 'Actif';
-      const inactiveText = typeof opts.inactiveText === 'string' && opts.inactiveText.trim()
-        ? opts.inactiveText.trim()
-        : 'Inactif';
-      const unknownText = typeof opts.unknownText === 'string' && opts.unknownText.trim()
-        ? opts.unknownText.trim()
-        : 'Indisponible';
-      const action = opts.action && typeof opts.action === 'object' ? opts.action : null;
-      const pending = !!opts.pending;
-      const feedback = opts.feedback && typeof opts.feedback === 'object' ? opts.feedback : null;
-      const stateText = feedback && feedback.message
-        ? feedback.message
-        : (pending
-          ? tr('dashboard.action.pending', 'Application…')
-          : (stateKnown ? (value ? activeText : inactiveText) : unknownText));
-
-      const tile = document.createElement(action ? 'button' : 'div');
-      tile.className = 'status-dual-tile ' + (stateKnown ? (value ? 'is-true' : 'is-false') : 'is-empty');
-      if (pending) tile.classList.add('is-pending');
-      if (feedback) tile.classList.add('is-error');
-      tile.setAttribute('role', action ? 'switch' : 'img');
-      tile.setAttribute('aria-label', label + ' : ' + stateText);
-      if (action) {
-        tile.type = 'button';
-        tile.disabled = !!opts.disabled || pending;
-        tile.setAttribute('aria-checked', stateKnown && value ? 'true' : 'false');
-        tile.setAttribute('aria-busy', pending ? 'true' : 'false');
-        if (feedback && feedback.message) tile.title = feedback.message;
-        if (typeof opts.onAction === 'function') {
-          tile.addEventListener('click', opts.onAction);
-        }
-      }
-
+      let currentOptions = options || {};
+      const tile = document.createElement(currentOptions.action ? 'button' : 'div');
+      if (currentOptions.action) tile.type = 'button';
       const title = document.createElement('div');
       title.className = 'status-dual-title';
-      title.textContent = label;
-      tile.appendChild(title);
-
       const state = document.createElement('div');
       state.className = 'status-dual-state';
       const dot = document.createElement('span');
       dot.className = 'status-dual-dot';
       dot.setAttribute('aria-hidden', 'true');
-      state.appendChild(dot);
       const text = document.createElement('span');
-      text.textContent = stateText;
-      state.appendChild(text);
-      tile.appendChild(state);
-
+      state.append(dot, text);
       const switchTrack = document.createElement('span');
       switchTrack.className = 'status-dual-switch';
       switchTrack.setAttribute('aria-hidden', 'true');
       const switchThumb = document.createElement('span');
       switchThumb.className = 'status-dual-thumb';
       switchTrack.appendChild(switchThumb);
-      tile.appendChild(switchTrack);
-
+      tile.append(title, state, switchTrack);
+      if (currentOptions.action) {
+        tile.addEventListener('click', () => {
+          if (typeof currentOptions.onAction === 'function') currentOptions.onAction();
+        });
+      }
+      const view = { label, value, options: currentOptions, update: (nextLabel, nextValue, nextOptions) => {
+        currentOptions = nextOptions || {};
+        view.label = nextLabel;
+        view.value = nextValue;
+        view.options = currentOptions;
+        const stateKnown = typeof nextValue === 'boolean';
+        const pending = !!currentOptions.pending;
+        const feedback = currentOptions.feedback;
+        const activeText = currentOptions.activeText || 'Actif';
+        const inactiveText = currentOptions.inactiveText || 'Inactif';
+        const unknownText = currentOptions.unknownText || 'Indisponible';
+        const stateText = feedback && feedback.message ? feedback.message : pending
+          ? tr('dashboard.action.pending', 'Application…')
+          : stateKnown ? (nextValue ? activeText : inactiveText) : unknownText;
+        const classes = ['status-dual-tile', stateKnown ? (nextValue ? 'is-true' : 'is-false') : 'is-empty'];
+        if (pending) classes.push('is-pending');
+        if (feedback) classes.push('is-error');
+        setRuntimeActionAttribute(tile, 'class', classes.join(' '));
+        setRuntimeActionAttribute(tile, 'role', currentOptions.action ? 'switch' : 'img');
+        setRuntimeActionAttribute(tile, 'aria-label', nextLabel + ' : ' + stateText);
+        if (currentOptions.action) {
+          setRuntimeActionDisabled(tile, !!currentOptions.disabled || pending);
+          setRuntimeActionAttribute(tile, 'aria-checked', stateKnown && nextValue ? 'true' : 'false');
+          setRuntimeActionAttribute(tile, 'aria-busy', pending ? 'true' : 'false');
+          if (feedback && feedback.message) setRuntimeActionAttribute(tile, 'title', feedback.message);
+          else if (tile.hasAttribute('title')) tile.removeAttribute('title');
+        }
+        setRuntimeActionText(title, nextLabel);
+        setRuntimeActionText(text, stateText);
+      } };
+      dashboardDualStateTileViews.set(tile, view);
+      view.update(label, value, currentOptions);
       return tile;
+    }
+
+    function reconcileDashboardMeasureCards(container, fragment) {
+      const previousCards = new Map();
+      Array.from(container.children).forEach((card) => {
+        if (card.dataset.runtimeCardId) previousCards.set(card.dataset.runtimeCardId, card);
+      });
+      const cards = Array.from(fragment.children).map((nextCard) => {
+        const previousCard = previousCards.get(nextCard.dataset.runtimeCardId);
+        const previous = previousCard && dashboardBooleanCardViews.get(previousCard);
+        const next = dashboardBooleanCardViews.get(nextCard);
+        if (!previous || !next || previous.tiles.length !== next.tiles.length ||
+            !next.tiles.every((tile, index) => tile.dataset.runtimeValueId === previous.tiles[index].dataset.runtimeValueId &&
+              tile.tagName === previous.tiles[index].tagName)) return nextCard;
+        setRuntimeActionAttribute(previousCard, 'class', nextCard.className);
+        previous.header.replaceWith(next.header);
+        previous.header = next.header;
+        previous.tiles.forEach((tile, index) => {
+          const data = dashboardDualStateTileViews.get(next.tiles[index]);
+          dashboardDualStateTileViews.get(tile).update(data.label, data.value, data.options);
+        });
+        if (previous.footer) previous.footer.remove();
+        if (next.footer) previousCard.appendChild(next.footer);
+        previous.footer = next.footer;
+        return previousCard;
+      });
+      const retained = new Set(cards);
+      Array.from(container.children).forEach((card) => { if (!retained.has(card)) card.remove(); });
+      let cursor = container.firstChild;
+      cards.forEach((card) => {
+        if (card !== cursor) container.insertBefore(card, cursor);
+        cursor = card.nextSibling;
+      });
     }
 
     function buildRuntimeMeasureBadgeNode(entry, runtimeValue) {
@@ -7195,6 +7670,14 @@
 
         appendRuntimeCardActions(card, group.entries);
 
+        // Boolean cards retain their controls across reads so native CSS
+        // transitions can complete while values, pending state and commands change.
+        if (booleanNodes.length && !badgeNodes.length && !flagEntries.length && !horizGaugeRows.length && !valueRows.length) {
+          card.dataset.runtimeCardId = String(Number(group.entries[0].id));
+          dashboardBooleanCardViews.set(card, { header: card.firstElementChild, tiles: booleanNodes,
+            footer: card.querySelector('.runtime-card-actions') });
+        }
+
         fragment.appendChild(card);
       });
       return fragment;
@@ -7279,7 +7762,7 @@
 
     function renderPoolMeasuresGrid() {
       if (!poolMeasuresGrid) return;
-      poolMeasuresGrid.innerHTML = '';
+      const fragment = document.createDocumentFragment();
 
       const domainKeys = dashboardMeasureDomainKeys();
 
@@ -7288,7 +7771,7 @@
         const state = poolMeasureDomainState[domainKey];
         const hasRenderableData = poolMeasureDomainHasRenderableData(domainKey, state);
         if (state.loading && !hasRenderableData) {
-          poolMeasuresGrid.appendChild(buildDashboardRuntimeSkeletonCard(domainKey));
+          fragment.appendChild(buildDashboardRuntimeSkeletonCard(domainKey));
           renderedCardCount += 1;
           return;
         }
@@ -7301,7 +7784,7 @@
           summary.textContent = state.error;
           card.appendChild(buildDashboardMeasureCardHeader(domainKey));
           card.appendChild(summary);
-          poolMeasuresGrid.appendChild(card);
+          fragment.appendChild(card);
           renderedCardCount += 1;
           return;
         }
@@ -7314,7 +7797,7 @@
           summary.textContent = tr('dashboard.empty.domainNoRuntime', 'Aucune valeur runtime exposee pour ce domaine.');
           card.appendChild(buildDashboardMeasureCardHeader(domainKey));
           card.appendChild(summary);
-          poolMeasuresGrid.appendChild(card);
+          fragment.appendChild(card);
           renderedCardCount += 1;
           return;
         }
@@ -7323,15 +7806,16 @@
           alarmSlots: state.alarmSlots
         });
         renderedCardCount += cards.childNodes.length;
-        poolMeasuresGrid.appendChild(cards);
+        fragment.appendChild(cards);
       });
 
       if (renderedCardCount === 0) {
         const empty = document.createElement('div');
         empty.className = 'measure-domain-empty';
         empty.textContent = tr('dashboard.empty.activeDomainsNoRuntime', 'Aucune valeur runtime disponible pour les domaines du tableau de bord.');
-        poolMeasuresGrid.appendChild(empty);
+        fragment.appendChild(empty);
       }
+      reconcileDashboardMeasureCards(poolMeasuresGrid, fragment);
     }
 
     function refreshPoolMeasuresView() {
@@ -11877,7 +12361,7 @@
           stopPoolAiPreviewPolling();
         } else {
           startPoolMeasuresTimer();
-          refreshPoolMeasures(false).catch(() => {});
+          refreshPoolMeasures(true).catch(() => {});
         }
         if (document.hidden || activePageId !== 'page-io-summary') {
           stopIoSummaryTimer();

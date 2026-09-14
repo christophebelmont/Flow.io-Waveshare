@@ -4977,8 +4977,13 @@ void WebInterfaceModule::init(ConfigStore& cfg, ServiceRegistry& services)
     eventBus_ = ebSvc ? ebSvc->bus : nullptr;
     fwUpdateSvc_ = services.get<FirmwareUpdateService>(ServiceId::FirmwareUpdate);
     if (eventBus_) {
-        eventBus_->subscribe(EventId::DataChanged, &WebInterfaceModule::onEventStatic_, this);
-        eventBus_->subscribe(EventId::ConfigChanged, &WebInterfaceModule::onEventStatic_, this);
+        runtimeEventsAvailable_ = dataStore_ != nullptr;
+        for (const EventId id : {EventId::DataChanged, EventId::ConfigChanged, EventId::AlarmRaised,
+                                 EventId::AlarmCleared, EventId::AlarmReset, EventId::AlarmConditionChanged}) {
+            const bool subscribed = eventBus_->subscribe(id, &WebInterfaceModule::onEventStatic_, this);
+            runtimeEventsAvailable_ = subscribed && runtimeEventsAvailable_;
+        }
+        if (!runtimeEventsAvailable_) LOGE("Runtime SSE unavailable: event subscriptions or DataStore missing");
     }
 
     if (!services.add(ServiceId::WebInterface, &webInterfaceSvc_)) {
@@ -5871,6 +5876,7 @@ void WebInterfaceModule::startServer_()
             doc["nextion_display_version"] = nextionDisplayVersion;
         }
         doc["local_runtime"] = true;
+        doc["runtime_events"] = runtimeEventsAvailable_ && !provisioningOnly_;
         doc["unify_status_card_icons"] = (FLOW_WEB_UNIFY_STATUS_CARD_ICONS != 0);
         SystemStatsSnapshot snap{};
         SystemStats::collect(snap);
@@ -7011,6 +7017,7 @@ void WebInterfaceModule::startServer_()
             deviceDoc["value"] = devices[idx].slot;
             deviceDoc["name"] = devices[idx].label[0] ? devices[idx].label : devices[idx].runtimeId;
             deviceDoc["deviceId"] = devices[idx].runtimeId;
+            deviceDoc["domainSlot"] = devices[idx].commandSlot;
             PoolDeviceRuntimeStateEntry state{};
             const bool stateAvailable = dataStore_ && poolDeviceRuntimeState(*dataStore_, devices[idx].slot, state);
             deviceDoc["controllable"] = stateAvailable && devices[idx].enabled &&
@@ -7525,6 +7532,7 @@ void WebInterfaceModule::startServer_()
     });
 
     if (!provisioningOnly_) {
+        configureRuntimeEvents_();
         wsLog_.onEvent([this](AsyncWebSocket* server,
                               AsyncWebSocketClient* client,
                               AwsEventType type,

@@ -5,6 +5,7 @@
  */
 #include <stdint.h>
 #include "IIO.h"
+#include "Domain/DomainTypes.h"
 
 /** Result code for PoolDeviceService calls. */
 enum PoolDeviceSvcStatus : uint8_t {
@@ -27,6 +28,8 @@ struct PoolDeviceSvcMeta {
     uint8_t enabled = 0;
     uint8_t blockReason = 0;
     IoId ioId = IO_ID_INVALID;
+    /** Domain actuator associated with this equipment, used for presentation. */
+    DomainSlotId commandSlot = DOMAIN_SLOT_INVALID;
     char runtimeId[8] = {0};
     char label[24] = {0};
     /** Configured nominal device flow, in litres per hour; zero means unknown. */

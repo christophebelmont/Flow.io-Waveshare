@@ -34,7 +34,7 @@ async function installDialog(page, entry) {
     window.refreshPoolOverview = async () => { testState.refreshes.push('overview'); };
     window.extractApiErrorMessage = data => data.error;
     const script = document.createElement('script');
-    script.textContent = 'let runtimeActionBusyKey = ""; let runtimeActionDialog = null; const runtimeActionFeedback = new Map();\n'
+    script.textContent = 'let runtimeActionBusyKey = ""; let runtimeActionDialog = null; let runtimeActionDialogRefresh = null; const runtimeActionFeedback = new Map();\n'
       + runtimeActions + '\ndocument.querySelector(".status-card").appendChild(buildRuntimeActionDialogButton(testEntry));';
     document.body.appendChild(script);
   }, { runtimeActions: app.slice(start, end), entry });

@@ -133,6 +133,7 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
           "optionsUrl": "/api/runtime/alarm_options",
           "inputAction": "acknowledge",
           "allAction": "acknowledge_all",
+          "layout": "alarm-management",
           "eligibleKey": "resettable",
           "automaticKey": "automatic",
           "rowPresentation": "text",
@@ -435,6 +436,7 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
           "optionsUrl": "/api/runtime/pooldevice_options",
           "inputAction": "reset_uptime",
           "allAction": "reset_uptime_all",
+          "layout": "equipment-management",
           "columns": [
             {
               "label": "On/Off",

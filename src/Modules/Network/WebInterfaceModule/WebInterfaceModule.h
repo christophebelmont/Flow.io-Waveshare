@@ -16,6 +16,7 @@
 #include <freertos/queue.h>
 #include <memory>
 #include "Core/EventBus/EventBus.h"
+#include "RuntimeEvents.h"
 
 #ifndef FLOW_ENABLE_WEB_SERIAL_TERMINAL
 #define FLOW_ENABLE_WEB_SERIAL_TERMINAL 0
@@ -149,6 +150,9 @@ private:
     void setWsActiveSource_(uint8_t source);
     void refreshIoResponseCaches_();
     void sendIoResponseCache_(AsyncWebServerRequest* request, bool topology);
+    void configureRuntimeEvents_();
+    void markRuntimeEvents_(uint8_t domains);
+    void flushRuntimeEvents_();
 
     HardwareSerial& uart_ = Serial2;
     uint32_t uartBaud_ = 115200U;
@@ -158,6 +162,11 @@ private:
     bool bridgeUartEnabled_ = false;
     AsyncWebServer server_{kServerPort};
     AsyncWebSocket wsLog_{"/wslog"};
+    AsyncEventSource runtimeEvents_{"/api/runtime/events"};
+    RuntimeEventState runtimeEventState_;
+    portMUX_TYPE runtimeEventsMux_ = portMUX_INITIALIZER_UNLOCKED;
+    uint32_t runtimeEventsLastSendMs_ = 0;
+    bool runtimeEventsAvailable_ = false;
 
     const LogHubService* logHub_ = nullptr;
     const LogSinkRegistryService* logSinkReg_ = nullptr;

@@ -12,6 +12,88 @@ Le système repose sur trois éléments:
 
 Le manifeste est textuel et statique. Les lectures runtime sont numériques et résolues à la demande.
 
+## Notifications du Tableau de Bord
+
+Le firmware local propose un flux SSE sur `GET /api/runtime/events`. La capacité
+est annoncée par `runtime_events` dans `/api/web/meta`; elle reste désactivée
+en mode provisioning ou si les abonnements à l'EventBus sont indisponibles.
+Les commandes continuent à passer par les actions déclaratives HTTP.
+
+Chaque événement nommé `runtime` transporte une révision et un masque de
+domaines, par exemple `{"revision":12,"domains":6}`. Les bits du masque sont:
+
+| Bit | Domaine |
+| --- | --- |
+| 1 | Modes |
+| 2 | Équipements |
+| 4 | Alarmes |
+| 8 | Sondes |
+
+Les événements `DataChanged` des états PoolDevice signalent les équipements.
+Les événements `AlarmRaised`, `AlarmCleared`, `AlarmReset` et
+`AlarmConditionChanged` signalent les alarmes. `ConfigChanged` invalide les
+quatre domaines, puisque la configuration peut modifier les modes, les
+équipements et les slots du tableau de bord. Les changements des métriques
+d'uptime et de volume ne déclenchent pas de notifications permanentes.
+
+Les callbacks EventBus marquent uniquement les domaines à relire. La tâche web
+regroupe les notifications et les envoie au maximum une fois par 100 ms, avec
+un heartbeat toutes les 15 secondes (`domains:0`). Le flux accepte jusqu'à
+quatre clients; les files par client sont bornées par ESPAsyncWebServer. Un
+envoi refusé par une file pleine remet les domaines en attente.
+
+Le navigateur regroupe les notifications pendant 80 ms, invalide le cache des
+slots et relit les domaines concernés avec les routes runtime existantes. Une
+invalidation pendant une lecture empêche sa réponse ancienne de remplir le
+cache; les lecteurs partagent alors une nouvelle requête. Les changements
+reçus pendant un rafraîchissement provoquent un rafraîchissement supplémentaire.
+
+La fenêtre d'actions ouverte participe aux rafraîchissements de son domaine.
+Elle relit sa propre liste complète (`optionsUrl`), qui inclut les équipements
+absents de la carte. Une notification reçue pendant une commande attend sa
+lecture après action, puis impose une nouvelle lecture des états physiques.
+Les lectures de liste sont sérialisées. Les confirmations encore valides, le
+focus et la position de défilement sont conservés lors des actualisations;
+une cible supprimée ou devenue inéligible perd sa confirmation. Fermer la
+fenêtre désinscrit son rafraîchissement.
+
+Lorsque la structure des lignes ne change pas, leurs cellules et leurs
+contrôles restent montés: seuls les textes, attributs et états modifiés sont
+actualisés. Les lectures en arrière-plan ne désactivent pas les contrôles;
+une commande demandée pendant une lecture attend sa réponse avant son envoi.
+Un changement de liste ou de structure des lignes reconstruit le tableau en
+conservant les interactions encore valides. Les commandes continuent à
+verrouiller les actions pendant leur application.
+
+La présentation `actionDialog.layout: "equipment-management"` place les actions
+dans l'en-tête et les informations de remise à zéro dans le pied du tableau.
+La route `pooldevice_options` expose `domainSlot`, issu de la métadonnée typée
+`PoolDeviceSvcMeta.commandSlot`. L'interface associe cette identité d'actionneur
+à une icône colorée, ce qui préserve sa représentation lorsque l'équipement
+est renommé. Les équipements sans domaine associé affichent une icône générique.
+
+Chaque connexion impose une synchronisation complète, sans historique de
+rejeu. Une rupture de révision, y compris détectée sur un heartbeat, impose
+également une synchronisation complète. EventSource réessaie les coupures de
+transport; le contrôleur réessaie les connexions définitivement fermées après
+trois secondes et renouvelle un flux silencieux depuis 35 secondes.
+
+Pendant une connexion fonctionnelle, les sondes restent lues toutes les
+10 secondes et une synchronisation complète a lieu toutes les 60 secondes.
+Sans SSE, le polling des quatre domaines toutes les 10 secondes est conservé.
+Les lectures échouées sont réessayées après deux secondes. Masquer l'onglet ou
+quitter le Tableau de Bord ferme le flux et arrête son polling; le retour
+déclenche une lecture fraîche et une nouvelle connexion.
+
+Validation: `scripts/tests/test_runtime_events.py`,
+`scripts/tests/test_dashboard_live_updates.cjs` et
+`scripts/tests/test_dashboard_sse_browser.cjs` couvrent le batching firmware,
+la récupération des notifications, les caches et le transport EventSource
+réel dans Chrome avec deux tableaux de bord simulés.
+`scripts/tests/test_device_dialog_live_updates.cjs` vérifie également le popup
+réel avec des notifications SSE, des changements d'état physiques différés,
+des lectures en cours, une confirmation ouverte et une erreur de lecture.
+
 ## Identité des valeurs
 
 Chaque valeur exposée possède:

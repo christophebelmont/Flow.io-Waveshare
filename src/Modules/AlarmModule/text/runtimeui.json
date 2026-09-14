@@ -106,6 +106,7 @@
           "optionsUrl": "/api/runtime/alarm_options",
           "inputAction": "acknowledge",
           "allAction": "acknowledge_all",
+          "layout": "alarm-management",
           "eligibleKey": "resettable",
           "automaticKey": "automatic",
           "rowPresentation": "text",

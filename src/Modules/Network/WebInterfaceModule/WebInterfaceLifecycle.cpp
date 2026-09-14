@@ -149,11 +149,20 @@ void WebInterfaceModule::onEvent_(const Event& e)
         portENTER_CRITICAL(&ioResponseMux_);
         ++ioTopologyChangeGeneration_;
         portEXIT_CRITICAL(&ioResponseMux_);
+        markRuntimeEvents_(RuntimeEventDomains::All);
+        return;
+    }
+    if (e.id == EventId::AlarmRaised || e.id == EventId::AlarmCleared ||
+        e.id == EventId::AlarmReset || e.id == EventId::AlarmConditionChanged) {
+        markRuntimeEvents_(RuntimeEventDomains::Alarm);
         return;
     }
     if (e.id != EventId::DataChanged) return;
     if (!e.payload || e.len < sizeof(DataChangedPayload)) return;
     const DataChangedPayload* p = static_cast<const DataChangedPayload*>(e.payload);
+    if (p->id >= DataKeys::PoolDeviceStateBase && p->id < DataKeys::PoolDeviceStateEndExclusive) {
+        markRuntimeEvents_(RuntimeEventDomains::Equipment);
+    }
     if (p->id != DataKeys::NetworkReady) return;
 
     netReady_ = dataStore_ ? networkReady(*dataStore_) : false;
@@ -223,6 +232,8 @@ void WebInterfaceModule::loop()
              (unsigned long)largestInternalBeforeStart,
              (unsigned long)largestInternalAfterStart);
     }
+
+    if (started_ && !provisioningOnly_) flushRuntimeEvents_();
 
     if (uartPaused_) {
         flushLocalLogQueue_();

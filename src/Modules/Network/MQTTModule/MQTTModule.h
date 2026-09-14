@@ -66,7 +66,9 @@ public:
     void loop() override;
     uint16_t taskStackSize() const override { return Limits::Mqtt::TaskStackSize; }
     UBaseType_t taskStackCaps() const override {
-        return MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+        // RX configuration patches and commands synchronously persist to NVS.
+        // Flash writes can disable the cache, so this stack must stay in internal RAM.
+        return MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
     }
     uint32_t startDelayMs() const override {
         return 4000U;
