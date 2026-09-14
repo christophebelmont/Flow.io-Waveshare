@@ -113,7 +113,8 @@ inline constexpr HaCapacitySpec kWaveshareESP32S3HaCapacity{48, 16, 16, 30, 24, 
  * UART definitions.
  *
  * Each entry uses:
- *   name, uartIndex, rxPin, txPin, baud, primary, enableRxPin.
+ *   name, uartIndex, rxPin, txPin, baud, primary, directionPin,
+ *   directionTxHigh.
  *
  * name:
  *   Logical name used by modules. "log" is the USB/default console, "hmi" is
@@ -129,9 +130,12 @@ inline constexpr HaCapacitySpec kWaveshareESP32S3HaCapacity{48, 16, 16, 30, 24, 
  * primary:
  *   True for the primary UART of that role.
  *
- * enableRxPin:
- *   Optional GPIO for half-duplex adapters that need an explicit receive-enable
- *   signal. Use -1 when no enable pin is wired.
+ * directionPin / directionTxHigh:
+ *   Optional direction control for half-duplex adapters. Use -1 when the
+ *   transceiver handles direction automatically.
+ *
+ * parity / stopBits:
+ *   UART framing. Omitted values default to 8N1.
  *
  * NVS behavior:
  *   Not stored in NVS for this Waveshare profile. The compiled UART index,
@@ -140,6 +144,7 @@ inline constexpr HaCapacitySpec kWaveshareESP32S3HaCapacity{48, 16, 16, 30, 24, 
 inline constexpr UartSpec kWaveshareESP32S3Uarts[] = {
     {"log", 0, -1, -1, 115200, true, -1}, // USB serial console (UART0 default pins).
     {"hmi", 2, 44, 43, 115200, false, -1}, // HMI link on UART2 (RX=GPIO44, TX=GPIO43).
+    {"rs485", 1, 18, 17, 9600, false, -1}, // Isolated RS485, automatic direction.
 };
 
 /*

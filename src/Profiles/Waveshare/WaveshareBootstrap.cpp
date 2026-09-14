@@ -171,6 +171,7 @@ void registerModules(AppContext& ctx, ModuleInstances& modules)
     }
     ctx.moduleManager.add(&modules.systemModule);
     ctx.moduleManager.add(&modules.ioModule);
+    ctx.moduleManager.add(&modules.variableSpeedPumpModule);
     ctx.moduleManager.add(&modules.poolLogicModule);
     ctx.moduleManager.add(&modules.poolDeviceModule);
     ctx.moduleManager.add(&modules.poolHistoryModule);

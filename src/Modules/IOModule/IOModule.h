@@ -37,6 +37,8 @@
 #include "Modules/IOModule/IOProviders/IOProviders.h"
 #include "Modules/IOModule/IORegistry/IORegistry.h"
 #include "Modules/IOModule/IOScheduler/IOScheduler.h"
+#include "Modules/IOModule/IOBus/Rs485Bus.h"
+#include "Modules/IOModule/IOProtocols/Modbus/ModbusRtuMaster.h"
 #include <stdio.h>
 
 class DataStore;
@@ -45,7 +47,7 @@ struct IOConfigDescriptorStorage;
 
 class IOModule : public Module, public IRuntimeSnapshotProvider, public IRuntimeUiValueProvider {
 public:
-    IOModule() = default;
+    IOModule();
     explicit IOModule(const BoardSpec& board);
 
     ModuleId moduleId() const override { return ModuleId::Io; }
@@ -337,6 +339,11 @@ private:
     IORegistry registry_{};
     IOScheduler scheduler_{};
     I2CBus* i2cBus_ = nullptr;
+    const UartSpec* rs485UartSpec_ = nullptr;
+    HardwareSerial rs485Serial_;
+    Rs485Bus rs485Bus_;
+    ModbusRtuMaster modbusMaster_;
+    bool rs485Ready_ = false;
 
     OneWireBus* oneWireWater_ = nullptr;
     OneWireBus* oneWireAir_ = nullptr;

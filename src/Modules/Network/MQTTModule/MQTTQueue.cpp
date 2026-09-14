@@ -81,7 +81,7 @@ const MqttPublishProducer* MQTTModule::findProducer_(uint8_t producerId) const
 int16_t MQTTModule::findJobSlot_(uint8_t producerId, uint16_t messageId) const
 {
     for (uint8_t i = 0; i < MaxJobs; ++i) {
-        const Job& job = jobs_[i];
+        const Job& job = txStorage_->jobs[i];
         if (!job.used) continue;
         if (job.producerId == producerId && job.messageId == messageId) return (int16_t)i;
     }
@@ -91,7 +91,7 @@ int16_t MQTTModule::findJobSlot_(uint8_t producerId, uint16_t messageId) const
 int16_t MQTTModule::allocJobSlot_()
 {
     for (uint8_t i = 0; i < MaxJobs; ++i) {
-        if (!jobs_[i].used) return (int16_t)i;
+        if (!txStorage_->jobs[i].used) return (int16_t)i;
     }
     return -1;
 }
@@ -99,53 +99,53 @@ int16_t MQTTModule::allocJobSlot_()
 bool MQTTModule::queuePush_(uint8_t prio, const JobQueueItem& item)
 {
     if (prio == (uint8_t)MqttPublishPriority::High) {
-        if (highQ_.count >= HighQueueCap) return false;
-        highQ_.items[highQ_.tail] = item;
-        highQ_.tail = (uint16_t)((highQ_.tail + 1U) % HighQueueCap);
-        ++highQ_.count;
+        if (txStorage_->highQ.count >= HighQueueCap) return false;
+        txStorage_->highQ.items[txStorage_->highQ.tail] = item;
+        txStorage_->highQ.tail = (uint16_t)((txStorage_->highQ.tail + 1U) % HighQueueCap);
+        ++txStorage_->highQ.count;
         return true;
     }
     if (prio == (uint8_t)MqttPublishPriority::Normal) {
-        if (normalQ_.count >= NormalQueueCap) return false;
-        normalQ_.items[normalQ_.tail] = item;
-        normalQ_.tail = (uint16_t)((normalQ_.tail + 1U) % NormalQueueCap);
-        ++normalQ_.count;
+        if (txStorage_->normalQ.count >= NormalQueueCap) return false;
+        txStorage_->normalQ.items[txStorage_->normalQ.tail] = item;
+        txStorage_->normalQ.tail = (uint16_t)((txStorage_->normalQ.tail + 1U) % NormalQueueCap);
+        ++txStorage_->normalQ.count;
         return true;
     }
-    if (lowQ_.count >= LowQueueCap) return false;
-    lowQ_.items[lowQ_.tail] = item;
-    lowQ_.tail = (uint16_t)((lowQ_.tail + 1U) % LowQueueCap);
-    ++lowQ_.count;
+    if (txStorage_->lowQ.count >= LowQueueCap) return false;
+    txStorage_->lowQ.items[txStorage_->lowQ.tail] = item;
+    txStorage_->lowQ.tail = (uint16_t)((txStorage_->lowQ.tail + 1U) % LowQueueCap);
+    ++txStorage_->lowQ.count;
     return true;
 }
 
 bool MQTTModule::queuePop_(uint8_t prio, JobQueueItem& out)
 {
     if (prio == (uint8_t)MqttPublishPriority::High) {
-        if (highQ_.count == 0U) return false;
-        out = highQ_.items[highQ_.head];
-        highQ_.head = (uint16_t)((highQ_.head + 1U) % HighQueueCap);
-        --highQ_.count;
+        if (txStorage_->highQ.count == 0U) return false;
+        out = txStorage_->highQ.items[txStorage_->highQ.head];
+        txStorage_->highQ.head = (uint16_t)((txStorage_->highQ.head + 1U) % HighQueueCap);
+        --txStorage_->highQ.count;
         return true;
     }
     if (prio == (uint8_t)MqttPublishPriority::Normal) {
-        if (normalQ_.count == 0U) return false;
-        out = normalQ_.items[normalQ_.head];
-        normalQ_.head = (uint16_t)((normalQ_.head + 1U) % NormalQueueCap);
-        --normalQ_.count;
+        if (txStorage_->normalQ.count == 0U) return false;
+        out = txStorage_->normalQ.items[txStorage_->normalQ.head];
+        txStorage_->normalQ.head = (uint16_t)((txStorage_->normalQ.head + 1U) % NormalQueueCap);
+        --txStorage_->normalQ.count;
         return true;
     }
-    if (lowQ_.count == 0U) return false;
-    out = lowQ_.items[lowQ_.head];
-    lowQ_.head = (uint16_t)((lowQ_.head + 1U) % LowQueueCap);
-    --lowQ_.count;
+    if (txStorage_->lowQ.count == 0U) return false;
+    out = txStorage_->lowQ.items[txStorage_->lowQ.head];
+    txStorage_->lowQ.head = (uint16_t)((txStorage_->lowQ.head + 1U) % LowQueueCap);
+    --txStorage_->lowQ.count;
     return true;
 }
 
 bool MQTTModule::queueSlot_(uint8_t slotIdx, uint8_t prio, bool invalidateOld)
 {
     if (slotIdx >= MaxJobs) return false;
-    Job& job = jobs_[slotIdx];
+    Job& job = txStorage_->jobs[slotIdx];
     if (!job.used) return false;
 
     if (invalidateOld && job.queued) {
@@ -178,11 +178,11 @@ void MQTTModule::snapshotQueueStatsNoLock_(uint16_t& jobsUsed,
 {
     jobsUsed = 0U;
     for (uint8_t i = 0; i < MaxJobs; ++i) {
-        if (jobs_[i].used) ++jobsUsed;
+        if (txStorage_->jobs[i].used) ++jobsUsed;
     }
-    highCount = highQ_.count;
-    normalCount = normalQ_.count;
-    lowCount = lowQ_.count;
+    highCount = txStorage_->highQ.count;
+    normalCount = txStorage_->normalQ.count;
+    lowCount = txStorage_->lowQ.count;
 }
 
 void MQTTModule::logEnqueueReject_(uint8_t producerId,
@@ -228,7 +228,7 @@ bool MQTTModule::enqueueJob_(uint8_t producerId, uint16_t messageId, uint8_t pri
 
     int16_t idx = findJobSlot_(producerId, messageId);
     if (idx >= 0) {
-        Job& job = jobs_[(uint8_t)idx];
+        Job& job = txStorage_->jobs[(uint8_t)idx];
         job.flags |= flags;
 
         if (priority > job.priority) {
@@ -284,7 +284,7 @@ bool MQTTModule::enqueueJob_(uint8_t producerId, uint16_t messageId, uint8_t pri
         return false;
     }
 
-    Job& job = jobs_[(uint8_t)idx];
+    Job& job = txStorage_->jobs[(uint8_t)idx];
     job = Job{};
     job.used = true;
     job.producerId = producerId;
@@ -311,7 +311,7 @@ bool MQTTModule::enqueueJob_(uint8_t producerId, uint16_t messageId, uint8_t pri
 
 bool MQTTModule::enqueue(uint8_t producerId, uint16_t messageId, MqttPublishPriority priority, uint8_t flags)
 {
-    if (producerId == 0U) return false;
+    if (!txStorage_ || producerId == 0U) return false;
     if (state_ != MQTTState::Connected) return false;
     return enqueueJob_(producerId, messageId, (uint8_t)priority, flags);
 }
@@ -325,7 +325,7 @@ bool MQTTModule::dequeueNextJob_(uint32_t nowMs, uint8_t& slotIdx)
     };
 
     portENTER_CRITICAL(&jobsMux_);
-    const uint16_t maxScan = highQ_.count + normalQ_.count + lowQ_.count + 4U;
+    const uint16_t maxScan = txStorage_->highQ.count + txStorage_->normalQ.count + txStorage_->lowQ.count + 4U;
 
     for (uint16_t scan = 0; scan < maxScan; ++scan) {
         for (uint8_t i = 0; i < 3; ++i) {
@@ -333,7 +333,7 @@ bool MQTTModule::dequeueNextJob_(uint32_t nowMs, uint8_t& slotIdx)
             if (!queuePop_(order[i], item)) continue;
             if (item.slot >= MaxJobs) continue;
 
-            Job& job = jobs_[item.slot];
+            Job& job = txStorage_->jobs[item.slot];
             if (!job.used || !job.queued || job.queueToken != item.token || job.queuedPrio != order[i]) {
                 continue;
             }
@@ -411,7 +411,7 @@ void MQTTModule::processJobs_(uint32_t nowMs)
         uint16_t messageId = 0;
         {
             portENTER_CRITICAL(&jobsMux_);
-            Job& job = jobs_[slotIdx];
+            Job& job = txStorage_->jobs[slotIdx];
             if (!job.used || !job.processing) {
                 portEXIT_CRITICAL(&jobsMux_);
                 continue;
@@ -463,7 +463,7 @@ void MQTTModule::processJobs_(uint32_t nowMs)
         bool callbackDropped = false;
 
         portENTER_CRITICAL(&jobsMux_);
-        Job& job = jobs_[slotIdx];
+        Job& job = txStorage_->jobs[slotIdx];
         if (!job.used) {
             portEXIT_CRITICAL(&jobsMux_);
             continue;
@@ -540,7 +540,7 @@ void MQTTModule::updateAndReportQueueOccupancy_(uint32_t nowMs)
     BufferUsageTracker::note(TrackedBufferId::MqttJobsAndQueues,
                              (size_t)jobsUsed * sizeof(Job) +
                                  (size_t)(highCount + normalCount + lowCount) * sizeof(JobQueueItem),
-                             sizeof(jobs_) + sizeof(highQ_) + sizeof(normalQ_) + sizeof(lowQ_),
+                             sizeof(txStorage_->jobs) + sizeof(txStorage_->highQ) + sizeof(txStorage_->normalQ) + sizeof(txStorage_->lowQ),
                              "occ",
                              nullptr);
 
@@ -565,6 +565,8 @@ void MQTTModule::updateAndReportQueueOccupancy_(uint32_t nowMs)
 
 void MQTTModule::clearAllJobs_(const char* reason)
 {
+    if (!txStorage_) return;
+
     uint16_t jobsUsed = 0U;
     uint16_t highCount = 0U;
     uint16_t normalCount = 0U;
@@ -572,10 +574,10 @@ void MQTTModule::clearAllJobs_(const char* reason)
 
     portENTER_CRITICAL(&jobsMux_);
     snapshotQueueStatsNoLock_(jobsUsed, highCount, normalCount, lowCount);
-    memset(jobs_, 0, sizeof(jobs_));
-    highQ_ = JobRing<HighQueueCap>{};
-    normalQ_ = JobRing<NormalQueueCap>{};
-    lowQ_ = JobRing<LowQueueCap>{};
+    memset(txStorage_->jobs, 0, sizeof(txStorage_->jobs));
+    txStorage_->highQ = JobRing<HighQueueCap>{};
+    txStorage_->normalQ = JobRing<NormalQueueCap>{};
+    txStorage_->lowQ = JobRing<LowQueueCap>{};
     portEXIT_CRITICAL(&jobsMux_);
 
     if (jobsUsed == 0U && highCount == 0U && normalCount == 0U && lowCount == 0U) return;

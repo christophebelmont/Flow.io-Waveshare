@@ -18,7 +18,17 @@
 #include <stdlib.h>
 #include <string.h>
 
+IOModule::IOModule()
+    : rs485Serial_(1), rs485Bus_(rs485Serial_), modbusMaster_(rs485Bus_)
+{
+}
+
 IOModule::IOModule(const BoardSpec& board)
+    : rs485Serial_(boardFindUart(board, "rs485")
+                       ? boardFindUart(board, "rs485")->uartIndex
+                       : 1U),
+      rs485Bus_(rs485Serial_),
+      modbusMaster_(rs485Bus_)
 {
     applyBoardDefaults_(board);
 }
@@ -26,6 +36,7 @@ IOModule::IOModule(const BoardSpec& board)
 void IOModule::applyBoardDefaults_(const BoardSpec& board)
 {
     boardProfileName_ = board.name ? board.name : "unknown";
+    rs485UartSpec_ = boardFindUart(board, "rs485");
     const I2cBusSpec* ioBus = boardFindI2cBus(board, "io");
     if (!ioBus) return;
     boardDefaultI2cSda_ = ioBus->sdaPin;
@@ -3687,6 +3698,9 @@ void IOModule::init(ConfigStore& cfg, ServiceRegistry& services)
     if (!services.add(ServiceId::Io, &ioSvc_)) {
         LOGE("service registration failed: %s", toString(ServiceId::Io));
     }
+    if (!services.add(ServiceId::ModbusMaster, &modbusMaster_.service())) {
+        LOGE("service registration failed: %s", toString(ServiceId::ModbusMaster));
+    }
 
     cfg.registerVar(enabledVar_, kCfgModuleId, kCfgBranchIo);
     cfg.registerVar(i2cSdaVar_, kCfgModuleId, kCfgBranchIoBus);
@@ -3820,6 +3834,24 @@ void IOModule::onStart(ConfigStore& cfg, ServiceRegistry& services)
 {
     (void)cfg;
     (void)services;
+    if (!cfgData_.enabled || !rs485UartSpec_) {
+        LOGI("RS485 unavailable enabled=%s profile_uart=%s",
+             cfgData_.enabled ? "true" : "false",
+             rs485UartSpec_ ? "present" : "absent");
+        return;
+    }
+    rs485Ready_ = rs485Bus_.begin(*rs485UartSpec_) && modbusMaster_.begin();
+    if (rs485Ready_) {
+        LOGI("RS485 Modbus ready uart=%u rx=%d tx=%d baud=%lu direction=%s",
+             (unsigned)rs485UartSpec_->uartIndex,
+             (int)rs485UartSpec_->rxPin,
+             (int)rs485UartSpec_->txPin,
+             (unsigned long)rs485UartSpec_->baud,
+             rs485UartSpec_->directionPin < 0 ? "automatic" : "gpio");
+    } else {
+        rs485Bus_.end();
+        LOGE("RS485 Modbus initialization failed");
+    }
 }
 
 void IOModule::configureRuntimeAfterConfig_()
@@ -3852,7 +3884,9 @@ void IOModule::configureRuntimeAfterConfig_()
 
 void IOModule::loop()
 {
-    const IoStatus st = ioTick_(millis());
+    const uint32_t nowMs = millis();
+    if (rs485Ready_) modbusMaster_.tick(nowMs, micros());
+    const IoStatus st = ioTick_(nowMs);
     if (st != IO_OK) {
         if (!cfgData_.enabled || !runtimeReady_) {
             vTaskDelay(pdMS_TO_TICKS(500));

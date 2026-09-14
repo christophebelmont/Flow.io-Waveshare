@@ -29,6 +29,7 @@
 #include "Modules/PoolDeviceModule/PoolDeviceModule.h"
 #include "Modules/PoolHistoryModule/PoolHistoryModule.h"
 #include "Modules/PoolLogicModule/PoolLogicModule.h"
+#include "Modules/VariableSpeedPumpModule/VariableSpeedPumpModule.h"
 #include "Modules/Stores/ConfigStoreModule/ConfigStoreModule.h"
 #include "Modules/Stores/DataStoreModule/DataStoreModule.h"
 #if defined(FLOW_ENABLE_TFT_S3) && (FLOW_ENABLE_TFT_S3 != 0)
@@ -75,6 +76,7 @@ struct ModuleInstances {
     HMIModule hmiModule;
     HMIBuzzerModule hmiBuzzerModule;
     IOModule ioModule;
+    VariableSpeedPumpModule variableSpeedPumpModule{};
     PoolDeviceModule poolDeviceModule{};
     PoolHistoryModule poolHistoryModule{};
     AiInsightModule aiInsightModule{};

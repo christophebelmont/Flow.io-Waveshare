@@ -46,7 +46,14 @@ struct UartSpec {
     int8_t txPin;      // TX GPIO number (-1 when default/unused).
     uint32_t baud;     // Baud rate.
     bool primary;      // True when this UART is the primary instance for its role.
-    int8_t enableRxPin; // Optional GPIO used to switch a half-duplex adapter to receive mode.
+    int8_t directionPin; // Optional RS485 DE/RE direction GPIO (-1 for automatic direction).
+    bool directionTxHigh = true; // Direction GPIO level that enables transmission.
+    enum class Parity : uint8_t {
+        None,
+        Even,
+        Odd
+    } parity = Parity::None; // Serial parity (Modbus commonly uses none or even).
+    uint8_t stopBits = 1U; // Supported values are 1 and 2.
 };
 
 struct I2cBusSpec {

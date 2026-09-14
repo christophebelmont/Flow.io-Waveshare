@@ -63,10 +63,10 @@ bool MQTTModule::enqueueAck_(const char* topicSuffix,
                              bool retain,
                              MqttPublishPriority priority)
 {
-    if (!topicSuffix || topicSuffix[0] == '\0') return false;
+    if (!txStorage_ || !topicSuffix || topicSuffix[0] == '\0') return false;
     if (!payload) return false;
 
-    AckMessage& m = ackMessages_[ackWriteCursor_];
+    AckMessage& m = txStorage_->ackMessages[ackWriteCursor_];
     ackWriteCursor_ = (uint8_t)((ackWriteCursor_ + 1U) % MaxAckMessages);
 
     m = AckMessage{};
@@ -79,11 +79,11 @@ bool MQTTModule::enqueueAck_(const char* topicSuffix,
 
     uint8_t ackUsedCount = 0U;
     for (uint8_t i = 0; i < MaxAckMessages; ++i) {
-        if (ackMessages_[i].used) ++ackUsedCount;
+        if (txStorage_->ackMessages[i].used) ++ackUsedCount;
     }
     BufferUsageTracker::note(TrackedBufferId::MqttAckMessages,
                              (size_t)ackUsedCount * sizeof(AckMessage),
-                             sizeof(ackMessages_),
+                             sizeof(txStorage_->ackMessages),
                              topicSuffix,
                              nullptr);
 
@@ -143,8 +143,10 @@ MqttBuildResult MQTTModule::buildAlarmStatic_(void* ctx, uint16_t messageId, Mqt
 
 MqttBuildResult MQTTModule::buildAck_(uint16_t messageId, MqttBuildContext& ctx)
 {
+    if (!txStorage_) return MqttBuildResult::NoLongerNeeded;
+
     for (uint8_t i = 0; i < MaxAckMessages; ++i) {
-        const AckMessage& msg = ackMessages_[i];
+        const AckMessage& msg = txStorage_->ackMessages[i];
         if (!msg.used || msg.messageId != messageId) continue;
 
         const int tw = snprintf(ctx.topic, ctx.topicCapacity, "%s/%s/%s", cfgData_.baseTopic, deviceId_, msg.topicSuffix);
@@ -164,17 +166,19 @@ MqttBuildResult MQTTModule::buildAck_(uint16_t messageId, MqttBuildContext& ctx)
 
 void MQTTModule::onAckPublished_(uint16_t messageId)
 {
+    if (!txStorage_) return;
+
     for (uint8_t i = 0; i < MaxAckMessages; ++i) {
-        AckMessage& msg = ackMessages_[i];
+        AckMessage& msg = txStorage_->ackMessages[i];
         if (msg.used && msg.messageId == messageId) {
             msg.used = false;
             uint8_t ackUsedCount = 0U;
             for (uint8_t j = 0; j < MaxAckMessages; ++j) {
-                if (ackMessages_[j].used) ++ackUsedCount;
+                if (txStorage_->ackMessages[j].used) ++ackUsedCount;
             }
             BufferUsageTracker::note(TrackedBufferId::MqttAckMessages,
                                      (size_t)ackUsedCount * sizeof(AckMessage),
-                                     sizeof(ackMessages_),
+                                     sizeof(txStorage_->ackMessages),
                                      "ack_free",
                                      nullptr);
             break;

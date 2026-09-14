@@ -30,7 +30,7 @@ enum class ModuleId : uint8_t {
     PoolLogic,
     Hmi,
     HmiUdpServer,
-    Reserved27,
+    VariableSpeedPump,
     Reserved28,
     Reserved29,
     Reserved30,
@@ -83,11 +83,11 @@ constexpr const char* toString(ModuleId id)
         case ModuleId::PoolLogic: return "poollogic";
         case ModuleId::Hmi: return "hmi";
         case ModuleId::HmiUdpServer: return "hmi.udp.server";
+        case ModuleId::VariableSpeedPump: return "pump.variable";
         case ModuleId::BootLogCapture: return "log.bootcapture";
         case ModuleId::ActivityLog: return "activitylog";
         case ModuleId::TftS3: return "tft.s3";
         case ModuleId::HmiBuzzer: return "hmi.buzzer";
-        case ModuleId::Reserved27:
         case ModuleId::Reserved28:
         case ModuleId::Reserved29:
         case ModuleId::Reserved30:

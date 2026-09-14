@@ -169,6 +169,20 @@ void MQTTModule::reportClientTaskStackIfDue_(uint32_t nowMs)
     mqttClientStackReportPending_ = false;
 }
 
+bool MQTTModule::allocateTxStorage_()
+{
+    if (txStorage_) return true;
+
+    void* memory = heap_caps_malloc(sizeof(TxStorage), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!memory) {
+        LOGE("MQTT unavailable: TX PSRAM allocation failed bytes=%u", (unsigned)sizeof(TxStorage));
+        return false;
+    }
+    txStorage_ = new (memory) TxStorage{};
+    LOGI("MQTT TX storage ready bytes=%u memory=psram", (unsigned)sizeof(TxStorage));
+    return true;
+}
+
 bool MQTTModule::allocateScratchBuffers_()
 {
     if (scratch_) return true;
@@ -412,6 +426,8 @@ void MQTTModule::init(ConfigStore& cfg, ServiceRegistry& services)
     oversizeDropCount_ = 0;
     syncRxMetrics_();
 
+    (void)allocateTxStorage_();
+
     if (!services.add(ServiceId::Mqtt, &mqttSvc_)) {
         LOGE("service registration failed: %s", toString(ServiceId::Mqtt));
     }
@@ -509,6 +525,7 @@ void MQTTModule::onConfigLoaded(ConfigStore&, ServiceRegistry& services)
 
 void MQTTModule::onStart(ConfigStore&, ServiceRegistry&)
 {
+    if (!txStorage_) return;
     (void)allocateScratchBuffers_();
     (void)allocateRxQueue_();
     runtimeProducerCore_.rebuildRoutes();
@@ -517,6 +534,11 @@ void MQTTModule::onStart(ConfigStore&, ServiceRegistry&)
 
 void MQTTModule::loop()
 {
+    if (!txStorage_) {
+        vTaskDelay(pdMS_TO_TICKS(Limits::Mqtt::Timing::DisabledDelayMs));
+        return;
+    }
+
     if (!cfgData_.enabled) {
         if (state_ != MQTTState::Disabled) {
             stopClient_(true);

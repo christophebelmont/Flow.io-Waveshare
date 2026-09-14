@@ -252,15 +252,21 @@ private:
     uint8_t inboundHandlerCount_ = 0;
     portMUX_TYPE inboundMux_ = portMUX_INITIALIZER_UNLOCKED;
 
-    Job jobs_[MaxJobs]{};
-    JobRing<HighQueueCap> highQ_{};
-    JobRing<NormalQueueCap> normalQ_{};
-    JobRing<LowQueueCap> lowQ_{};
+    struct TxStorage {
+        Job jobs[MaxJobs]{};
+        JobRing<HighQueueCap> highQ{};
+        JobRing<NormalQueueCap> normalQ{};
+        JobRing<LowQueueCap> lowQ{};
+        AckMessage ackMessages[MaxAckMessages]{};
+    };
+
+    // Constructed during single-threaded init, before publishing the service.
+    // The pointer and storage remain valid for the firmware lifetime; no ISR access.
+    TxStorage* txStorage_ = nullptr;
     portMUX_TYPE jobsMux_ = portMUX_INITIALIZER_UNLOCKED;
 
     ScratchBuffers* scratch_ = nullptr;
 
-    AckMessage ackMessages_[MaxAckMessages]{};
     uint8_t ackWriteCursor_ = 0;
     uint16_t ackNextMessageId_ = 1;
 
@@ -302,6 +308,7 @@ private:
     static void onRuntimeInitialSnapshotCompleteStatic_(void* ctx);
     void onRuntimeInitialSnapshotComplete_();
     void reportClientTaskStackIfDue_(uint32_t nowMs);
+    bool allocateTxStorage_();
     bool allocateScratchBuffers_();
     bool allocateRxQueue_();
     void refreshTopicDeviceId_();
