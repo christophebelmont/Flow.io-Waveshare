@@ -219,24 +219,33 @@ private:
         uint8_t colorId = 0U;
     };
 
-    DashboardSlotConfig dashboardCfg_[DashboardSlotCount]{};
-    ConfigVariable<bool, 0> dashboardEnabledVars_[DashboardSlotCount]{};
-    ConfigVariable<uint16_t, 0> dashboardRuntimeIdVars_[DashboardSlotCount]{};
-    ConfigVariable<char, 0> dashboardLabelVars_[DashboardSlotCount]{};
-    ConfigVariable<uint8_t, 0> dashboardColorIdVars_[DashboardSlotCount]{};
+    struct UiStorage {
+        DashboardSlotConfig dashboardCfg[DashboardSlotCount]{};
+        ConfigVariable<bool, 0> dashboardEnabledVars[DashboardSlotCount]{};
+        ConfigVariable<uint16_t, 0> dashboardRuntimeIdVars[DashboardSlotCount]{};
+        ConfigVariable<char, 0> dashboardLabelVars[DashboardSlotCount]{};
+        ConfigVariable<uint8_t, 0> dashboardColorIdVars[DashboardSlotCount]{};
 
-    AlarmSlotConfig alarmDashboardCfg_[AlarmDashboardSlotCount]{};
-    ConfigVariable<bool, 0> alarmEnabledVars_[AlarmDashboardSlotCount]{};
-    ConfigVariable<uint16_t, 0> alarmIdVars_[AlarmDashboardSlotCount]{};
-    ConfigVariable<char, 0> alarmLabelVars_[AlarmDashboardSlotCount]{};
-    ConfigVariable<uint8_t, 0> alarmColorIdVars_[AlarmDashboardSlotCount]{};
+        AlarmSlotConfig alarmDashboardCfg[AlarmDashboardSlotCount]{};
+        ConfigVariable<bool, 0> alarmEnabledVars[AlarmDashboardSlotCount]{};
+        ConfigVariable<uint16_t, 0> alarmIdVars[AlarmDashboardSlotCount]{};
+        ConfigVariable<char, 0> alarmLabelVars[AlarmDashboardSlotCount]{};
+        ConfigVariable<uint8_t, 0> alarmColorIdVars[AlarmDashboardSlotCount]{};
+
+        MqttConfigRouteProducer cfgMqttPub{};
+        DashboardSlotRenderState dashboardSlotCache[DashboardSlotCount]{};
+        AlarmSlotRenderState alarmSlotCache[AlarmDashboardSlotCount]{};
+    };
+    // Built during init before configuration registration. Retained for the
+    // firmware lifetime so ConfigStore and MQTT callbacks keep stable pointers.
+    UiStorage* uiStorage_ = nullptr;
+    bool allocateUiStorage_();
 
     ConfigStore* cfgStore_ = nullptr;
     const AlarmService* alarmSvc_ = nullptr;
     const IOServiceV2* ioSvc_ = nullptr;
     const DataStoreService* dsSvc_ = nullptr;
     EventBus* eventBus_ = nullptr;
-    MqttConfigRouteProducer cfgMqttPub_{};
     bool cfgMqttPubConfigured_ = false;
     bool displayReady_ = false;
     bool layoutDrawn_ = false;
@@ -252,6 +261,4 @@ private:
     uint32_t lastRenderedPageCycle_ = 0xFFFFFFFFU;
     uint8_t lastPage_ = 0xFFU;
     OverviewRenderCache overviewCache_{};
-    DashboardSlotRenderState dashboardSlotCache_[DashboardSlotCount]{};
-    AlarmSlotRenderState alarmSlotCache_[AlarmDashboardSlotCount]{};
 };

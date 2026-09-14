@@ -11,6 +11,7 @@
 #include <esp_heap_caps.h>
 #include <stdio.h>
 #include <string.h>
+#include <new>
 
 namespace {
 static bool shouldExposeConfigLevel_(LogModuleId moduleId)
@@ -96,6 +97,17 @@ bool LogHub::registerConfigVar_(ModuleRegistration& slot)
 }
 
 void LogHub::init(int queueLen) {
+    if (!modules_) {
+        void* memory = heap_caps_malloc(sizeof(ModuleRegistration) * MAX_REGISTERED_MODULES,
+                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (memory) {
+            modules_ = static_cast<ModuleRegistration*>(memory);
+            for (uint8_t i = 0; i < MAX_REGISTERED_MODULES; ++i) {
+                new (&modules_[i]) ModuleRegistration{};
+            }
+        }
+    }
+
     queueLen_ = (queueLen > 0) ? (uint16_t)queueLen : Limits::LogQueueLen;
     if (q) {
         vQueueDelete(q);
@@ -184,6 +196,7 @@ void LogHub::attachConfig(ConfigStore* cfg, uint8_t cfgModuleId, uint8_t cfgLoca
 
 bool LogHub::registerModule(LogModuleId moduleId, const char* moduleName)
 {
+    if (!modules_) return false;
     if (moduleId == (LogModuleId)LogModuleIdValue::Unknown) return false;
     if (!moduleName || moduleName[0] == '\0') return false;
 
@@ -199,7 +212,7 @@ bool LogHub::registerModule(LogModuleId moduleId, const char* moduleName)
     slot->name[sizeof(slot->name) - 1] = '\0';
     BufferUsageTracker::note(TrackedBufferId::LogHubModules,
                              (size_t)moduleCount_ * sizeof(ModuleRegistration),
-                             sizeof(modules_),
+                             sizeof(ModuleRegistration) * MAX_REGISTERED_MODULES,
                              moduleName,
                              nullptr);
     if (cfg_) (void)registerConfigVar_(*slot);

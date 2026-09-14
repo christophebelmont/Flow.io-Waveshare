@@ -103,7 +103,11 @@ void LogHubModule::init(ConfigStore& cfg, ServiceRegistry& services) {
     }
 
     Log::setHub(&hubSvc_);
-    (void)Log::registerModule((LogModuleId)LogModuleIdValue::LogHub, toString(moduleId()));
+    if (Log::registerModule((LogModuleId)LogModuleIdValue::LogHub, toString(moduleId()))) {
+        LOGI("Log module registry ready memory=psram");
+    } else {
+        LOGE("Log module registry unavailable: per-module levels cannot be configured");
+    }
     (void)Log::registerModule((LogModuleId)LogModuleIdValue::CoreI2cLink, "core.i2clink");
     (void)Log::registerModule((LogModuleId)LogModuleIdValue::CoreModuleManager, "core.modulemanager");
     (void)Log::registerModule((LogModuleId)LogModuleIdValue::CoreConfigStore, "core.configstore");

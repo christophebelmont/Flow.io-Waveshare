@@ -6,6 +6,8 @@
 #include "Modules/TFTModuleS3/TFTModuleS3.h"
 
 #include <Arduino.h>
+#include <esp_heap_caps.h>
+#include <new>
 #include <ArduinoJson.h>
 #include <Fonts/FreeSans9pt7b.h>
 #include <Fonts/FreeSans18pt7b.h>
@@ -412,86 +414,99 @@ TFTModuleS3::TFTModuleS3(const BoardSpec& board)
       display_(&spiBus_, displayCfg_.csPin, displayCfg_.dcPin, displayCfg_.rstPin)
 {
     lastMotionMs_ = millis();
+}
+
+bool TFTModuleS3::allocateUiStorage_()
+{
+    if (uiStorage_) return true;
+    void* memory = heap_caps_malloc(sizeof(UiStorage), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!memory) {
+        LOGE("TFT unavailable: UI PSRAM allocation failed bytes=%u", (unsigned)sizeof(UiStorage));
+        return false;
+    }
+    uiStorage_ = new (memory) UiStorage{};
 
     for (uint8_t i = 0; i < DashboardSlotCount; ++i) {
-        DashboardSlotConfig& slotCfg = dashboardCfg_[i];
+        DashboardSlotConfig& slotCfg = uiStorage_->dashboardCfg[i];
         slotCfg.enabled = true;
         slotCfg.runtimeUiId = kDashboardDefaultRuntimeUiIds[i];
         slotCfg.colorId = kDashboardDefaultColorIds[i];
         snprintf(slotCfg.label, sizeof(slotCfg.label), "%s", kDashboardDefaultLabels[i]);
 
-        dashboardEnabledVars_[i].nvsKey = kSensorEnabledKeys[i];
-        dashboardEnabledVars_[i].jsonName = "enabled";
-        dashboardEnabledVars_[i].moduleName = kSensorModuleNames[i];
-        dashboardEnabledVars_[i].type = ConfigType::Bool;
-        dashboardEnabledVars_[i].value = &slotCfg.enabled;
-        dashboardEnabledVars_[i].persistence = ConfigPersistence::Persistent;
-        dashboardEnabledVars_[i].size = 0U;
+        uiStorage_->dashboardEnabledVars[i].nvsKey = kSensorEnabledKeys[i];
+        uiStorage_->dashboardEnabledVars[i].jsonName = "enabled";
+        uiStorage_->dashboardEnabledVars[i].moduleName = kSensorModuleNames[i];
+        uiStorage_->dashboardEnabledVars[i].type = ConfigType::Bool;
+        uiStorage_->dashboardEnabledVars[i].value = &slotCfg.enabled;
+        uiStorage_->dashboardEnabledVars[i].persistence = ConfigPersistence::Persistent;
+        uiStorage_->dashboardEnabledVars[i].size = 0U;
 
-        dashboardRuntimeIdVars_[i].nvsKey = kSensorRuntimeIdKeys[i];
-        dashboardRuntimeIdVars_[i].jsonName = "runtime_ui_id";
-        dashboardRuntimeIdVars_[i].moduleName = kSensorModuleNames[i];
-        dashboardRuntimeIdVars_[i].type = ConfigType::UInt16;
-        dashboardRuntimeIdVars_[i].value = &slotCfg.runtimeUiId;
-        dashboardRuntimeIdVars_[i].persistence = ConfigPersistence::Persistent;
-        dashboardRuntimeIdVars_[i].size = 0U;
+        uiStorage_->dashboardRuntimeIdVars[i].nvsKey = kSensorRuntimeIdKeys[i];
+        uiStorage_->dashboardRuntimeIdVars[i].jsonName = "runtime_ui_id";
+        uiStorage_->dashboardRuntimeIdVars[i].moduleName = kSensorModuleNames[i];
+        uiStorage_->dashboardRuntimeIdVars[i].type = ConfigType::UInt16;
+        uiStorage_->dashboardRuntimeIdVars[i].value = &slotCfg.runtimeUiId;
+        uiStorage_->dashboardRuntimeIdVars[i].persistence = ConfigPersistence::Persistent;
+        uiStorage_->dashboardRuntimeIdVars[i].size = 0U;
 
-        dashboardLabelVars_[i].nvsKey = kSensorLabelKeys[i];
-        dashboardLabelVars_[i].jsonName = "label";
-        dashboardLabelVars_[i].moduleName = kSensorModuleNames[i];
-        dashboardLabelVars_[i].type = ConfigType::CharArray;
-        dashboardLabelVars_[i].value = slotCfg.label;
-        dashboardLabelVars_[i].persistence = ConfigPersistence::Persistent;
-        dashboardLabelVars_[i].size = sizeof(slotCfg.label);
+        uiStorage_->dashboardLabelVars[i].nvsKey = kSensorLabelKeys[i];
+        uiStorage_->dashboardLabelVars[i].jsonName = "label";
+        uiStorage_->dashboardLabelVars[i].moduleName = kSensorModuleNames[i];
+        uiStorage_->dashboardLabelVars[i].type = ConfigType::CharArray;
+        uiStorage_->dashboardLabelVars[i].value = slotCfg.label;
+        uiStorage_->dashboardLabelVars[i].persistence = ConfigPersistence::Persistent;
+        uiStorage_->dashboardLabelVars[i].size = sizeof(slotCfg.label);
 
-        dashboardColorIdVars_[i].nvsKey = kSensorColorIdKeys[i];
-        dashboardColorIdVars_[i].jsonName = "color_id";
-        dashboardColorIdVars_[i].moduleName = kSensorModuleNames[i];
-        dashboardColorIdVars_[i].type = ConfigType::UInt8;
-        dashboardColorIdVars_[i].value = &slotCfg.colorId;
-        dashboardColorIdVars_[i].persistence = ConfigPersistence::Persistent;
-        dashboardColorIdVars_[i].size = 0U;
+        uiStorage_->dashboardColorIdVars[i].nvsKey = kSensorColorIdKeys[i];
+        uiStorage_->dashboardColorIdVars[i].jsonName = "color_id";
+        uiStorage_->dashboardColorIdVars[i].moduleName = kSensorModuleNames[i];
+        uiStorage_->dashboardColorIdVars[i].type = ConfigType::UInt8;
+        uiStorage_->dashboardColorIdVars[i].value = &slotCfg.colorId;
+        uiStorage_->dashboardColorIdVars[i].persistence = ConfigPersistence::Persistent;
+        uiStorage_->dashboardColorIdVars[i].size = 0U;
     }
 
     for (uint8_t i = 0; i < AlarmDashboardSlotCount; ++i) {
-        AlarmSlotConfig& slotCfg = alarmDashboardCfg_[i];
+        AlarmSlotConfig& slotCfg = uiStorage_->alarmDashboardCfg[i];
         slotCfg.enabled = kAlarmDefaultEnabled[i];
         slotCfg.alarmId = kAlarmDefaultIds[i];
         slotCfg.colorId = kAlarmDefaultColorIds[i];
         snprintf(slotCfg.label, sizeof(slotCfg.label), "%s", kAlarmDefaultLabels[i]);
 
-        alarmEnabledVars_[i].nvsKey = kAlarmEnabledKeys[i];
-        alarmEnabledVars_[i].jsonName = "enabled";
-        alarmEnabledVars_[i].moduleName = kAlarmModuleNames[i];
-        alarmEnabledVars_[i].type = ConfigType::Bool;
-        alarmEnabledVars_[i].value = &slotCfg.enabled;
-        alarmEnabledVars_[i].persistence = ConfigPersistence::Persistent;
-        alarmEnabledVars_[i].size = 0U;
+        uiStorage_->alarmEnabledVars[i].nvsKey = kAlarmEnabledKeys[i];
+        uiStorage_->alarmEnabledVars[i].jsonName = "enabled";
+        uiStorage_->alarmEnabledVars[i].moduleName = kAlarmModuleNames[i];
+        uiStorage_->alarmEnabledVars[i].type = ConfigType::Bool;
+        uiStorage_->alarmEnabledVars[i].value = &slotCfg.enabled;
+        uiStorage_->alarmEnabledVars[i].persistence = ConfigPersistence::Persistent;
+        uiStorage_->alarmEnabledVars[i].size = 0U;
 
-        alarmIdVars_[i].nvsKey = kAlarmIdKeys[i];
-        alarmIdVars_[i].jsonName = "alarm_id";
-        alarmIdVars_[i].moduleName = kAlarmModuleNames[i];
-        alarmIdVars_[i].type = ConfigType::UInt16;
-        alarmIdVars_[i].value = &slotCfg.alarmId;
-        alarmIdVars_[i].persistence = ConfigPersistence::Persistent;
-        alarmIdVars_[i].size = 0U;
+        uiStorage_->alarmIdVars[i].nvsKey = kAlarmIdKeys[i];
+        uiStorage_->alarmIdVars[i].jsonName = "alarm_id";
+        uiStorage_->alarmIdVars[i].moduleName = kAlarmModuleNames[i];
+        uiStorage_->alarmIdVars[i].type = ConfigType::UInt16;
+        uiStorage_->alarmIdVars[i].value = &slotCfg.alarmId;
+        uiStorage_->alarmIdVars[i].persistence = ConfigPersistence::Persistent;
+        uiStorage_->alarmIdVars[i].size = 0U;
 
-        alarmLabelVars_[i].nvsKey = kAlarmLabelKeys[i];
-        alarmLabelVars_[i].jsonName = "label";
-        alarmLabelVars_[i].moduleName = kAlarmModuleNames[i];
-        alarmLabelVars_[i].type = ConfigType::CharArray;
-        alarmLabelVars_[i].value = slotCfg.label;
-        alarmLabelVars_[i].persistence = ConfigPersistence::Persistent;
-        alarmLabelVars_[i].size = sizeof(slotCfg.label);
+        uiStorage_->alarmLabelVars[i].nvsKey = kAlarmLabelKeys[i];
+        uiStorage_->alarmLabelVars[i].jsonName = "label";
+        uiStorage_->alarmLabelVars[i].moduleName = kAlarmModuleNames[i];
+        uiStorage_->alarmLabelVars[i].type = ConfigType::CharArray;
+        uiStorage_->alarmLabelVars[i].value = slotCfg.label;
+        uiStorage_->alarmLabelVars[i].persistence = ConfigPersistence::Persistent;
+        uiStorage_->alarmLabelVars[i].size = sizeof(slotCfg.label);
 
-        alarmColorIdVars_[i].nvsKey = kAlarmColorIdKeys[i];
-        alarmColorIdVars_[i].jsonName = "color_id";
-        alarmColorIdVars_[i].moduleName = kAlarmModuleNames[i];
-        alarmColorIdVars_[i].type = ConfigType::UInt8;
-        alarmColorIdVars_[i].value = &slotCfg.colorId;
-        alarmColorIdVars_[i].persistence = ConfigPersistence::Persistent;
-        alarmColorIdVars_[i].size = 0U;
+        uiStorage_->alarmColorIdVars[i].nvsKey = kAlarmColorIdKeys[i];
+        uiStorage_->alarmColorIdVars[i].jsonName = "color_id";
+        uiStorage_->alarmColorIdVars[i].moduleName = kAlarmModuleNames[i];
+        uiStorage_->alarmColorIdVars[i].type = ConfigType::UInt8;
+        uiStorage_->alarmColorIdVars[i].value = &slotCfg.colorId;
+        uiStorage_->alarmColorIdVars[i].persistence = ConfigPersistence::Persistent;
+        uiStorage_->alarmColorIdVars[i].size = 0U;
     }
+    LOGI("TFT UI storage ready bytes=%u memory=psram", (unsigned)sizeof(UiStorage));
+    return true;
 }
 
 St7789DisplaySpec TFTModuleS3::displaySpecFromBoard_(const BoardSpec& board)
@@ -502,6 +517,8 @@ St7789DisplaySpec TFTModuleS3::displaySpecFromBoard_(const BoardSpec& board)
 
 void TFTModuleS3::init(ConfigStore& cfg, ServiceRegistry& services)
 {
+    if (!allocateUiStorage_()) return;
+
     cfgStore_ = &cfg;
     constexpr uint8_t module = (uint8_t)ConfigModuleId::TftS3;
     cfg.registerVar(enabledVar_, module, kCfgBranch);
@@ -510,18 +527,18 @@ void TFTModuleS3::init(ConfigStore& cfg, ServiceRegistry& services)
 
     for (uint8_t i = 0; i < DashboardSlotCount; ++i) {
         const uint8_t branch = (uint8_t)(kCfgBranchSensorBase + i);
-        cfg.registerVar(dashboardEnabledVars_[i], module, branch);
-        cfg.registerVar(dashboardRuntimeIdVars_[i], module, branch);
-        cfg.registerVar(dashboardLabelVars_[i], module, branch);
-        cfg.registerVar(dashboardColorIdVars_[i], module, branch);
+        cfg.registerVar(uiStorage_->dashboardEnabledVars[i], module, branch);
+        cfg.registerVar(uiStorage_->dashboardRuntimeIdVars[i], module, branch);
+        cfg.registerVar(uiStorage_->dashboardLabelVars[i], module, branch);
+        cfg.registerVar(uiStorage_->dashboardColorIdVars[i], module, branch);
     }
 
     for (uint8_t i = 0; i < AlarmDashboardSlotCount; ++i) {
         const uint8_t branch = (uint8_t)(kCfgBranchAlarmBase + i);
-        cfg.registerVar(alarmEnabledVars_[i], module, branch);
-        cfg.registerVar(alarmIdVars_[i], module, branch);
-        cfg.registerVar(alarmLabelVars_[i], module, branch);
-        cfg.registerVar(alarmColorIdVars_[i], module, branch);
+        cfg.registerVar(uiStorage_->alarmEnabledVars[i], module, branch);
+        cfg.registerVar(uiStorage_->alarmIdVars[i], module, branch);
+        cfg.registerVar(uiStorage_->alarmLabelVars[i], module, branch);
+        cfg.registerVar(uiStorage_->alarmColorIdVars[i], module, branch);
     }
 
     alarmSvc_ = services.get<AlarmService>(ServiceId::Alarm);
@@ -538,9 +555,11 @@ void TFTModuleS3::init(ConfigStore& cfg, ServiceRegistry& services)
 
 void TFTModuleS3::onConfigLoaded(ConfigStore&, ServiceRegistry& services)
 {
+    if (!uiStorage_) return;
+
     if (!ioSvc_) ioSvc_ = services.get<IOServiceV2>(ServiceId::Io);
     if (!cfgMqttPubConfigured_) {
-        cfgMqttPub_.configure(this,
+        uiStorage_->cfgMqttPub.configure(this,
                               kCfgProducerId,
                               kCfgRoutes,
                               (uint8_t)(sizeof(kCfgRoutes) / sizeof(kCfgRoutes[0])),
@@ -553,6 +572,11 @@ void TFTModuleS3::onConfigLoaded(ConfigStore&, ServiceRegistry& services)
 
 void TFTModuleS3::loop()
 {
+    if (!uiStorage_) {
+        delay(500);
+        return;
+    }
+
     if (!cfgData_.enabled) {
         applyBacklight_(false);
         delay(250);
@@ -595,6 +619,8 @@ void TFTModuleS3::onEventStatic_(const Event& e, void* user)
 
 void TFTModuleS3::onEvent_(const Event& e)
 {
+    if (!uiStorage_) return;
+
     if (e.id == EventId::ConfigChanged && e.payload && e.len >= sizeof(ConfigChangedPayload)) {
         const ConfigChangedPayload* p = static_cast<const ConfigChangedPayload*>(e.payload);
         if (p->moduleId == (uint8_t)ConfigModuleId::TftS3) {
@@ -715,10 +741,10 @@ void TFTModuleS3::render_(bool force)
         drawStaticLayout_(page);
         overviewCache_.valid = false;
         for (uint8_t i = 0U; i < DashboardSlotCount; ++i) {
-            dashboardSlotCache_[i].valid = false;
+            uiStorage_->dashboardSlotCache[i].valid = false;
         }
         for (uint8_t i = 0U; i < AlarmDashboardSlotCount; ++i) {
-            alarmSlotCache_[i].valid = false;
+            uiStorage_->alarmSlotCache[i].valid = false;
         }
     }
 
@@ -786,10 +812,10 @@ void TFTModuleS3::render_(bool force)
         for (uint8_t i = 0U; i < DashboardSlotCount; ++i) {
             DashboardSlotRenderState state{};
             readDashboardSlotState_(i, state);
-            if (fullRedraw || !dashboardSlotStateEquals_(dashboardSlotCache_[i], state)) {
+            if (fullRedraw || !dashboardSlotStateEquals_(uiStorage_->dashboardSlotCache[i], state)) {
                 const Rect r = metricCardRect_(w, h, i);
                 drawDashboardSlot_(i, r.x, r.y, r.w, r.h, state);
-                dashboardSlotCache_[i] = state;
+                uiStorage_->dashboardSlotCache[i] = state;
             }
         }
     } else {
@@ -798,10 +824,10 @@ void TFTModuleS3::render_(bool force)
         for (uint8_t i = 0U; i < AlarmDashboardSlotCount; ++i) {
             AlarmSlotRenderState state{};
             readAlarmSlotState_(i, state);
-            if (fullRedraw || !alarmSlotStateEquals_(alarmSlotCache_[i], state)) {
+            if (fullRedraw || !alarmSlotStateEquals_(uiStorage_->alarmSlotCache[i], state)) {
                 const Rect r = metricCardRect_(w, h, i);
                 drawAlarmDashboardSlot_(i, r.x, r.y, r.w, r.h, state);
-                alarmSlotCache_[i] = state;
+                uiStorage_->alarmSlotCache[i] = state;
             }
         }
     }
@@ -818,10 +844,10 @@ void TFTModuleS3::invalidateRenderCache_()
     lastPage_ = 0xFFU;
     overviewCache_.valid = false;
     for (uint8_t i = 0U; i < DashboardSlotCount; ++i) {
-        dashboardSlotCache_[i].valid = false;
+        uiStorage_->dashboardSlotCache[i].valid = false;
     }
     for (uint8_t i = 0U; i < AlarmDashboardSlotCount; ++i) {
-        alarmSlotCache_[i].valid = false;
+        uiStorage_->alarmSlotCache[i].valid = false;
     }
 }
 
@@ -1177,7 +1203,7 @@ void TFTModuleS3::readDashboardSlotState_(uint8_t slot, DashboardSlotRenderState
     state = DashboardSlotRenderState{};
     if (slot >= DashboardSlotCount) return;
 
-    const DashboardSlotConfig& cfg = dashboardCfg_[slot];
+    const DashboardSlotConfig& cfg = uiStorage_->dashboardCfg[slot];
     state.valid = true;
     state.enabled = cfg.enabled;
     state.cardBg = cfg.enabled ? dashboardColor_(cfg.colorId, slot) : kColorCardBg;
@@ -1240,7 +1266,7 @@ void TFTModuleS3::readAlarmSlotState_(uint8_t slot, AlarmSlotRenderState& state)
     state = AlarmSlotRenderState{};
     if (slot >= AlarmDashboardSlotCount) return;
 
-    const AlarmSlotConfig& cfg = alarmDashboardCfg_[slot];
+    const AlarmSlotConfig& cfg = uiStorage_->alarmDashboardCfg[slot];
     state.valid = true;
     state.enabled = cfg.enabled;
     state.alarmId = cfg.alarmId;
@@ -1590,7 +1616,7 @@ void TFTModuleS3::slotLabel_(uint8_t slot, char* out, size_t outLen) const
     if (!out || outLen == 0U) return;
     out[0] = '\0';
     if (slot >= DashboardSlotCount) return;
-    const DashboardSlotConfig& cfg = dashboardCfg_[slot];
+    const DashboardSlotConfig& cfg = uiStorage_->dashboardCfg[slot];
     if (cfg.label[0] != '\0') {
         snprintf(out, outLen, "%s", cfg.label);
         return;

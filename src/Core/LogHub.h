@@ -75,7 +75,9 @@ private:
     uint32_t lastFormatTruncMs_ = 0;
     LogModuleId lastDropModuleId_ = (LogModuleId)LogModuleIdValue::Unknown;
     LogModuleId lastFormatTruncModuleId_ = (LogModuleId)LogModuleIdValue::Unknown;
-    ModuleRegistration modules_[MAX_REGISTERED_MODULES]{};
+    // Initialized before service publication; never relocated or freed while
+    // configuration descriptors and module names are registered. Task-only access.
+    ModuleRegistration* modules_ = nullptr;
     uint8_t moduleCount_ = 0;
     ConfigStore* cfg_ = nullptr;
     uint8_t cfgModuleId_ = 0;
