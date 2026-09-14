@@ -122,9 +122,14 @@ private:
     UpdateJob queuedJob_{};
     UpdateStatus status_{};
     ManifestCheckJob manifestCheckJob_{};
-    FirmwareManifestCheckSnapshot manifestCheck_{};
-    NextionArtifactSelection nextionSelection_{};
-    NextionArtifactSelection nextionRecoveryArtifacts_[kMaxNextionRecoveryArtifacts]{};
+    struct ManifestMetadata {
+        FirmwareManifestCheckSnapshot check{};
+        NextionArtifactSelection selection{};
+        NextionArtifactSelection recoveryArtifacts[kMaxNextionRecoveryArtifacts]{};
+    };
+    // Allocated before service registration; retained for the firmware lifetime.
+    // Task-only data: the lock, update job and OTA stack stay in internal RAM.
+    ManifestMetadata* manifestMetadata_ = nullptr;
     size_t nextionRecoveryArtifactCount_ = 0U;
     char* manifestPayload_ = nullptr;
     uint32_t nextManifestRequestId_ = 0;

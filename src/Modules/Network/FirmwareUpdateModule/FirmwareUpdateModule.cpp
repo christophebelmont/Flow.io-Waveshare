@@ -13,6 +13,7 @@
 #include <Update.h>
 #include <ctype.h>
 #include <string.h>
+#include <new>
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
 #include <esp_system.h>
@@ -540,6 +541,8 @@ bool FirmwareUpdateModule::statusJson_(char* out, size_t outLen)
 
 bool FirmwareUpdateModule::isBusy_()
 {
+    if (!manifestMetadata_) return false;
+
     bool busy = false;
     bool pending = false;
     bool nextionReboot = false;
@@ -549,7 +552,7 @@ bool FirmwareUpdateModule::isBusy_()
     busy = busy_;
     pending = queuedJob_.pending;
     nextionReboot = nextionRebootQueued_;
-    manifestCheckActive = manifestCheckIsActive_(manifestCheck_.state);
+    manifestCheckActive = manifestCheckIsActive_(manifestMetadata_->check.state);
     updateStartPending = updateStartPending_;
     portEXIT_CRITICAL(&lock_);
     return busy || pending || nextionReboot || manifestCheckActive || updateStartPending;
@@ -589,14 +592,14 @@ bool FirmwareUpdateModule::startManifestCheck_(uint32_t* requestIdOut,
         return false;
     }
 
-    if (!manifestPayload_) {
+    if (!manifestMetadata_ || !manifestPayload_) {
         writeSimpleError_(errOut, errOutLen, "manifest storage unavailable");
         return false;
     }
 
     portENTER_CRITICAL(&lock_);
     if (busy_ || queuedJob_.pending || nextionRebootQueued_ || updateStartPending_ ||
-        manifestCheckIsActive_(manifestCheck_.state) || manifestCopyReaders_ > 0U) {
+        manifestCheckIsActive_(manifestMetadata_->check.state) || manifestCopyReaders_ > 0U) {
         portEXIT_CRITICAL(&lock_);
         writeSimpleError_(errOut, errOutLen, "updater busy");
         return false;
@@ -611,14 +614,14 @@ bool FirmwareUpdateModule::startManifestCheck_(uint32_t* requestIdOut,
     manifestCheckJob_.requestId = nextManifestRequestId_;
     snprintf(manifestCheckJob_.url, sizeof(manifestCheckJob_.url), "%s", url);
 
-    manifestCheck_ = {};
-    nextionSelection_ = {};
+    manifestMetadata_->check = {};
+    manifestMetadata_->selection = {};
     nextionRecoveryArtifactCount_ = 0U;
-    manifestCheck_.requestId = nextManifestRequestId_;
-    manifestCheck_.state = FirmwareManifestCheckState::Queued;
-    manifestCheck_.updatedAtMs = millis();
-    snprintf(manifestCheck_.manifestUrl, sizeof(manifestCheck_.manifestUrl), "%s", url);
-    snprintf(manifestCheck_.message, sizeof(manifestCheck_.message), "queued");
+    manifestMetadata_->check.requestId = nextManifestRequestId_;
+    manifestMetadata_->check.state = FirmwareManifestCheckState::Queued;
+    manifestMetadata_->check.updatedAtMs = millis();
+    snprintf(manifestMetadata_->check.manifestUrl, sizeof(manifestMetadata_->check.manifestUrl), "%s", url);
+    snprintf(manifestMetadata_->check.message, sizeof(manifestMetadata_->check.message), "queued");
     manifestPayload_[0] = '\0';
     *requestIdOut = nextManifestRequestId_;
     portEXIT_CRITICAL(&lock_);
@@ -632,13 +635,13 @@ bool FirmwareUpdateModule::startManifestCheck_(uint32_t* requestIdOut,
 bool FirmwareUpdateModule::manifestCheckStatus_(uint32_t requestId,
                                                 FirmwareManifestCheckSnapshot* out)
 {
-    if (!out || requestId == 0U) return false;
+    if (!manifestMetadata_ || !out || requestId == 0U) return false;
     portENTER_CRITICAL(&lock_);
-    if (manifestCheck_.requestId != requestId) {
+    if (manifestMetadata_->check.requestId != requestId) {
         portEXIT_CRITICAL(&lock_);
         return false;
     }
-    *out = manifestCheck_;
+    *out = manifestMetadata_->check;
     portEXIT_CRITICAL(&lock_);
     return true;
 }
@@ -649,18 +652,18 @@ bool FirmwareUpdateModule::copyManifestResult_(uint32_t requestId,
                                                size_t* copiedLenOut)
 {
     if (copiedLenOut) *copiedLenOut = 0U;
-    if (!out || outLen == 0U || requestId == 0U || !manifestPayload_) return false;
+    if (!manifestMetadata_ || !out || outLen == 0U || requestId == 0U || !manifestPayload_) return false;
 
     size_t payloadLen = 0U;
     portENTER_CRITICAL(&lock_);
-    if (manifestCheck_.requestId != requestId ||
-        manifestCheck_.state != FirmwareManifestCheckState::Ready ||
-        manifestCheck_.payloadLen == 0U ||
-        outLen <= manifestCheck_.payloadLen) {
+    if (manifestMetadata_->check.requestId != requestId ||
+        manifestMetadata_->check.state != FirmwareManifestCheckState::Ready ||
+        manifestMetadata_->check.payloadLen == 0U ||
+        outLen <= manifestMetadata_->check.payloadLen) {
         portEXIT_CRITICAL(&lock_);
         return false;
     }
-    payloadLen = manifestCheck_.payloadLen;
+    payloadLen = manifestMetadata_->check.payloadLen;
     if (manifestCopyReaders_ < UINT8_MAX) {
         ++manifestCopyReaders_;
     } else {
@@ -685,6 +688,11 @@ bool FirmwareUpdateModule::setConfig_(const char* updateHost,
                                       char* errOut,
                                       size_t errOutLen)
 {
+    if (!manifestMetadata_) {
+        writeSimpleError_(errOut, errOutLen, "manifest metadata unavailable");
+        return false;
+    }
+
     if (!cfgStore_) {
         writeSimpleError_(errOut, errOutLen, "config store unavailable");
         return false;
@@ -697,7 +705,7 @@ bool FirmwareUpdateModule::setConfig_(const char* updateHost,
     portENTER_CRITICAL(&lock_);
     isBusy = busy_;
     hasPending = queuedJob_.pending;
-    manifestCheckActive = manifestCheckIsActive_(manifestCheck_.state);
+    manifestCheckActive = manifestCheckIsActive_(manifestMetadata_->check.state);
     updateStartPending = updateStartPending_;
     portEXIT_CRITICAL(&lock_);
     if (isBusy || hasPending || manifestCheckActive || updateStartPending) {
@@ -728,17 +736,21 @@ bool FirmwareUpdateModule::startUpdate_(FirmwareUpdateTarget target,
                                         size_t errOutLen)
 {
     if (operationIdOut) *operationIdOut = 0U;
+    if (!manifestMetadata_) {
+        writeSimpleError_(errOut, errOutLen, "manifest metadata unavailable");
+        return false;
+    }
     UpdateJob job{};
     job.target = target;
     if (target == FirmwareUpdateTarget::Nextion) {
         NextionArtifactSelection selection{};
         portENTER_CRITICAL(&lock_);
-        selection = nextionSelection_;
+        selection = manifestMetadata_->selection;
         if (!selection.valid && url && url[0] != '\0' &&
-            manifestCheck_.state == FirmwareManifestCheckState::Ready) {
+            manifestMetadata_->check.state == FirmwareManifestCheckState::Ready) {
             for (size_t i = 0U; i < nextionRecoveryArtifactCount_; ++i) {
-                if (strcmp(url, nextionRecoveryArtifacts_[i].url) == 0) {
-                    selection = nextionRecoveryArtifacts_[i];
+                if (strcmp(url, manifestMetadata_->recoveryArtifacts[i].url) == 0) {
+                    selection = manifestMetadata_->recoveryArtifacts[i];
                     break;
                 }
             }
@@ -778,7 +790,7 @@ bool FirmwareUpdateModule::startUpdate_(FirmwareUpdateTarget target,
 
     portENTER_CRITICAL(&lock_);
     if (busy_ || queuedJob_.pending || nextionRebootQueued_ || updateStartPending_ ||
-        manifestCheckIsActive_(manifestCheck_.state) || manifestCopyReaders_ > 0U) {
+        manifestCheckIsActive_(manifestMetadata_->check.state) || manifestCopyReaders_ > 0U) {
         portEXIT_CRITICAL(&lock_);
         writeSimpleError_(errOut, errOutLen, "updater busy");
         return false;
@@ -813,6 +825,11 @@ bool FirmwareUpdateModule::startUpdate_(FirmwareUpdateTarget target,
 
 bool FirmwareUpdateModule::queueNextionReboot_(char* errOut, size_t errOutLen)
 {
+    if (!manifestMetadata_) {
+        writeSimpleError_(errOut, errOutLen, "manifest metadata unavailable");
+        return false;
+    }
+
     if (nextionRebootPin_ < 0) {
         writeSimpleError_(errOut, errOutLen, "nextion reboot pin not configured");
         return false;
@@ -820,7 +837,7 @@ bool FirmwareUpdateModule::queueNextionReboot_(char* errOut, size_t errOutLen)
 
     portENTER_CRITICAL(&lock_);
     if (busy_ || queuedJob_.pending || nextionRebootQueued_ || updateStartPending_ ||
-        manifestCheckIsActive_(manifestCheck_.state) || manifestCopyReaders_ > 0U) {
+        manifestCheckIsActive_(manifestMetadata_->check.state) || manifestCopyReaders_ > 0U) {
         portEXIT_CRITICAL(&lock_);
         writeSimpleError_(errOut, errOutLen, "updater busy");
         return false;
@@ -1350,7 +1367,7 @@ bool FirmwareUpdateModule::runManifestCheck_(const ManifestCheckJob& job,
 {
     if (payloadLenOut) *payloadLenOut = 0U;
     if (nextionSelectionOut) *nextionSelectionOut = NextionArtifactSelection{};
-    if (!manifestPayload_) {
+    if (!manifestMetadata_ || !manifestPayload_) {
         writeSimpleError_(errOut, errOutLen, "manifest storage unavailable");
         return false;
     }
@@ -1526,7 +1543,7 @@ bool FirmwareUpdateModule::rememberNextionRecoveryArtifact_(
     size_t errOutLen)
 {
     for (size_t i = 0U; i < nextionRecoveryArtifactCount_; ++i) {
-        NextionArtifactSelection& remembered = nextionRecoveryArtifacts_[i];
+        NextionArtifactSelection& remembered = manifestMetadata_->recoveryArtifacts[i];
         if (strcmp(remembered.compatibility, artifact.compatibility) != 0) continue;
         if (compareNextionVersions(artifact.version, remembered.version) > 0) {
             remembered = artifact;
@@ -1538,7 +1555,7 @@ bool FirmwareUpdateModule::rememberNextionRecoveryArtifact_(
         writeSimpleError_(errOut, errOutLen, "manifest contains too many nextion display families");
         return false;
     }
-    nextionRecoveryArtifacts_[nextionRecoveryArtifactCount_++] = artifact;
+    manifestMetadata_->recoveryArtifacts[nextionRecoveryArtifactCount_++] = artifact;
     return true;
 }
 
@@ -1679,6 +1696,15 @@ void FirmwareUpdateModule::init(ConfigStore& cfg, ServiceRegistry& services)
         if (nextOperationId_ == 0U) nextOperationId_ = 1U;
     }
 
+    void* metadataMemory = heap_caps_malloc(sizeof(ManifestMetadata), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (metadataMemory) {
+        manifestMetadata_ = new (metadataMemory) ManifestMetadata{};
+        LOGI("Manifest metadata ready bytes=%u memory=psram", (unsigned)sizeof(ManifestMetadata));
+    } else {
+        LOGE("Firmware updater unavailable: manifest metadata allocation failed bytes=%u",
+             (unsigned)sizeof(ManifestMetadata));
+    }
+
     constexpr size_t kManifestStorageBytes =
         Limits::FirmwareUpdate::Buffers::ManifestResponseJson + 1U;
     manifestPayload_ = static_cast<char*>(
@@ -1706,11 +1732,16 @@ void FirmwareUpdateModule::init(ConfigStore& cfg, ServiceRegistry& services)
     }
 
     setStatus_(UpdateState::Idle, FirmwareUpdateTarget::Waveshare, 0, "idle");
-    LOGI("Firmware updater ready");
+    if (manifestMetadata_) LOGI("Firmware updater ready");
 }
 
 void FirmwareUpdateModule::loop()
 {
+    if (!manifestMetadata_) {
+        vTaskDelay(pdMS_TO_TICKS(60));
+        return;
+    }
+
     UpdateJob job{};
     ManifestCheckJob manifestJob{};
     bool runNextionReboot = false;
@@ -1735,10 +1766,10 @@ void FirmwareUpdateModule::loop()
         manifestJob = manifestCheckJob_;
         manifestCheckJob_.pending = false;
         runManifestCheck = true;
-        if (manifestCheck_.requestId == manifestJob.requestId) {
-            manifestCheck_.state = FirmwareManifestCheckState::Downloading;
-            manifestCheck_.updatedAtMs = millis();
-            snprintf(manifestCheck_.message, sizeof(manifestCheck_.message), "downloading");
+        if (manifestMetadata_->check.requestId == manifestJob.requestId) {
+            manifestMetadata_->check.state = FirmwareManifestCheckState::Downloading;
+            manifestMetadata_->check.updatedAtMs = millis();
+            snprintf(manifestMetadata_->check.message, sizeof(manifestMetadata_->check.message), "downloading");
         }
     } else {
         portEXIT_CRITICAL(&lock_);
@@ -1762,41 +1793,41 @@ void FirmwareUpdateModule::loop()
             runManifestCheck_(manifestJob, &nextionSelection, &payloadLen, err, sizeof(err));
 
         portENTER_CRITICAL(&lock_);
-        if (manifestCheck_.requestId == manifestJob.requestId) {
-            manifestCheck_.updatedAtMs = millis();
+        if (manifestMetadata_->check.requestId == manifestJob.requestId) {
+            manifestMetadata_->check.updatedAtMs = millis();
             if (ok) {
-                nextionSelection_ = nextionSelection;
-                manifestCheck_.state = FirmwareManifestCheckState::Ready;
-                manifestCheck_.payloadLen = payloadLen;
-                manifestCheck_.nextionDisplayDetected = nextionSelection.displayModel[0] != '\0';
-                manifestCheck_.nextionArtifactSelected = nextionSelection.valid;
-                snprintf(manifestCheck_.nextionDisplayModel,
-                         sizeof(manifestCheck_.nextionDisplayModel),
+                manifestMetadata_->selection = nextionSelection;
+                manifestMetadata_->check.state = FirmwareManifestCheckState::Ready;
+                manifestMetadata_->check.payloadLen = payloadLen;
+                manifestMetadata_->check.nextionDisplayDetected = nextionSelection.displayModel[0] != '\0';
+                manifestMetadata_->check.nextionArtifactSelected = nextionSelection.valid;
+                snprintf(manifestMetadata_->check.nextionDisplayModel,
+                         sizeof(manifestMetadata_->check.nextionDisplayModel),
                          "%s",
                          nextionSelection.displayModel);
-                snprintf(manifestCheck_.nextionDisplayCompatibility,
-                         sizeof(manifestCheck_.nextionDisplayCompatibility),
+                snprintf(manifestMetadata_->check.nextionDisplayCompatibility,
+                         sizeof(manifestMetadata_->check.nextionDisplayCompatibility),
                          "%s",
                          nextionSelection.compatibility);
-                snprintf(manifestCheck_.nextionArtifactPath,
-                         sizeof(manifestCheck_.nextionArtifactPath),
+                snprintf(manifestMetadata_->check.nextionArtifactPath,
+                         sizeof(manifestMetadata_->check.nextionArtifactPath),
                          "%s",
                          nextionSelection.path);
-                snprintf(manifestCheck_.nextionArtifactVersion,
-                         sizeof(manifestCheck_.nextionArtifactVersion),
+                snprintf(manifestMetadata_->check.nextionArtifactVersion,
+                         sizeof(manifestMetadata_->check.nextionArtifactVersion),
                          "%s",
                          nextionSelection.version);
-                snprintf(manifestCheck_.nextionArtifactUrl,
-                         sizeof(manifestCheck_.nextionArtifactUrl),
+                snprintf(manifestMetadata_->check.nextionArtifactUrl,
+                         sizeof(manifestMetadata_->check.nextionArtifactUrl),
                          "%s",
                          nextionSelection.url);
-                manifestCheck_.nextionArtifactSize = nextionSelection.size;
-                snprintf(manifestCheck_.message, sizeof(manifestCheck_.message), "ready");
+                manifestMetadata_->check.nextionArtifactSize = nextionSelection.size;
+                snprintf(manifestMetadata_->check.message, sizeof(manifestMetadata_->check.message), "ready");
             } else {
-                manifestCheck_.state = FirmwareManifestCheckState::Error;
-                manifestCheck_.payloadLen = 0U;
-                snprintf(manifestCheck_.message,
-                         sizeof(manifestCheck_.message),
+                manifestMetadata_->check.state = FirmwareManifestCheckState::Error;
+                manifestMetadata_->check.payloadLen = 0U;
+                snprintf(manifestMetadata_->check.message,
+                         sizeof(manifestMetadata_->check.message),
                          "%s",
                          err[0] ? err : "manifest check failed");
             }

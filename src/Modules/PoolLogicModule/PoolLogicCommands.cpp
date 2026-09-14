@@ -8,7 +8,7 @@
 #include "Core/ErrorCodes.h"
 #include "Core/SystemLimits.h"
 
-#include <ArduinoJson.h>
+#include "Core/SpiRamJsonDocument.h"
 #include <cstdlib>
 #include <cstring>
 #include <stdio.h>
@@ -19,10 +19,9 @@
 namespace {
 // Commands may send either a compact args JSON or a full root payload with an
 // "args" object. This helper accepts both shapes to preserve compatibility.
-static bool parseCmdArgsObject_(const CommandRequest& req, JsonObjectConst& outObj)
+static bool parseCmdArgsObject_(const CommandRequest& req, JsonDocument& doc, JsonObjectConst& outObj)
 {
-    static constexpr size_t CMD_DOC_CAPACITY = Limits::JsonCmdPoolDeviceBuf;
-    static StaticJsonDocument<CMD_DOC_CAPACITY> doc;
+    if (doc.capacity() == 0U) return false;
 
     doc.clear();
     const char* json = req.args ? req.args : req.json;
@@ -126,8 +125,9 @@ bool PoolLogicModule::cmdFiltrationWrite_(const CommandRequest& req, char* reply
         return false;
     }
 
+    SpiRamJsonDocument argsDoc(Limits::JsonCmdPoolDeviceBuf);
     JsonObjectConst args;
-    if (!parseCmdArgsObject_(req, args)) {
+    if (!parseCmdArgsObject_(req, argsDoc, args)) {
         writeCmdError_(reply, replyLen, "poollogic.filtration.write", ErrorCode::MissingArgs);
         return false;
     }
@@ -195,8 +195,9 @@ bool PoolLogicModule::cmdAutoModeSet_(const CommandRequest& req, char* reply, si
         return false;
     }
 
+    SpiRamJsonDocument argsDoc(Limits::JsonCmdPoolDeviceBuf);
     JsonObjectConst args;
-    if (!parseCmdArgsObject_(req, args)) {
+    if (!parseCmdArgsObject_(req, argsDoc, args)) {
         writeCmdError_(reply, replyLen, "poollogic.auto_mode.set", ErrorCode::MissingArgs);
         return false;
     }
@@ -230,8 +231,9 @@ bool PoolLogicModule::cmdMqttControl_(const CommandRequest& req, char* reply, si
             return false;
         }
 
+        SpiRamJsonDocument argsDoc(Limits::JsonCmdPoolDeviceBuf);
         JsonObjectConst args;
-        if (!parseCmdArgsObject_(req, args)) {
+        if (!parseCmdArgsObject_(req, argsDoc, args)) {
             writeCmdError_(reply, replyLen, where, ErrorCode::MissingArgs);
             return false;
         }
@@ -363,8 +365,9 @@ bool PoolLogicModule::cmdMqttControl_(const CommandRequest& req, char* reply, si
                                    uint8_t slot,
                                    bool forceManualAutoMode,
                                    const char* clearDosingModeKey) -> bool {
+        SpiRamJsonDocument argsDoc(Limits::JsonCmdPoolDeviceBuf);
         JsonObjectConst args;
-        if (!parseCmdArgsObject_(req, args)) {
+        if (!parseCmdArgsObject_(req, argsDoc, args)) {
             writeCmdError_(reply, replyLen, where, ErrorCode::MissingArgs);
             return false;
         }
@@ -464,8 +467,9 @@ bool PoolLogicModule::cmdMqttControl_(const CommandRequest& req, char* reply, si
     };
 
     auto applyRobotManualFromArgs = [&](const char* where) -> bool {
+        SpiRamJsonDocument argsDoc(Limits::JsonCmdPoolDeviceBuf);
         JsonObjectConst args;
-        if (!parseCmdArgsObject_(req, args)) {
+        if (!parseCmdArgsObject_(req, argsDoc, args)) {
             writeCmdError_(reply, replyLen, where, ErrorCode::MissingArgs);
             return false;
         }

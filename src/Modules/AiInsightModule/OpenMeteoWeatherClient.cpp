@@ -12,7 +12,7 @@
 #define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::AiInsightModule)
 #include "Core/ModuleLog.h"
 
-#include <ArduinoJson.h>
+#include "Core/SpiRamJsonDocument.h"
 #include <HTTPClient.h>
 #include <Network.h>
 #include <NetworkClientSecure.h>
@@ -32,20 +32,6 @@ constexpr char kForecastUrlFormat[] =
     "&daily=temperature_2m_min,temperature_2m_max,temperature_2m_mean,"
     "precipitation_sum,cloud_cover_mean,wind_speed_10m_max,shortwave_radiation_sum"
     "&past_days=7&forecast_days=2&timeformat=iso8601&timezone=auto";
-
-struct SpiRamJsonAllocator {
-    void* allocate(size_t size)
-    {
-        return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    }
-
-    void deallocate(void* pointer)
-    {
-        heap_caps_free(pointer);
-    }
-};
-
-using SpiRamJsonDocument = BasicJsonDocument<SpiRamJsonAllocator>;
 
 bool writeError_(char* out, size_t outLen, const char* message)
 {

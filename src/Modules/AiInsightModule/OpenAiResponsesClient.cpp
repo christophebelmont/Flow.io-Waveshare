@@ -11,7 +11,7 @@
 #define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::AiInsightModule)
 #include "Core/ModuleLog.h"
 
-#include <ArduinoJson.h>
+#include "Core/SpiRamJsonDocument.h"
 #include <HTTPClient.h>
 #include <NetworkClientSecure.h>
 #include <esp_heap_caps.h>
@@ -29,20 +29,6 @@ const char* kDiagnosticHeaders[] = {
     "x-ratelimit-reset-requests",
     "x-ratelimit-reset-tokens",
 };
-
-struct SpiRamJsonAllocator {
-    void* allocate(size_t size)
-    {
-        return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    }
-
-    void deallocate(void* pointer)
-    {
-        heap_caps_free(pointer);
-    }
-};
-
-using SpiRamJsonDocument = BasicJsonDocument<SpiRamJsonAllocator>;
 
 class SpiRamBuffer {
 public:

@@ -9,7 +9,7 @@
 #include "Core/ModuleId.h"
 #include "Core/SnprintfCheck.h"
 #include <Arduino.h>
-#include <ArduinoJson.h>
+#include "Core/SpiRamJsonDocument.h"
 #include <esp_heap_caps.h>
 #include <stdio.h>
 
@@ -567,7 +567,7 @@ bool ConfigStore::applyJson(const char* json)
     if (!json || json[0] == '\0') return false;
 
     static constexpr size_t APPLY_JSON_DOC_CAPACITY = Limits::JsonConfigApplyBuf;
-    static StaticJsonDocument<APPLY_JSON_DOC_CAPACITY> doc;
+    SpiRamJsonDocument doc(APPLY_JSON_DOC_CAPACITY);
     doc.clear();
     const DeserializationError err = deserializeJson(doc, json);
     const size_t docUsedBytes = doc.memoryUsage();
@@ -576,7 +576,7 @@ bool ConfigStore::applyJson(const char* json)
     if (err || !doc.is<JsonObjectConst>()) {
         BufferUsageTracker::note(TrackedBufferId::ConfigApplyJsonDoc,
                                  docUsedBytes,
-                                 sizeof(doc),
+                                 doc.capacity(),
                                  "applyJson",
                                  nullptr);
         if (err == DeserializationError::NoMemory) {
@@ -599,7 +599,7 @@ bool ConfigStore::applyJson(const char* json)
     }
     BufferUsageTracker::note(TrackedBufferId::ConfigApplyJsonDoc,
                              docUsedBytes,
-                             sizeof(doc),
+                             doc.capacity(),
                              peakSource,
                              "<json>");
 

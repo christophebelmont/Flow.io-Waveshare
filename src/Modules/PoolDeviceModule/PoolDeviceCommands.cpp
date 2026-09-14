@@ -8,16 +8,15 @@
 #include "Domain/Pool/PoolIds.h"
 #define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::PoolDeviceModule)
 #include "Core/ModuleLog.h"
-#include <ArduinoJson.h>
+#include "Core/SpiRamJsonDocument.h"
 #include <stdlib.h>
 #include <string.h>
 
 namespace {
 // Commands accept either a plain args object or a wrapped root payload.
-bool parseCmdArgsObject_(const CommandRequest& req, JsonObjectConst& outObj)
+bool parseCmdArgsObject_(const CommandRequest& req, JsonDocument& doc, JsonObjectConst& outObj)
 {
-    static constexpr size_t CMD_DOC_CAPACITY = Limits::JsonCmdPoolDeviceBuf;
-    static StaticJsonDocument<CMD_DOC_CAPACITY> doc;
+    if (doc.capacity() == 0U) return false;
 
     doc.clear();
     const char* json = req.args ? req.args : req.json;
@@ -195,8 +194,9 @@ void PoolDeviceModule::emitAutoModeDisabledByManualActivity_(ActivityRole role,
 
 bool PoolDeviceModule::handlePoolWrite_(const CommandRequest& req, char* reply, size_t replyLen)
 {
+    SpiRamJsonDocument argsDoc(Limits::JsonCmdPoolDeviceBuf);
     JsonObjectConst args;
-    if (!parseCmdArgsObject_(req, args)) {
+    if (!parseCmdArgsObject_(req, argsDoc, args)) {
         writeCmdError_(reply, replyLen, "pooldevice.write", ErrorCode::MissingArgs);
         return false;
     }
@@ -367,8 +367,9 @@ bool PoolDeviceModule::handlePoolWrite_(const CommandRequest& req, char* reply, 
 
 bool PoolDeviceModule::handlePoolRefill_(const CommandRequest& req, char* reply, size_t replyLen)
 {
+    SpiRamJsonDocument argsDoc(Limits::JsonCmdPoolDeviceBuf);
     JsonObjectConst args;
-    if (!parseCmdArgsObject_(req, args)) {
+    if (!parseCmdArgsObject_(req, argsDoc, args)) {
         writeCmdError_(reply, replyLen, "pool.refill", ErrorCode::MissingArgs);
         return false;
     }
@@ -456,8 +457,9 @@ bool PoolDeviceModule::handlePoolRefill_(const CommandRequest& req, char* reply,
 
 bool PoolDeviceModule::handlePoolResetUptime_(const CommandRequest& req, char* reply, size_t replyLen)
 {
+    SpiRamJsonDocument argsDoc(Limits::JsonCmdPoolDeviceBuf);
     JsonObjectConst args;
-    if (!parseCmdArgsObject_(req, args)) {
+    if (!parseCmdArgsObject_(req, argsDoc, args)) {
         writeCmdError_(reply, replyLen, "pool.uptime.reset", ErrorCode::MissingArgs);
         return false;
     }

@@ -14,7 +14,7 @@
 #include "Board/BoardSpec.h"
 #include <Wire.h>
 #endif
-#include <ArduinoJson.h>
+#include "Core/SpiRamJsonDocument.h"
 #include <time.h>
 #include <cstdlib>
 #include <cstring>
@@ -212,10 +212,9 @@ static uint32_t dayStampFromEpochLocal_(uint64_t epochSec)
     return ((uint32_t)(local.tm_year + 1900) * 1000UL) + (uint32_t)local.tm_yday;
 }
 
-static bool parseCmdArgsObject_(const CommandRequest& req, JsonObjectConst& outObj)
+static bool parseCmdArgsObject_(const CommandRequest& req, JsonDocument& doc, JsonObjectConst& outObj)
 {
-    static constexpr size_t CMD_DOC_CAPACITY = Limits::JsonCmdTimeBuf;
-    static StaticJsonDocument<CMD_DOC_CAPACITY> doc;
+    if (doc.capacity() == 0U) return false;
     doc.clear();
     const char* json = req.args ? req.args : req.json;
     if (!json || json[0] == '\0') return false;
@@ -1590,8 +1589,9 @@ bool TimeModule::handleCmdSchedInfo_(const CommandRequest&, char* reply, size_t 
 
 bool TimeModule::handleCmdSchedGet_(const CommandRequest& req, char* reply, size_t replyLen)
 {
+    SpiRamJsonDocument argsDoc(Limits::JsonCmdTimeBuf);
     JsonObjectConst args;
-    if (!parseCmdArgsObject_(req, args)) {
+    if (!parseCmdArgsObject_(req, argsDoc, args)) {
         writeCmdError_(reply, replyLen, "time.scheduler.get", ErrorCode::MissingArgs);
         return false;
     }
@@ -1633,8 +1633,9 @@ bool TimeModule::handleCmdSchedGet_(const CommandRequest& req, char* reply, size
 
 bool TimeModule::handleCmdSchedSet_(const CommandRequest& req, char* reply, size_t replyLen)
 {
+    SpiRamJsonDocument argsDoc(Limits::JsonCmdTimeBuf);
     JsonObjectConst args;
-    if (!parseCmdArgsObject_(req, args)) {
+    if (!parseCmdArgsObject_(req, argsDoc, args)) {
         writeCmdError_(reply, replyLen, "time.scheduler.set", ErrorCode::MissingArgs);
         return false;
     }
@@ -1799,8 +1800,9 @@ bool TimeModule::handleCmdSchedSet_(const CommandRequest& req, char* reply, size
 
 bool TimeModule::handleCmdSchedClear_(const CommandRequest& req, char* reply, size_t replyLen)
 {
+    SpiRamJsonDocument argsDoc(Limits::JsonCmdTimeBuf);
     JsonObjectConst args;
-    if (!parseCmdArgsObject_(req, args)) {
+    if (!parseCmdArgsObject_(req, argsDoc, args)) {
         writeCmdError_(reply, replyLen, "time.scheduler.clear", ErrorCode::MissingArgs);
         return false;
     }

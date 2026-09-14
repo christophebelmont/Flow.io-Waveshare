@@ -10,7 +10,7 @@
 #include "Core/ModuleId.h"
 #include "Core/MqttTopics.h"
 #include <Arduino.h>
-#include <ArduinoJson.h>
+#include "Core/SpiRamJsonDocument.h"
 #include <new>
 #include <string.h>
 
@@ -42,10 +42,9 @@ static uint32_t clampEvalPeriodMs_(int32_t inMs)
     return (uint32_t)inMs;
 }
 
-static bool parseCmdArgsObject_(const CommandRequest& req, JsonObjectConst& outObj)
+static bool parseCmdArgsObject_(const CommandRequest& req, JsonDocument& doc, JsonObjectConst& outObj)
 {
-    static constexpr size_t CMD_DOC_CAPACITY = Limits::Alarm::JsonCmdBuf;
-    static StaticJsonDocument<CMD_DOC_CAPACITY> doc;
+    if (doc.capacity() == 0U) return false;
 
     doc.clear();
     const char* json = req.args ? req.args : req.json;
@@ -565,8 +564,9 @@ bool AlarmModule::cmdList_(void* userCtx, const CommandRequest&, char* reply, si
 
 bool AlarmModule::handleCmdReset_(const CommandRequest& req, char* reply, size_t replyLen)
 {
+    SpiRamJsonDocument argsDoc(Limits::Alarm::JsonCmdBuf);
     JsonObjectConst args;
-    if (!parseCmdArgsObject_(req, args)) {
+    if (!parseCmdArgsObject_(req, argsDoc, args)) {
         if (!writeErrorJson(reply, replyLen, ErrorCode::MissingArgs, "alarms.reset")) {
             snprintf(reply, replyLen, "{\"ok\":false}");
         }
@@ -600,8 +600,9 @@ bool AlarmModule::handleCmdReset_(const CommandRequest& req, char* reply, size_t
 
 bool AlarmModule::handleCmdResetSlot_(const CommandRequest& req, char* reply, size_t replyLen)
 {
+    SpiRamJsonDocument argsDoc(Limits::Alarm::JsonCmdBuf);
     JsonObjectConst args;
-    if (!parseCmdArgsObject_(req, args)) {
+    if (!parseCmdArgsObject_(req, argsDoc, args)) {
         if (!writeErrorJson(reply, replyLen, ErrorCode::MissingArgs, "alarms.reset_slot")) {
             snprintf(reply, replyLen, "{\"ok\":false}");
         }
