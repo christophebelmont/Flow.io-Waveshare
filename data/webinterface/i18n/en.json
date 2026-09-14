@@ -419,6 +419,16 @@
     "calibration.err.rawConversionImpossible": "raw conversion impossible",
     "calibration.err.rawPointsTooClose": "raw points are too close",
     "calibration.err.coeffCalcImpossible": "unable to compute coefficients",
-    "calibration.err.c1CalcImpossible": "unable to compute C1"
+    "calibration.err.c1CalcImpossible": "unable to compute C1",
+    "dashboard.action.loadingTargets": "Loading devices…",
+    "dashboard.action.close": "Close",
+    "dashboard.action.targetsError": "Device list unavailable",
+    "dashboard.action.noTargets": "No registered devices",
+    "dashboard.action.cancel": "Cancel",
+    "dashboard.action.running": "Running",
+    "dashboard.action.stopped": "Stopped",
+    "dashboard.action.unknownState": "State unavailable",
+    "dashboard.action.unavailable": "Command unavailable",
+    "dashboard.action.stateUpdated": "State of {target} refreshed"
   }
 }

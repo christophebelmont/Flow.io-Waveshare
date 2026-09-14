@@ -25,6 +25,16 @@ static inline bool poolDeviceRuntimeState(const DataStore& ds, uint8_t idx, Pool
     return out.valid;
 }
 
+/** Number of registered devices, including disabled devices. */
+static inline uint8_t poolDeviceRuntimeCount(const DataStore& ds)
+{
+    uint8_t count = 0;
+    for (uint8_t idx = 0; idx < POOL_DEVICE_MAX; ++idx) {
+        if (ds.data().pool.state[idx].valid) ++count;
+    }
+    return count;
+}
+
 static inline bool poolDeviceRuntimeMetrics(const DataStore& ds, uint8_t idx, PoolDeviceRuntimeMetricsEntry& out)
 {
     if (idx >= POOL_DEVICE_MAX) return false;

@@ -33,6 +33,19 @@ struct AlarmRegistration {
     bool activityLogEnabled = true;
 };
 
+/** Consistent state of one registered alarm, including its last activation date. */
+struct AlarmState {
+    AlarmId id = AlarmId::None;
+    char title[48] = {0};
+    char code[24] = {0};
+    bool active = false;
+    bool latchEnabled = false;
+    bool resettable = false;
+    AlarmCondState condition = AlarmCondState::Unknown;
+    /** UTC Unix seconds captured at activation; zero means no reliable date available. */
+    uint64_t lastRaisedUnixSec = 0;
+};
+
 /** Service contract exposed by AlarmModule. */
 struct AlarmService {
     bool (*registerAlarm)(void* ctx, const AlarmRegistration* def, AlarmCondFn condFn, void* condCtx);
@@ -48,4 +61,5 @@ struct AlarmService {
     /** Builds compact per-slot packed state (5 bits/slot) used by dense UIs. */
     bool (*buildPacked)(void* ctx, char* out, size_t len, uint8_t slotCount);
     void* ctx;
+    bool (*readState)(void* ctx, AlarmId id, AlarmState* out);
 };

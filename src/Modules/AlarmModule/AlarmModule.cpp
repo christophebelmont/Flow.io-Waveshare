@@ -443,6 +443,28 @@ uint8_t AlarmModule::listIds_(AlarmId* out, uint8_t max) const
     return count;
 }
 
+bool AlarmModule::readState_(AlarmId id, AlarmState* out) const
+{
+    if (!out) return false;
+    AlarmSlot snap{};
+    portENTER_CRITICAL(&slotsMux_);
+    const int16_t idx = findSlotById_(id);
+    if (idx >= 0) snap = slots_[(uint16_t)idx];
+    portEXIT_CRITICAL(&slotsMux_);
+    if (!snap.used) return false;
+
+    *out = AlarmState{};
+    out->id = snap.id;
+    snprintf(out->title, sizeof(out->title), "%s", snap.def.title);
+    snprintf(out->code, sizeof(out->code), "%s", snap.def.code);
+    out->active = snap.active;
+    out->latchEnabled = snap.def.latched;
+    out->condition = snap.lastCond;
+    out->resettable = snap.active && snap.def.latched && snap.lastCond == AlarmCondState::False;
+    out->lastRaisedUnixSec = snap.lastRaisedUnixSec;
+    return true;
+}
+
 bool AlarmModule::buildAlarmState_(AlarmId id, char* out, size_t len) const
 {
     if (!out || len == 0) return false;
@@ -687,6 +709,7 @@ void AlarmModule::init(ConfigStore& cfg, ServiceRegistry& services)
     cmdSvc_ = services.get<CommandService>(ServiceId::Command);
     haSvc_ = services.get<HAService>(ServiceId::Ha);
     activityLogSvc_ = services.get<ActivityLogService>(ServiceId::ActivityLog);
+    timeSvc_ = services.get<TimeService>(ServiceId::Time);
 
     if (!services.add(ServiceId::Alarm, &alarmSvc_)) {
         LOGE("service registration failed: %s", toString(ServiceId::Alarm));
@@ -761,6 +784,7 @@ void AlarmModule::registerHaEntities_(ServiceRegistry& services)
 
 void AlarmModule::onConfigLoaded(ConfigStore&, ServiceRegistry& services)
 {
+    timeSvc_ = services.get<TimeService>(ServiceId::Time);
     if (!activityLogSvc_) {
         activityLogSvc_ = services.get<ActivityLogService>(ServiceId::ActivityLog);
     }
@@ -780,6 +804,12 @@ void AlarmModule::onConfigLoaded(ConfigStore&, ServiceRegistry& services)
 
 void AlarmModule::evaluateOnce_(uint32_t nowMs)
 {
+    // Capture trusted wall time outside the alarm critical section. Never infer a
+    // trigger date from lastChangeMs, which also changes when an alarm is cleared.
+    TimeState clock{};
+    const uint64_t epoch = timeSvc_ && timeSvc_->currentState &&
+                           timeSvc_->currentState(timeSvc_->ctx, &clock) && clock.valid
+        ? clock.currentTimeUtc : 0U;
     AlarmId dueNotifyIds[Limits::Alarm::MaxAlarms]{};
     const uint8_t dueNotifyCount = takeDueAlarmReminderIds_(dueNotifyIds, (uint8_t)Limits::Alarm::MaxAlarms, nowMs);
     for (uint8_t i = 0; i < dueNotifyCount; ++i) {
@@ -836,6 +866,7 @@ void AlarmModule::evaluateOnce_(uint32_t nowMs)
                     if (delayReached_(s.onSinceMs, s.def.onDelayMs, nowMs)) {
                         s.active = true;
                         s.activeSinceMs = nowMs;
+                        s.lastRaisedUnixSec = epoch;
                         s.lastChangeMs = nowMs;
                         s.onSinceMs = 0U;
                         postRaised = true;

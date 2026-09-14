@@ -213,6 +213,25 @@
     "cfgdocs.pdm.pd15.tank_cap_ml.label": "Capacité cuve COMP08 (mL)",
     "cfgdocs.pdm.pd15.tank_cap_ml.help": "Capacité maximale de la cuve associée à COMP08.",
     "cfgdocs.pdm.pd15.tank_init_ml.label": "Niveau initial cuve COMP08 (mL)",
-    "cfgdocs.pdm.pd15.tank_init_ml.help": "Volume initial de cuve de COMP08 après configuration/reset."
+    "cfgdocs.pdm.pd15.tank_init_ml.help": "Volume initial de cuve de COMP08 après configuration/reset.",
+    "runtimeui.pooldev.v05.label": "Équipements enregistrés",
+    "runtimeui.pooldev.reset.button": "Gérer les équipements",
+    "runtimeui.pooldev.reset.title": "Gestion des équipements",
+    "runtimeui.pooldev.reset.description": "Le toggle On/Off envoie une commande manuelle et affiche l’état réel après actualisation. Les protections des équipements restent appliquées. Cette action remet à zéro les temps de fonctionnement et les volumes injectés du jour, de la semaine et du mois. Les compteurs totaux sont conservés. Un équipement bloqué par sa durée maximale journalière peut redevenir autorisé à fonctionner, sous réserve des autres protections.",
+    "runtimeui.pooldev.reset.inputLabel": "Équipement",
+    "runtimeui.pooldev.reset.allLabel": "Tous les équipements",
+    "runtimeui.pooldev.reset.successText": "Les compteurs de {target} ont été remis à zéro.",
+    "runtimeui.pooldev.reset.day": "Jour",
+    "runtimeui.pooldev.reset.week": "Semaine",
+    "runtimeui.pooldev.reset.month": "Mois",
+    "runtimeui.pooldev.reset.total": "Total",
+    "runtimeui.pooldev.reset.metricsLabel": "Durées hh:mm:ss · Volumes en mL",
+    "runtimeui.pooldev.reset.rowButtonText": "Remettre à zéro",
+    "runtimeui.pooldev.reset.allButtonText": "Tout remettre à zéro",
+    "runtimeui.pooldev.reset.confirmationText": "Remettre à zéro {target} ?",
+    "runtimeui.pooldev.reset.confirmationHint": "Jour, semaine et mois · Totaux conservés",
+    "runtimeui.pooldev.reset.confirmButtonText": "Confirmer",
+    "runtimeui.pooldev.reset.detailsLabel": "Ce qui est remis à zéro",
+    "runtimeui.pooldev.reset.countText": "{count} équipements"
   }
 }

@@ -4,6 +4,8 @@
  */
 
 #include "PoolLogicModule.h"
+#include "ManualDeviceCommand.h"
+#include "Modules/PoolDeviceModule/PoolDeviceModuleDataModel.h"
 #include "Core/CommandRegistry.h"
 #include "Core/ErrorCodes.h"
 #include "Core/SystemLimits.h"
@@ -116,6 +118,41 @@ bool PoolLogicModule::cmdMqttControlStatic_(void* userCtx,
     PoolLogicModule* self = static_cast<PoolLogicModule*>(userCtx);
     if (!self) return false;
     return self->cmdMqttControl_(req, reply, replyLen);
+}
+
+bool PoolLogicModule::cmdDeviceWriteStatic_(void* userCtx,
+                                          const CommandRequest& req,
+                                          char* reply,
+                                          size_t replyLen)
+{
+    PoolLogicModule* self = static_cast<PoolLogicModule*>(userCtx);
+    return self && self->cmdDeviceWrite_(req, reply, replyLen);
+}
+
+bool PoolLogicModule::cmdDeviceWrite_(const CommandRequest& req, char* reply, size_t replyLen)
+{
+    if (!commandSvc_ || !commandSvc_->execute) {
+        writeCmdError_(reply, replyLen, "poollogic.device.write", ErrorCode::NotReady);
+        return false;
+    }
+    SpiRamJsonDocument argsDoc(Limits::JsonCmdPoolDeviceBuf);
+    JsonObjectConst args;
+    if (!parseCmdArgsObject_(req, argsDoc, args)) {
+        writeCmdError_(reply, replyLen, "poollogic.device.write", ErrorCode::MissingArgs);
+        return false;
+    }
+    if (!args.containsKey("slot")) {
+        writeCmdError_(reply, replyLen, "poollogic.device.write", ErrorCode::MissingSlot);
+        return false;
+    }
+    if (!args["slot"].is<uint8_t>() || args["slot"].as<uint8_t>() >= POOL_DEVICE_MAX) {
+        writeCmdError_(reply, replyLen, "poollogic.device.write", ErrorCode::BadSlot);
+        return false;
+    }
+    const PoolManualDeviceSlots roles{filtrationDeviceSlot_, phPumpDeviceSlot_, orpPumpDeviceSlot_,
+                                     robotDeviceSlot_, heaterDeviceSlot_, swgDeviceSlot_};
+    const char* command = poolManualDeviceWriteCommand(args["slot"].as<uint8_t>(), roles);
+    return commandSvc_->execute(commandSvc_->ctx, command, req.json, req.args, reply, replyLen);
 }
 
 bool PoolLogicModule::cmdFiltrationWrite_(const CommandRequest& req, char* reply, size_t replyLen)

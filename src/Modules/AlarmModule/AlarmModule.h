@@ -59,6 +59,7 @@ private:
         uint32_t onSinceMs = 0;
         uint32_t offSinceMs = 0;
         uint32_t activeSinceMs = 0;
+        uint64_t lastRaisedUnixSec = 0;
         uint32_t lastChangeMs = 0;
         uint32_t lastNotifyMs = 0;
     };
@@ -79,6 +80,7 @@ private:
     bool buildSnapshot_(char* out, size_t len) const;
     uint8_t listIds_(AlarmId* out, uint8_t max) const;
     bool buildAlarmState_(AlarmId id, char* out, size_t len) const;
+    bool readState_(AlarmId id, AlarmState* out) const;
     bool buildPacked_(char* out, size_t len, uint8_t slotCount) const;
     bool handleCmdReset_(const CommandRequest& req, char* reply, size_t replyLen);
     bool handleCmdResetSlot_(const CommandRequest& req, char* reply, size_t replyLen);
@@ -108,7 +110,8 @@ private:
         ServiceBinding::bind<&AlarmModule::listIds_>,
         ServiceBinding::bind<&AlarmModule::buildAlarmState_>,
         ServiceBinding::bind<&AlarmModule::buildPacked_>,
-        this
+        this,
+        ServiceBinding::bind<&AlarmModule::readState_>
     };
 
     const LogHubService* logHub_ = nullptr;
@@ -116,6 +119,7 @@ private:
     const CommandService* cmdSvc_ = nullptr;
     const HAService* haSvc_ = nullptr;
     const ActivityLogService* activityLogSvc_ = nullptr;
+    const TimeService* timeSvc_ = nullptr;
     bool haEntitiesRegistered_ = false;
 
     bool enabled_ = true;

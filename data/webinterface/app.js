@@ -2146,6 +2146,7 @@
       alarm: createRuntimeDomainState()
     };
     let runtimeActionBusyKey = '';
+    let runtimeActionDialog = null;
     const runtimeActionFeedback = new Map();
     let selectedMobileMeasureDomain = runtimeMeasureDomainKeys[0];
     let poolDashboardSlotsCache = null;
@@ -6153,8 +6154,9 @@
       }) || null;
     }
 
-    function runtimeActionKey(entry, action, inputValue) {
+    function runtimeActionKey(entry, action, inputValue, targetValue) {
       const base = String(Number(entry && entry.id)) + ':' + String(action && action.id ? action.id : '');
+      if (targetValue !== undefined) return base + ':' + String(targetValue);
       return action && action.presentation === 'button' && inputValue !== undefined
         ? base + ':' + String(inputValue)
         : base;
@@ -6181,9 +6183,9 @@
       }, 7000);
     }
 
-    async function executeRuntimeAction(entry, action, inputValue) {
-      const actionKey = runtimeActionKey(entry, action, inputValue);
-      if (!actionKey || runtimeActionBusyKey) return;
+    async function executeRuntimeAction(entry, action, inputValue, targetValue) {
+      const actionKey = runtimeActionKey(entry, action, inputValue, targetValue);
+      if (!actionKey || runtimeActionBusyKey) return false;
 
       runtimeActionBusyKey = actionKey;
       runtimeActionFeedback.delete(actionKey);
@@ -6196,6 +6198,7 @@
         if (action.input && action.input.type !== 'none') {
           body.set('input', String(inputValue));
         }
+        if (action.target) body.set('target', String(targetValue));
         const response = await fetchWithBusyRetry('/api/runtime/action', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
@@ -6218,16 +6221,435 @@
           .map((domain) => loadPoolMeasureDomain(domain, false));
         refreshTasks.push(refreshPoolOverview(false));
         await Promise.allSettled(refreshTasks);
+        return true;
       } catch (err) {
         const detail = err && err.message ? err.message : String(err);
         setRuntimeActionFeedback(
           actionKey,
           tr('dashboard.action.errorDetail', 'Commande refusée : {error}').replace('{error}', detail)
         );
+        return false;
       } finally {
         runtimeActionBusyKey = '';
         refreshPoolMeasuresView();
       }
+    }
+
+    function buildRuntimeActionDialogButton(entry) {
+      const config = runtimeMeasureDisplayConfig(entry).actionDialog;
+      if (!config) return null;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'secondary runtime-action-dialog-trigger';
+      button.textContent = config.buttonText;
+      button.dataset.runtimeDialogId = String(entry.id);
+      button.setAttribute('aria-haspopup', 'dialog');
+      button.disabled = !!runtimeActionBusyKey;
+      button.addEventListener('click', () => openRuntimeActionDialog(entry, config, button));
+      return button;
+    }
+
+    function runtimeCounterValue(target, key) {
+      return key.split('.').reduce((value, part) =>
+        value && typeof value === 'object' ? value[part] : null, target);
+    }
+
+    function formatRuntimeCounterDuration(seconds) {
+      if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) return '—';
+      const total = Math.floor(seconds);
+      return [Math.floor(total / 3600), Math.floor(total % 3600 / 60), total % 60]
+        .map((value) => String(value).padStart(2, '0')).join(':');
+    }
+
+    function formatRuntimeCounterVolume(ml) {
+      if (typeof ml !== 'number' || !Number.isFinite(ml) || ml < 0) return '—';
+      return ml.toLocaleString(document.documentElement.lang || 'fr',
+        { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' mL';
+    }
+
+    function buildRuntimeActionCell(target, column, buildSwitch) {
+      const cell = document.createElement('td');
+      if (column.muted) cell.className = 'runtime-counter-secondary';
+      if (column.type === 'switch') {
+        cell.className = 'runtime-action-switch-cell';
+        cell.appendChild(buildSwitch(target, column));
+      } else if (column.type === 'datetime') {
+        const value = runtimeCounterValue(target, column.key);
+        const date = typeof value === 'number' && value > 0 ? new Date(value * 1000) : null;
+        if (!date || !Number.isFinite(date.getTime())) {
+          cell.textContent = '—';
+        } else {
+          const locale = document.documentElement.lang || 'fr';
+          const day = document.createElement('div');
+          day.className = 'runtime-counter-volume';
+          day.textContent = date.toLocaleDateString(locale, { day: '2-digit', month: 'short', year: 'numeric' });
+          const time = document.createElement('div');
+          time.className = 'runtime-counter-duration';
+          time.textContent = date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+          cell.append(day, time);
+        }
+      } else if (column.type === 'enum') {
+        const value = runtimeCounterValue(target, column.key);
+        const state = column.states.find((item) => item.value === value);
+        const badge = document.createElement('span');
+        badge.className = 'runtime-action-state runtime-action-state-' + (state ? state.tone : 'neutral');
+        badge.textContent = state ? state.label : '—';
+        cell.appendChild(badge);
+      } else {
+        const duration = document.createElement('div');
+        duration.className = 'runtime-counter-duration';
+        duration.textContent = formatRuntimeCounterDuration(runtimeCounterValue(target, column.durationKey));
+        const volume = document.createElement('div');
+        volume.className = 'runtime-counter-volume';
+        volume.textContent = formatRuntimeCounterVolume(runtimeCounterValue(target, column.volumeKey));
+        cell.append(duration, volume);
+      }
+      return cell;
+    }
+
+    async function openRuntimeActionDialog(entry, config, trigger) {
+      if (runtimeActionDialog || runtimeActionBusyKey) return;
+      const actions = Array.isArray(entry.actions) ? entry.actions : [];
+      const inputAction = actions.find((action) => action.id === config.inputAction);
+      const allAction = actions.find((action) => action.id === config.allAction);
+      if (!inputAction || !allAction) return;
+
+      const dialog = document.createElement('dialog');
+      dialog.className = 'runtime-action-dialog';
+      dialog.classList.toggle('is-safe-action', config.destructive === false);
+      const actionClass = config.destructive === false ? 'btn-tonal' : 'btn-tonal danger-action';
+      dialog.setAttribute('aria-labelledby', 'runtimeActionDialogTitle');
+      dialog.setAttribute('aria-describedby', 'runtimeActionDialogDescription');
+      const title = document.createElement('h2');
+      title.id = 'runtimeActionDialogTitle';
+      title.textContent = config.title;
+      const count = document.createElement('div');
+      count.className = 'runtime-counter-count';
+      const details = document.createElement('details');
+      details.className = 'runtime-counter-details';
+      const summary = document.createElement('summary');
+      summary.textContent = config.detailsLabel;
+      const description = document.createElement('p');
+      description.id = 'runtimeActionDialogDescription';
+      description.textContent = config.description;
+      details.append(summary, description);
+      const tableContainer = document.createElement('div');
+      tableContainer.className = 'runtime-counter-table-scroll';
+      tableContainer.tabIndex = 0;
+      tableContainer.setAttribute('role', 'region');
+      tableContainer.setAttribute('aria-label', config.metricsLabel);
+      const feedback = document.createElement('p');
+      feedback.className = 'runtime-action-dialog-feedback';
+      feedback.setAttribute('role', 'status');
+      const buttons = document.createElement('div');
+      buttons.className = 'btn-row';
+      const close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'secondary';
+      close.textContent = tr('dashboard.action.close', 'Fermer');
+      close.addEventListener('click', () => dialog.close());
+      const resetAll = document.createElement('button');
+      resetAll.type = 'button';
+      resetAll.className = actionClass;
+      resetAll.textContent = config.allButtonText;
+      resetAll.disabled = true;
+      const legend = document.createElement('div');
+      legend.className = 'runtime-counter-legend';
+      legend.textContent = config.metricsLabel;
+      buttons.append(legend, close, resetAll);
+      dialog.append(title, count, tableContainer, feedback, buttons, details);
+      document.body.appendChild(dialog);
+      runtimeActionDialog = dialog;
+      let pending = false;
+      let loading = false;
+      let targets = [];
+      let rowButtons = [];
+      let switchControls = [];
+      let selection = null;
+      let confirmationRow = null;
+      let confirmationButtons = [];
+      const eligible = (target) => !config.eligibleKey || runtimeCounterValue(target, config.eligibleKey) === true;
+
+      function updateControls() {
+        close.disabled = pending;
+        resetAll.disabled = pending || loading || !targets.some(eligible);
+        rowButtons.forEach(({ button, target }) => { button.disabled = pending || loading || !eligible(target); });
+        switchControls.forEach(({ input, available }) => { input.disabled = pending || loading || !available; });
+        confirmationButtons.forEach((button) => { button.disabled = pending || loading; });
+      }
+
+      function clearConfirmation(restoreFocus = true) {
+        if (confirmationRow) confirmationRow.remove();
+        const previous = selection;
+        if (previous && previous.row) previous.row.classList.remove('is-selected');
+        confirmationRow = null;
+        confirmationButtons = [];
+        selection = null;
+        if (restoreFocus && previous && previous.button.isConnected) previous.button.focus();
+      }
+
+      function selectTarget(target, action, value, button, row = null) {
+        if (pending || loading || runtimeActionBusyKey || !eligible(target)) return;
+        const sameTarget = selection && selection.action === action && selection.value === value;
+        clearConfirmation(false);
+        if (sameTarget) {
+          button.focus();
+          return;
+        }
+        selection = { target, action, value, button, row };
+        if (row) row.classList.add('is-selected');
+        confirmationRow = document.createElement('tr');
+        confirmationRow.className = 'runtime-counter-confirmation';
+        const cell = document.createElement('td');
+        cell.colSpan = config.columns.length + 2;
+        const line = document.createElement('div');
+        line.className = 'runtime-counter-confirmation-line';
+        const copy = document.createElement('div');
+        copy.className = 'runtime-counter-confirmation-copy';
+        copy.id = 'runtimeCounterConfirmationText';
+        copy.textContent = config.confirmationText.replace('{target}', target.label);
+        const hint = document.createElement('small');
+        hint.textContent = config.confirmationHint;
+        copy.appendChild(hint);
+        const controls = document.createElement('div');
+        controls.className = 'runtime-counter-confirmation-controls';
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.className = 'secondary btn-compact';
+        cancel.textContent = tr('dashboard.action.cancel', 'Annuler');
+        cancel.addEventListener('click', () => clearConfirmation());
+        const confirm = document.createElement('button');
+        confirm.type = 'button';
+        confirm.className = actionClass + ' btn-compact runtime-counter-confirm';
+        confirm.textContent = config.confirmButtonText;
+        confirm.setAttribute('aria-describedby', copy.id);
+        confirm.addEventListener('click', () => resetTarget(target, action, value));
+        confirmationButtons = [cancel, confirm];
+        controls.append(cancel, confirm);
+        line.append(copy, controls);
+        cell.appendChild(line);
+        confirmationRow.appendChild(cell);
+        if (row) row.after(confirmationRow);
+        else tableContainer.querySelector('tbody').appendChild(confirmationRow);
+        confirm.focus();
+      }
+
+      function renderTable(updatedSlots = []) {
+        clearConfirmation(false);
+        tableContainer.replaceChildren();
+        rowButtons = [];
+        switchControls = [];
+        count.textContent = config.countText.replace('{count}', String(targets.length))
+          .replace('{eligible}', String(targets.filter(eligible).length));
+        if (!targets.length) return;
+        const table = document.createElement('table');
+        table.className = 'runtime-counter-table';
+        table.classList.toggle('has-text-actions', config.rowPresentation === 'text');
+        table.classList.toggle('has-switches', config.columns.some((column) => column.type === 'switch'));
+        const caption = document.createElement('caption');
+        caption.className = 'visually-hidden';
+        caption.textContent = config.metricsLabel;
+        const head = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+        [config.inputLabel, ...config.columns.map((column) => column.label),
+          tr('dashboard.action.column', 'Action')].forEach((text) => {
+          const th = document.createElement('th');
+          th.scope = 'col';
+          th.textContent = text;
+          headerRow.appendChild(th);
+        });
+        head.appendChild(headerRow);
+        if (config.rowPresentation !== 'text') {
+          const actionHeading = document.createElement('span');
+          actionHeading.className = 'visually-hidden';
+          actionHeading.textContent = headerRow.lastElementChild.textContent;
+          headerRow.lastElementChild.replaceChildren(actionHeading);
+        }
+        const body = document.createElement('tbody');
+        targets.forEach((target) => {
+          const row = document.createElement('tr');
+          row.className = 'runtime-counter-device';
+          if (updatedSlots.includes(target.value)) row.classList.add('is-updated');
+          const name = document.createElement('th');
+          name.scope = 'row';
+          name.setAttribute('aria-label', target.label);
+          const indicator = document.createElement('span');
+          indicator.className = 'runtime-counter-state';
+          indicator.setAttribute('role', 'img');
+          const actualKnown = typeof target.actualOn === 'boolean';
+          indicator.classList.toggle('is-running', actualKnown && target.actualOn);
+          indicator.setAttribute('aria-label', actualKnown
+            ? (target.actualOn ? tr('dashboard.action.running', 'En marche') : tr('dashboard.action.stopped', 'À l’arrêt'))
+            : tr('dashboard.action.unknownState', 'État indisponible'));
+          const label = document.createElement('span');
+          label.textContent = target.name || target.label;
+          if ('actualOn' in target) name.appendChild(indicator);
+          name.appendChild(label);
+          if (target.deviceId) {
+            const deviceId = document.createElement('span');
+            deviceId.className = 'runtime-counter-device-id';
+            deviceId.textContent = target.deviceId;
+            name.appendChild(deviceId);
+          }
+          row.appendChild(name);
+          config.columns.forEach((column) => row.appendChild(buildRuntimeActionCell(target, column, buildSwitch)));
+          const actionCell = document.createElement('td');
+          if (config.automaticKey && runtimeCounterValue(target, config.automaticKey) === true) {
+            const automatic = document.createElement('span');
+            automatic.className = 'runtime-counter-volume';
+            automatic.textContent = config.automaticText;
+            actionCell.appendChild(automatic);
+            row.appendChild(actionCell);
+            body.appendChild(row);
+            return;
+          }
+          const reset = document.createElement('button');
+          reset.type = 'button';
+          if (config.rowPresentation === 'text') {
+            reset.className = actionClass + ' btn-compact';
+            reset.textContent = config.rowButtonText;
+          } else {
+            reset.className = 'runtime-counter-reset';
+            const glyph = document.createElement('span');
+            glyph.textContent = '↺';
+            glyph.setAttribute('aria-hidden', 'true');
+            reset.appendChild(glyph);
+          }
+          reset.title = config.rowButtonText + ' — ' + target.label;
+          reset.setAttribute('aria-label', config.rowButtonText + ' — ' + target.label);
+          reset.addEventListener('click', () => selectTarget(target, inputAction, target.value, reset, row));
+          actionCell.appendChild(reset);
+          row.appendChild(actionCell);
+          rowButtons.push({ button: reset, target: target });
+          body.appendChild(row);
+        });
+        table.append(caption, head, body);
+        tableContainer.appendChild(table);
+      }
+
+      function buildSwitch(target, column) {
+        const state = runtimeCounterValue(target, column.key);
+        const action = actions.find((item) => item.id === column.action);
+        const available = !!action && typeof state === 'boolean' && runtimeCounterValue(target, column.eligibleKey) === true;
+        const wrapper = document.createElement('div');
+        wrapper.className = 'runtime-action-switch-control';
+        const label = document.createElement('label');
+        label.className = 'md3-switch md3-switch-compact';
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.setAttribute('role', 'switch');
+        input.setAttribute('aria-label', column.label + ' — ' + target.label);
+        input.checked = state === true;
+        input.disabled = !available;
+        const track = document.createElement('span');
+        track.className = 'md3-track';
+        const thumb = document.createElement('span');
+        thumb.className = 'md3-thumb';
+        track.setAttribute('aria-hidden', 'true');
+        thumb.setAttribute('aria-hidden', 'true');
+        label.append(input, track, thumb);
+        const status = document.createElement('span');
+        status.textContent = typeof state === 'boolean' ? (state ? 'On' : 'Off') : '—';
+        input.title = available ? target.label : tr('dashboard.action.unavailable', 'Commande indisponible');
+        input.addEventListener('change', () => {
+          const requested = input.checked;
+          // Keep displaying the confirmed state while the firmware applies the command.
+          input.checked = state === true;
+          if (!available || pending || loading || runtimeActionBusyKey) return;
+          clearConfirmation(false);
+          applyTargetAction(target, action, requested, runtimeCounterValue(target, column.targetKey),
+            tr('dashboard.action.stateUpdated', 'État de {target} actualisé').replace('{target}', target.label));
+        });
+        switchControls.push({ input, available });
+        wrapper.append(label, status);
+        return wrapper;
+      }
+
+      async function refreshTable(updatedSlots = []) {
+        loading = true;
+        updateControls();
+        try {
+          const data = await fetchOkJson(config.optionsUrl, { cache: 'no-store' },
+            config.errorText || tr('dashboard.action.targetsError', 'Liste des équipements indisponible'));
+          if (!dialog.isConnected) return false;
+          if (!Array.isArray(data.options) || data.options.some((option) =>
+            !option || !Number.isInteger(option.value) || option.value < 0 ||
+            option.value > 4294967295 || typeof option.label !== 'string')) {
+            throw new Error(config.errorText || tr('dashboard.action.targetsError', 'Liste des équipements indisponible'));
+          }
+          targets = data.options;
+          renderTable(updatedSlots);
+          if (!targets.length) feedback.textContent = config.emptyText || tr('dashboard.action.noTargets', 'Aucun équipement enregistré');
+          return true;
+        } catch (err) {
+          if (!dialog.isConnected) return false;
+          // Do not keep stale numbers visible after a failed post-reset read.
+          targets = [];
+          renderTable();
+          feedback.textContent = err && err.message ? err.message : String(err);
+          feedback.classList.add('is-error');
+          return false;
+        } finally {
+          loading = false;
+          updateControls();
+        }
+      }
+
+      async function resetTarget(target, action, value) {
+        if (pending || loading || runtimeActionBusyKey || !eligible(target)) return;
+        if (!selection || selection.action !== action || selection.value !== value) return;
+        await applyTargetAction(target, action, value, undefined, config.successText.replace('{target}', target.label));
+      }
+
+      async function applyTargetAction(target, action, value, targetValue, success) {
+        const updatedSlots = targetValue !== undefined ? [target.value]
+          : (value === undefined ? targets.filter(eligible).map((item) => item.value) : [value]);
+        pending = true;
+        updateControls();
+        feedback.classList.remove('is-error');
+        feedback.textContent = tr('dashboard.action.pending', 'Application…');
+        try {
+          const ok = await executeRuntimeAction(entry, action, value, targetValue);
+          if (ok) {
+            feedback.textContent = success;
+            const refreshed = await refreshTable(updatedSlots);
+            if (!refreshed) feedback.textContent = success + ' ' + feedback.textContent;
+          } else {
+            const failure = runtimeActionFeedback.get(runtimeActionKey(entry, action, value, targetValue));
+            feedback.textContent = failure ? failure.message : tr('dashboard.action.error', 'Commande refusée');
+            feedback.classList.add('is-error');
+          }
+        } finally {
+          pending = false;
+          updateControls();
+          if (confirmationRow) confirmationButtons[1].focus();
+          else close.focus();
+        }
+      }
+
+      resetAll.addEventListener('click', () => {
+        const target = { label: config.allLabel };
+        if (config.eligibleKey) target[config.eligibleKey] = targets.some(eligible);
+        selectTarget(target, allAction, undefined, resetAll);
+      });
+      dialog.addEventListener('cancel', (event) => {
+        if (pending) event.preventDefault();
+        else if (selection) {
+          event.preventDefault();
+          clearConfirmation();
+        }
+      });
+      dialog.addEventListener('close', () => {
+        runtimeActionDialog = null;
+        dialog.remove();
+        const currentTrigger = trigger.isConnected ? trigger
+          : document.querySelector('[data-runtime-dialog-id="' + Number(entry.id) + '"]');
+        if (currentTrigger) currentTrigger.focus();
+      });
+      dialog.showModal();
+      close.focus();
+      feedback.textContent = config.loadingText || tr('dashboard.action.loadingTargets', 'Chargement des équipements…');
+      if (await refreshTable() && targets.length) feedback.textContent = '';
     }
 
     function buildDashboardDualStateTile(label, value, options) {
@@ -6454,60 +6876,15 @@
       tile.appendChild(indicators);
     }
 
-    function runtimeMeasureAlarmAction(entries) {
-      for (const entry of entries || []) {
-        const actions = Array.isArray(entry && entry.actions) ? entry.actions : [];
-        const action = actions.find((candidate) => {
-          const input = candidate && candidate.input && typeof candidate.input === 'object'
-            ? candidate.input
-            : {};
-          return candidate && candidate.presentation === 'button' && input.type === 'uint32';
-        });
-        if (action) return { entry: entry, action: action };
-      }
-      return null;
-    }
-
     function buildDashboardAlarmTile(options) {
       const opts = options && typeof options === 'object' ? options : {};
       const label = String(opts.label || tr('dashboard.alarm.default', 'Alarme'));
-      const actionBinding = opts.actionBinding && typeof opts.actionBinding === 'object'
-        ? opts.actionBinding
-        : null;
-      const inputValue = Number(opts.inputValue);
-      const actionable = !!actionBinding && opts.resettable === true &&
-        Number.isInteger(inputValue) && inputValue >= 0;
-      const actionKey = actionable
-        ? runtimeActionKey(actionBinding.entry, actionBinding.action, inputValue)
-        : '';
-      const pending = !!actionKey && runtimeActionBusyKey === actionKey;
-      const feedback = actionKey ? runtimeActionFeedback.get(actionKey) : null;
-      const tile = document.createElement(actionable ? 'button' : 'div');
+      const tile = document.createElement('div');
       tile.className = 'status-alarm-slot';
       decorateDashboardAlarmTile(tile, opts.conditionValue, opts.latchValue);
-      if (actionable) tile.classList.add('is-actionable');
-      if (pending) tile.classList.add('is-pending');
-      if (feedback) tile.classList.add('is-error');
-
-      const stateLabel = label + ', condition '
+      tile.setAttribute('aria-label', label + ', condition '
         + (opts.conditionValue === null ? '?' : (opts.conditionValue ? 'ON' : 'OFF'))
-        + ', latch ' + (opts.latchValue === null ? '?' : (opts.latchValue ? 'ON' : 'OFF'));
-      tile.setAttribute('aria-label', actionable
-        ? stateLabel + '. ' + tr('dashboard.alarm.acknowledge', 'Cliquer pour acquitter')
-        : stateLabel);
-
-      if (actionable) {
-        tile.type = 'button';
-        tile.disabled = pending || (!!runtimeActionBusyKey && runtimeActionBusyKey !== actionKey);
-        tile.setAttribute('aria-busy', pending ? 'true' : 'false');
-        tile.title = feedback && feedback.message
-          ? feedback.message
-          : tr('dashboard.alarm.acknowledgeNamed', 'Acquitter {alarm}').replace('{alarm}', label);
-        tile.addEventListener('click', () => {
-          executeRuntimeAction(actionBinding.entry, actionBinding.action, inputValue);
-        });
-      }
-
+        + ', latch ' + (opts.latchValue === null ? '?' : (opts.latchValue ? 'ON' : 'OFF')));
       const title = document.createElement('div');
       title.className = 'status-alarm-slot-title';
       title.textContent = label;
@@ -6527,14 +6904,10 @@
       });
 
       const activeEntry = columnsByRole.get('active') || null;
-      const resettableEntry = columnsByRole.get('resettable') || null;
       const conditionEntry = columnsByRole.get('condition') || null;
       if (!flagDefs.length || (!activeEntry && !conditionEntry)) return null;
 
       const activeMaskValue = activeEntry ? runtimeMeasureMaskValue(valueById.get(Number(activeEntry.id))) : null;
-      const resettableMaskValue = resettableEntry
-        ? runtimeMeasureMaskValue(valueById.get(Number(resettableEntry.id)))
-        : null;
       const conditionMaskValue = conditionEntry ? runtimeMeasureMaskValue(valueById.get(Number(conditionEntry.id))) : null;
       const maxSlots = Math.min(flagDefs.length, 8);
 
@@ -6544,16 +6917,11 @@
       for (let index = 0; index < maxSlots; index += 1) {
         const flag = flagDefs[index];
         const latchValue = activeMaskValue === null ? null : ((activeMaskValue & flag.mask) !== 0);
-        const resettable = resettableMaskValue !== null && ((resettableMaskValue & flag.mask) !== 0);
         const conditionValue = conditionMaskValue === null ? null : ((conditionMaskValue & flag.mask) !== 0);
-        const slot = Math.log2(flag.mask);
         const tile = buildDashboardAlarmTile({
           label: flag.label,
           conditionValue: conditionValue,
-          latchValue: latchValue,
-          resettable: resettable,
-          inputValue: Number.isInteger(slot) ? slot : null,
-          actionBinding: null
+          latchValue: latchValue
         });
         grid.appendChild(tile);
       }
@@ -6561,7 +6929,7 @@
       return grid;
     }
 
-    function buildPoolAlarmSlotsGrid(slots, entries) {
+    function buildPoolAlarmSlotsGrid(slots) {
       const cleanSlots = Array(8).fill(null);
       if (Array.isArray(slots)) {
         slots.forEach((slot) => {
@@ -6572,7 +6940,6 @@
 
       const grid = document.createElement('div');
       grid.className = 'status-alarm-slot-grid';
-      const actionBinding = runtimeMeasureAlarmAction(entries);
 
       for (let i = 0; i < 8; i += 1) {
         const slot = cleanSlots[i] || null;
@@ -6584,10 +6951,7 @@
         const tile = buildDashboardAlarmTile({
           label: slot && slot.label ? slot.label : tr('dashboard.alarm.default', 'Alarme'),
           conditionValue: conditionValue,
-          latchValue: latchValue,
-          resettable: enabled && slot.available && slot.resettable,
-          inputValue: slot.alarmId,
-          actionBinding: actionBinding
+          latchValue: latchValue
         });
         grid.appendChild(tile);
       }
@@ -6665,6 +7029,19 @@
       return card;
     }
 
+    function appendRuntimeCardActions(card, entries) {
+      const actionFooter = document.createElement('div');
+      actionFooter.className = 'runtime-card-actions';
+      entries.forEach((entry) => {
+        const actionButton = buildRuntimeActionDialogButton(entry);
+        if (actionButton) actionFooter.appendChild(actionButton);
+      });
+      if (actionFooter.childElementCount) {
+        card.classList.add('has-runtime-actions');
+        card.appendChild(actionFooter);
+      }
+    }
+
     function buildPoolMeasureCards(entries, values, options) {
       const fragment = document.createDocumentFragment();
       const opts = options && typeof options === 'object' ? options : {};
@@ -6727,7 +7104,8 @@
           return;
         }
         if (isPoolAlarmGroup && alarmSlots.length) {
-          card.appendChild(buildPoolAlarmSlotsGrid(alarmSlots, group.entries));
+          card.appendChild(buildPoolAlarmSlotsGrid(alarmSlots));
+          appendRuntimeCardActions(card, group.entries);
           fragment.appendChild(card);
           return;
         }
@@ -6739,6 +7117,7 @@
         const valueRows = [];
 
         group.entries.forEach((entry) => {
+          if (runtimeMeasureDisplayConfig(entry).showValue === false) return;
           const runtimeValue = valueById.get(Number(entry.id));
           const display = runtimeMeasureDisplayKind(entry);
           if (display === 'badge') {
@@ -6792,7 +7171,7 @@
         if (flagEntries.length) {
           if (isRuntimeAlarmGroup(group)) {
             const alarmGrid = alarmSlots.length
-              ? buildPoolAlarmSlotsGrid(alarmSlots, flagEntries)
+              ? buildPoolAlarmSlotsGrid(alarmSlots)
               : buildRuntimeAlarmGrid(flagEntries, valueById);
             if (alarmGrid) {
               card.appendChild(alarmGrid);
@@ -6813,6 +7192,8 @@
           valueRows.forEach((row) => appendFlowStatusRow(kv, row[0], row[1]));
           card.appendChild(kv);
         }
+
+        appendRuntimeCardActions(card, group.entries);
 
         fragment.appendChild(card);
       });

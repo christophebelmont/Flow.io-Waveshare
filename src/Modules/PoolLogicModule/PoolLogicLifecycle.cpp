@@ -409,6 +409,7 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
     poolSvc_ = services.get<PoolDeviceService>(ServiceId::PoolDevice);
     const HAService* haSvc = services.get<HAService>(ServiceId::Ha);
     const CommandService* cmdSvc = services.get<CommandService>(ServiceId::Command);
+    commandSvc_ = cmdSvc;
     alarmSvc_ = services.get<AlarmService>(ServiceId::Alarm);
     activityLogSvc_ = services.get<ActivityLogService>(ServiceId::ActivityLog);
     if (!services.add(ServiceId::PoolConfiguration, &poolConfigurationSvc_)) {
@@ -1031,6 +1032,7 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
         (void)haSvc->addButton(haSvc->ctx, &filtrationRecalc);
     }
     if (cmdSvc && cmdSvc->registerHandler) {
+        cmdSvc->registerHandler(cmdSvc->ctx, "poollogic.device.write", &PoolLogicModule::cmdDeviceWriteStatic_, this);
         cmdSvc->registerHandler(cmdSvc->ctx, "poollogic.filtration.write", &PoolLogicModule::cmdFiltrationWriteStatic_, this);
         cmdSvc->registerHandler(cmdSvc->ctx, "poollogic.filtration.recalc", &PoolLogicModule::cmdFiltrationRecalcStatic_, this);
         cmdSvc->registerHandler(cmdSvc->ctx, "poollogic.auto_mode.set", &PoolLogicModule::cmdAutoModeSetStatic_, this);

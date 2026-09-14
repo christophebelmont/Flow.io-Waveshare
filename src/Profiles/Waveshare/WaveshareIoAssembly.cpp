@@ -1,4 +1,5 @@
 #include "Profiles/Waveshare/WaveshareIoAssembly.h"
+#include "Profiles/Waveshare/PoolDeviceHaCommand.h"
 #include "Profiles/Waveshare/WaveshareIoLayout.h"
 
 #include <Arduino.h>
@@ -430,50 +431,13 @@ void syncSwitches(const DomainSpec& domain, ModuleInstances& modules)
             "rt/pdm/state/pd%u",
             (unsigned)device.id
         );
-        bool payloadOk = true;
-
-        if (device.id == PoolIds::DeviceFiltrationPump) {
-            int wrote = snprintf(
-                gDiscoveryHeap->switchPayloadOn[i],
-                sizeof(gDiscoveryHeap->switchPayloadOn[i]),
-                "{\\\"cmd\\\":\\\"poollogic.filtration.write\\\",\\\"args\\\":{\\\"value\\\":true}}"
-            );
-            if (!(wrote > 0 && wrote < (int)sizeof(gDiscoveryHeap->switchPayloadOn[i]))) payloadOk = false;
-            wrote = snprintf(
-                gDiscoveryHeap->switchPayloadOff[i],
-                sizeof(gDiscoveryHeap->switchPayloadOff[i]),
-                "{\\\"cmd\\\":\\\"poollogic.filtration.write\\\",\\\"args\\\":{\\\"value\\\":false}}"
-            );
-            if (!(wrote > 0 && wrote < (int)sizeof(gDiscoveryHeap->switchPayloadOff[i]))) payloadOk = false;
-        } else if (device.id == PoolIds::DeviceRobot) {
-            int wrote = snprintf(
-                gDiscoveryHeap->switchPayloadOn[i],
-                sizeof(gDiscoveryHeap->switchPayloadOn[i]),
-                "{\\\"cmd\\\":\\\"poollogic.robot.write\\\",\\\"args\\\":{\\\"value\\\":true}}"
-            );
-            if (!(wrote > 0 && wrote < (int)sizeof(gDiscoveryHeap->switchPayloadOn[i]))) payloadOk = false;
-            wrote = snprintf(
-                gDiscoveryHeap->switchPayloadOff[i],
-                sizeof(gDiscoveryHeap->switchPayloadOff[i]),
-                "{\\\"cmd\\\":\\\"poollogic.robot.write\\\",\\\"args\\\":{\\\"value\\\":false}}"
-            );
-            if (!(wrote > 0 && wrote < (int)sizeof(gDiscoveryHeap->switchPayloadOff[i]))) payloadOk = false;
-        } else {
-            int wrote = snprintf(
-                gDiscoveryHeap->switchPayloadOn[i],
-                sizeof(gDiscoveryHeap->switchPayloadOn[i]),
-                "{\\\"cmd\\\":\\\"pooldevice.write\\\",\\\"args\\\":{\\\"slot\\\":%u,\\\"value\\\":true}}",
-                (unsigned)device.id
-            );
-            if (!(wrote > 0 && wrote < (int)sizeof(gDiscoveryHeap->switchPayloadOn[i]))) payloadOk = false;
-            wrote = snprintf(
-                gDiscoveryHeap->switchPayloadOff[i],
-                sizeof(gDiscoveryHeap->switchPayloadOff[i]),
-                "{\\\"cmd\\\":\\\"pooldevice.write\\\",\\\"args\\\":{\\\"slot\\\":%u,\\\"value\\\":false}}",
-                (unsigned)device.id
-            );
-            if (!(wrote > 0 && wrote < (int)sizeof(gDiscoveryHeap->switchPayloadOff[i]))) payloadOk = false;
-        }
+        const bool payloadOk =
+            formatPoolDeviceHaWritePayload(gDiscoveryHeap->switchPayloadOn[i],
+                                           sizeof(gDiscoveryHeap->switchPayloadOn[i]),
+                                           device.id, true) &&
+            formatPoolDeviceHaWritePayload(gDiscoveryHeap->switchPayloadOff[i],
+                                           sizeof(gDiscoveryHeap->switchPayloadOff[i]),
+                                           device.id, false);
 
         if (!payloadOk) {
             requireSetup(false, "ha switch payload");

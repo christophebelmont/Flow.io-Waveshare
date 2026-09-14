@@ -177,6 +177,102 @@ lorsque le service d'alarmes déclare l'alarme acquittable. L'identifiant vient
 directement du slot retourné par le backend, sans dépendre de sa position ni
 effectuer de mapping par libellé dans l'interface.
 
+### Tableau de compteurs dans une fenêtre d'action
+
+Une valeur peut déclarer `displayConfig.actionDialog` pour afficher un bouton
+ouvrant un tableau de cibles et de leurs compteurs. `displayConfig.showValue: false` masque la
+ligne de valeur tout en conservant ses actions, placées en bas à droite de la carte.
+La configuration contient `buttonText`, `title`,
+`description`, `inputLabel`, `allLabel`, `metricsLabel`, `rowButtonText`,
+`allButtonText`, `confirmationText`, `confirmationHint`, `confirmButtonText`,
+`detailsLabel`, `countText` (avec `{count}`) et `successText` (avec `{target}`), ainsi que :
+
+- `optionsUrl` : route locale `/api/runtime/...` retournant
+  `{"ok":true,"options":[{"value":0,"label":"Filtration (pd0)"}]}` ;
+- `inputAction` : identifiant d'une action bouton déclarée avec une entrée `uint32` ;
+- `allAction` : identifiant d'une action bouton déclarée sans entrée.
+- `columns` : libellé de chaque période (`label`), chemin de sa durée en secondes
+  (`durationKey`, par exemple `running.day_s`) et de son volume en mL
+  (`volumeKey`, par exemple `injected.day_ml`).
+  `muted: true` peut atténuer une colonne de contexte, comme les totaux.
+
+Les colonnes acceptent également `type: "datetime"` avec `key` (secondes Unix),
+ou `type: "enum"` avec `key` et `states` (valeur entière, libellé et ton
+`success`, `danger`, `warning` ou `neutral`). `eligibleKey` lie l'activation
+des boutons au booléen d'autorisation fourni par le firmware. `automaticKey`
+et `automaticText` remplacent le bouton des cibles automatiques par un texte.
+`rowPresentation: "text"` affiche un bouton libellé et `destructive: false`
+utilise la couleur normale d'action. `emptyText`, `loadingText` et `errorText`
+permettent d'adapter les messages au domaine.
+
+Une colonne `type: "switch"` utilise `key` pour l'état booléen réel, `action`
+pour la commande, `targetKey` pour l'identifiant de la cible et `eligibleKey`
+pour son autorisation de commande. L'action déclare une entrée booléenne et
+une cible typée, par exemple `input: {"name":"value","type":"bool"}` et
+`target: {"name":"slot","type":"uint32"}`. `POST /api/runtime/action`
+valide séparément `input` et `target` avant de construire les arguments du
+CommandService selon le manifeste. Le générateur rejette les noms de champs
+identiques et les associations de colonnes incompatibles.
+
+Le générateur vérifie les deux associations. Les textes peuvent utiliser les
+clés `_t` habituelles. Chaque ligne possède un bouton de remise à zéro, soumis
+à confirmation dans une ligne ajoutée juste sous l'équipement (ou en fin de
+tableau pour l'action globale), avec Annuler et Confirmer. Aucune commande
+n'est envoyée avant confirmation pour ces boutons. Le toggle On/Off envoie
+directement sa commande manuelle. Les actions sont bloquées pendant la commande
+et la relecture des compteurs. Une ligne actualisée est brièvement surlignée,
+en respectant le réglage de réduction des animations. Le tableau compact
+défile horizontalement sur mobile et l'explication détaillée est repliable.
+
+PoolDevice utilise ce contrat sur `pool.device_count` dans la carte Équipements.
+`GET /api/runtime/pooldevice_options` parcourt tous les slots enregistrés via
+`PoolDeviceService.meta`, y compris les équipements désactivés et absents du
+tableau de bord. Un échec de lecture retourne une erreur plutôt qu'une liste
+partielle. La réponse comprend les durées `running` (`day_s`, `week_s`,
+`month_s`, `total_s`) et volumes `injected` (`day_ml`, `week_ml`, `month_ml`,
+`total_ml`) lus dans le DataStore. Les métriques indisponibles sont renvoyées
+comme `null` et affichées avec un tiret, distinct d'un zéro réel.
+`name` et `deviceId` donnent le libellé et l'identifiant séparément, sans
+analyse de chaîne côté navigateur. `actualOn` fournit l'état matériel réel
+pour l'indicateur de marche, ou `null` si cet état est indisponible.
+Le bouton « Gérer les équipements » ouvre également une colonne On/Off liée
+à `poollogic.device.write` avec `slot` et `value`. PoolLogic résout le rôle
+du slot à partir de sa configuration et appelle la même commande métier que
+la tuile correspondante. La filtration utilise `poollogic.filtration.write`,
+qui désactive le mode automatique pour les commandes On comme Off ; le robot
+conserve son arbitrage manuel. Les slots sans rôle PoolLogic passent par
+`pooldevice.write`. Aucune règle métier n'est recopiée dans le popup.
+`controllable` désactive le toggle
+si l'équipement est désactivé, son état est indisponible ou les écritures
+physiques sont suspendues. Les protections sont vérifiées par PoolDevice à
+chaque commande. Le toggle conserve l'état confirmé pendant la requête et
+en cas de refus ; après succès, une nouvelle lecture fournit l'état affiché.
+Les commandes On/Off actualisent aussi le domaine des modes.
+Les switches Home Assistant de la découverte Waveshare utilisent également
+`poollogic.device.write` avec le slot de leur état runtime et une valeur
+booléenne. Le choix de la commande métier est donc partagé avec le popup,
+y compris après réaffectation des rôles PoolLogic. Les quatre commandes de
+la carte Équipements restent les commandes métier auxquelles ce routage aboutit.
+Les actions appellent `pooldevice.uptime.reset` avec le slot fourni
+par le firmware, ou `pooldevice.uptime.reset_all` sans entrée. Elles remettent à
+zéro les durées et volumes injectés jour/semaine/mois, conservent les totaux et
+lèvent le blocage local de durée maximale journalière. L'interface actualise les
+équipements, les alarmes et la vue d'ensemble après la commande, puis relit les
+compteurs du tableau. Une relecture en erreur efface les anciennes valeurs
+pour ne pas afficher des compteurs périmés comme s'ils étaient à jour.
+
+La carte Alarmes utilise la même fenêtre, avec un bouton « Gérer les alarmes »
+en bas à droite. Les tuiles sont consultatives. `GET /api/runtime/alarm_options`
+liste toutes les alarmes enregistrées via `AlarmService.listIds` et `readState`,
+avec leur identifiant, nom, date du dernier déclenchement UTC, condition,
+état du latch et autorisation d'acquittement. Les dates sont capturées par le
+moteur à l'activation avec une horloge valide, conservées lors de l'acquittement
+et remplacées au déclenchement suivant. Elles ne sont pas persistées au reboot.
+Une date inconnue est renvoyée comme `null`. Les actions déclarées sont
+`alarms.reset` (entrée `id`, sans association par position ou libellé) et
+`alarms.reset_all`. Le moteur conserve le contrôle final : une condition active
+ou inconnue et une alarme sans latch ne peuvent pas être acquittées manuellement.
+
 ## Génération du manifeste
 
 Le script `scripts/generate_runtimeui_manifest.py`:

@@ -123,6 +123,10 @@ bool PoolDeviceModule::writeRuntimeUiValue(uint8_t valueId, IRuntimeUiWriter& wr
 {
     if (!dataStore_) return writer.writeUnavailable(makeRuntimeUiId(moduleId(), valueId));
 
+    if (valueId == RuntimeUiDeviceCount) {
+        return writer.writeU32(makeRuntimeUiId(moduleId(), valueId), poolDeviceRuntimeCount(*dataStore_));
+    }
+
     uint8_t slotIdx = 0xFF;
     switch (valueId) {
         case RuntimeUiFiltrationOn:

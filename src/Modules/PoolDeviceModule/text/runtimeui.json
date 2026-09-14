@@ -80,6 +80,101 @@
       "order": 100,
       "label_t": "runtimeui.pooldev.v04.label",
       "group_t": "runtimeui.pooldev.v04.group"
+    },
+    {
+      "valueId": 5,
+      "key": "pool.device_count",
+      "type": "uint32",
+      "domain": "equipements",
+      "display": "value",
+      "displayConfig": {
+        "showValue": false,
+        "actionDialog": {
+          "buttonText_t": "runtimeui.pooldev.reset.button",
+          "title_t": "runtimeui.pooldev.reset.title",
+          "description_t": "runtimeui.pooldev.reset.description",
+          "inputLabel_t": "runtimeui.pooldev.reset.inputLabel",
+          "allLabel_t": "runtimeui.pooldev.reset.allLabel",
+          "successText_t": "runtimeui.pooldev.reset.successText",
+          "optionsUrl": "/api/runtime/pooldevice_options",
+          "inputAction": "reset_uptime",
+          "allAction": "reset_uptime_all",
+          "columns": [
+            {
+              "label": "On/Off",
+              "type": "switch",
+              "key": "actualOn",
+              "action": "set_device",
+              "targetKey": "value",
+              "eligibleKey": "controllable"
+            },
+            {
+              "label_t": "runtimeui.pooldev.reset.day",
+              "durationKey": "running.day_s",
+              "volumeKey": "injected.day_ml"
+            },
+            {
+              "label_t": "runtimeui.pooldev.reset.week",
+              "durationKey": "running.week_s",
+              "volumeKey": "injected.week_ml"
+            },
+            {
+              "label_t": "runtimeui.pooldev.reset.month",
+              "durationKey": "running.month_s",
+              "volumeKey": "injected.month_ml"
+            },
+            {
+              "label_t": "runtimeui.pooldev.reset.total",
+              "muted": true,
+              "durationKey": "running.total_s",
+              "volumeKey": "injected.total_ml"
+            }
+          ],
+          "metricsLabel_t": "runtimeui.pooldev.reset.metricsLabel",
+          "rowButtonText_t": "runtimeui.pooldev.reset.rowButtonText",
+          "allButtonText_t": "runtimeui.pooldev.reset.allButtonText",
+          "confirmationText_t": "runtimeui.pooldev.reset.confirmationText",
+          "confirmationHint_t": "runtimeui.pooldev.reset.confirmationHint",
+          "confirmButtonText_t": "runtimeui.pooldev.reset.confirmButtonText",
+          "detailsLabel_t": "runtimeui.pooldev.reset.detailsLabel",
+          "countText_t": "runtimeui.pooldev.reset.countText"
+        }
+      },
+      "actions": [
+        {
+          "id": "set_device",
+          "command": "poollogic.device.write",
+          "presentation": "switch",
+          "input": { "name": "value", "type": "bool" },
+          "target": { "name": "slot", "type": "uint32" },
+          "refreshDomains": ["mode", "equipements", "alarm"]
+        },
+        {
+          "id": "reset_uptime",
+          "command": "pooldevice.uptime.reset",
+          "presentation": "button",
+          "input": {
+            "name": "slot",
+            "type": "uint32"
+          },
+          "refreshDomains": [
+            "equipements",
+            "alarm"
+          ]
+        },
+        {
+          "id": "reset_uptime_all",
+          "command": "pooldevice.uptime.reset_all",
+          "presentation": "button",
+          "refreshDomains": [
+            "equipements",
+            "alarm"
+          ]
+        }
+      ],
+      "order": 110,
+      "label_t": "runtimeui.pooldev.v05.label",
+      "group_t": "runtimeui.pooldev.v01.group"
     }
   ]
 }

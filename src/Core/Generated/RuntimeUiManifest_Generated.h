@@ -21,6 +21,7 @@ struct RuntimeUiActionManifestItem {
     const char* command;
     const char* inputName;
     RuntimeUiActionInputType inputType;
+    const char* targetName;
 };
 
 struct RuntimeUiManifestItem {
@@ -31,18 +32,22 @@ struct RuntimeUiManifestItem {
 };
 
 inline constexpr RuntimeUiActionManifestItem kRuntimeUiActionManifestItems[] = {
-    {902, "acknowledge", "alarms.reset", "id", RuntimeUiActionInputType::UInt32},
-    {2301, "set", "poollogic.filtration.write", "value", RuntimeUiActionInputType::Bool},
-    {2302, "set", "poollogic.ph_pump.write", "value", RuntimeUiActionInputType::Bool},
-    {2303, "set", "poollogic.dis_pump.write", "value", RuntimeUiActionInputType::Bool},
-    {2304, "set", "poollogic.robot.write", "value", RuntimeUiActionInputType::Bool},
-    {2401, "set", "poollogic.auto_mode.set", "value", RuntimeUiActionInputType::Bool},
-    {2402, "set", "poollogic.winter_mode.set", "value", RuntimeUiActionInputType::Bool},
-    {2403, "set", "poollogic.ph_auto_mode.set", "value", RuntimeUiActionInputType::Bool},
-    {2404, "set", "poollogic.dis_auto_mode.set", "value", RuntimeUiActionInputType::Bool},
+    {902, "acknowledge", "alarms.reset", "id", RuntimeUiActionInputType::UInt32, nullptr},
+    {902, "acknowledge_all", "alarms.reset_all", nullptr, RuntimeUiActionInputType::None, nullptr},
+    {2301, "set", "poollogic.filtration.write", "value", RuntimeUiActionInputType::Bool, nullptr},
+    {2302, "set", "poollogic.ph_pump.write", "value", RuntimeUiActionInputType::Bool, nullptr},
+    {2303, "set", "poollogic.dis_pump.write", "value", RuntimeUiActionInputType::Bool, nullptr},
+    {2304, "set", "poollogic.robot.write", "value", RuntimeUiActionInputType::Bool, nullptr},
+    {2305, "set_device", "poollogic.device.write", "value", RuntimeUiActionInputType::Bool, "slot"},
+    {2305, "reset_uptime", "pooldevice.uptime.reset", "slot", RuntimeUiActionInputType::UInt32, nullptr},
+    {2305, "reset_uptime_all", "pooldevice.uptime.reset_all", nullptr, RuntimeUiActionInputType::None, nullptr},
+    {2401, "set", "poollogic.auto_mode.set", "value", RuntimeUiActionInputType::Bool, nullptr},
+    {2402, "set", "poollogic.winter_mode.set", "value", RuntimeUiActionInputType::Bool, nullptr},
+    {2403, "set", "poollogic.ph_auto_mode.set", "value", RuntimeUiActionInputType::Bool, nullptr},
+    {2404, "set", "poollogic.dis_auto_mode.set", "value", RuntimeUiActionInputType::Bool, nullptr},
 };
 
-inline constexpr size_t kRuntimeUiActionManifestItemCount = 9U;
+inline constexpr size_t kRuntimeUiActionManifestItemCount = 13U;
 
 inline constexpr RuntimeUiManifestItem kRuntimeUiManifestItems[] = {
     {901, "alarms.active_mask", "uint32", nullptr},
@@ -52,6 +57,7 @@ inline constexpr RuntimeUiManifestItem kRuntimeUiManifestItems[] = {
     {2302, "pool.ph_pump_on", "bool", nullptr},
     {2303, "pool.chlorine_pump_on", "bool", nullptr},
     {2304, "pool.robot_on", "bool", nullptr},
+    {2305, "pool.device_count", "uint32", nullptr},
     {2401, "pool.auto_mode", "bool", nullptr},
     {2402, "pool.winter_mode", "bool", nullptr},
     {2403, "pool.ph_auto_mode", "bool", nullptr},

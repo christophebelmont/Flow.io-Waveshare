@@ -419,6 +419,16 @@
     "calibration.err.rawConversionImpossible": "conversion brute impossible",
     "calibration.err.rawPointsTooClose": "les points bruts sont trop proches",
     "calibration.err.coeffCalcImpossible": "calcul des coefficients impossible",
-    "calibration.err.c1CalcImpossible": "calcul C1 impossible"
+    "calibration.err.c1CalcImpossible": "calcul C1 impossible",
+    "dashboard.action.loadingTargets": "Chargement des équipements…",
+    "dashboard.action.close": "Fermer",
+    "dashboard.action.targetsError": "Liste des équipements indisponible",
+    "dashboard.action.noTargets": "Aucun équipement enregistré",
+    "dashboard.action.cancel": "Annuler",
+    "dashboard.action.running": "En marche",
+    "dashboard.action.stopped": "À l’arrêt",
+    "dashboard.action.unknownState": "État indisponible",
+    "dashboard.action.unavailable": "Commande indisponible",
+    "dashboard.action.stateUpdated": "État de {target} actualisé"
   }
 }

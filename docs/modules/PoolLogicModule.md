@@ -16,6 +16,33 @@ Il:
 
 Type: module actif.
 
+Le popup « Gérer les équipements » commande les slots via
+`poollogic.device.write` (`slot`, `value`). Cette commande route vers les
+commandes métier existantes selon les rôles configurés dans `poollogic/devices`,
+indépendamment de leur visibilité sur le tableau de bord. Un arrêt manuel de
+filtration désactive donc `auto_mode`, comme le bouton de la carte Équipements.
+Les équipements sans rôle PoolLogic utilisent la commande `pooldevice.write`.
+Les switches d'équipement Home Assistant Waveshare utilisent le même point
+d'entrée, avec le slot de leur état runtime, pour partager ce comportement.
+
+| Équipement (rôle configuré) | Commande manuelle résolue |
+| --- | --- |
+| Filtration | `poollogic.filtration.write` |
+| Pompe pH | `poollogic.ph_pump.write` |
+| Pompe chlore / ORP | `poollogic.dis_pump.write` |
+| Robot | `poollogic.robot.write` |
+| Chauffage | `poollogic.heater.write` |
+| Électrolyseur | `poollogic.chlorine_generator.write` |
+| Éclairage (`pd6`) | `poollogic.lights.write` |
+| Remplissage et slots sans rôle PoolLogic | `pooldevice.write` |
+
+Le routage conserve les règles de ces commandes : la filtration désactive
+`auto_mode` sur On et Off ; les pompes de dosage désactivent leur automatisme
+sur une mise en marche manuelle acceptée. L'arrêt d'une pompe de dosage ne
+modifie pas cet automatisme dans les commandes existantes. Le robot utilise
+son override manuel ; les commandes de chauffage et d'électrolyse ne changent
+pas les modes automatiques. Le popup ne définit pas de règles supplémentaires.
+
 ## Dépendances
 
 - `loghub`

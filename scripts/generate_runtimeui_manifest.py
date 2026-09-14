@@ -133,6 +133,7 @@ def _write_header(out_path: Path, entries):
         f.write("    const char* command;\n")
         f.write("    const char* inputName;\n")
         f.write("    RuntimeUiActionInputType inputType;\n")
+        f.write("    const char* targetName;\n")
         f.write("};\n\n")
         f.write("struct RuntimeUiManifestItem {\n")
         f.write("    RuntimeUiId id;\n")
@@ -159,11 +160,12 @@ def _write_header(out_path: Path, entries):
                 f"{_c_string(action['id'])}, "
                 f"{_c_string(action['command'])}, "
                 f"{_c_string(action_input.get('name') or '')}, "
-                f"{input_types[action_input.get('type', 'none')]}"
+                f"{input_types[action_input.get('type', 'none')]}, "
+                f"{_c_string((action.get('target') or {}).get('name') or '')}"
                 "},\n"
             )
         if not flattened_actions:
-            f.write("    {0, nullptr, nullptr, nullptr, RuntimeUiActionInputType::None},\n")
+            f.write("    {0, nullptr, nullptr, nullptr, RuntimeUiActionInputType::None, nullptr},\n")
         f.write("};\n\n")
         f.write(f"inline constexpr size_t kRuntimeUiActionManifestItemCount = {len(flattened_actions)}U;\n\n")
         f.write("inline constexpr RuntimeUiManifestItem kRuntimeUiManifestItems[] = {\n")
@@ -378,6 +380,73 @@ def _resolve_i18n_tokens(node, translations):
     return out
 
 
+def _validate_action_dialog(display_config, actions, path):
+    if not display_config or "actionDialog" not in display_config:
+        return
+    dialog = display_config["actionDialog"]
+    if not isinstance(dialog, dict):
+        raise RuntimeError(f"actionDialog must be an object in {path}")
+    for field in ("buttonText", "title", "description", "inputLabel", "allLabel", "successText",
+                  "metricsLabel", "rowButtonText", "allButtonText", "confirmationText",
+                  "confirmationHint", "confirmButtonText", "detailsLabel", "countText"):
+        if not isinstance(dialog.get(field), str) or not dialog[field].strip():
+            raise RuntimeError(f"actionDialog missing text {field!r} in {path}")
+    columns = dialog.get("columns")
+    if not isinstance(columns, list) or not columns:
+        raise RuntimeError(f"actionDialog missing columns in {path}")
+    for column in columns:
+        if not isinstance(column, dict) or not isinstance(column.get("label"), str) or not column["label"].strip():
+            raise RuntimeError(f"actionDialog invalid column label in {path}")
+        column_type = column.get("type", "counters")
+        if column_type not in ("counters", "datetime", "enum", "switch"):
+            raise RuntimeError(f"actionDialog invalid column type in {path}")
+        fields = ("durationKey", "volumeKey") if column_type == "counters" else ("key",)
+        for field in fields:
+            key = column.get(field)
+            if not isinstance(key, str) or not re.fullmatch(r"[a-z][a-zA-Z0-9_]*(?:\.[a-z][a-zA-Z0-9_]*)*", key):
+                raise RuntimeError(f"actionDialog invalid column {field} in {path}")
+        if column_type == "enum":
+            states = column.get("states")
+            if not isinstance(states, list) or not states:
+                raise RuntimeError(f"actionDialog missing enum states in {path}")
+            seen = set()
+            for state in states:
+                if (not isinstance(state, dict) or type(state.get("value")) is not int or
+                    not isinstance(state.get("label"), str) or not state["label"].strip() or
+                    state.get("tone") not in ("success", "danger", "warning", "neutral") or
+                    state["value"] in seen):
+                    raise RuntimeError(f"actionDialog invalid enum state in {path}")
+                seen.add(state["value"])
+    for field in ("eligibleKey", "automaticKey"):
+        if field in dialog and (not isinstance(dialog[field], str) or not re.fullmatch(r"[a-z][a-zA-Z0-9_]*", dialog[field])):
+            raise RuntimeError(f"actionDialog invalid {field} in {path}")
+    if "automaticKey" in dialog and not isinstance(dialog.get("automaticText"), str):
+        raise RuntimeError(f"actionDialog missing automaticText in {path}")
+    if dialog.get("rowPresentation", "icon") not in ("icon", "text"):
+        raise RuntimeError(f"actionDialog invalid rowPresentation in {path}")
+    if "destructive" in dialog and not isinstance(dialog["destructive"], bool):
+        raise RuntimeError(f"actionDialog invalid destructive in {path}")
+    options_url = dialog.get("optionsUrl")
+    if not isinstance(options_url, str) or not re.fullmatch(r"/api/runtime/[a-z][a-z0-9_]*", options_url):
+        raise RuntimeError(f"actionDialog invalid optionsUrl in {path}")
+    by_id = {action["id"]: action for action in actions}
+    for column in columns:
+        if column.get("type") != "switch":
+            continue
+        action = by_id.get(column.get("action"))
+        if (not action or action["presentation"] != "switch" or action["input"]["type"] != "bool" or
+            (action.get("target") or {}).get("type") != "uint32"):
+            raise RuntimeError(f"actionDialog invalid switch action binding in {path}")
+        for field in ("targetKey", "eligibleKey"):
+            if not isinstance(column.get(field), str) or not re.fullmatch(r"[a-z][a-zA-Z0-9_]*", column[field]):
+                raise RuntimeError(f"actionDialog invalid switch {field} in {path}")
+    for field, input_type in (("inputAction", "uint32"), ("allAction", "none")):
+        action_id = dialog.get(field)
+        action = by_id.get(action_id) if isinstance(action_id, str) else None
+        if not action or action["presentation"] != "button" or action["input"]["type"] != input_type:
+            raise RuntimeError(f"actionDialog invalid {field} binding in {path}")
+
+
 def _collect_entries_for_locale(modules_root: Path, locale: str, numeric_by_name, alias_by_name, alias_to_numeric):
     global_translations = _load_i18n_catalog(modules_root, locale)
     entries = []
@@ -493,7 +562,16 @@ def _collect_entries_for_locale(modules_root: Path, locale: str, numeric_by_name
                     "input": normalized_input,
                     "refreshDomains": refresh_domains,
                 })
+                target = action.get("target")
+                if target is not None:
+                    if (not isinstance(target, dict) or target.get("type") != "uint32" or
+                        not isinstance(target.get("name"), str) or
+                        not re.fullmatch(r"[a-z][a-z0-9_]{0,31}", target["name"]) or
+                        target["name"] == normalized_input.get("name") or normalized_input["type"] == "none"):
+                        raise RuntimeError(f"invalid action target in {path}: {target!r}")
+                    normalized_actions[-1]["target"] = target
 
+            _validate_action_dialog(display_config, normalized_actions, path)
             entry = {
                 "id": runtime_id,
                 "runtimeId": runtime_id,

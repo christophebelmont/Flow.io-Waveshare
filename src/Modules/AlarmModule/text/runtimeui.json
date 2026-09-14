@@ -83,7 +83,85 @@
       ],
       "displayConfig": {
         "flagRole": "resettable",
-        "columnLabel_t": "runtimeui.alarms.v02.display.columnLabel"
+        "columnLabel_t": "runtimeui.alarms.v02.display.columnLabel",
+        "actionDialog": {
+          "buttonText_t": "runtimeui.alarms.dialog.buttonText",
+          "title_t": "runtimeui.alarms.dialog.title",
+          "description_t": "runtimeui.alarms.dialog.description",
+          "inputLabel_t": "runtimeui.alarms.dialog.inputLabel",
+          "allLabel_t": "runtimeui.alarms.dialog.allLabel",
+          "successText_t": "runtimeui.alarms.dialog.successText",
+          "metricsLabel_t": "runtimeui.alarms.dialog.metricsLabel",
+          "rowButtonText_t": "runtimeui.alarms.dialog.rowButtonText",
+          "allButtonText_t": "runtimeui.alarms.dialog.allButtonText",
+          "confirmationText_t": "runtimeui.alarms.dialog.confirmationText",
+          "confirmationHint_t": "runtimeui.alarms.dialog.confirmationHint",
+          "confirmButtonText_t": "runtimeui.alarms.dialog.confirmButtonText",
+          "detailsLabel_t": "runtimeui.alarms.dialog.detailsLabel",
+          "countText_t": "runtimeui.alarms.dialog.countText",
+          "automaticText_t": "runtimeui.alarms.dialog.automaticText",
+          "emptyText_t": "runtimeui.alarms.dialog.emptyText",
+          "loadingText_t": "runtimeui.alarms.dialog.loadingText",
+          "errorText_t": "runtimeui.alarms.dialog.errorText",
+          "optionsUrl": "/api/runtime/alarm_options",
+          "inputAction": "acknowledge",
+          "allAction": "acknowledge_all",
+          "eligibleKey": "resettable",
+          "automaticKey": "automatic",
+          "rowPresentation": "text",
+          "destructive": false,
+          "columns": [
+            {
+              "label_t": "runtimeui.alarms.dialog.dateLabel",
+              "type": "datetime",
+              "key": "triggeredAt"
+            },
+            {
+              "label_t": "runtimeui.alarms.dialog.conditionLabel",
+              "type": "enum",
+              "key": "condition",
+              "states": [
+                {
+                  "value": 0,
+                  "label_t": "runtimeui.alarms.dialog.inactive",
+                  "tone": "success"
+                },
+                {
+                  "value": 1,
+                  "label_t": "runtimeui.alarms.dialog.active",
+                  "tone": "danger"
+                },
+                {
+                  "value": 2,
+                  "label_t": "runtimeui.alarms.dialog.unknown",
+                  "tone": "warning"
+                }
+              ]
+            },
+            {
+              "label_t": "runtimeui.alarms.dialog.latchLabel",
+              "type": "enum",
+              "key": "latchState",
+              "states": [
+                {
+                  "value": 0,
+                  "label_t": "runtimeui.alarms.dialog.free",
+                  "tone": "neutral"
+                },
+                {
+                  "value": 1,
+                  "label_t": "runtimeui.alarms.dialog.held",
+                  "tone": "warning"
+                },
+                {
+                  "value": 2,
+                  "label_t": "runtimeui.alarms.dialog.unused",
+                  "tone": "neutral"
+                }
+              ]
+            }
+          ]
+        }
       },
       "actions": [
         {
@@ -94,6 +172,14 @@
             "name": "id",
             "type": "uint32"
           },
+          "refreshDomains": [
+            "alarm"
+          ]
+        },
+        {
+          "id": "acknowledge_all",
+          "command": "alarms.reset_all",
+          "presentation": "button",
           "refreshDomains": [
             "alarm"
           ]

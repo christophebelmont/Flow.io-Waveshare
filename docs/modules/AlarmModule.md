@@ -48,6 +48,17 @@ Module config `alarms` (`moduleId = ConfigModuleId::Alarms`, branche locale `1`)
 - `alarms.reset_slot` (args `{slot}` -> résolution `slot -> id`)
 - `alarms.reset_all`
 
+L'interface web expose ces actions dans une fenêtre de gestion ouverte par un
+bouton en bas à droite de la carte Alarmes. Les alarmes de la carte sont en
+lecture seule. Le tableau parcourt tous les identifiants enregistrés et affiche
+le nom, le dernier déclenchement, la condition, le latch et un bouton Acquitter.
+`AlarmService.readState` retourne un état typé cohérent de chaque alarme.
+Le moteur capture `lastRaisedUnixSec` au déclenchement depuis `TimeService`
+si l'horloge est valide ; cette date reste conservée après acquittement,
+est remplacée au prochain déclenchement et n'est pas persistée au reboot.
+Une date indisponible est affichée avec un tiret. Les boutons sont autorisés
+uniquement pour une alarme active avec latch et condition explicitement fausse.
+
 ## Modèle d'état d'une alarme
 
 Chaque slot garde notamment:

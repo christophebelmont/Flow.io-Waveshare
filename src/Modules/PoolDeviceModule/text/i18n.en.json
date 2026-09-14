@@ -214,6 +214,25 @@
     "cfgdocs.pdm.pd15.tank_cap_ml.label": "COMP08 tank capacity (mL)",
     "cfgdocs.pdm.pd15.tank_cap_ml.help": "Maximum capacity of the tank associated with COMP08.",
     "cfgdocs.pdm.pd15.tank_init_ml.label": "COMP08 initial tank level (mL)",
-    "cfgdocs.pdm.pd15.tank_init_ml.help": "Initial COMP08 tank volume after configuration/reset."
+    "cfgdocs.pdm.pd15.tank_init_ml.help": "Initial COMP08 tank volume after configuration/reset.",
+    "runtimeui.pooldev.v05.label": "Registered devices",
+    "runtimeui.pooldev.reset.button": "Manage devices",
+    "runtimeui.pooldev.reset.title": "Device management",
+    "runtimeui.pooldev.reset.description": "The On/Off toggle sends a manual command and displays the actual state after refreshing. Device protections remain enforced. This action resets running times and injected volumes for the day, week and month. Lifetime totals are preserved. A device blocked by its maximum daily running time may be allowed to run again, subject to the other protections.",
+    "runtimeui.pooldev.reset.inputLabel": "Device",
+    "runtimeui.pooldev.reset.allLabel": "All devices",
+    "runtimeui.pooldev.reset.successText": "Counters for {target} have been reset.",
+    "runtimeui.pooldev.reset.day": "Day",
+    "runtimeui.pooldev.reset.week": "Week",
+    "runtimeui.pooldev.reset.month": "Month",
+    "runtimeui.pooldev.reset.total": "Total",
+    "runtimeui.pooldev.reset.metricsLabel": "Running times hh:mm:ss · Volumes in mL",
+    "runtimeui.pooldev.reset.rowButtonText": "Reset",
+    "runtimeui.pooldev.reset.allButtonText": "Reset all",
+    "runtimeui.pooldev.reset.confirmationText": "Reset {target}?",
+    "runtimeui.pooldev.reset.confirmationHint": "Day, week and month · Lifetime totals preserved",
+    "runtimeui.pooldev.reset.confirmButtonText": "Confirm",
+    "runtimeui.pooldev.reset.detailsLabel": "What gets reset",
+    "runtimeui.pooldev.reset.countText": "{count} devices"
   }
 }

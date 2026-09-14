@@ -110,7 +110,85 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
       "display": "flags",
       "displayConfig": {
         "flagRole": "resettable",
-        "columnLabel": "Reset"
+        "columnLabel": "Reset",
+        "actionDialog": {
+          "buttonText": "G\u00e9rer les alarmes",
+          "title": "Gestion des alarmes",
+          "description": "La condition d\u00e9crit le probl\u00e8me d\u00e9tect\u00e9. Le latch conserve l\u2019alarme apr\u00e8s disparition du probl\u00e8me, jusqu\u2019\u00e0 son acquittement. Une condition active ou inconnue emp\u00eache l\u2019acquittement. Une alarme sans latch se l\u00e8ve automatiquement.",
+          "inputLabel": "Alarme",
+          "allLabel": "les alarmes disponibles",
+          "successText": "Acquittement effectu\u00e9 pour {target}.",
+          "metricsLabel": "Acquittement apr\u00e8s disparition de la condition",
+          "rowButtonText": "Acquitter",
+          "allButtonText": "Acquitter les disponibles",
+          "confirmationText": "Acquitter {target} ?",
+          "confirmationHint": "La condition reste inchang\u00e9e. Le latch est lib\u00e9r\u00e9.",
+          "confirmButtonText": "Confirmer",
+          "detailsLabel": "Condition et latch",
+          "countText": "{count} alarmes \u00b7 {eligible} \u00e0 acquitter",
+          "automaticText": "Automatique",
+          "emptyText": "Aucune alarme enregistr\u00e9e",
+          "loadingText": "Chargement des alarmes\u2026",
+          "errorText": "Liste des alarmes indisponible",
+          "optionsUrl": "/api/runtime/alarm_options",
+          "inputAction": "acknowledge",
+          "allAction": "acknowledge_all",
+          "eligibleKey": "resettable",
+          "automaticKey": "automatic",
+          "rowPresentation": "text",
+          "destructive": false,
+          "columns": [
+            {
+              "label": "D\u00e9clenchement",
+              "type": "datetime",
+              "key": "triggeredAt"
+            },
+            {
+              "label": "Condition",
+              "type": "enum",
+              "key": "condition",
+              "states": [
+                {
+                  "value": 0,
+                  "label": "Inactive",
+                  "tone": "success"
+                },
+                {
+                  "value": 1,
+                  "label": "Active",
+                  "tone": "danger"
+                },
+                {
+                  "value": 2,
+                  "label": "Inconnue",
+                  "tone": "warning"
+                }
+              ]
+            },
+            {
+              "label": "Latch",
+              "type": "enum",
+              "key": "latchState",
+              "states": [
+                {
+                  "value": 0,
+                  "label": "Libre",
+                  "tone": "neutral"
+                },
+                {
+                  "value": 1,
+                  "label": "M\u00e9moris\u00e9",
+                  "tone": "warning"
+                },
+                {
+                  "value": 2,
+                  "label": "Non utilis\u00e9",
+                  "tone": "neutral"
+                }
+              ]
+            }
+          ]
+        }
       },
       "actions": [
         {
@@ -120,6 +198,17 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
           "input": {
             "name": "id",
             "type": "uint32"
+          },
+          "refreshDomains": [
+            "alarm"
+          ]
+        },
+        {
+          "id": "acknowledge_all",
+          "command": "alarms.reset_all",
+          "presentation": "button",
+          "input": {
+            "type": "none"
           },
           "refreshDomains": [
             "alarm"
@@ -313,6 +402,122 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
           "refreshDomains": [
             "mode",
             "equipements"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2305,
+      "runtimeId": 2305,
+      "moduleId": 23,
+      "module": "pooldev",
+      "valueId": 5,
+      "key": "pool.device_count",
+      "label": "\u00c9quipements enregistr\u00e9s",
+      "type": "uint32",
+      "domain": "equipements",
+      "group": "Equipements",
+      "unit": null,
+      "decimals": null,
+      "order": 110,
+      "enum": null,
+      "flags": null,
+      "display": "value",
+      "displayConfig": {
+        "showValue": false,
+        "actionDialog": {
+          "buttonText": "G\u00e9rer les \u00e9quipements",
+          "title": "Gestion des \u00e9quipements",
+          "description": "Le toggle On/Off envoie une commande manuelle et affiche l\u2019\u00e9tat r\u00e9el apr\u00e8s actualisation. Les protections des \u00e9quipements restent appliqu\u00e9es. Cette action remet \u00e0 z\u00e9ro les temps de fonctionnement et les volumes inject\u00e9s du jour, de la semaine et du mois. Les compteurs totaux sont conserv\u00e9s. Un \u00e9quipement bloqu\u00e9 par sa dur\u00e9e maximale journali\u00e8re peut redevenir autoris\u00e9 \u00e0 fonctionner, sous r\u00e9serve des autres protections.",
+          "inputLabel": "\u00c9quipement",
+          "allLabel": "Tous les \u00e9quipements",
+          "successText": "Les compteurs de {target} ont \u00e9t\u00e9 remis \u00e0 z\u00e9ro.",
+          "optionsUrl": "/api/runtime/pooldevice_options",
+          "inputAction": "reset_uptime",
+          "allAction": "reset_uptime_all",
+          "columns": [
+            {
+              "label": "On/Off",
+              "type": "switch",
+              "key": "actualOn",
+              "action": "set_device",
+              "targetKey": "value",
+              "eligibleKey": "controllable"
+            },
+            {
+              "label": "Jour",
+              "durationKey": "running.day_s",
+              "volumeKey": "injected.day_ml"
+            },
+            {
+              "label": "Semaine",
+              "durationKey": "running.week_s",
+              "volumeKey": "injected.week_ml"
+            },
+            {
+              "label": "Mois",
+              "durationKey": "running.month_s",
+              "volumeKey": "injected.month_ml"
+            },
+            {
+              "label": "Total",
+              "muted": true,
+              "durationKey": "running.total_s",
+              "volumeKey": "injected.total_ml"
+            }
+          ],
+          "metricsLabel": "Dur\u00e9es hh:mm:ss \u00b7 Volumes en mL",
+          "rowButtonText": "Remettre \u00e0 z\u00e9ro",
+          "allButtonText": "Tout remettre \u00e0 z\u00e9ro",
+          "confirmationText": "Remettre \u00e0 z\u00e9ro {target} ?",
+          "confirmationHint": "Jour, semaine et mois \u00b7 Totaux conserv\u00e9s",
+          "confirmButtonText": "Confirmer",
+          "detailsLabel": "Ce qui est remis \u00e0 z\u00e9ro",
+          "countText": "{count} \u00e9quipements"
+        }
+      },
+      "actions": [
+        {
+          "id": "set_device",
+          "command": "poollogic.device.write",
+          "presentation": "switch",
+          "input": {
+            "name": "value",
+            "type": "bool"
+          },
+          "refreshDomains": [
+            "mode",
+            "equipements",
+            "alarm"
+          ],
+          "target": {
+            "name": "slot",
+            "type": "uint32"
+          }
+        },
+        {
+          "id": "reset_uptime",
+          "command": "pooldevice.uptime.reset",
+          "presentation": "button",
+          "input": {
+            "name": "slot",
+            "type": "uint32"
+          },
+          "refreshDomains": [
+            "equipements",
+            "alarm"
+          ]
+        },
+        {
+          "id": "reset_uptime_all",
+          "command": "pooldevice.uptime.reset_all",
+          "presentation": "button",
+          "input": {
+            "type": "none"
+          },
+          "refreshDomains": [
+            "equipements",
+            "alarm"
           ]
         }
       ]

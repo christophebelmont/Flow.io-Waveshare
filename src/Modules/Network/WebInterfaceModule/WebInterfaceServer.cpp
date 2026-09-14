@@ -4,6 +4,7 @@
  */
 
 #include "WebInterfaceModule.h"
+#include "RuntimeActionArguments.h"
 
 #include "Board/BoardSpec.h"
 #include "App/BuildFlags.h"
@@ -14,6 +15,7 @@
 #include "Core/Services/IAlarm.h"
 #include "Core/SystemLimits.h"
 #include "Core/SystemStats.h"
+#include "Core/SpiRamJsonDocument.h"
 #include "Domain/Pool/PoolIds.h"
 #include "Domain/Pool/PoolDomain.h"
 #include "Core/Services/IPoolDevice.h"
@@ -1973,6 +1975,9 @@ bool appendWaveshareLocalRuntimeValue_(Print& out,
                 printRuntimeBool_(out, firstValue, id, "pool.dis_auto_mode", ctx.poolOrpAutoMode);
             }
             return true;
+        case 2305:
+            printRuntimeU32_(out, firstValue, id, "pool.device_count", poolDeviceRuntimeCount(*dataStore));
+            return true;
         case 2301:
         case 2302:
         case 2303:
@@ -2736,6 +2741,12 @@ bool waveshareReadDashboardRuntimeValue_(DataStore* dataStore,
 
         case ModuleId::PoolDevice: {
             if (!dataStore) return false;
+            if (valueId == 5U) {
+                out.available = true;
+                out.wireType = RuntimeUiWireType::UInt32;
+                out.u32Value = poolDeviceRuntimeCount(*dataStore);
+                return true;
+            }
             uint8_t deviceSlot = 0xFFU;
             if (valueId == 1U) deviceSlot = PoolIds::DeviceFiltrationPump;
             else if (valueId == 2U) deviceSlot = PoolIds::DevicePhPump;
@@ -6837,6 +6848,23 @@ void WebInterfaceModule::startServer_()
             }
         }
 
+        if (action->targetName && action->targetName[0]) {
+            char targetText[12] = {0};
+            uint32_t target = 0U;
+            if (!copyRequestParamValue_(request, "target", true, targetText, sizeof(targetText), "") ||
+                !parseStrictUInt32Param_(targetText, target)) {
+                request->send(400, "application/json",
+                              "{\"ok\":false,\"err\":{\"code\":\"InvalidArg\",\"where\":\"runtime.action.target\"}}");
+                return;
+            }
+            // The field names and types are declared by the generated manifest.
+            if (!appendRuntimeActionTarget(args, sizeof(args), action->targetName, target)) {
+                request->send(500, "application/json",
+                              "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"runtime.action.arguments\"}}");
+                return;
+            }
+        }
+
         if (!cmdSvc_ && services_) {
             cmdSvc_ = services_->get<CommandService>(ServiceId::Command);
         }
@@ -6897,6 +6925,126 @@ void WebInterfaceModule::startServer_()
                       "application/json",
                       "{\"ok\":false,\"err\":{\"code\":\"Replaced\",\"where\":\"io.summary\","
                       "\"detail\":\"Use /api/io/topology and /api/io/runtime\"}}");
+    });
+
+    server_.on("/api/runtime/alarm_options", HTTP_GET, [this](AsyncWebServerRequest* request) {
+        HttpLatencyScope latency(request, "/api/runtime/alarm_options");
+        const AlarmService* alarmSvc = services_ ? services_->get<AlarmService>(ServiceId::Alarm) : nullptr;
+        if (!alarmSvc || !alarmSvc->listIds || !alarmSvc->readState) {
+            request->send(503, "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"NotReady\",\"where\":\"runtime.alarm_options\"}}");
+            return;
+        }
+        AlarmId ids[Limits::Alarm::MaxAlarms]{};
+        AlarmState alarms[Limits::Alarm::MaxAlarms]{};
+        const uint8_t count = alarmSvc->listIds(alarmSvc->ctx, ids, (uint8_t)Limits::Alarm::MaxAlarms);
+        for (uint8_t idx = 0; idx < count; ++idx) {
+            if (!alarmSvc->readState(alarmSvc->ctx, ids[idx], &alarms[idx])) {
+                request->send(503, "application/json",
+                              "{\"ok\":false,\"err\":{\"code\":\"NotReady\",\"where\":\"runtime.alarm_options.state\"}}");
+                return;
+            }
+        }
+        SpiRamJsonDocument doc(768);
+        if (doc.capacity() < 768U) {
+            request->send(503, "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"NoMemory\",\"where\":\"runtime.alarm_options\"}}");
+            return;
+        }
+        AsyncResponseStream* response = request->beginResponseStream("application/json");
+        addNoCacheHeaders_(response);
+        response->print("{\"ok\":true,\"options\":[");
+        for (uint8_t idx = 0; idx < count; ++idx) {
+            if (idx) response->print(',');
+            doc.clear();
+            const AlarmState& alarm = alarms[idx];
+            doc["value"] = (uint16_t)alarm.id;
+            doc["label"] = alarm.title[0] ? alarm.title : alarm.code;
+            doc["condition"] = (uint8_t)alarm.condition;
+            doc["latchState"] = !alarm.latchEnabled ? 2U : (alarm.active ? 1U : 0U);
+            doc["resettable"] = alarm.resettable;
+            doc["automatic"] = !alarm.latchEnabled;
+            if (alarm.lastRaisedUnixSec) doc["triggeredAt"] = alarm.lastRaisedUnixSec;
+            else doc["triggeredAt"] = nullptr;
+            serializeJson(doc, *response);
+        }
+        response->print("]}");
+        request->send(response);
+    });
+
+    server_.on("/api/runtime/pooldevice_options", HTTP_GET, [this](AsyncWebServerRequest* request) {
+        HttpLatencyScope latency(request, "/api/runtime/pooldevice_options");
+        const PoolDeviceService* poolSvc = services_ ? services_->get<PoolDeviceService>(ServiceId::PoolDevice) : nullptr;
+        if (!poolSvc || !poolSvc->meta) {
+            request->send(503, "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"NotReady\",\"where\":\"runtime.pooldevice_options\"}}");
+            return;
+        }
+
+        // Read every registered slot independently of dashboard visibility or enable state.
+        PoolDeviceSvcMeta devices[POOL_DEVICE_MAX] = {};
+        uint8_t count = 0;
+        for (uint8_t slot = 0; slot < POOL_DEVICE_MAX; ++slot) {
+            PoolDeviceSvcMeta meta{};
+            const PoolDeviceSvcStatus status = poolSvc->meta(poolSvc->ctx, slot, &meta);
+            if (status == POOLDEV_SVC_ERR_UNKNOWN_SLOT) continue;
+            if (status != POOLDEV_SVC_OK) {
+                request->send(503, "application/json",
+                              "{\"ok\":false,\"err\":{\"code\":\"NotReady\",\"where\":\"runtime.pooldevice_options.meta\"}}");
+                return;
+            }
+            if (meta.used) devices[count++] = meta;
+        }
+
+        SpiRamJsonDocument deviceDoc(768);
+        if (deviceDoc.capacity() < 768U) {
+            request->send(503, "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"NoMemory\",\"where\":\"runtime.pooldevice_options\"}}");
+            return;
+        }
+        AsyncResponseStream* response = request->beginResponseStream("application/json");
+        addNoCacheHeaders_(response);
+        response->print("{\"ok\":true,\"options\":[");
+        for (uint8_t idx = 0; idx < count; ++idx) {
+            if (idx) response->print(',');
+            deviceDoc.clear();
+            deviceDoc["value"] = devices[idx].slot;
+            deviceDoc["name"] = devices[idx].label[0] ? devices[idx].label : devices[idx].runtimeId;
+            deviceDoc["deviceId"] = devices[idx].runtimeId;
+            PoolDeviceRuntimeStateEntry state{};
+            const bool stateAvailable = dataStore_ && poolDeviceRuntimeState(*dataStore_, devices[idx].slot, state);
+            deviceDoc["controllable"] = stateAvailable && devices[idx].enabled &&
+                poolSvc->writesEnabled && poolSvc->writesEnabled(poolSvc->ctx);
+            if (stateAvailable) {
+                deviceDoc["actualOn"] = state.actualOn;
+            } else {
+                deviceDoc["actualOn"] = nullptr;
+            }
+            char label[48] = {0};
+            snprintf(label, sizeof(label), "%s (pd%u)",
+                     devices[idx].label[0] ? devices[idx].label : devices[idx].runtimeId,
+                     (unsigned)devices[idx].slot);
+            deviceDoc["label"] = label;
+            PoolDeviceRuntimeMetricsEntry metrics{};
+            if (dataStore_ && poolDeviceRuntimeMetrics(*dataStore_, devices[idx].slot, metrics)) {
+                JsonObject running = deviceDoc.createNestedObject("running");
+                running["day_s"] = metrics.runningSecDay;
+                running["week_s"] = metrics.runningSecWeek;
+                running["month_s"] = metrics.runningSecMonth;
+                running["total_s"] = metrics.runningSecTotal;
+                JsonObject injected = deviceDoc.createNestedObject("injected");
+                injected["day_ml"] = metrics.injectedMlDay;
+                injected["week_ml"] = metrics.injectedMlWeek;
+                injected["month_ml"] = metrics.injectedMlMonth;
+                injected["total_ml"] = metrics.injectedMlTotal;
+            } else {
+                deviceDoc["running"] = nullptr;
+                deviceDoc["injected"] = nullptr;
+            }
+            serializeJson(deviceDoc, *response);
+        }
+        response->print("]}");
+        request->send(response);
     });
 
     server_.on("/api/runtime/dashboard_slots", HTTP_GET, [this](AsyncWebServerRequest* request) {
