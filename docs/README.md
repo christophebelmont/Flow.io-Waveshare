@@ -42,6 +42,7 @@ Les dépendances déclarées dans `platformio.ini` sont installées automatiquem
 - [Modèle ConfigStore, DataStore, EventBus et MQTT](core/data-event-model.md)
 - [Exposition des données dans l'interface Runtime UI](core/runtime-ui-exposure.md)
 - [Chargement modulaire des ressources web](core/webinterface-assets-modular.md)
+- [Releases A/B et packages d’upgrade](core/release-upgrade-ab.md)
 - [Logique métier de la piscine](integration/flowio-poollogic-business.md)
 
 ### Intégrer et diagnostiquer

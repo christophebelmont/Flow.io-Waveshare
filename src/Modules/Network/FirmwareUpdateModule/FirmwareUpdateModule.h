@@ -10,6 +10,11 @@
 #include "Core/ConfigTypes.h"
 #include "Core/CommandRegistry.h"
 #include "FirmwareUpdateReceipt.h"
+#include "Core/ReleaseStorage.h"
+
+#include <esp_ota_ops.h>
+#include <freertos/semphr.h>
+#include <mbedtls/sha256.h>
 
 struct BoardSpec;
 
@@ -54,6 +59,42 @@ private:
         Rebooting,
         Done,
         Error
+    };
+
+    enum class LocalReleaseStage : uint8_t {
+        Idle = 0,
+        Prepared,
+        WritingFilesystem,
+        FilesystemVerified,
+        WritingFirmware,
+        FirmwareVerified,
+        ReadyToBoot,
+        Error
+    };
+
+    struct LocalImageManifest {
+        uint32_t size = 0U;
+        uint8_t sha256[32]{};
+    };
+
+    struct LocalReleaseTransaction {
+        bool active = false;
+        bool shaActive = false;
+        bool rebootPending = false;
+        uint32_t id = 0U;
+        uint32_t operationId = 0U;
+        uint32_t rebootAtMs = 0U;
+        uint32_t lastActivityMs = 0U;
+        ReleaseSlot targetSlot = ReleaseSlot::B;
+        LocalReleaseStage stage = LocalReleaseStage::Idle;
+        char version[32]{};
+        char failureReason[144]{};
+        LocalImageManifest filesystem{};
+        LocalImageManifest firmware{};
+        const esp_partition_t* writePartition = nullptr;
+        esp_ota_handle_t otaHandle = 0;
+        size_t received = 0U;
+        mbedtls_sha256_context shaContext{};
     };
 
     struct UpdateJob {
@@ -144,6 +185,13 @@ private:
     bool hmiOtaActive_ = false;
     uint32_t activeTotalBytes_ = 0;
     uint32_t activeSentBytes_ = 0;
+    const char* hardwareName_ = nullptr;
+    StaticSemaphore_t localReleaseMutexStorage_{};
+    SemaphoreHandle_t localReleaseMutex_ = nullptr;
+    // Mirrored under lock_ so legacy and local update admission checks share
+    // one synchronization domain without exposing the transaction internals.
+    bool localReleaseActive_ = false;
+    LocalReleaseTransaction localRelease_{};
 
     static bool cmdStatus_(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen);
     static bool cmdWaveshare_(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen);
@@ -183,6 +231,32 @@ private:
     bool runNextionUpdate_(const UpdateJob& job, char* errOut, size_t errOutLen);
     bool runNextionReboot_(char* errOut, size_t errOutLen);
     bool runSpiffsUpdate_(const UpdateJob& job, char* errOut, size_t errOutLen);
+    bool beginLocalRelease_(const char* manifestJson,
+                            size_t manifestLen,
+                            uint32_t* transactionIdOut,
+                            char* errOut,
+                            size_t errOutLen);
+    bool beginLocalImage_(uint32_t transactionId,
+                          FirmwareUpdateTarget target,
+                          size_t totalSize,
+                          char* errOut,
+                          size_t errOutLen);
+    bool writeLocalImage_(uint32_t transactionId,
+                          FirmwareUpdateTarget target,
+                          const uint8_t* data,
+                          size_t len,
+                          size_t offset,
+                          char* errOut,
+                          size_t errOutLen);
+    bool endLocalImage_(uint32_t transactionId,
+                        FirmwareUpdateTarget target,
+                        char* errOut,
+                        size_t errOutLen);
+    bool commitLocalRelease_(uint32_t transactionId, char* errOut, size_t errOutLen);
+    bool abortLocalRelease_(uint32_t transactionId, char* errOut, size_t errOutLen);
+    bool localTransactionMatches_(uint32_t transactionId) const;
+    void failLocalRelease_(const char* reason);
+    void resetLocalRelease_();
     bool resolveUrl_(FirmwareUpdateTarget target,
                      const char* explicitUrl,
                      char* out,
@@ -220,6 +294,12 @@ private:
         ServiceBinding::bind<&FirmwareUpdateModule::manifestCheckStatus_>,
         ServiceBinding::bind<&FirmwareUpdateModule::copyManifestResult_>,
         ServiceBinding::bind<&FirmwareUpdateModule::setConfig_>,
+        ServiceBinding::bind<&FirmwareUpdateModule::beginLocalRelease_>,
+        ServiceBinding::bind<&FirmwareUpdateModule::beginLocalImage_>,
+        ServiceBinding::bind<&FirmwareUpdateModule::writeLocalImage_>,
+        ServiceBinding::bind<&FirmwareUpdateModule::endLocalImage_>,
+        ServiceBinding::bind<&FirmwareUpdateModule::commitLocalRelease_>,
+        ServiceBinding::bind<&FirmwareUpdateModule::abortLocalRelease_>,
         this
     };
 };

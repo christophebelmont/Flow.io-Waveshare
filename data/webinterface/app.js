@@ -1881,6 +1881,9 @@
     let activityLoadedStats = null;
 
     const checkUpdatesBtn = document.getElementById('checkUpdates');
+    const localReleaseFileInput = document.getElementById('localReleaseFile');
+    const localReleaseSelectBtn = document.getElementById('localReleaseSelect');
+    const localReleaseSummary = document.getElementById('localReleaseSummary');
     const cancelUpgradeUiBtn = document.getElementById('cancelUpgradeUi');
     const upgradeCards = document.getElementById('upgradeCards');
     const upgradeTableBody = document.getElementById('upgradeTableBody');
@@ -4173,6 +4176,136 @@
           failedStep: 'target'
         });
         setUpgradeMessage('Échec de la mise à jour : ' + err);
+      }
+    }
+
+    async function readStoredReleaseZip(file) {
+      const decoder = new TextDecoder('utf-8');
+      const entries = new Map();
+      let offset = 0;
+      while (offset + 4 <= file.size) {
+        const prefix = new DataView(await file.slice(offset, offset + 4).arrayBuffer());
+        const signature = prefix.getUint32(0, true);
+        if (signature === 0x02014b50 || signature === 0x06054b50) break;
+        if (signature !== 0x04034b50 || offset + 30 > file.size) {
+          throw new Error('structure ZIP invalide');
+        }
+        const header = new DataView(await file.slice(offset, offset + 30).arrayBuffer());
+        const flags = header.getUint16(6, true);
+        const method = header.getUint16(8, true);
+        const compressedSize = header.getUint32(18, true);
+        const uncompressedSize = header.getUint32(22, true);
+        const nameLength = header.getUint16(26, true);
+        const extraLength = header.getUint16(28, true);
+        if ((flags & 0x0009) !== 0 || method !== 0 || compressedSize !== uncompressedSize) {
+          throw new Error('le package ZIP doit être un package Flow.IO non compressé');
+        }
+        const nameStart = offset + 30;
+        const dataStart = nameStart + nameLength + extraLength;
+        const dataEnd = dataStart + compressedSize;
+        if (dataEnd > file.size) throw new Error('entrée ZIP tronquée');
+        const name = decoder.decode(await file.slice(nameStart, nameStart + nameLength).arrayBuffer());
+        if (!name || entries.has(name)) throw new Error('entrée ZIP invalide ou dupliquée');
+        entries.set(name, file.slice(dataStart, dataEnd, 'application/octet-stream'));
+        offset = dataEnd;
+      }
+      const required = ['manifest.json', 'firmware.bin', 'spiffs.bin'];
+      if (entries.size !== required.length || required.some((name) => !entries.has(name))) {
+        throw new Error('le ZIP doit contenir uniquement manifest.json, firmware.bin et spiffs.bin');
+      }
+      return entries;
+    }
+
+    function uploadReleaseBlob(url, blob, onProgress) {
+      return new Promise((resolve, reject) => {
+        const request = new XMLHttpRequest();
+        request.open('POST', url, true);
+        request.setRequestHeader('Content-Type', 'application/octet-stream');
+        request.upload.onprogress = (event) => {
+          if (event.lengthComputable && typeof onProgress === 'function') {
+            onProgress(Math.round((event.loaded * 100) / event.total));
+          }
+        };
+        request.onerror = () => reject(new Error('connexion interrompue pendant l’upload'));
+        request.onload = () => {
+          let payload = null;
+          try { payload = request.responseText ? JSON.parse(request.responseText) : null; } catch (_) {}
+          if (request.status < 200 || request.status >= 300 || (payload && payload.ok === false)) {
+            const detail = payload && payload.err ? (payload.err.msg || payload.err.code) : request.responseText;
+            reject(new Error(detail || 'upload refusé'));
+            return;
+          }
+          resolve(payload || { ok: true });
+        };
+        request.send(blob);
+      });
+    }
+
+    async function installLocalRelease(file) {
+      let transactionId = 0;
+      if (localReleaseSelectBtn) localReleaseSelectBtn.disabled = true;
+      try {
+        const entries = await readStoredReleaseZip(file);
+        const manifestText = await entries.get('manifest.json').text();
+        const manifest = JSON.parse(manifestText);
+        const firmware = entries.get('firmware.bin');
+        const filesystem = entries.get('spiffs.bin');
+        if (!manifest || manifest.format !== 1 || manifest.product !== 'Flow.IO' ||
+            manifest.hardware !== 'WaveshareESP32S3' || !manifest.version ||
+            !manifest.firmware || !manifest.filesystem ||
+            manifest.firmware.file !== 'firmware.bin' || manifest.filesystem.file !== 'spiffs.bin' ||
+            Number(manifest.firmware.size) !== firmware.size ||
+            Number(manifest.filesystem.size) !== filesystem.size) {
+          throw new Error('manifest de release incompatible');
+        }
+        const description = 'Flow.IO ' + manifest.version + '\nFirmware : ' + firmware.size +
+          ' octets\nFilesystem : ' + filesystem.size + ' octets';
+        if (localReleaseSummary) localReleaseSummary.textContent = description.replace(/\n/g, ' · ');
+        if (!confirm(description + '\n\nInstaller cette release puis redémarrer ?')) return;
+
+        startUpgradeUiSession('release');
+        setUpgradeMessage('Préparation de la release ' + manifest.version + '…');
+        const started = await fetchOkJson('/api/upgrade/begin', {
+          method: 'POST',
+          cache: 'no-store',
+          headers: { 'Content-Type': 'application/json' },
+          body: manifestText
+        }, 'échec de préparation du package');
+        transactionId = Number(started && started.transaction_id);
+        if (!Number.isFinite(transactionId) || transactionId <= 0) {
+          throw new Error('identifiant de transaction invalide');
+        }
+        const query = '?transaction_id=' + encodeURIComponent(String(transactionId));
+        await uploadReleaseBlob('/api/upgrade/filesystem' + query, filesystem, (progress) => {
+          setUpgradeMessage('Installation du filesystem : ' + progress + '%');
+        });
+        await uploadReleaseBlob('/api/upgrade/firmware' + query, firmware, (progress) => {
+          setUpgradeMessage('Installation du firmware : ' + progress + '%');
+        });
+        await fetchOkJson('/api/upgrade/commit' + query,
+                          { method: 'POST', cache: 'no-store' },
+                          'échec de validation de la release');
+        transactionId = 0;
+        updateUpgradeUiSession({
+          phase: 'reboot',
+          target: 'release',
+          detail: 'Release installée. Flow.IO redémarre…',
+          backendProgress: 100,
+          awaitingReconnect: true
+        });
+        setUpgradeMessage('Release installée. Flow.IO redémarre…');
+        enterUpgradeReconnectPhase();
+      } catch (err) {
+        if (transactionId > 0) {
+          await fetch('/api/upgrade/abort?transaction_id=' + encodeURIComponent(String(transactionId)), {
+            method: 'POST', cache: 'no-store'
+          }).catch(() => {});
+        }
+        updateUpgradeUiSession({ phase: 'error', target: 'release', detail: String(err), backendProgress: 0 });
+        setUpgradeMessage('Échec du package local : ' + err);
+      } finally {
+        if (localReleaseSelectBtn) localReleaseSelectBtn.disabled = false;
+        if (localReleaseFileInput) localReleaseFileInput.value = '';
       }
     }
 
@@ -12237,6 +12370,19 @@
     function initUpgradeBindings() {
       bindClickAction(checkUpdatesBtn, () => checkFirmwareUpdates());
       bindClickAction(cancelUpgradeUiBtn, () => cancelUpgradeUiSession());
+      bindClickAction(localReleaseSelectBtn, () => {
+        if (!localReleaseFileInput) return;
+        localReleaseFileInput.value = '';
+        localReleaseFileInput.click();
+      });
+      if (localReleaseFileInput) {
+        localReleaseFileInput.addEventListener('change', () => {
+          const file = localReleaseFileInput.files && localReleaseFileInput.files[0]
+            ? localReleaseFileInput.files[0]
+            : null;
+          if (file) runAsyncTaskSafely(() => installLocalRelease(file));
+        });
+      }
     }
 
     function initStatusBindings() {

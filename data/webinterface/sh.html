@@ -177,6 +177,18 @@
 
       <section id="page-system" class="page">
         <div class="card updates-panel">
+          <div class="local-release-upload">
+            <div>
+              <strong data-i18n="updates.local.title">Installer un package local</strong>
+              <p data-i18n="updates.local.description">Sélectionnez un package Flow.IO complet contenant le firmware et le filesystem.</p>
+              <div id="localReleaseSummary" class="status-txt" aria-live="polite"></div>
+            </div>
+            <input id="localReleaseFile" type="file" accept=".zip,application/zip" hidden>
+            <button id="localReleaseSelect" type="button" class="btn-tonal">
+              <span class="ui-msr btn-msr" aria-hidden="true">upload_file</span>
+              <span data-i18n="updates.local.select">Sélectionner un ZIP</span>
+            </button>
+          </div>
           <div id="upgradeCards" class="updates-summary-grid" aria-live="polite"></div>
 
           <div class="updates-table-shell">

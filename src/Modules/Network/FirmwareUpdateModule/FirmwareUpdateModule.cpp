@@ -32,7 +32,84 @@
 #define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::FirmwareUpdateModule)
 #include "Core/ModuleLog.h"
 
+static bool writeSimpleError_(char* out, size_t outLen, const char* msg);
+
 namespace {
+
+class SemaphoreGuard {
+public:
+    explicit SemaphoreGuard(SemaphoreHandle_t semaphore,
+                            TickType_t waitTicks = portMAX_DELAY)
+        : semaphore_(semaphore),
+          acquired_(semaphore_ && xSemaphoreTake(semaphore_, waitTicks) == pdTRUE)
+    {
+    }
+
+    ~SemaphoreGuard()
+    {
+        if (acquired_) xSemaphoreGive(semaphore_);
+    }
+
+    SemaphoreGuard(const SemaphoreGuard&) = delete;
+    SemaphoreGuard& operator=(const SemaphoreGuard&) = delete;
+
+    bool acquired() const { return acquired_; }
+
+private:
+    SemaphoreHandle_t semaphore_ = nullptr;
+    bool acquired_ = false;
+};
+
+class PartitionWriteStream final : public Stream {
+public:
+    using ProgressCallback = void (*)(void* context, size_t writtenBytes);
+
+    PartitionWriteStream(const esp_partition_t* partition,
+                         ProgressCallback progressCallback,
+                         void* progressContext)
+        : partition_(partition),
+          progressCallback_(progressCallback),
+          progressContext_(progressContext)
+    {
+    }
+
+    size_t write(uint8_t value) override { return write(&value, 1U); }
+
+    size_t write(const uint8_t* data, size_t size) override
+    {
+        if (!partition_ || !data || size == 0U) return 0U;
+        if (offset_ > partition_->size || size > partition_->size - offset_) {
+            overflow_ = true;
+            setWriteError();
+            return 0U;
+        }
+        if (esp_partition_write(partition_, offset_, data, size) != ESP_OK) {
+            flashError_ = true;
+            setWriteError();
+            return 0U;
+        }
+        offset_ += size;
+        if (progressCallback_) progressCallback_(progressContext_, size);
+        return size;
+    }
+
+    int available() override { return 0; }
+    int read() override { return -1; }
+    int peek() override { return -1; }
+    void flush() override {}
+
+    size_t writtenBytes() const { return offset_; }
+    bool overflowed() const { return overflow_; }
+    bool flashError() const { return flashError_; }
+
+private:
+    const esp_partition_t* partition_ = nullptr;
+    ProgressCallback progressCallback_ = nullptr;
+    void* progressContext_ = nullptr;
+    size_t offset_ = 0U;
+    bool overflow_ = false;
+    bool flashError_ = false;
+};
 
 const LocalUiBoardSpec& localUiBoardSpec_(const BoardSpec& board)
 {
@@ -119,10 +196,84 @@ bool buildManifestSiblingUrl_(const char* manifestUrl,
     return true;
 }
 
+bool parseSha256_(const char* text, uint8_t out[32])
+{
+    if (!text || !out || strlen(text) != 64U) return false;
+    for (size_t i = 0U; i < 32U; ++i) {
+        const char hi = text[i * 2U];
+        const char lo = text[i * 2U + 1U];
+        const auto nibble = [](char value) -> int {
+            if (value >= '0' && value <= '9') return value - '0';
+            if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+            if (value >= 'A' && value <= 'F') return value - 'A' + 10;
+            return -1;
+        };
+        const int high = nibble(hi);
+        const int low = nibble(lo);
+        if (high < 0 || low < 0) return false;
+        out[i] = (uint8_t)((high << 4) | low);
+    }
+    return true;
+}
+
+bool sha256Matches_(const uint8_t actual[32], const uint8_t expected[32])
+{
+    uint8_t difference = 0U;
+    for (size_t i = 0U; i < 32U; ++i) difference |= actual[i] ^ expected[i];
+    return difference == 0U;
+}
+
+bool isLocalReleaseImageTarget_(FirmwareUpdateTarget target)
+{
+    return target == FirmwareUpdateTarget::Spiffs ||
+           target == FirmwareUpdateTarget::Waveshare;
+}
+
+bool candidateFilesystemIsValid_(const char* label, const char* version, const char* hardware)
+{
+    if (!label || label[0] == '\0') return false;
+    fs::SPIFFSFS candidate;
+    if (!candidate.begin(false, "/candidate", 4, label)) return false;
+    const bool valid = ReleaseStorage::validateReleaseFilesystem(candidate, version, hardware);
+    candidate.end();
+    return valid;
+}
+
+bool cloneActiveReleaseFilesystem_(char* errOut, size_t errOutLen)
+{
+    const esp_partition_t* source = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA,
+        ESP_PARTITION_SUBTYPE_ANY,
+        ReleaseStorage::filesystemLabel(ReleaseStorage::runningSlot()));
+    const esp_partition_t* destination = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA,
+        ESP_PARTITION_SUBTYPE_ANY,
+        ReleaseStorage::filesystemLabel(ReleaseStorage::inactiveSlot()));
+    if (!source || !destination || source->size != destination->size) {
+        return writeSimpleError_(errOut, errOutLen, "release filesystem slots unavailable");
+    }
+    if (esp_partition_erase_range(destination, 0U, destination->size) != ESP_OK) {
+        return writeSimpleError_(errOut, errOutLen, "inactive filesystem erase failed");
+    }
+    uint8_t buffer[1024]{};
+    for (size_t offset = 0U; offset < source->size; offset += sizeof(buffer)) {
+        const size_t count = ((source->size - offset) < sizeof(buffer))
+                                 ? (source->size - offset)
+                                 : sizeof(buffer);
+        if (esp_partition_read(source, offset, buffer, count) != ESP_OK ||
+            esp_partition_write(destination, offset, buffer, count) != ESP_OK) {
+            return writeSimpleError_(errOut, errOutLen, "inactive filesystem clone failed");
+        }
+    }
+    return true;
+}
+
 }  // namespace
 
 FirmwareUpdateModule::FirmwareUpdateModule(const BoardSpec& board)
 {
+    localReleaseMutex_ = xSemaphoreCreateMutexStatic(&localReleaseMutexStorage_);
+    hardwareName_ = board.name;
     const LocalUiBoardSpec& boardCfg = localUiBoardSpec_(board);
     const UartSpec& panelUart = panelUartSpec_(board);
     flowIoEnablePin_ = boardCfg.update.flowIoEnablePin;
@@ -507,7 +658,7 @@ bool FirmwareUpdateModule::statusJson_(char* out, size_t outLen)
     FirmwareUpdateReceipt lastReceipt{};
     portENTER_CRITICAL(&lock_);
     snap = status_;
-    busy = busy_;
+    busy = busy_ || localReleaseActive_;
     pending = queuedJob_.pending;
     hasLastReceipt = hasLastReceipt_;
     lastReceipt = lastReceipt_;
@@ -544,18 +695,12 @@ bool FirmwareUpdateModule::isBusy_()
     if (!manifestMetadata_) return false;
 
     bool busy = false;
-    bool pending = false;
-    bool nextionReboot = false;
-    bool manifestCheckActive = false;
-    bool updateStartPending = false;
     portENTER_CRITICAL(&lock_);
-    busy = busy_;
-    pending = queuedJob_.pending;
-    nextionReboot = nextionRebootQueued_;
-    manifestCheckActive = manifestCheckIsActive_(manifestMetadata_->check.state);
-    updateStartPending = updateStartPending_;
+    busy = busy_ || localReleaseActive_ || queuedJob_.pending ||
+           nextionRebootQueued_ || updateStartPending_ ||
+           manifestCheckIsActive_(manifestMetadata_->check.state);
     portEXIT_CRITICAL(&lock_);
-    return busy || pending || nextionReboot || manifestCheckActive || updateStartPending;
+    return busy;
 }
 
 bool FirmwareUpdateModule::configJson_(char* out, size_t outLen) const
@@ -598,7 +743,7 @@ bool FirmwareUpdateModule::startManifestCheck_(uint32_t* requestIdOut,
     }
 
     portENTER_CRITICAL(&lock_);
-    if (busy_ || queuedJob_.pending || nextionRebootQueued_ || updateStartPending_ ||
+    if (busy_ || localReleaseActive_ || queuedJob_.pending || nextionRebootQueued_ || updateStartPending_ ||
         manifestCheckIsActive_(manifestMetadata_->check.state) || manifestCopyReaders_ > 0U) {
         portEXIT_CRITICAL(&lock_);
         writeSimpleError_(errOut, errOutLen, "updater busy");
@@ -789,7 +934,7 @@ bool FirmwareUpdateModule::startUpdate_(FirmwareUpdateTarget target,
     }
 
     portENTER_CRITICAL(&lock_);
-    if (busy_ || queuedJob_.pending || nextionRebootQueued_ || updateStartPending_ ||
+    if (busy_ || localReleaseActive_ || queuedJob_.pending || nextionRebootQueued_ || updateStartPending_ ||
         manifestCheckIsActive_(manifestMetadata_->check.state) || manifestCopyReaders_ > 0U) {
         portEXIT_CRITICAL(&lock_);
         writeSimpleError_(errOut, errOutLen, "updater busy");
@@ -836,7 +981,7 @@ bool FirmwareUpdateModule::queueNextionReboot_(char* errOut, size_t errOutLen)
     }
 
     portENTER_CRITICAL(&lock_);
-    if (busy_ || queuedJob_.pending || nextionRebootQueued_ || updateStartPending_ ||
+    if (busy_ || localReleaseActive_ || queuedJob_.pending || nextionRebootQueued_ || updateStartPending_ ||
         manifestCheckIsActive_(manifestMetadata_->check.state) || manifestCopyReaders_ > 0U) {
         portEXIT_CRITICAL(&lock_);
         writeSimpleError_(errOut, errOutLen, "updater busy");
@@ -892,6 +1037,13 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
     }
     if (runningPartition && updatePartition->address == runningPartition->address) {
         writeSimpleError_(errOut, errOutLen, "ota target equals running partition");
+        http.end();
+        return false;
+    }
+    // The legacy remote firmware route remains independently usable. Seed the
+    // paired inactive filesystem with the currently running release so the new
+    // application never boots against an empty or older filesystem slot.
+    if (!cloneActiveReleaseFilesystem_(errOut, errOutLen)) {
         http.end();
         return false;
     }
@@ -1230,69 +1382,61 @@ bool FirmwareUpdateModule::runSpiffsUpdate_(const UpdateJob& job, char* errOut, 
     }
 
     char failMsg[128] = {0};
-    const size_t beginSize = (contentLength > 0) ? (size_t)contentLength : (size_t)UPDATE_SIZE_UNKNOWN;
-    if (!Update.begin(beginSize, U_SPIFFS)) {
-        snprintf(failMsg, sizeof(failMsg), "spiffs begin failed (%u)", (unsigned)Update.getError());
+    const char* activeLabel = ReleaseStorage::filesystemLabel(ReleaseStorage::runningSlot());
+    const auto remountActiveFilesystem = [this, activeLabel]() -> bool {
+        const bool remounted = SPIFFS.begin(false, "/spiffs", 10, activeLabel);
+        if (remounted && webInterfaceSvc_ && webInterfaceSvc_->setPaused) {
+            webInterfaceSvc_->setPaused(webInterfaceSvc_->ctx, false);
+        }
+        return remounted;
+    };
+    const esp_partition_t* activePartition = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA,
+        ESP_PARTITION_SUBTYPE_ANY,
+        activeLabel);
+    LOGI("[UPGRADE] direct filesystem target=%s announced=%d expected=%u",
+         activeLabel,
+         (int)contentLength,
+         activePartition ? (unsigned)activePartition->size : 0U);
+    if (!activePartition || contentLength == 0 ||
+        (contentLength > 0 && (size_t)contentLength != activePartition->size)) {
+        snprintf(failMsg,
+                 sizeof(failMsg),
+                 "spiffs image size incompatible announced=%d expected=%u",
+                 (int)contentLength,
+                 activePartition ? (unsigned)activePartition->size : 0U);
+    } else {
+        SPIFFS.end();
+        if (esp_partition_erase_range(activePartition, 0U, activePartition->size) != ESP_OK) {
+            snprintf(failMsg, sizeof(failMsg), "spiffs erase failed");
+        }
     }
 
-    auto* stream = http.getStreamPtr();
-    uint8_t buf[Limits::FirmwareUpdate::Http::StreamChunkBytes];
-    int32_t remaining = contentLength;
-    uint32_t lastReadMs = millis();
+    const auto reportProgress = [](void* context, size_t writtenBytes) {
+        static_cast<FirmwareUpdateModule*>(context)->onProgressChunk_((uint32_t)writtenBytes);
+    };
+    PartitionWriteStream partitionStream(activePartition, reportProgress, this);
+    int streamedBytes = 0;
     if (failMsg[0] == '\0') {
-        while (http.connected() && (contentLength <= 0 || remaining > 0)) {
-            const size_t avail = stream ? stream->available() : 0;
-            if (avail == 0U) {
-                if (contentLength <= 0 && stream && !stream->connected()) {
-                    break;
-                }
-                if ((millis() - lastReadMs) > Limits::FirmwareUpdate::Http::StreamReadTimeoutMs) {
-                    snprintf(failMsg, sizeof(failMsg), "spiffs stream timeout");
-                    break;
-                }
-                delay(1);
-                continue;
-            }
-
-            const size_t toRead = (avail > sizeof(buf)) ? sizeof(buf) : avail;
-            const int rd = stream->readBytes((char*)buf, toRead);
-            if (rd <= 0) {
-                delay(1);
-                continue;
-            }
-            lastReadMs = millis();
-
-            const size_t wr = Update.write(buf, (size_t)rd);
-            if (wr != (size_t)rd) {
-                snprintf(failMsg, sizeof(failMsg), "spiffs write failed (%u)", (unsigned)Update.getError());
-                break;
-            }
-
-            onProgressChunk_((uint32_t)wr);
-
-            if (contentLength > 0) {
-                remaining -= rd;
-                if (remaining <= 0) break;
-            }
-        }
+        streamedBytes = http.writeToStream(&partitionStream);
     }
     http.end();
 
-    if (failMsg[0] == '\0' && contentLength > 0 && remaining > 0) {
-        snprintf(failMsg, sizeof(failMsg), "incomplete download");
+    if (failMsg[0] == '\0' && partitionStream.overflowed()) {
+        snprintf(failMsg, sizeof(failMsg), "spiffs image exceeds active slot");
+    } else if (failMsg[0] == '\0' && partitionStream.flashError()) {
+        snprintf(failMsg, sizeof(failMsg), "spiffs write failed");
+    } else if (failMsg[0] == '\0' && streamedBytes < 0) {
+        snprintf(failMsg, sizeof(failMsg), "spiffs download failed (%d)", streamedBytes);
+    } else if (failMsg[0] == '\0' && partitionStream.writtenBytes() != activePartition->size) {
+        snprintf(failMsg,
+                 sizeof(failMsg),
+                 "incomplete spiffs image received=%u expected=%u",
+                 (unsigned)partitionStream.writtenBytes(),
+                 (unsigned)activePartition->size);
     }
-    if (failMsg[0] == '\0' && !Update.end()) {
-        snprintf(failMsg, sizeof(failMsg), "spiffs end failed (%u)", (unsigned)Update.getError());
-    }
-    if (failMsg[0] == '\0' && !Update.isFinished()) {
-        snprintf(failMsg, sizeof(failMsg), "spiffs not finished");
-    }
-
-    if (webInterfaceSvc_ && webInterfaceSvc_->setPaused) {
-        webInterfaceSvc_->setPaused(webInterfaceSvc_->ctx, false);
-    }
-
     if (failMsg[0] != '\0') {
+        (void)remountActiveFilesystem();
         writeSimpleError_(errOut, errOutLen, failMsg);
         return false;
     }
@@ -1300,6 +1444,7 @@ bool FirmwareUpdateModule::runSpiffsUpdate_(const UpdateJob& job, char* errOut, 
     if (!persistReceipt_(job.target,
                          job.operationId,
                          FirmwareUpdateReceiptState::RebootPending)) {
+        (void)remountActiveFilesystem();
         writeSimpleError_(errOut, errOutLen, "failed to persist update completion");
         return false;
     }
@@ -1310,6 +1455,454 @@ bool FirmwareUpdateModule::runSpiffsUpdate_(const UpdateJob& job, char* errOut, 
                job.operationId);
     delay(1800);
     ESP.restart();
+    return true;
+}
+
+bool FirmwareUpdateModule::localTransactionMatches_(uint32_t transactionId) const
+{
+    return localRelease_.active && transactionId != 0U && localRelease_.id == transactionId;
+}
+
+void FirmwareUpdateModule::resetLocalRelease_()
+{
+    if (localRelease_.shaActive) {
+        mbedtls_sha256_free(&localRelease_.shaContext);
+    }
+    if (localRelease_.otaHandle != 0) {
+        (void)esp_ota_abort(localRelease_.otaHandle);
+    }
+    localRelease_ = LocalReleaseTransaction{};
+    portENTER_CRITICAL(&lock_);
+    localReleaseActive_ = false;
+    activeTotalBytes_ = 0U;
+    activeSentBytes_ = 0U;
+    portEXIT_CRITICAL(&lock_);
+    setHmiOtaCondition_(false);
+}
+
+void FirmwareUpdateModule::failLocalRelease_(const char* reason)
+{
+    if (localRelease_.stage == LocalReleaseStage::Error) return;
+    if (localRelease_.shaActive) {
+        mbedtls_sha256_free(&localRelease_.shaContext);
+        localRelease_.shaActive = false;
+    }
+    if (localRelease_.otaHandle != 0) {
+        (void)esp_ota_abort(localRelease_.otaHandle);
+        localRelease_.otaHandle = 0;
+    }
+    const FirmwareUpdateTarget target =
+        localRelease_.stage == LocalReleaseStage::WritingFirmware ||
+                localRelease_.stage == LocalReleaseStage::FirmwareVerified
+            ? FirmwareUpdateTarget::Waveshare
+            : FirmwareUpdateTarget::Spiffs;
+    snprintf(localRelease_.failureReason,
+             sizeof(localRelease_.failureReason),
+             "%s",
+             reason ? reason : "local release failed");
+    localRelease_.stage = LocalReleaseStage::Error;
+    setError_(target, localRelease_.failureReason, localRelease_.operationId);
+}
+
+bool FirmwareUpdateModule::beginLocalRelease_(const char* manifestJson,
+                                               size_t manifestLen,
+                                               uint32_t* transactionIdOut,
+                                               char* errOut,
+                                               size_t errOutLen)
+{
+    SemaphoreGuard transactionGuard(localReleaseMutex_);
+    if (!transactionGuard.acquired()) {
+        return writeSimpleError_(errOut, errOutLen, "upgrade synchronization unavailable");
+    }
+    if (transactionIdOut) *transactionIdOut = 0U;
+    if (!manifestJson || manifestLen == 0U || manifestLen > 1024U) {
+        return writeSimpleError_(errOut, errOutLen, "invalid release manifest");
+    }
+    StaticJsonDocument<1024> doc;
+    const auto jsonError = deserializeJson(doc, manifestJson, manifestLen);
+    if (jsonError || !doc.is<JsonObjectConst>()) {
+        return writeSimpleError_(errOut, errOutLen, "invalid release manifest json");
+    }
+    const uint32_t format = doc["format"] | 0U;
+    const char* product = doc["product"] | "";
+    const char* hardware = doc["hardware"] | "";
+    const char* version = doc["version"] | "";
+    const JsonObjectConst firmware = doc["firmware"].as<JsonObjectConst>();
+    const JsonObjectConst filesystem = doc["filesystem"].as<JsonObjectConst>();
+    if (format != 1U || strcmp(product, "Flow.IO") != 0 || !hardwareName_ ||
+        strcmp(hardware, hardwareName_) != 0 || version[0] == '\0' ||
+        firmware.isNull() || filesystem.isNull()) {
+        return writeSimpleError_(errOut, errOutLen, "incompatible release manifest");
+    }
+
+    LocalReleaseTransaction candidate{};
+    if (strlen(version) >= sizeof(candidate.version)) {
+        return writeSimpleError_(errOut, errOutLen, "release version is too long");
+    }
+    candidate.targetSlot = ReleaseStorage::inactiveSlot();
+    candidate.filesystem.size = filesystem["size"] | 0U;
+    candidate.firmware.size = firmware["size"] | 0U;
+    const char* firmwareFile = firmware["file"] | "";
+    const char* filesystemFile = filesystem["file"] | "";
+    if (strcmp(firmwareFile, "firmware.bin") != 0 || strcmp(filesystemFile, "spiffs.bin") != 0 ||
+        candidate.filesystem.size == 0U || candidate.firmware.size == 0U ||
+        !parseSha256_(filesystem["sha256"] | "", candidate.filesystem.sha256) ||
+        !parseSha256_(firmware["sha256"] | "", candidate.firmware.sha256)) {
+        return writeSimpleError_(errOut, errOutLen, "incomplete release manifest");
+    }
+
+    const esp_partition_t* fsPartition = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA,
+        ESP_PARTITION_SUBTYPE_ANY,
+        ReleaseStorage::filesystemLabel(candidate.targetSlot));
+    const esp_partition_subtype_t appSubtype = candidate.targetSlot == ReleaseSlot::A
+                                                   ? ESP_PARTITION_SUBTYPE_APP_OTA_0
+                                                   : ESP_PARTITION_SUBTYPE_APP_OTA_1;
+    const esp_partition_t* appPartition = esp_partition_find_first(
+        ESP_PARTITION_TYPE_APP, appSubtype, ReleaseStorage::applicationLabel(candidate.targetSlot));
+    if (!fsPartition || !appPartition || candidate.filesystem.size != fsPartition->size ||
+        candidate.firmware.size > appPartition->size) {
+        return writeSimpleError_(errOut, errOutLen, "release image exceeds target partition");
+    }
+
+    candidate.active = true;
+    candidate.id = esp_random();
+    if (candidate.id == 0U) candidate.id = 1U;
+    candidate.stage = LocalReleaseStage::Prepared;
+    candidate.lastActivityMs = millis();
+    snprintf(candidate.version, sizeof(candidate.version), "%s", version);
+
+    portENTER_CRITICAL(&lock_);
+    if (busy_ || localReleaseActive_ || queuedJob_.pending || nextionRebootQueued_ ||
+        updateStartPending_ || !manifestMetadata_ ||
+        manifestCheckIsActive_(manifestMetadata_->check.state) || manifestCopyReaders_ > 0U) {
+        portEXIT_CRITICAL(&lock_);
+        return writeSimpleError_(errOut, errOutLen, "updater busy");
+    }
+    localReleaseActive_ = true;
+    candidate.operationId = nextOperationId_++;
+    if (nextOperationId_ == 0U) nextOperationId_ = 1U;
+    portEXIT_CRITICAL(&lock_);
+
+    localRelease_ = candidate;
+    if (!persistReceipt_(FirmwareUpdateTarget::Waveshare,
+                         candidate.operationId,
+                         FirmwareUpdateReceiptState::Running)) {
+        resetLocalRelease_();
+        return writeSimpleError_(errOut, errOutLen, "failed to persist local update operation");
+    }
+    if (transactionIdOut) *transactionIdOut = candidate.id;
+    setStatus_(UpdateState::Queued,
+               FirmwareUpdateTarget::Spiffs,
+               0U,
+               "local release prepared",
+               candidate.operationId);
+    LOGI("[UPGRADE] begin release=%s target=%s",
+         candidate.version,
+         candidate.targetSlot == ReleaseSlot::A ? "A" : "B");
+    return true;
+}
+
+bool FirmwareUpdateModule::beginLocalImage_(uint32_t transactionId,
+                                             FirmwareUpdateTarget target,
+                                             size_t totalSize,
+                                             char* errOut,
+                                             size_t errOutLen)
+{
+    SemaphoreGuard transactionGuard(localReleaseMutex_);
+    if (!transactionGuard.acquired()) {
+        return writeSimpleError_(errOut, errOutLen, "upgrade synchronization unavailable");
+    }
+    if (!isLocalReleaseImageTarget_(target)) {
+        return writeSimpleError_(errOut, errOutLen, "unsupported release image target");
+    }
+    if (!localTransactionMatches_(transactionId)) {
+        return writeSimpleError_(errOut, errOutLen, "unknown release transaction");
+    }
+    if (localRelease_.stage == LocalReleaseStage::Error) {
+        return writeSimpleError_(errOut,
+                                 errOutLen,
+                                 localRelease_.failureReason[0]
+                                     ? localRelease_.failureReason
+                                     : "release transaction failed");
+    }
+    const bool filesystemTarget = target == FirmwareUpdateTarget::Spiffs;
+    const LocalImageManifest& image = filesystemTarget ? localRelease_.filesystem : localRelease_.firmware;
+    const LocalReleaseStage expectedStage = filesystemTarget
+                                                ? LocalReleaseStage::Prepared
+                                                : LocalReleaseStage::FilesystemVerified;
+    if (localRelease_.stage != expectedStage || totalSize != image.size) {
+        return writeSimpleError_(errOut, errOutLen, "unexpected release image");
+    }
+
+    const esp_partition_type_t type = filesystemTarget ? ESP_PARTITION_TYPE_DATA : ESP_PARTITION_TYPE_APP;
+    const esp_partition_subtype_t subtype = filesystemTarget
+                                                ? ESP_PARTITION_SUBTYPE_ANY
+                                                : (localRelease_.targetSlot == ReleaseSlot::A
+                                                       ? ESP_PARTITION_SUBTYPE_APP_OTA_0
+                                                       : ESP_PARTITION_SUBTYPE_APP_OTA_1);
+    const char* label = filesystemTarget
+                            ? ReleaseStorage::filesystemLabel(localRelease_.targetSlot)
+                            : ReleaseStorage::applicationLabel(localRelease_.targetSlot);
+    localRelease_.writePartition = esp_partition_find_first(type, subtype, label);
+    if (!localRelease_.writePartition || totalSize > localRelease_.writePartition->size) {
+        failLocalRelease_("target partition unavailable");
+        return writeSimpleError_(errOut, errOutLen, "target partition unavailable");
+    }
+
+    esp_err_t flashError = ESP_OK;
+    if (filesystemTarget) {
+        flashError = esp_partition_erase_range(
+            localRelease_.writePartition, 0U, localRelease_.writePartition->size);
+    } else {
+        flashError = esp_ota_begin(localRelease_.writePartition, totalSize, &localRelease_.otaHandle);
+    }
+    if (flashError != ESP_OK) {
+        failLocalRelease_("failed to initialize target partition");
+        return writeSimpleError_(errOut, errOutLen, "failed to initialize target partition");
+    }
+
+    mbedtls_sha256_init(&localRelease_.shaContext);
+    if (mbedtls_sha256_starts(&localRelease_.shaContext, 0) != 0) {
+        failLocalRelease_("sha256 initialization failed");
+        return writeSimpleError_(errOut, errOutLen, "sha256 initialization failed");
+    }
+    localRelease_.shaActive = true;
+    localRelease_.received = 0U;
+    localRelease_.lastActivityMs = millis();
+    localRelease_.stage = filesystemTarget ? LocalReleaseStage::WritingFilesystem
+                                           : LocalReleaseStage::WritingFirmware;
+    portENTER_CRITICAL(&lock_);
+    activeTotalBytes_ = (uint32_t)totalSize;
+    activeSentBytes_ = 0U;
+    portEXIT_CRITICAL(&lock_);
+    setStatus_(UpdateState::Flashing,
+               target,
+               0U,
+               filesystemTarget ? "uploading release filesystem" : "uploading release firmware",
+               localRelease_.operationId);
+    LOGI("[UPGRADE] %s target=%s size=%u",
+         filesystemTarget ? "filesystem" : "firmware",
+         label,
+         (unsigned)totalSize);
+    return true;
+}
+
+bool FirmwareUpdateModule::writeLocalImage_(uint32_t transactionId,
+                                             FirmwareUpdateTarget target,
+                                             const uint8_t* data,
+                                             size_t len,
+                                             size_t offset,
+                                             char* errOut,
+                                             size_t errOutLen)
+{
+    SemaphoreGuard transactionGuard(localReleaseMutex_);
+    if (!transactionGuard.acquired()) {
+        return writeSimpleError_(errOut, errOutLen, "upgrade synchronization unavailable");
+    }
+    if (!isLocalReleaseImageTarget_(target)) {
+        return writeSimpleError_(errOut, errOutLen, "unsupported release image target");
+    }
+    if (!localTransactionMatches_(transactionId) || !data || len == 0U) {
+        return writeSimpleError_(errOut, errOutLen, "invalid release image chunk");
+    }
+    const bool filesystemTarget = target == FirmwareUpdateTarget::Spiffs;
+    const LocalReleaseStage expectedStage = filesystemTarget
+                                                ? LocalReleaseStage::WritingFilesystem
+                                                : LocalReleaseStage::WritingFirmware;
+    const size_t expectedSize = filesystemTarget ? localRelease_.filesystem.size
+                                                 : localRelease_.firmware.size;
+    if (localRelease_.stage != expectedStage || offset != localRelease_.received ||
+        len > expectedSize - localRelease_.received) {
+        failLocalRelease_("out-of-order release image chunk");
+        return writeSimpleError_(errOut, errOutLen, "out-of-order release image chunk");
+    }
+
+    if (offset == 0U) {
+        LOGI("[UPGRADE] %s stream first_chunk=%u expected=%u",
+             filesystemTarget ? "filesystem" : "firmware",
+             (unsigned)len,
+             (unsigned)expectedSize);
+    }
+
+    const esp_err_t writeError = filesystemTarget
+                                     ? esp_partition_write(localRelease_.writePartition, offset, data, len)
+                                     : esp_ota_write(localRelease_.otaHandle, data, len);
+    if (writeError != ESP_OK || mbedtls_sha256_update(&localRelease_.shaContext, data, len) != 0) {
+        failLocalRelease_("release image write failed");
+        return writeSimpleError_(errOut, errOutLen, "release image write failed");
+    }
+    localRelease_.received += len;
+    localRelease_.lastActivityMs = millis();
+    onProgressChunk_((uint32_t)len);
+    if (localRelease_.received == expectedSize) {
+        LOGI("[UPGRADE] %s stream complete received=%u",
+             filesystemTarget ? "filesystem" : "firmware",
+             (unsigned)localRelease_.received);
+    }
+    return true;
+}
+
+bool FirmwareUpdateModule::endLocalImage_(uint32_t transactionId,
+                                           FirmwareUpdateTarget target,
+                                           char* errOut,
+                                           size_t errOutLen)
+{
+    SemaphoreGuard transactionGuard(localReleaseMutex_);
+    if (!transactionGuard.acquired()) {
+        return writeSimpleError_(errOut, errOutLen, "upgrade synchronization unavailable");
+    }
+    if (!isLocalReleaseImageTarget_(target)) {
+        return writeSimpleError_(errOut, errOutLen, "unsupported release image target");
+    }
+    if (!localTransactionMatches_(transactionId)) {
+        return writeSimpleError_(errOut, errOutLen, "unknown release transaction");
+    }
+    if (localRelease_.stage == LocalReleaseStage::Error) {
+        return writeSimpleError_(errOut,
+                                 errOutLen,
+                                 localRelease_.failureReason[0]
+                                     ? localRelease_.failureReason
+                                     : "release transaction failed");
+    }
+    const bool filesystemTarget = target == FirmwareUpdateTarget::Spiffs;
+    const LocalReleaseStage expectedStage = filesystemTarget
+                                                ? LocalReleaseStage::WritingFilesystem
+                                                : LocalReleaseStage::WritingFirmware;
+    const LocalImageManifest& image = filesystemTarget ? localRelease_.filesystem : localRelease_.firmware;
+    if (localRelease_.stage != expectedStage || localRelease_.received != image.size ||
+        !localRelease_.shaActive) {
+        char reason[120] = {0};
+        snprintf(reason,
+                 sizeof(reason),
+                 "incomplete release image received=%u expected=%u stage=%u sha=%u",
+                 (unsigned)localRelease_.received,
+                 (unsigned)image.size,
+                 (unsigned)localRelease_.stage,
+                 localRelease_.shaActive ? 1U : 0U);
+        LOGE("[UPGRADE] %s", reason);
+        failLocalRelease_(reason);
+        return writeSimpleError_(errOut, errOutLen, reason);
+    }
+
+    uint8_t digest[32]{};
+    const int shaError = mbedtls_sha256_finish(&localRelease_.shaContext, digest);
+    mbedtls_sha256_free(&localRelease_.shaContext);
+    localRelease_.shaActive = false;
+    if (shaError != 0 || !sha256Matches_(digest, image.sha256)) {
+        failLocalRelease_("release image sha256 mismatch");
+        return writeSimpleError_(errOut, errOutLen, "release image sha256 mismatch");
+    }
+
+    if (filesystemTarget) {
+        if (!candidateFilesystemIsValid_(ReleaseStorage::filesystemLabel(localRelease_.targetSlot),
+                                         localRelease_.version,
+                                         hardwareName_)) {
+            LOGE("[UPGRADE] candidate filesystem validation failed label=%s release=%s hardware=%s",
+                 ReleaseStorage::filesystemLabel(localRelease_.targetSlot),
+                 localRelease_.version,
+                 hardwareName_ ? hardwareName_ : "-");
+            failLocalRelease_("candidate filesystem validation failed");
+            return writeSimpleError_(errOut, errOutLen, "candidate filesystem validation failed");
+        }
+        localRelease_.stage = LocalReleaseStage::FilesystemVerified;
+        LOGI("[UPGRADE] filesystem verified sha256=OK");
+    } else {
+        if (esp_ota_end(localRelease_.otaHandle) != ESP_OK) {
+            localRelease_.otaHandle = 0;
+            failLocalRelease_("candidate firmware validation failed");
+            return writeSimpleError_(errOut, errOutLen, "candidate firmware validation failed");
+        }
+        localRelease_.otaHandle = 0;
+        localRelease_.stage = LocalReleaseStage::FirmwareVerified;
+        LOGI("[UPGRADE] firmware verified sha256=OK");
+    }
+    localRelease_.writePartition = nullptr;
+    localRelease_.received = 0U;
+    localRelease_.lastActivityMs = millis();
+    portENTER_CRITICAL(&lock_);
+    activeTotalBytes_ = 0U;
+    activeSentBytes_ = 0U;
+    portEXIT_CRITICAL(&lock_);
+    setStatus_(UpdateState::Done,
+               target,
+               100U,
+               filesystemTarget ? "release filesystem verified" : "release firmware verified",
+               localRelease_.operationId);
+    return true;
+}
+
+bool FirmwareUpdateModule::commitLocalRelease_(uint32_t transactionId,
+                                                char* errOut,
+                                                size_t errOutLen)
+{
+    SemaphoreGuard transactionGuard(localReleaseMutex_);
+    if (!transactionGuard.acquired()) {
+        return writeSimpleError_(errOut, errOutLen, "upgrade synchronization unavailable");
+    }
+    if (!localTransactionMatches_(transactionId) ||
+        localRelease_.stage != LocalReleaseStage::FirmwareVerified) {
+        return writeSimpleError_(errOut, errOutLen, "release is not ready to commit");
+    }
+    const esp_partition_subtype_t subtype = localRelease_.targetSlot == ReleaseSlot::A
+                                                ? ESP_PARTITION_SUBTYPE_APP_OTA_0
+                                                : ESP_PARTITION_SUBTYPE_APP_OTA_1;
+    const esp_partition_t* target = esp_partition_find_first(
+        ESP_PARTITION_TYPE_APP, subtype, ReleaseStorage::applicationLabel(localRelease_.targetSlot));
+    if (!target) {
+        failLocalRelease_("failed to select release boot partition");
+        return writeSimpleError_(errOut, errOutLen, "failed to select release boot partition");
+    }
+    if (!persistReceipt_(FirmwareUpdateTarget::Waveshare,
+                         localRelease_.operationId,
+                         FirmwareUpdateReceiptState::RebootPending)) {
+        failLocalRelease_("failed to persist update completion");
+        return writeSimpleError_(errOut, errOutLen, "failed to persist update completion");
+    }
+    if (esp_ota_set_boot_partition(target) != ESP_OK) {
+        (void)persistReceipt_(FirmwareUpdateTarget::Waveshare,
+                              localRelease_.operationId,
+                              FirmwareUpdateReceiptState::Failed);
+        failLocalRelease_("failed to select release boot partition");
+        return writeSimpleError_(errOut, errOutLen, "failed to select release boot partition");
+    }
+    localRelease_.stage = LocalReleaseStage::ReadyToBoot;
+    localRelease_.rebootPending = true;
+    localRelease_.rebootAtMs = millis() + 1800U;
+    setStatus_(UpdateState::Rebooting,
+               FirmwareUpdateTarget::Waveshare,
+               100U,
+               "release committed; rebooting",
+               localRelease_.operationId);
+    LOGI("[UPGRADE] release verified; boot partition -> %s",
+         ReleaseStorage::applicationLabel(localRelease_.targetSlot));
+    return true;
+}
+
+bool FirmwareUpdateModule::abortLocalRelease_(uint32_t transactionId,
+                                               char* errOut,
+                                               size_t errOutLen)
+{
+    SemaphoreGuard transactionGuard(localReleaseMutex_);
+    if (!transactionGuard.acquired()) {
+        return writeSimpleError_(errOut, errOutLen, "upgrade synchronization unavailable");
+    }
+    if (!localTransactionMatches_(transactionId)) {
+        return writeSimpleError_(errOut, errOutLen, "unknown release transaction");
+    }
+    if (localRelease_.rebootPending) {
+        return writeSimpleError_(errOut, errOutLen, "committed release cannot be aborted");
+    }
+    const uint32_t operationId = localRelease_.operationId;
+    (void)persistReceipt_(FirmwareUpdateTarget::Waveshare,
+                          operationId,
+                          FirmwareUpdateReceiptState::Failed);
+    resetLocalRelease_();
+    setStatus_(UpdateState::Idle,
+               FirmwareUpdateTarget::Waveshare,
+               0U,
+               "local release aborted",
+               operationId);
     return true;
 }
 
@@ -1740,6 +2333,35 @@ void FirmwareUpdateModule::loop()
     if (!manifestMetadata_) {
         vTaskDelay(pdMS_TO_TICKS(60));
         return;
+    }
+
+    static constexpr uint32_t kLocalReleaseIdleTimeoutMs = 120000U;
+    bool localReleaseRebootDue = false;
+    {
+        // Upload callbacks run in the async TCP task. A non-blocking take keeps
+        // the updater loop responsive while a flash chunk is being committed.
+        SemaphoreGuard transactionGuard(localReleaseMutex_, 0U);
+        if (transactionGuard.acquired()) {
+            const uint32_t nowMs = millis();
+            localReleaseRebootDue = localRelease_.rebootPending &&
+                                    (int32_t)(nowMs - localRelease_.rebootAtMs) >= 0;
+            if (localRelease_.active && !localRelease_.rebootPending &&
+                localRelease_.lastActivityMs != 0U &&
+                (uint32_t)(nowMs - localRelease_.lastActivityMs) > kLocalReleaseIdleTimeoutMs) {
+                const uint32_t operationId = localRelease_.operationId;
+                (void)persistReceipt_(FirmwareUpdateTarget::Waveshare,
+                                      operationId,
+                                      FirmwareUpdateReceiptState::Failed);
+                resetLocalRelease_();
+                setError_(FirmwareUpdateTarget::Waveshare,
+                          "local release upload timed out",
+                          operationId);
+            }
+        }
+    }
+    if (localReleaseRebootDue) {
+        LOGI("[UPGRADE] reboot");
+        ESP.restart();
     }
 
     UpdateJob job{};

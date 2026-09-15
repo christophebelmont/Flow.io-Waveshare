@@ -302,6 +302,10 @@ body.web-icons-disabled .status-flag-check.is-true{font-size:13px;}
 .upgrade-check-row .btn-tonal{min-width:240px;min-height:42px;border-radius:var(--radius);}
 .updates-panel{display:grid;gap:20px;padding:26px 28px;}
 .updates-summary-grid,.upgrade-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;align-items:stretch;}
+.local-release-upload{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:center;padding:14px 16px;border:1px solid var(--panel-frame-border);border-radius:var(--radius);background:#FFFFFF;}
+.local-release-upload strong{display:block;color:var(--panel-frame-title);font-size:.92rem;}
+.local-release-upload p{margin:4px 0 0;color:var(--panel-frame-text);font-size:.78rem;}
+.local-release-upload .status-txt{margin-top:6px;}
 .upgrade-cards.has-error{align-content:center;}
 .upgrade-empty{grid-column:1 / -1;color:var(--panel-frame-text);font-size:0.92rem;padding:28px 12px;border:1px dashed #C7D5E4;border-radius:var(--radius);background:#F8FBFF;text-align:center;}
 .upgrade-error{align-self:center;justify-self:center;width:min(100%,520px);display:grid;justify-items:center;gap:7px;padding:24px 20px;border-style:solid;border-color:#E4A9A9;background:#FFF7F7;color:#7A2E2E;box-shadow:0 6px 20px rgba(122,46,46,0.08);}
@@ -775,7 +779,7 @@ body.web-icons-disabled .control-field-apply{font-size:15px;font-weight:800;lett
   .wifi-section-toggle{width:100%;justify-content:space-between;}
   .field-inline-select-action{width:100%;grid-template-columns:minmax(0,1fr) auto;}
   .field-upgrade-row{align-items:center;}
-  .upgrade-config-row,.updates-summary-grid,.upgrade-cards,.updates-info-panel{grid-template-columns:minmax(0,1fr);}
+  .upgrade-config-row,.updates-summary-grid,.upgrade-cards,.updates-info-panel,.local-release-upload{grid-template-columns:minmax(0,1fr);}
   .updates-panel{padding:18px 14px;gap:16px;}
   .update-summary-card{min-height:0;padding:18px 16px 16px;grid-template-columns:auto minmax(0,1fr) auto;}
   .update-summary-card::after{left:16px;right:16px;bottom:52px;}
@@ -1031,6 +1035,7 @@ body.web-icons-disabled .control-field-apply{font-size:15px;font-weight:800;lett
 :root[data-theme="dark"] .info-system-table .info-row-key,:root[data-theme="dark"] .info-system-table .info-row-value{color:var(--text-muted);}
 :root[data-theme="dark"] .terminal{background:var(--term-bg);color:var(--term-fg);border-color:var(--border);}
 :root[data-theme="dark"] .update-summary-card,:root[data-theme="dark"] .upgrade-card,:root[data-theme="dark"] .updates-table-shell,:root[data-theme="dark"] .updates-table,:root[data-theme="dark"] .io-compact-table{background:var(--surface);color:var(--text-muted);border-color:var(--border);}
+:root[data-theme="dark"] .local-release-upload{background:var(--surface);border-color:var(--border);}
 :root[data-theme="dark"] .updates-info-icon,:root[data-theme="dark"] .update-component-badge,:root[data-theme="dark"] .update-component-blue{background:#173a56;color:var(--primary);}
 :root[data-theme="dark"] .update-summary-line b,:root[data-theme="dark"] .update-status-badge.is-current{background:#173a56;color:var(--primary);}
 :root[data-theme="dark"] .update-summary-line b.is-green,:root[data-theme="dark"] .update-status-badge.is-available{background:rgba(94,224,143,0.14);color:var(--success);}

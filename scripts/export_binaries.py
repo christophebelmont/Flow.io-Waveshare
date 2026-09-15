@@ -4,6 +4,14 @@ import json
 from pathlib import Path
 import re
 import shutil
+import sys
+import zipfile
+
+scripts_dir = str(Path.cwd() / "scripts")
+if scripts_dir not in sys.path:
+    sys.path.insert(0, scripts_dir)
+
+from version_utils import normalize_config_string
 
 Import("env")
 
@@ -12,6 +20,7 @@ _ARTIFACT_RE = re.compile(
     r"^(?P<software>[A-Za-z0-9][A-Za-z0-9._-]*)-(?P<version>[0-9][0-9A-Za-z._-]*)\.(?P<ext>bin|tft)$"
 )
 _VERSION_SANITIZE_RE = re.compile(r"[^0-9A-Za-z._-]+")
+_WAVESHARE_ENV = "Flowio-waveshare-esp32-s3"
 _NEXTION_FILENAME_RE = re.compile(
     r"^FlowIO_Nextion_(?P<model>NX[0-9]{4}[A-Za-z][0-9]{3}(?:[_-][0-9]{3}(?:[RCN])?(?:[_-][A-Za-z0-9]+)*)?)-"
     r"(?P<version>[0-9]+\.[0-9]+\.[0-9]+)\.tft$"
@@ -34,9 +43,7 @@ def _binary_dir():
 
 
 def _clean_value(value):
-    if value is None:
-        return ""
-    return str(value).strip().replace("\\", "").strip('"').strip("'")
+    return normalize_config_string(value)
 
 
 def _sanitize_version(value):
@@ -108,6 +115,52 @@ def _sha256(path):
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _write_release_package(version):
+    """Create the browser-upload package once both images for a version exist."""
+    out_dir = _binary_dir()
+    firmware = out_dir / f"flowios3-{version}.bin"
+    filesystem = out_dir / f"flowios3-spiffs-{version}.bin"
+    if not firmware.is_file() or not filesystem.is_file():
+        return
+    expected_filesystem_size = 0x180000
+    if filesystem.stat().st_size != expected_filesystem_size:
+        package = out_dir / f"flowio-{version}.zip"
+        if package.exists():
+            package.unlink()
+        print(
+            "[export_binaries] release package skipped: "
+            f"spiffs image size {filesystem.stat().st_size} != {expected_filesystem_size}"
+        )
+        return
+
+    manifest = {
+        "format": 1,
+        "product": "Flow.IO",
+        "version": version,
+        "hardware": "WaveshareESP32S3",
+        "firmware": {
+            "file": "firmware.bin",
+            "size": firmware.stat().st_size,
+            "sha256": _sha256(firmware),
+        },
+        "filesystem": {
+            "file": "spiffs.bin",
+            "size": filesystem.stat().st_size,
+            "sha256": _sha256(filesystem),
+        },
+    }
+    package = out_dir / f"flowio-{version}.zip"
+    manifest_bytes = (json.dumps(manifest, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    # Images are stored without ZIP compression. They are already dense binary
+    # images and STORE lets the browser stream Blob slices without inflating an
+    # image into memory.
+    with zipfile.ZipFile(package, "w", compression=zipfile.ZIP_STORED) as archive:
+        archive.writestr("manifest.json", manifest_bytes)
+        archive.write(firmware, "firmware.bin")
+        archive.write(filesystem, "spiffs.bin")
+    print(f"[export_binaries] release package -> {package.relative_to(_project_dir())}")
 
 
 def _classify_artifact(software, ext, filename):
@@ -252,8 +305,9 @@ def _export_program_bin(source, target, env):
     env_name = env.subst("$PIOENV")
     fw_version = _resolve_firmware_version()
 
-    if env_name == "Flowio-waveshare-esp32-s3":
+    if env_name == _WAVESHARE_ENV:
         _copy_if_exists(build_dir / "firmware.bin", f"flowios3-{fw_version}.bin")
+        _write_release_package(fw_version)
         _export_nextion_release()
 
 
@@ -261,10 +315,20 @@ def _export_spiffs_bin(source, target, env):
     build_dir = Path(env.subst("$BUILD_DIR"))
     env_name = env.subst("$PIOENV")
     fw_version = _resolve_firmware_version()
-    if env_name == "Flowio-waveshare-esp32-s3":
+    if env_name == _WAVESHARE_ENV:
         _copy_if_exists(build_dir / "spiffs.bin", f"flowios3-spiffs-{fw_version}.bin")
+        _write_release_package(fw_version)
         return
 
 
 env.AddPostAction("$BUILD_DIR/${PROGNAME}.bin", _export_program_bin)
+
+# The platform normally creates the filesystem target only for `buildfs` or
+# `uploadfs`. Register the same builder here so a clean firmware build always
+# has both images before the release ZIP export runs.
+if env.subst("$PIOENV") == _WAVESHARE_ENV:
+    release_filesystem = env.DataToBin("$BUILD_DIR/spiffs", "$PROJECT_DATA_DIR")
+    env.AlwaysBuild(release_filesystem)
+    env.Depends("$BUILD_DIR/${PROGNAME}.bin", release_filesystem)
+
 env.AddPostAction("$BUILD_DIR/spiffs.bin", _export_spiffs_bin)

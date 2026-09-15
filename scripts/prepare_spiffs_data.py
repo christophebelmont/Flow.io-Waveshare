@@ -4,6 +4,14 @@ import shutil
 import os
 import re
 import subprocess
+import json
+import sys
+
+scripts_dir = str(Path.cwd() / "scripts")
+if scripts_dir not in sys.path:
+    sys.path.insert(0, scripts_dir)
+
+from version_utils import normalize_config_string
 
 Import("env")
 
@@ -126,6 +134,22 @@ if src_dir.exists():
         src = src_dir / src_rel
         if src.exists():
             _gzip_file(src, staging_dir / dst_rel)
+
+    try:
+        release_version = str(env.GetProjectOption("custom_version") or "0.0.0")
+    except Exception:
+        release_version = "0.0.0"
+    release_version = normalize_config_string(release_version)
+    release_descriptor = {
+        "format": 1,
+        "product": "Flow.IO",
+        "version": release_version,
+        "hardware": "WaveshareESP32S3",
+    }
+    (staging_dir / "release.json").write_text(
+        json.dumps(release_descriptor, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
 
     env.Replace(PROJECT_DATA_DIR=str(staging_dir), PROJECTDATA_DIR=str(staging_dir))
     print(f"[prepare_spiffs_data] staging {src_dir} -> {staging_dir}")

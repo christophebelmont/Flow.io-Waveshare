@@ -8,6 +8,7 @@
 #include "App/FirmwareProfile.h"
 #include "Core/FirmwareVersion.h"
 #include "Core/LogModuleIds.h"
+#include "Core/ReleaseStorage.h"
 #include "Core/Services/Services.h"
 
 #define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::ActivityLogModule)
@@ -16,7 +17,6 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <FS.h>
-#include <SPIFFS.h>
 #include <esp_heap_caps.h>
 #include <esp_system.h>
 #include <string.h>
@@ -127,7 +127,7 @@ void ActivityLogModule::init(ConfigStore&, ServiceRegistry& services)
         LOGE("service registration failed: %s", toString(ServiceId::ActivityLog));
     }
 
-    spiffsReady_ = SPIFFS.begin(false);
+    spiffsReady_ = ReleaseStorage::runtimeReady();
     if (!entries_ || capacity_ == 0U) {
         LOGW("Activity log memory unavailable");
     }
@@ -225,8 +225,9 @@ bool ActivityLogModule::clear_()
 
     bool ok = true;
     if (spiffsReady_) {
-        if (SPIFFS.exists(kLogPath) && !SPIFFS.remove(kLogPath)) ok = false;
-        if (SPIFFS.exists(kRotatedLogPath) && !SPIFFS.remove(kRotatedLogPath)) ok = false;
+        fs::FS& runtimeFs = ReleaseStorage::runtimeFilesystem();
+        if (runtimeFs.exists(kLogPath) && !runtimeFs.remove(kLogPath)) ok = false;
+        if (runtimeFs.exists(kRotatedLogPath) && !runtimeFs.remove(kRotatedLogPath)) ok = false;
     }
     LOGI("Activity log cleared ok=%u spiffs=%u", ok ? 1U : 0U, spiffsReady_ ? 1U : 0U);
     return ok;
@@ -348,8 +349,9 @@ bool ActivityLogModule::parseLine_(const char* line, ActivityEvent& out) const
 
 void ActivityLogModule::replayFile_(const char* path)
 {
-    if (!spiffsReady_ || !path || !SPIFFS.exists(path)) return;
-    File file = SPIFFS.open(path, FILE_READ);
+    fs::FS& runtimeFs = ReleaseStorage::runtimeFilesystem();
+    if (!spiffsReady_ || !path || !runtimeFs.exists(path)) return;
+    File file = runtimeFs.open(path, FILE_READ);
     if (!file) return;
 
     char line[kLineMax] = {0};
@@ -369,16 +371,17 @@ void ActivityLogModule::replayFile_(const char* path)
 void ActivityLogModule::rotateIfNeeded_(size_t incomingLen)
 {
     if (!spiffsReady_) return;
-    File file = SPIFFS.open(kLogPath, FILE_READ);
+    fs::FS& runtimeFs = ReleaseStorage::runtimeFilesystem();
+    File file = runtimeFs.open(kLogPath, FILE_READ);
     const size_t currentSize = file ? file.size() : 0U;
     if (file) file.close();
     if (currentSize + incomingLen + 1U <= kFileMaxBytes) return;
 
-    if (SPIFFS.exists(kRotatedLogPath)) {
-        SPIFFS.remove(kRotatedLogPath);
+    if (runtimeFs.exists(kRotatedLogPath)) {
+        runtimeFs.remove(kRotatedLogPath);
     }
-    if (SPIFFS.exists(kLogPath)) {
-        SPIFFS.rename(kLogPath, kRotatedLogPath);
+    if (runtimeFs.exists(kLogPath)) {
+        runtimeFs.rename(kLogPath, kRotatedLogPath);
     }
 }
 
@@ -390,7 +393,7 @@ bool ActivityLogModule::persist_(const ActivityEvent& event)
 
     const size_t len = strlen(line);
     rotateIfNeeded_(len);
-    File file = SPIFFS.open(kLogPath, FILE_APPEND);
+    File file = ReleaseStorage::runtimeFilesystem().open(kLogPath, FILE_APPEND);
     if (!file) return false;
     const size_t wrote = file.print(line);
     const size_t wroteNl = file.print('\n');

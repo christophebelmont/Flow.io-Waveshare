@@ -62,5 +62,38 @@ struct FirmwareUpdateService {
                       const char* updatePath,
                       char* errOut,
                       size_t errOutLen);
+    bool (*beginLocalRelease)(void* ctx,
+                              const char* manifestJson,
+                              size_t manifestLen,
+                              uint32_t* transactionIdOut,
+                              char* errOut,
+                              size_t errOutLen);
+    bool (*beginLocalImage)(void* ctx,
+                            uint32_t transactionId,
+                            FirmwareUpdateTarget target,
+                            size_t totalSize,
+                            char* errOut,
+                            size_t errOutLen);
+    bool (*writeLocalImage)(void* ctx,
+                            uint32_t transactionId,
+                            FirmwareUpdateTarget target,
+                            const uint8_t* data,
+                            size_t len,
+                            size_t offset,
+                            char* errOut,
+                            size_t errOutLen);
+    bool (*endLocalImage)(void* ctx,
+                          uint32_t transactionId,
+                          FirmwareUpdateTarget target,
+                          char* errOut,
+                          size_t errOutLen);
+    bool (*commitLocalRelease)(void* ctx,
+                               uint32_t transactionId,
+                               char* errOut,
+                               size_t errOutLen);
+    bool (*abortLocalRelease)(void* ctx,
+                              uint32_t transactionId,
+                              char* errOut,
+                              size_t errOutLen);
     void* ctx;
 };
