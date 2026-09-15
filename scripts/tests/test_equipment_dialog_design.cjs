@@ -55,11 +55,22 @@ async function main() {
       probe.remove();
     });
     await page.waitForFunction(() => {
-      const track = document.querySelector('dialog input:checked + .md3-track');
-      return track && getComputedStyle(track).backgroundColor === expectedSwitchColor;
+      const thumb = document.querySelector('dialog .flow-switch-input:checked + .flow-switch-visual .flow-switch-thumb');
+      return thumb && getComputedStyle(thumb).backgroundColor === expectedSwitchColor;
     });
-    assert(await dialog.locator('input:checked + .md3-track + .md3-thumb').evaluate(element =>
-      getComputedStyle(element).transitionProperty.includes('transform')), 'The switch keeps its movement animation');
+    const switchVisual = dialog.locator('.flow-switch-input:checked + .flow-switch-visual').first();
+    const switchMetrics = await switchVisual.evaluate(element => {
+      const track = element.querySelector('.flow-switch-track');
+      const thumb = element.querySelector('.flow-switch-thumb');
+      return {
+        track: [track.offsetWidth, track.offsetHeight],
+        thumb: [thumb.offsetWidth, thumb.offsetHeight],
+        transition: getComputedStyle(thumb).transitionProperty
+      };
+    });
+    assert.deepEqual(switchMetrics.track, [36, 14]);
+    assert.deepEqual(switchMetrics.thumb, [20, 20]);
+    assert(switchMetrics.transition.includes('transform'), 'The popup uses the animated Configuration switch model');
     await dialog.screenshot({ animations: 'disabled', path: '/tmp/flowio-equipment-compact-active.png' });
     await page.evaluate(() => document.documentElement.dataset.theme = 'dark');
     await dialog.screenshot({ animations: 'disabled', path: '/tmp/flowio-equipment-reference-dark.png' });

@@ -6296,7 +6296,7 @@
           disabled: !stateKnown || (!!runtimeActionBusyKey && runtimeActionBusyKey !== actionKey),
           feedback: actionKey ? runtimeActionFeedback.get(actionKey) : null,
           onAction: action
-            ? () => executeRuntimeAction(entry, action, !value)
+            ? (requested) => executeRuntimeAction(entry, action, requested)
             : null
         }
       );
@@ -6488,6 +6488,74 @@
 
     function setRuntimeActionDisabled(element, value) {
       if (element.disabled !== value) element.disabled = value;
+    }
+
+    function buildFlowSwitch(options) {
+      const settings = options && typeof options === 'object' ? options : {};
+      const host = settings.host || document.createElement('label');
+      const interactive = settings.interactive !== false;
+      host.classList.add('flow-switch-control');
+      if (!settings.host) host.classList.add('flow-switch-inline');
+
+      let input = null;
+      if (interactive) {
+        input = document.createElement('input');
+        input.type = 'checkbox';
+        input.className = 'flow-switch-input';
+        input.setAttribute('role', 'switch');
+      }
+      const visual = document.createElement('span');
+      visual.className = 'flow-switch-visual';
+      visual.setAttribute('aria-hidden', 'true');
+      const track = document.createElement('span');
+      track.className = 'flow-switch-track';
+      const thumb = document.createElement('span');
+      thumb.className = 'flow-switch-thumb';
+      track.appendChild(thumb);
+      visual.appendChild(track);
+      if (input) host.append(input, visual);
+      else host.appendChild(visual);
+
+      const state = {
+        checked: false,
+        disabled: false,
+        pending: false,
+        label: '',
+        title: ''
+      };
+      const view = {
+        element: host,
+        input,
+        visual,
+        update(nextState) {
+          const next = nextState && typeof nextState === 'object' ? nextState : {};
+          Object.keys(state).forEach((key) => {
+            if (Object.prototype.hasOwnProperty.call(next, key)) state[key] = next[key];
+          });
+          const checked = state.checked === true;
+          const disabled = state.disabled === true;
+          const pending = state.pending === true;
+          visual.classList.toggle('is-checked', !input && checked);
+          host.classList.toggle('is-disabled', disabled);
+          host.classList.toggle('is-pending', pending);
+          if (!input) return;
+          if (input.checked !== checked) input.checked = checked;
+          setRuntimeActionDisabled(input, disabled);
+          setRuntimeActionAttribute(input, 'aria-busy', pending ? 'true' : 'false');
+          if (state.label) setRuntimeActionAttribute(input, 'aria-label', String(state.label));
+          else input.removeAttribute('aria-label');
+          if (state.title) setRuntimeActionAttribute(input, 'title', String(state.title));
+          else input.removeAttribute('title');
+        }
+      };
+      if (input) {
+        input.addEventListener('change', (event) => {
+          state.checked = input.checked;
+          if (typeof settings.onChange === 'function') settings.onChange(input.checked, event);
+        });
+      }
+      view.update(settings);
+      return view;
     }
 
     function buildRuntimeActionCell(target, column, buildSwitch) {
@@ -6940,40 +7008,32 @@
         let available = false;
         const wrapper = document.createElement('div');
         wrapper.className = 'runtime-action-switch-control';
-        const label = document.createElement('label');
-        label.className = 'md3-switch md3-switch-compact';
-        const input = document.createElement('input');
-        input.type = 'checkbox';
-        input.setAttribute('role', 'switch');
-        input.setAttribute('aria-label', column.label + ' — ' + target.label);
-        const track = document.createElement('span');
-        track.className = 'md3-track';
-        const thumb = document.createElement('span');
-        thumb.className = 'md3-thumb';
-        track.setAttribute('aria-hidden', 'true');
-        thumb.setAttribute('aria-hidden', 'true');
-        label.append(input, track, thumb);
-        const status = document.createElement('span');
-        input.addEventListener('change', () => {
-          const requested = input.checked;
-          // Keep displaying the confirmed state while the firmware applies the command.
-          input.checked = state === true;
-          if (!available || pending || (loading && !backgroundLoading) || runtimeActionBusyKey) return;
-          clearConfirmation(false);
-          applyTargetAction(target, action, requested, runtimeCounterValue(target, column.targetKey),
-            tr('dashboard.action.stateUpdated', 'État de {target} actualisé').replace('{target}', target.label));
+        const switchView = buildFlowSwitch({
+          label: column.label + ' — ' + target.label,
+          onChange: (requested) => {
+            // Keep displaying the confirmed state while the firmware applies the command.
+            switchView.update({ checked: state === true });
+            if (!available || pending || (loading && !backgroundLoading) || runtimeActionBusyKey) return;
+            clearConfirmation(false);
+            applyTargetAction(target, action, requested, runtimeCounterValue(target, column.targetKey),
+              tr('dashboard.action.stateUpdated', 'État de {target} actualisé').replace('{target}', target.label));
+          }
         });
+        const input = switchView.input;
+        const status = document.createElement('span');
         const control = { input, available, target, column };
         switchControls.push(control);
-        wrapper.append(label, status);
+        wrapper.append(switchView.element, status);
         return { element: wrapper, update: (current) => {
           state = runtimeCounterValue(current, column.key);
           available = !!action && typeof state === 'boolean' && runtimeCounterValue(current, column.eligibleKey) === true;
           control.available = available;
-          if (input.checked !== (state === true)) input.checked = state === true;
+          switchView.update({
+            checked: state === true,
+            label: column.label + ' — ' + current.label,
+            title: available ? current.label : tr('dashboard.action.unavailable', 'Commande indisponible')
+          });
           setRuntimeActionText(status, typeof state === 'boolean' ? (state ? 'On' : 'Off') : '—');
-          setRuntimeActionAttribute(input, 'aria-label', column.label + ' — ' + current.label);
-          setRuntimeActionAttribute(input, 'title', available ? current.label : tr('dashboard.action.unavailable', 'Commande indisponible'));
         } };
       }
 
@@ -7101,8 +7161,7 @@
 
     function buildDashboardDualStateTile(label, value, options) {
       let currentOptions = options || {};
-      const tile = document.createElement(currentOptions.action ? 'button' : 'div');
-      if (currentOptions.action) tile.type = 'button';
+      const tile = document.createElement(currentOptions.action ? 'label' : 'div');
       const title = document.createElement('div');
       title.className = 'status-dual-title';
       const state = document.createElement('div');
@@ -7112,18 +7171,16 @@
       dot.setAttribute('aria-hidden', 'true');
       const text = document.createElement('span');
       state.append(dot, text);
-      const switchTrack = document.createElement('span');
-      switchTrack.className = 'status-dual-switch';
-      switchTrack.setAttribute('aria-hidden', 'true');
-      const switchThumb = document.createElement('span');
-      switchThumb.className = 'status-dual-thumb';
-      switchTrack.appendChild(switchThumb);
-      tile.append(title, state, switchTrack);
-      if (currentOptions.action) {
-        tile.addEventListener('click', () => {
-          if (typeof currentOptions.onAction === 'function') currentOptions.onAction();
-        });
-      }
+      tile.append(title, state);
+      const switchView = buildFlowSwitch({
+        host: tile,
+        interactive: !!currentOptions.action,
+        checked: value === true,
+        onChange: (requested) => {
+          switchView.update({ checked: view.value === true });
+          if (typeof currentOptions.onAction === 'function') currentOptions.onAction(requested);
+        }
+      });
       const view = { label, value, options: currentOptions, update: (nextLabel, nextValue, nextOptions) => {
         currentOptions = nextOptions || {};
         view.label = nextLabel;
@@ -7138,19 +7195,25 @@
         const stateText = feedback && feedback.message ? feedback.message : pending
           ? tr('dashboard.action.pending', 'Application…')
           : stateKnown ? (nextValue ? activeText : inactiveText) : unknownText;
-        const classes = ['status-dual-tile', stateKnown ? (nextValue ? 'is-true' : 'is-false') : 'is-empty'];
+        const classes = ['status-dual-tile', 'flow-switch-control', stateKnown ? (nextValue ? 'is-true' : 'is-false') : 'is-empty'];
+        if (currentOptions.action) classes.push('is-action');
         if (pending) classes.push('is-pending');
         if (feedback) classes.push('is-error');
         setRuntimeActionAttribute(tile, 'class', classes.join(' '));
-        setRuntimeActionAttribute(tile, 'role', currentOptions.action ? 'switch' : 'img');
-        setRuntimeActionAttribute(tile, 'aria-label', nextLabel + ' : ' + stateText);
-        if (currentOptions.action) {
-          setRuntimeActionDisabled(tile, !!currentOptions.disabled || pending);
-          setRuntimeActionAttribute(tile, 'aria-checked', stateKnown && nextValue ? 'true' : 'false');
-          setRuntimeActionAttribute(tile, 'aria-busy', pending ? 'true' : 'false');
-          if (feedback && feedback.message) setRuntimeActionAttribute(tile, 'title', feedback.message);
-          else if (tile.hasAttribute('title')) tile.removeAttribute('title');
+        if (!currentOptions.action) {
+          setRuntimeActionAttribute(tile, 'role', 'img');
+          setRuntimeActionAttribute(tile, 'aria-label', nextLabel + ' : ' + stateText);
+        } else {
+          tile.removeAttribute('role');
+          tile.removeAttribute('aria-label');
         }
+        switchView.update({
+          checked: stateKnown && nextValue,
+          disabled: !!currentOptions.disabled || pending,
+          pending,
+          label: nextLabel + ' : ' + stateText,
+          title: feedback && feedback.message ? feedback.message : ''
+        });
         setRuntimeActionText(title, nextLabel);
         setRuntimeActionText(text, stateText);
       } };
@@ -11101,22 +11164,15 @@
           valueWrap.appendChild(select);
         } else if (typeof value === 'boolean') {
           row.classList.add('control-row-bool');
-          const sw = document.createElement('label');
-          sw.className = 'md3-switch';
-          const input = document.createElement('input');
-          input.type = 'checkbox';
-          input.checked = value;
+          const switchView = buildFlowSwitch({
+            checked: value,
+            label: label.textContent || key
+          });
+          const sw = switchView.element;
+          const input = switchView.input;
           input.dataset.key = key;
           input.dataset.kind = 'bool';
-          input.setAttribute('aria-label', label.textContent || key);
-          const track = document.createElement('span');
-          track.className = 'md3-track';
-          const thumb = document.createElement('span');
-          thumb.className = 'md3-thumb';
           storeConfigFieldInitialValue(input, value);
-          sw.appendChild(input);
-          sw.appendChild(track);
-          sw.appendChild(thumb);
           inputEl = input;
           inputEl.dataset.module = moduleName;
           valueWrap.classList.add('control-value-wrap-bool');
