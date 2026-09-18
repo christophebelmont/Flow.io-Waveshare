@@ -153,6 +153,7 @@ void registerModules(AppContext& ctx, ModuleInstances& modules)
     ctx.moduleManager.add(&modules.configStoreModule);
     ctx.moduleManager.add(&modules.dataStoreModule);
     ctx.moduleManager.add(&modules.commandModule);
+    ctx.moduleManager.add(&modules.userModule);
     ctx.moduleManager.add(&modules.hmiUdpServerModule);
     ctx.moduleManager.add(&modules.hmiModule);
     ctx.moduleManager.add(&modules.hmiBuzzerModule);

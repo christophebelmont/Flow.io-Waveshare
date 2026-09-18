@@ -37,6 +37,7 @@
 #endif
 #include "Modules/System/SystemModule/SystemModule.h"
 #include "Modules/System/SystemMonitorModule/SystemMonitorModule.h"
+#include "Modules/UserModule/UserModule.h"
 
 class DataStore;
 struct HAService;
@@ -63,6 +64,7 @@ struct ModuleInstances {
     HAModule haModule{};
     SystemModule systemModule;
     SystemMonitorModule systemMonitorModule{};
+    UserModule userModule{};
     LogSerialSinkModule logSerialSinkModule{};
     ActivityLogModule activityLogModule{};
 #if FLOW_ENABLE_BOOT_LOG_CAPTURE

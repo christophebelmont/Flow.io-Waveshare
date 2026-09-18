@@ -43,7 +43,8 @@
       'icon-activity': 'history',
       'icon-system': 'system_update_alt',
       'icon-flowcfg': 'settings',
-      'icon-info': 'info'
+      'icon-info': 'info',
+      'icon-users': 'manage_accounts'
     };
     const infoRefreshActiveMs = 10000;
     const infoSupervisorRefreshMs = 1000;
@@ -597,6 +598,14 @@
       document.title = first + '.io';
     }
 
+    let factoryResetCapabilityBlocked = false;
+
+    function syncFactoryResetAction() {
+      if (!factoryResetDeviceActionBtn) return;
+      factoryResetDeviceActionBtn.hidden = factoryResetCapabilityBlocked || !isAdminSession();
+      factoryResetDeviceActionBtn.disabled = factoryResetCapabilityBlocked;
+    }
+
     function applyProfileUiText() {
       if (!document.body) return;
       setBrandWordmark('Flow');
@@ -627,10 +636,8 @@
             .find((option) => option && !option.disabled && !option.hidden);
           rebootDeviceTargetSelect.value = fallbackOption ? fallbackOption.value : 'supervisor';
         }
-        if (factoryResetDeviceActionBtn) {
-          factoryResetDeviceActionBtn.hidden = blockValues.has('factory_reset');
-          factoryResetDeviceActionBtn.disabled = blockValues.has('factory_reset');
-        }
+        factoryResetCapabilityBlocked = blockValues.has('factory_reset');
+        syncFactoryResetAction();
       }
     }
 
@@ -676,13 +683,18 @@
     }
 
     async function fetchWithBusyRetry(url, options, fetchImpl) {
+      let res;
       if (typeof fetchImpl === 'function') {
-        return fetchImpl(url, options);
+        res = await fetchImpl(url, options);
+      } else if (window.FlowWebCore && typeof window.FlowWebCore.supervisorFetch === 'function') {
+        res = await window.FlowWebCore.supervisorFetch(url, options, { retries: 4 });
+      } else {
+        res = await fetch(url, options);
       }
-      if (window.FlowWebCore && typeof window.FlowWebCore.supervisorFetch === 'function') {
-        return window.FlowWebCore.supervisorFetch(url, options, { retries: 4 });
+      if (res && res.status === 401) {
+        redirectToLogin();
       }
-      return fetch(url, options);
+      return res;
     }
 
     function getStorageValue(storage, key) {
@@ -1731,6 +1743,9 @@
     }
 
     function showPage(pageId, options) {
+      if (isAdminOnlyPage(pageId) && !isAdminSession()) {
+        pageId = 'page-dashboard';
+      }
       const opts = options || {};
       if (flowCfgLocalApplyBusyDepth > 0 && currentPageId === 'page-control' && pageId !== 'page-control') {
         if (flowCfgStatus) {
@@ -1815,6 +1830,12 @@
       if (pageId !== 'page-system') {
         stopUpgradeStatusPolling();
       }
+      if (pageId === 'page-users') {
+        schedulePageTask(pageId,
+                         pageToken,
+                         deferredHeavyMs > 0 ? (deferredHeavyMs + 140) : 0,
+                         () => refreshUsersList());
+      }
       closeMobileDrawer();
     }
 
@@ -1826,12 +1847,14 @@
           requestedPage = 'page-dashboard';
         }
         if (requestedPage && pages.some((el) => el.id === requestedPage)) {
-          return requestedPage;
+          if (!isAdminOnlyPage(requestedPage) || isAdminSession()) {
+            return requestedPage;
+          }
         }
       } catch (err) {
       }
       const activePage = document.querySelector('.page.active');
-      if (activePage && activePage.id) {
+      if (activePage && activePage.id && (!isAdminOnlyPage(activePage.id) || isAdminSession())) {
         return activePage.id;
       }
       return 'page-dashboard';
@@ -3745,6 +3768,7 @@
     function buildUpgradeComponentRows() {
       const manifest = upgradeManifestState && upgradeManifestState.manifest;
       const manifestUrl = upgradeManifestState && upgradeManifestState.manifestUrl;
+      const hasManifest = !!(manifest && typeof manifest === 'object');
       return upgradeComponentDefs.map((def) => {
         const current = currentUpgradeVersionForComponent(def.key);
         const latest = latestUpgradeEntryForComponent(def.key, manifest, manifestUrl);
@@ -3755,7 +3779,7 @@
         const available = latest
           ? { version: latest.version, build: latest.buildDate }
           : { version: '-', build: '-' };
-        const nextionUnavailable = def.key === 'nextion' && nextionDisplayDetected && !latest;
+        const nextionUnavailable = hasManifest && def.key === 'nextion' && nextionDisplayDetected && !latest;
         const comparableCurrent = current.version && current.version !== '-';
         const comparableAvailable = available.version && available.version !== '-';
         const updateAvailable = !recoveryRequired && !nextionUnavailable
@@ -3767,6 +3791,7 @@
         const statusMessage = recoveryRequired
           ? tr('updates.nextion.manualSelection', 'Écran non détecté : sélectionnez son modèle')
           : (nextionUnavailable ? unavailableMessage : '');
+        const statusKnown = recoveryRequired || hasManifest;
         return Object.assign({}, def, {
           subtitle: def.key === 'nextion'
             ? (nextionDisplayCompatibility || def.subtitle)
@@ -3774,6 +3799,7 @@
           current: current,
           available: available,
           updateAvailable: updateAvailable,
+          statusKnown: statusKnown,
           // Nextion remains actionable in recovery mode. A compatible model is
           // selected explicitly instead of disabling the whole row.
           unavailable: false,
@@ -3809,20 +3835,23 @@
       return badge;
     }
 
+    function upgradeStatusLabel(row) {
+      if (!row || !row.statusKnown) return '';
+      if (row.statusMessage) return row.statusMessage;
+      if (row.unavailable) return row.unavailableMessage;
+      if (row.updateAvailable) return tr('updates.status.available', 'Mise à jour disponible');
+      return tr('updates.status.current', 'À jour');
+    }
+
     function createUpgradeStatusBadge(row) {
+      if (!row || !row.statusKnown) return null;
       const badge = document.createElement('span');
       badge.className = 'update-status-badge ' + (row.statusMessage
         ? 'is-unavailable'
         : (row.unavailable
         ? 'is-unavailable'
         : (row.updateAvailable ? 'is-available' : 'is-current')));
-      badge.textContent = row.statusMessage
-        ? row.statusMessage
-        : (row.unavailable
-        ? row.unavailableMessage
-        : (row.updateAvailable
-          ? tr('updates.status.available', 'Mise à jour disponible')
-          : tr('updates.status.current', 'À jour')));
+      badge.textContent = upgradeStatusLabel(row);
       return badge;
     }
 
@@ -3926,22 +3955,18 @@
         stateIcon.textContent = row.statusMessage
           ? 'build'
           : (row.unavailable ? 'link_off' : (row.updateAvailable ? 'arrow_upward' : 'horizontal_rule'));
-        card.appendChild(stateIcon);
+        if (row.statusKnown) card.appendChild(stateIcon);
 
         const foot = document.createElement('div');
         foot.className = 'update-summary-foot';
-        const dot = document.createElement('span');
-        dot.className = 'update-dot ' + (row.statusMessage || row.unavailable
-          ? 'is-gray'
-          : (row.updateAvailable ? 'is-green' : 'is-blue'));
-        foot.appendChild(dot);
-        foot.appendChild(document.createTextNode(row.statusMessage
-          ? row.statusMessage
-          : (row.unavailable
-            ? row.unavailableMessage
-            : (row.updateAvailable
-              ? tr('updates.status.available', 'Mise à jour disponible')
-              : tr('updates.status.current', 'À jour')))));
+        if (row.statusKnown) {
+          const dot = document.createElement('span');
+          dot.className = 'update-dot ' + (row.statusMessage || row.unavailable
+            ? 'is-gray'
+            : (row.updateAvailable ? 'is-green' : 'is-blue'));
+          foot.appendChild(dot);
+          foot.appendChild(document.createTextNode(upgradeStatusLabel(row)));
+        }
         card.appendChild(foot);
 
         upgradeCards.appendChild(card);
@@ -3981,7 +4006,8 @@
         trEl.appendChild(availableCell);
 
         const statusCell = document.createElement('td');
-        statusCell.appendChild(createUpgradeStatusBadge(row));
+        const statusBadge = createUpgradeStatusBadge(row);
+        if (statusBadge) statusCell.appendChild(statusBadge);
         trEl.appendChild(statusCell);
 
         const actionCell = document.createElement('td');
@@ -6173,6 +6199,7 @@
           const idx = Number(slot && slot.slot);
           return {
             slot: Number.isFinite(idx) ? idx : 999,
+            runtimeUiId: Number.isFinite(Number(slot && slot.runtime_ui_id)) ? Number(slot.runtime_ui_id) : 0,
             label: String(slot && slot.label ? slot.label : '').trim(),
             value: String(slot && slot.value ? slot.value : '').trim(),
             unit: String(slot && slot.unit ? slot.unit : '').trim(),
@@ -6183,6 +6210,28 @@
         })
         .sort((a, b) => a.slot - b.slot)
         .slice(0, 8);
+    }
+
+    function poolSondeRangeFromEntry(entry) {
+      const displayConfig = runtimeMeasureDisplayConfig(entry);
+      const bands = displayConfig.bands && typeof displayConfig.bands === 'object' && !Array.isArray(displayConfig.bands)
+        ? displayConfig.bands
+        : null;
+      const min = Number(bands && bands.min !== undefined ? bands.min : displayConfig.min);
+      const max = Number(bands && bands.max !== undefined ? bands.max : displayConfig.max);
+      return Number.isFinite(min) && Number.isFinite(max) && max > min ? { min: min, max: max } : null;
+    }
+
+    function enrichPoolSondeSlotsWithRanges(slots, entries) {
+      const entriesById = new Map();
+      (entries || []).forEach((entry) => {
+        const id = Number(entry && entry.id);
+        if (Number.isFinite(id)) entriesById.set(id, entry);
+      });
+      return (slots || []).map((slot) => {
+        const range = poolSondeRangeFromEntry(entriesById.get(Number(slot && slot.runtimeUiId)));
+        return range ? Object.assign({}, slot, { rangeMin: range.min, rangeMax: range.max }) : slot;
+      });
     }
 
     async function fetchPoolAlarmSlots() {
@@ -6289,6 +6338,28 @@
         }
 
         tile.appendChild(metric);
+
+        const numericValue = Number(display.value);
+        const rangeMin = Number(slot && slot.rangeMin);
+        const rangeMax = Number(slot && slot.rangeMax);
+        if (available && Number.isFinite(numericValue) && Number.isFinite(rangeMin)
+            && Number.isFinite(rangeMax) && rangeMax > rangeMin) {
+          const progress = Math.max(0, Math.min(100, ((numericValue - rangeMin) / (rangeMax - rangeMin)) * 100));
+          const range = document.createElement('div');
+          range.className = 'status-sonde-slot-range';
+          range.setAttribute('role', 'progressbar');
+          range.setAttribute('aria-label', title.textContent);
+          range.setAttribute('aria-valuemin', String(rangeMin));
+          range.setAttribute('aria-valuemax', String(rangeMax));
+          range.setAttribute('aria-valuenow', String(numericValue));
+          range.title = String(rangeMin) + (display.unit ? ' ' + display.unit : '')
+            + ' – ' + String(rangeMax) + (display.unit ? ' ' + display.unit : '');
+          const fill = document.createElement('span');
+          fill.className = 'status-sonde-slot-range-fill';
+          fill.style.width = progress.toFixed(2) + '%';
+          range.appendChild(fill);
+          tile.appendChild(range);
+        }
         grid.appendChild(tile);
       }
 
@@ -7498,25 +7569,6 @@
       return String(group.groupKey || '').trim().localeCompare('Alarmes', 'fr', { sensitivity: 'base' }) === 0;
     }
 
-    function buildDashboardAlarmIndicator(kind, value) {
-      const known = typeof value === 'boolean';
-      const node = document.createElement('span');
-      node.className = 'status-alarm-indicator status-alarm-indicator-' + kind
-        + (known ? (value ? ' is-on' : ' is-off') : ' is-unknown');
-      const label = kind === 'condition'
-        ? tr('dashboard.alarm.condition', 'Condition')
-        : tr('dashboard.alarm.latch', 'Latch');
-      node.setAttribute('role', 'img');
-      node.setAttribute(
-        'aria-label',
-        label + ' : ' + (known ? (value ? 'ON' : 'OFF') : tr('dashboard.alarm.unknown', 'indisponible'))
-      );
-      if (kind === 'latch') {
-        node.classList.add(value === true ? 'is-locked' : 'is-unlocked');
-      }
-      return node;
-    }
-
     function decorateDashboardAlarmTile(tile, conditionValue, latchValue) {
       const conditionKnown = typeof conditionValue === 'boolean';
       const latchKnown = typeof latchValue === 'boolean';
@@ -7539,12 +7591,14 @@
       tile.classList.add('is-condition-only');
     }
 
-    function appendDashboardAlarmIndicators(tile, conditionValue, latchValue) {
-      const indicators = document.createElement('div');
-      indicators.className = 'status-alarm-indicators';
-      indicators.appendChild(buildDashboardAlarmIndicator('condition', conditionValue));
-      indicators.appendChild(buildDashboardAlarmIndicator('latch', latchValue));
-      tile.appendChild(indicators);
+    function dashboardAlarmStateText(conditionValue, latchValue) {
+      if (typeof conditionValue !== 'boolean' || typeof latchValue !== 'boolean') {
+        return tr('dashboard.alarm.unknown', 'Indisponible');
+      }
+      if (conditionValue && latchValue) return tr('dashboard.alarm.active', 'Alarme active');
+      if (!conditionValue && latchValue) return tr('dashboard.alarm.latched', 'À acquitter');
+      if (conditionValue) return tr('dashboard.alarm.conditionActive', 'Condition active');
+      return tr('dashboard.alarm.normal', 'Normal');
     }
 
     function buildDashboardAlarmTile(options) {
@@ -7560,7 +7614,10 @@
       title.className = 'status-alarm-slot-title';
       title.textContent = label;
       tile.appendChild(title);
-      appendDashboardAlarmIndicators(tile, opts.conditionValue, opts.latchValue);
+      const value = document.createElement('div');
+      value.className = 'status-alarm-slot-value';
+      value.textContent = dashboardAlarmStateText(opts.conditionValue, opts.latchValue);
+      tile.appendChild(value);
       return tile;
     }
 
@@ -8042,7 +8099,7 @@
         const ids = entries.map((entry) => Number(entry.id)).filter((id) => Number.isFinite(id));
         const values = ids.length ? await fetchRuntimeValues(ids) : [];
         const sondeSlots = cleanDomain === 'sondes'
-          ? await fetchPoolSondeSlots().catch(() => [])
+          ? enrichPoolSondeSlotsWithRanges(await fetchPoolSondeSlots().catch(() => []), allEntries)
           : [];
         const alarmSlots = cleanDomain === 'alarm'
           ? await fetchPoolAlarmSlots()
@@ -12594,6 +12651,370 @@
       });
     }
 
+    // ---- Auth / identity ----
+    let authSession = { authenticated: false, role: 'none', username: '' };
+
+    function normalizeRole(raw) {
+      const r = String(raw || '').trim().toLowerCase();
+      return r === 'admin' ? 'admin' : 'operator';
+    }
+
+    function roleLabel(role) {
+      if (role === 'admin') return webUiLocale === 'en' ? 'Administrator' : 'Administrateur';
+      if (role === 'operator') return webUiLocale === 'en' ? 'Operator' : 'Opérateur';
+      return '-';
+    }
+
+    function isAdminSession() {
+      return authSession.role === 'admin';
+    }
+
+    function isAdminOnlyPage(pageId) {
+      const page = document.getElementById(pageId);
+      return !!(page && page.hasAttribute('data-admin-only'));
+    }
+
+    function redirectToLogin() {
+      try {
+        const path = window.location.pathname || '';
+        if (path.indexOf('/login') !== 0) {
+          window.location.href = '/login';
+        }
+      } catch (err) {
+        window.location.href = '/login';
+      }
+    }
+
+    async function loadAuthSession() {
+      try {
+        const res = await fetchWithBusyRetry('/api/auth/session', { cache: 'no-store' });
+        const data = await res.json().catch(() => null);
+        if (data && data.ok === true) {
+          authSession.authenticated = !!data.authenticated;
+          authSession.role = normalizeRole(data.role);
+          authSession.username = String(data.username || '').trim();
+        } else {
+          authSession = { authenticated: false, role: 'none', username: '' };
+        }
+      } catch (err) {
+        authSession = { authenticated: false, role: 'none', username: '' };
+      }
+      return authSession;
+    }
+
+    function applySessionUi() {
+      document.body.setAttribute('data-role', authSession.role);
+
+      document.querySelectorAll('[data-admin-only]').forEach((el) => {
+        el.hidden = authSession.role !== 'admin';
+      });
+      syncFactoryResetAction();
+
+      document.querySelectorAll('[data-admin-only-action]').forEach((el) => {
+        if (authSession.role === 'admin') {
+          el.removeAttribute('disabled');
+          el.classList.remove('admin-locked');
+          el.removeAttribute('title');
+        } else {
+          el.setAttribute('disabled', 'disabled');
+          el.classList.add('admin-locked');
+          el.setAttribute('title', webUiLocale === 'en' ? 'Administrator only' : 'Réservé aux administrateurs');
+        }
+      });
+
+      if (!isAdminSession()) {
+        const activePageId = getActivePageId();
+        if (isAdminOnlyPage(activePageId)) {
+          showPage('page-dashboard');
+        }
+      }
+
+      const account = document.getElementById('drawerAccount');
+      if (account) {
+        account.hidden = !authSession.authenticated;
+      }
+      if (authSession.authenticated) {
+        renderAccountIdentity('account');
+        renderAccountIdentity('accountDialog');
+      }
+    }
+
+    function renderAccountIdentity(idPrefix) {
+      const avatar = document.getElementById(idPrefix + 'Avatar');
+      const name = document.getElementById(idPrefix + 'Name');
+      const roleNode = document.getElementById(idPrefix + 'Role');
+      if (avatar) {
+        avatar.textContent = authSession.username
+          ? String(Array.from(authSession.username)[0]).toUpperCase()
+          : '?';
+      }
+      if (name) name.textContent = authSession.username || '-';
+      if (roleNode) roleNode.textContent = roleLabel(authSession.role);
+    }
+
+    async function initAuth() {
+      await loadAuthSession();
+      applySessionUi();
+    }
+
+    async function logoutSession() {
+      try {
+        await fetchWithBusyRetry('/api/auth/logout', { method: 'POST', cache: 'no-store' });
+      } catch (err) {}
+      redirectToLogin();
+    }
+
+    // ---- Sliding session cookie ----
+    const sessionRefreshMinIntervalMs = 5 * 60 * 1000;
+    const sessionRefreshIntervalMs = 30 * 60 * 1000;
+    let lastSessionRefreshAt = 0;
+    let sessionRefreshInFlight = false;
+
+    async function refreshSessionCookie(force) {
+      if (!authSession.authenticated) return false;
+      if (!force && Date.now() - lastSessionRefreshAt < sessionRefreshMinIntervalMs) return false;
+      if (sessionRefreshInFlight) return false;
+      sessionRefreshInFlight = true;
+      try {
+        const res = await fetchWithBusyRetry('/api/auth/refresh', { method: 'POST', cache: 'no-store' });
+        lastSessionRefreshAt = Date.now();
+        return !!(res && res.ok);
+      } catch (err) {
+        return false;
+      } finally {
+        sessionRefreshInFlight = false;
+      }
+    }
+
+    function initSessionRefresh() {
+      ['pointerdown', 'keydown'].forEach((type) => {
+        document.addEventListener(type, () => {
+          refreshSessionCookie(false).catch(() => {});
+        }, { passive: true });
+      });
+      window.setInterval(() => {
+        if (!document.hidden) refreshSessionCookie(false).catch(() => {});
+      }, sessionRefreshIntervalMs);
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) refreshSessionCookie(false).catch(() => {});
+      });
+    }
+
+    // ---- Users management ----
+    let userFormEditingUsername = '';
+
+    function usersFormBody(data) {
+      const body = new URLSearchParams();
+      Object.keys(data).forEach((k) => {
+        if (data[k] !== undefined && data[k] !== null) body.set(k, data[k]);
+      });
+      return body;
+    }
+
+    function usersListEl() { return document.getElementById('usersList'); }
+    function usersListStatusEl() { return document.getElementById('usersListStatus'); }
+    function userFormCardEl() { return document.getElementById('userFormCard'); }
+    function userFormTitleEl() { return document.getElementById('userFormTitle'); }
+    function userUsernameEl() { return document.getElementById('userUsername'); }
+    function userPasswordEl() { return document.getElementById('userPassword'); }
+    function userRoleSelectEl() { return document.getElementById('userRoleSelect'); }
+    function userFormStatusEl() { return document.getElementById('userFormStatus'); }
+    function ownPasswordEl() { return document.getElementById('ownPassword'); }
+    function ownPasswordStatusEl() { return document.getElementById('ownPasswordStatus'); }
+
+    async function refreshUsersList() {
+      const list = usersListEl();
+      const status = usersListStatusEl();
+      if (!list) return;
+      try {
+        const res = await fetchWithBusyRetry('/api/auth/users', { cache: 'no-store' });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || data.ok !== true) {
+          if (status) status.textContent = extractApiErrorMessage(data, tr('users.status.error', 'Erreur'));
+          if (list) list.innerHTML = '';
+          return;
+        }
+        const accounts = Array.isArray(data.accounts) ? data.accounts : [];
+        if (status) status.textContent = '';
+        if (list) {
+          if (accounts.length === 0) {
+            list.innerHTML = '<div class="users-empty">' + tr('users.empty', 'Aucun compte enregistré.') + '</div>';
+          } else {
+            list.innerHTML = '';
+            accounts.forEach((account) => list.appendChild(buildUsersRow(account)));
+          }
+        }
+      } catch (err) {
+        if (status) status.textContent = tr('users.status.error', 'Erreur');
+      }
+    }
+
+    function buildUsersRow(account) {
+      const row = document.createElement('div');
+      row.className = 'users-row';
+
+      const avatar = document.createElement('span');
+      avatar.className = 'users-avatar';
+      avatar.textContent = account.username ? String(Array.from(String(account.username))[0]).toUpperCase() : '?';
+
+      const copy = document.createElement('div');
+      copy.className = 'users-copy';
+      const uname = document.createElement('div');
+      uname.className = 'users-username';
+      uname.textContent = account.username;
+      const roleNode = document.createElement('div');
+      roleNode.className = 'users-role';
+      const roleValue = normalizeRole(account.role);
+      const badge = document.createElement('span');
+      badge.className = 'role-badge' + (roleValue === 'admin' ? ' admin' : '');
+      badge.textContent = roleLabel(roleValue);
+      roleNode.appendChild(badge);
+      copy.appendChild(uname);
+      copy.appendChild(roleNode);
+
+      const actions = document.createElement('div');
+      actions.className = 'users-actions';
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'btn-tonal';
+      editBtn.textContent = tr('users.actions.edit', 'Modifier');
+      editBtn.addEventListener('click', () => openUserForm(account.username, roleValue));
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'btn-tonal danger-action';
+      delBtn.textContent = tr('users.actions.delete', 'Supprimer');
+      delBtn.addEventListener('click', () => deleteUser(account.username));
+      actions.appendChild(editBtn);
+      actions.appendChild(delBtn);
+
+      row.appendChild(avatar);
+      row.appendChild(copy);
+      row.appendChild(actions);
+      return row;
+    }
+
+    function openUserForm(username, roleValue) {
+      const card = userFormCardEl();
+      if (!card) return;
+      userFormEditingUsername = username || '';
+      if (userFormTitleEl()) {
+        userFormTitleEl().textContent = userFormEditingUsername
+          ? tr('users.form.edit', 'Modifier le compte')
+          : tr('users.form.add', 'Ajouter un compte');
+      }
+      if (userUsernameEl()) {
+        userUsernameEl().value = userFormEditingUsername;
+        userUsernameEl().disabled = !!userFormEditingUsername;
+      }
+      if (userPasswordEl()) userPasswordEl().value = '';
+      if (userRoleSelectEl()) userRoleSelectEl().value = roleValue || 'operator';
+      if (userFormStatusEl()) userFormStatusEl().textContent = '';
+      card.hidden = false;
+    }
+
+    function closeUserForm() {
+      userFormEditingUsername = '';
+      const card = userFormCardEl();
+      if (card) card.hidden = true;
+    }
+
+    async function saveUser() {
+      const username = userUsernameEl() ? String(userUsernameEl().value || '').trim() : '';
+      const password = userPasswordEl() ? String(userPasswordEl().value || '') : '';
+      const role = userRoleSelectEl() ? userRoleSelectEl().value : 'operator';
+      const status = userFormStatusEl();
+      if (!username) {
+        if (status) status.textContent = tr('users.form.username', 'Identifiant');
+        return;
+      }
+      const body = usersFormBody({ username: username, password: password, role: role });
+      let res;
+      try {
+        res = await fetchWithBusyRetry('/api/auth/users', { method: 'POST', body: body, cache: 'no-store' });
+      } catch (err) {
+        if (status) status.textContent = tr('users.status.error', 'Erreur');
+        return;
+      }
+      const data = await res.json().catch(() => null);
+      if (res.ok && data && data.ok === true) {
+        if (status) status.textContent = tr('users.status.saved', 'Compte enregistré.');
+        closeUserForm();
+        refreshUsersList();
+      } else if (status) {
+        status.textContent = extractApiErrorMessage(data, tr('users.status.error', 'Erreur'));
+      }
+    }
+
+    async function deleteUser(username) {
+      const label = tr('users.confirmDelete', 'Supprimer le compte ?').replace('{username}', username);
+      if (!window.confirm(label)) return;
+      const body = usersFormBody({ username: username });
+      try {
+        const res = await fetchWithBusyRetry('/api/auth/users/delete', { method: 'POST', body: body, cache: 'no-store' });
+        const data = await res.json().catch(() => null);
+        if (res.ok && data && data.ok === true) {
+          refreshUsersList();
+        } else {
+          const status = usersListStatusEl();
+          if (status) status.textContent = extractApiErrorMessage(data, tr('users.status.error', 'Erreur'));
+        }
+      } catch (err) {
+        const status = usersListStatusEl();
+        if (status) status.textContent = tr('users.status.error', 'Erreur');
+      }
+    }
+
+    async function changeOwnPassword() {
+      const password = ownPasswordEl() ? String(ownPasswordEl().value || '') : '';
+      const status = ownPasswordStatusEl();
+      if (!password) return;
+      const body = usersFormBody({ password: password });
+      try {
+        const res = await fetchWithBusyRetry('/api/auth/password', { method: 'POST', body: body, cache: 'no-store' });
+        const data = await res.json().catch(() => null);
+        if (res.ok && data && data.ok === true) {
+          if (status) status.textContent = tr('users.status.passwordChanged', 'Mot de passe mis à jour.');
+          if (ownPasswordEl()) ownPasswordEl().value = '';
+        } else if (status) {
+          status.textContent = extractApiErrorMessage(data, tr('users.status.error', 'Erreur'));
+        }
+      } catch (err) {
+        if (status) status.textContent = tr('users.status.error', 'Erreur');
+      }
+    }
+
+    function openAccountDialog() {
+      const dialog = document.getElementById('accountDialog');
+      if (!dialog) return;
+      if (ownPasswordEl()) ownPasswordEl().value = '';
+      if (ownPasswordStatusEl()) ownPasswordStatusEl().textContent = '';
+      if (typeof dialog.showModal === 'function') {
+        dialog.showModal();
+      } else {
+        dialog.setAttribute('open', 'open');
+      }
+    }
+
+    function closeAccountDialog() {
+      const dialog = document.getElementById('accountDialog');
+      if (!dialog) return;
+      if (typeof dialog.close === 'function' && dialog.open) {
+        dialog.close();
+      } else {
+        dialog.removeAttribute('open');
+      }
+    }
+
+    function initUsersBindings() {
+      bindClickAction(document.getElementById('usersAddBtn'), () => openUserForm('', 'operator'));
+      bindClickAction(document.getElementById('userCancelBtn'), closeUserForm);
+      bindClickAction(document.getElementById('userSaveBtn'), saveUser);
+      bindClickAction(document.getElementById('ownPasswordBtn'), changeOwnPassword);
+      bindClickAction(document.getElementById('accountProfile'), openAccountDialog);
+      bindClickAction(document.getElementById('accountDialogClose'), closeAccountDialog);
+      bindClickAction(document.getElementById('accountLogout'), logoutSession);
+    }
+
     initUpgradeBindings();
     initStatusBindings();
     initInfoBindings();
@@ -12602,6 +13023,9 @@
     initSystemBindings();
     initConfigBindings();
     initGlobalUiBindings();
+    initUsersBindings();
+    initSessionRefresh();
+    const authReady = initAuth().catch(() => {});
 
     applyThemePreference(currentThemePreference(), false);
     applyWebUiLocale(webUiLocale);
@@ -12611,9 +13035,10 @@
     resumeUpgradeReconnectFlow();
     startAppHeaderClock();
     startHeaderReachabilityProbe();
-    refreshAppHeader(resolveInitialPageId());
-    const initialPageId = resolveInitialPageId();
     const startInitialUi = async () => {
+      await authReady;
+      const initialPageId = resolveInitialPageId();
+      refreshAppHeader(initialPageId);
       await loadWebMeta().catch(() => {});
       refreshAppHeaderWifi(true).catch(() => {});
       refreshAppHeaderTime(true).catch(() => {});

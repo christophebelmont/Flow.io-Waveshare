@@ -521,4 +521,12 @@ constexpr char VeniceTxGpio[] = "hmi_vcgp"; // HMI module persisted key for Veni
 constexpr char BuzzerEnable[] = "hmi_bz_en"; // HMI buzzer module persisted key for config-ack beep enable.
 }  // namespace Hmi
 
+namespace Users {
+constexpr char SessionSecret[] = "ua_secret"; // HMAC session secret (raw 32-byte blob).
+// Per-account record blobs use the key prefix "ua_a" followed by the slot index
+// (0..9). Keys are built at runtime with `ua_a%u`; accounts are never exposed
+// through the ConfigStore JSON export because they are raw NVS blobs.
+constexpr char AccountKeyPrefix[] = "ua_a";
+}  // namespace Users
+
 }  // namespace NvsKeys

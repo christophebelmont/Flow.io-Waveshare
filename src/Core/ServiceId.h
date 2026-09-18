@@ -36,6 +36,7 @@ enum class ServiceId : uint8_t {
     PoolConfiguration,
     ModbusMaster,
     VariableSpeedPump,
+    User,
     Count
 };
 
@@ -82,6 +83,7 @@ constexpr const char* toString(ServiceId id)
         case ServiceId::PoolConfiguration: return "pool_configuration";
         case ServiceId::ModbusMaster: return "modbus_master";
         case ServiceId::VariableSpeedPump: return "variable_speed_pump";
+        case ServiceId::User: return "users";
         case ServiceId::Count: return "count";
     }
     return "unknown";

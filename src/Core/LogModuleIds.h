@@ -44,6 +44,8 @@ enum class LogModuleIdValue : LogModuleId {
     BootLogCaptureModule = 32,
     ActivityLogModule = 33,
 
+    UserModule = 34,
+
     CoreI2cLink = 40,
     CoreModuleManager = 41,
     CoreConfigStore = 42,
@@ -81,6 +83,7 @@ static inline LogModuleId logModuleIdFromModuleId(ModuleId moduleId)
         case ModuleId::VariableSpeedPump: return (LogModuleId)LogModuleIdValue::VariableSpeedPumpModule;
         case ModuleId::BootLogCapture: return (LogModuleId)LogModuleIdValue::BootLogCaptureModule;
         case ModuleId::ActivityLog: return (LogModuleId)LogModuleIdValue::ActivityLogModule;
+        case ModuleId::User: return (LogModuleId)LogModuleIdValue::UserModule;
         case ModuleId::HmiBuzzer: return (LogModuleId)LogModuleIdValue::HMIModule;
         case ModuleId::Hmi:
         case ModuleId::TftS3:
@@ -125,6 +128,7 @@ static inline const char* logModuleNameFromId(LogModuleId moduleId)
         case LogModuleIdValue::VariableSpeedPumpModule: return "pump.variable";
         case LogModuleIdValue::BootLogCaptureModule: return "log.bootcapture";
         case LogModuleIdValue::ActivityLogModule: return "activitylog";
+        case LogModuleIdValue::UserModule: return "users";
         case LogModuleIdValue::CoreI2cLink: return "core.i2clink";
         case LogModuleIdValue::CoreModuleManager: return "core.modulemanager";
         case LogModuleIdValue::CoreConfigStore: return "core.configstore";

@@ -89,7 +89,7 @@ async function main() {
     assert(await ack('Pompe chlore').isDisabled());
     await page.keyboard.press('Escape');
     assert(await page.locator('dialog').isVisible());
-    await page.waitForFunction(() => document.querySelector('dialog .btn-row button').disabled === false);
+    await page.waitForFunction(() => window.testState.options.every(alarm => !alarm.resettable));
     assert.deepEqual(await page.evaluate(() => testState.requests[2]), { runtime_id: '902', action_id: 'acknowledge_all' });
     assert.match(await row('Débit filtration').textContent(), /Active.*Mémorisé/, 'Blocked latches are kept');
     assert.match(await row('Sonde indisponible').textContent(), /Inconnue.*Mémorisé/);
@@ -102,7 +102,7 @@ async function main() {
     const footer = app.slice(app.indexOf('    function appendRuntimeCardActions('), app.indexOf('    function buildPoolMeasureCards('));
     await page.evaluate(({ tile, footer }) => {
       window.decorateDashboardAlarmTile = () => {};
-      window.appendDashboardAlarmIndicators = () => {};
+      window.dashboardAlarmStateText = () => 'À acquitter';
       const script = document.createElement('script');
       script.textContent = tile + footer + '\nconst alarmCard = document.createElement("div"); alarmCard.id="testAlarmCard"; alarmCard.className="status-card"; alarmCard.appendChild(buildDashboardAlarmTile({label:"Pompe pH",conditionValue:false,latchValue:true,resettable:true,inputValue:107,actionBinding:{entry:testEntry,action:testEntry.actions[0]}})); appendRuntimeCardActions(alarmCard,[testEntry]); document.body.appendChild(alarmCard);';
       document.body.appendChild(script);

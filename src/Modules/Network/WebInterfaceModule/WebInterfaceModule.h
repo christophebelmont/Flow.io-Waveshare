@@ -88,6 +88,7 @@ private:
     void startServer_();
     void startLocalRuntime_();
     void handleUpdateRequest_(AsyncWebServerRequest* request, FirmwareUpdateTarget target);
+    void authGate_(AsyncWebServerRequest* request, ArMiddlewareNext next);
     bool isWebReachable_() const;
     bool getNetworkIp_(char* out, size_t len, NetworkAccessMode* modeOut) const;
     const char* networkTransport_(NetworkAccessMode mode) const;
@@ -182,6 +183,7 @@ private:
     DataStore* dataStore_ = nullptr;
     ConfigStore* cfgStore_ = nullptr;
     EventBus* eventBus_ = nullptr;
+    const UserService* userSvc_ = nullptr;
     bool started_ = false;
     bool spiffsReady_ = false;
     volatile bool netReady_ = false;

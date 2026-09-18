@@ -17,13 +17,26 @@
       <nav class="menu-group">
         <button class="menu-item active" data-page="page-dashboard"><span class="ico icon-measures" aria-hidden="true"></span><span class="label" data-i18n="menu.dashboard">Tableau de bord</span></button>
         <button class="menu-item" data-page="page-io-summary"><span class="ico icon-io" aria-hidden="true"></span><span class="label" data-i18n="menu.io">Entrées/Sorties</span></button>
-        <button class="menu-item" data-page="page-calibration"><span class="ico icon-calibration" aria-hidden="true"></span><span class="label" data-i18n="menu.calibration">Étalonnage</span></button>
+        <button class="menu-item" data-page="page-calibration" data-admin-only hidden><span class="ico icon-calibration" aria-hidden="true"></span><span class="label" data-i18n="menu.calibration">Étalonnage</span></button>
         <button class="menu-item" data-page="page-activity-log"><span class="ico icon-activity" aria-hidden="true"></span><span class="label" data-i18n="menu.activity">Activité</span></button>
-        <button class="menu-item" data-page="page-system"><span class="ico icon-system" aria-hidden="true"></span><span class="label" data-i18n="menu.updates">Mises à Jour</span></button>
-        <button class="menu-item" data-page="page-control"><span class="ico icon-flowcfg" aria-hidden="true"></span><span class="label" data-i18n="menu.config">Configuration</span></button>
+        <button class="menu-item" data-page="page-system" data-admin-only hidden><span class="ico icon-system" aria-hidden="true"></span><span class="label" data-i18n="menu.updates">Mises à Jour</span></button>
+        <button class="menu-item" data-page="page-control" data-admin-only hidden><span class="ico icon-flowcfg" aria-hidden="true"></span><span class="label" data-i18n="menu.config">Configuration</span></button>
         <button class="menu-item" data-page="page-info"><span class="ico icon-info" aria-hidden="true"></span><span class="label" data-i18n="menu.info">Informations</span></button>
+        <button class="menu-item" data-page="page-users" data-admin-only hidden><span class="ico icon-users" aria-hidden="true"></span><span class="label" data-i18n="menu.users">Comptes</span></button>
       </nav>
       <div class="drawer-footer">
+        <div class="drawer-account" id="drawerAccount" hidden>
+          <button class="account-profile" id="accountProfile" type="button" aria-haspopup="dialog" aria-controls="accountDialog">
+            <span class="account-avatar" id="accountAvatar" aria-hidden="true">?</span>
+            <span class="account-copy">
+              <span class="account-name" id="accountName">-</span>
+              <span class="account-role" id="accountRole">-</span>
+            </span>
+          </button>
+          <button class="account-logout" id="accountLogout" type="button" title="Se déconnecter" aria-label="Se déconnecter">
+            <span class="ui-msr" aria-hidden="true">logout</span>
+          </button>
+        </div>
         <label class="theme-switch" title="Activer le mode sombre">
           <span class="theme-toggle-label">Mode sombre</span>
           <span class="md3-switch md3-switch-compact theme-mode-switch">
@@ -175,7 +188,7 @@
         <div id="activityLogList" class="activity-list" aria-live="polite"></div>
       </section>
 
-      <section id="page-system" class="page">
+      <section id="page-system" class="page" data-admin-only>
         <div class="card updates-panel">
           <div class="local-release-upload">
             <div>
@@ -184,26 +197,10 @@
               <div id="localReleaseSummary" class="status-txt" aria-live="polite"></div>
             </div>
             <input id="localReleaseFile" type="file" accept=".zip,application/zip" hidden>
-            <button id="localReleaseSelect" type="button" class="btn-tonal">
+            <button id="localReleaseSelect" type="button" class="btn-tonal" data-admin-only-action>
               <span class="ui-msr btn-msr" aria-hidden="true">upload_file</span>
               <span data-i18n="updates.local.select">Sélectionner un ZIP</span>
             </button>
-          </div>
-          <div id="upgradeCards" class="updates-summary-grid" aria-live="polite"></div>
-
-          <div class="updates-table-shell">
-            <table class="updates-table">
-              <thead>
-                <tr>
-                  <th data-i18n="updates.table.component">Composant</th>
-                  <th data-i18n="updates.table.current">Version actuelle</th>
-                  <th data-i18n="updates.table.available">Version disponible</th>
-                  <th data-i18n="updates.table.status">Statut</th>
-                  <th data-i18n="updates.table.action">Action</th>
-                </tr>
-              </thead>
-              <tbody id="upgradeTableBody"></tbody>
-            </table>
           </div>
 
           <div class="updates-info-panel">
@@ -224,9 +221,26 @@
               <span id="upgradePct" class="visually-hidden">0%</span>
             </div>
             <div class="updates-action-stack">
-              <button id="checkUpdates" type="button" class="btn-tonal updates-check-btn"><span class="refresh-icon-glyph" aria-hidden="true"></span><span data-i18n="updates.check">Vérifier les mises à jour</span></button>
+              <button id="checkUpdates" type="button" class="btn-tonal updates-check-btn" data-admin-only-action><span class="refresh-icon-glyph" aria-hidden="true"></span><span data-i18n="updates.check">Vérifier les mises à jour</span></button>
               <button id="cancelUpgradeUi" type="button" class="btn-tonal updates-cancel-btn" hidden disabled><span class="ui-msr btn-msr" aria-hidden="true">close</span><span data-i18n="updates.cancel">Annuler</span></button>
             </div>
+          </div>
+
+          <div id="upgradeCards" class="updates-summary-grid" aria-live="polite"></div>
+
+          <div class="updates-table-shell">
+            <table class="updates-table">
+              <thead>
+                <tr>
+                  <th data-i18n="updates.table.component">Composant</th>
+                  <th data-i18n="updates.table.current">Version actuelle</th>
+                  <th data-i18n="updates.table.available">Version disponible</th>
+                  <th data-i18n="updates.table.status">Statut</th>
+                  <th data-i18n="updates.table.action">Action</th>
+                </tr>
+              </thead>
+              <tbody id="upgradeTableBody"></tbody>
+            </table>
           </div>
         </div>
       </section>
@@ -278,7 +292,7 @@
         </div>
       </section>
 
-      <section id="page-calibration" class="page">
+      <section id="page-calibration" class="page" data-admin-only>
         <div class="topbar">
           <h1 class="ui-heading-inline"><span class="ui-msr" aria-hidden="true">science</span><span data-i18n="menu.calibration">Étalonnage</span></h1>
         </div>
@@ -382,7 +396,7 @@
         </div>
       </section>
 
-      <section id="page-control" class="page">
+      <section id="page-control" class="page" data-admin-only>
         <div class="card control-card">
           <div class="control-shell control-shell-tree">
             <div class="control-layout">
@@ -443,7 +457,7 @@
                 <option value="nextion" data-i18n="system.action.nextionTarget">Nextion</option>
                 <option value="factory_reset" data-i18n="system.action.factoryTarget">Init Usine</option>
               </select>
-              <button id="rebootDeviceAction" type="button" class="system-action-tile">
+              <button id="rebootDeviceAction" type="button" class="system-action-tile" data-admin-only hidden>
                 <span class="action-tile-icon action-tile-icon-reboot" aria-hidden="true"></span>
                 <span class="action-tile-copy">
                   <span class="action-tile-title" data-i18n="system.action.reboot">Redémarrer</span>
@@ -464,7 +478,7 @@
                   <span class="action-tile-desc" data-i18n="config.importDesc">Charge une configuration précédemment sauvegardée.</span>
                 </span>
               </button>
-              <button id="openLogsOverlay" type="button" class="system-action-tile">
+              <button id="openLogsOverlay" type="button" class="system-action-tile" data-admin-only hidden>
                 <span class="ui-msr action-tile-msr" aria-hidden="true">terminal</span>
                 <span class="action-tile-copy">
                   <span class="action-tile-title">Logs système</span>
@@ -484,7 +498,7 @@
                   </div>
                 </div>
               </div>
-              <button id="factoryResetDeviceAction" type="button" class="system-action-tile system-action-tile-danger">
+              <button id="factoryResetDeviceAction" type="button" class="system-action-tile system-action-tile-danger" data-admin-only hidden>
                 <span class="action-tile-icon action-tile-icon-factory" aria-hidden="true"></span>
                 <span class="action-tile-copy">
                   <span class="action-tile-title" data-i18n="system.action.factoryReset">Réinitialisation usine</span>
@@ -496,8 +510,80 @@
           </aside>
         </div>
       </section>
+
+      <section id="page-users" class="page" data-admin-only>
+        <div class="topbar">
+          <h1 class="ui-heading-inline"><span class="ui-msr" aria-hidden="true">group</span><span data-i18n="users.title">Comptes utilisateurs</span></h1>
+          <div class="topbar-actions">
+            <button id="usersAddBtn" class="btn-tonal" type="button"><span class="ui-msr btn-msr" aria-hidden="true">person_add</span><span data-i18n="users.add">Ajouter un compte</span></button>
+          </div>
+        </div>
+
+        <div class="card users-card">
+          <div id="usersList" class="users-list" aria-live="polite"></div>
+          <div id="usersListStatus" class="config-status" data-i18n="users.loading">Chargement des comptes...</div>
+        </div>
+
+        <div class="card users-card" id="userFormCard" hidden>
+          <div class="config-section users-form">
+            <div class="config-section-head">
+              <h2 class="ui-heading-inline"><span class="ui-msr ui-msr-sm" aria-hidden="true">manage_accounts</span><span id="userFormTitle" data-i18n="users.form.add">Ajouter un compte</span></h2>
+            </div>
+            <div class="form-grid">
+              <div class="field">
+                <label for="userUsername" data-i18n="users.form.username">Identifiant</label>
+                <input id="userUsername" autocomplete="off" />
+              </div>
+              <div class="field">
+                <label for="userPassword" data-i18n="users.form.password">Mot de passe</label>
+                <input id="userPassword" type="password" autocomplete="new-password" />
+              </div>
+              <div class="field">
+                <label for="userRoleSelect" data-i18n="users.form.role">Rôle</label>
+                <select id="userRoleSelect">
+                  <option value="operator" data-i18n="users.role.operator">Opérateur</option>
+                  <option value="admin" data-i18n="users.role.admin">Administrateur</option>
+                </select>
+              </div>
+            </div>
+            <div class="btn-row">
+              <button id="userCancelBtn" class="btn-tonal" type="button" data-i18n="common.cancel">Annuler</button>
+              <button id="userSaveBtn" class="btn-primary" type="button" data-i18n="common.save">Enregistrer</button>
+            </div>
+            <div id="userFormStatus" class="config-status"></div>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
+  <dialog id="accountDialog" class="account-dialog" aria-labelledby="accountDialogTitle">
+    <div class="account-dialog-head">
+      <h2 id="accountDialogTitle" class="ui-heading-inline"><span class="ui-msr" aria-hidden="true">manage_accounts</span><span data-i18n="users.account.title">Mon compte</span></h2>
+      <button id="accountDialogClose" class="btn-tonal btn-icon-only" type="button" aria-label="Fermer" title="Fermer" data-i18n-aria-label="users.account.close" data-i18n-title="users.account.close"><span class="ui-msr" aria-hidden="true">close</span></button>
+    </div>
+    <div class="account-dialog-identity">
+      <span class="account-avatar" id="accountDialogAvatar" aria-hidden="true">?</span>
+      <span class="account-copy">
+        <span class="account-name" id="accountDialogName">-</span>
+        <span class="account-role" id="accountDialogRole">-</span>
+      </span>
+    </div>
+    <div class="config-section account-dialog-password">
+      <div class="config-section-head">
+        <h3 class="ui-heading-inline"><span class="ui-msr ui-msr-sm" aria-hidden="true">password</span><span data-i18n="users.password.title">Modifier mon mot de passe</span></h3>
+      </div>
+      <div class="form-grid">
+        <div class="field full">
+          <label for="ownPassword" data-i18n="users.password.new">Nouveau mot de passe</label>
+          <input id="ownPassword" type="password" autocomplete="new-password" />
+        </div>
+      </div>
+      <div class="btn-row">
+        <button id="ownPasswordBtn" class="btn-primary" type="button" data-i18n="users.password.apply">Mettre à jour</button>
+      </div>
+      <div id="ownPasswordStatus" class="config-status"></div>
+    </div>
+  </dialog>
   <div id="logsOverlay" class="logs-overlay" hidden aria-hidden="true">
     <div class="logs-overlay-panel" role="dialog" aria-modal="true" aria-labelledby="logsOverlayTitle">
       <div class="logs-overlay-head">

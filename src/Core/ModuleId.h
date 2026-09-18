@@ -39,6 +39,7 @@ enum class ModuleId : uint8_t {
     TftS3,
     HmiBuzzer,
     ActivityLog,
+    User,
     Count
 };
 
@@ -88,6 +89,7 @@ constexpr const char* toString(ModuleId id)
         case ModuleId::ActivityLog: return "activitylog";
         case ModuleId::TftS3: return "tft.s3";
         case ModuleId::HmiBuzzer: return "hmi.buzzer";
+        case ModuleId::User: return "users";
         case ModuleId::Reserved28:
         case ModuleId::Reserved29:
         case ModuleId::Reserved30:

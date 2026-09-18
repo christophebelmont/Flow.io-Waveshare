@@ -23,6 +23,8 @@ Téléverser le firmware et ouvrir le moniteur série :
 
 Les dépendances déclarées dans `platformio.ini` sont installées automatiquement par PlatformIO. Les identifiants Wi-Fi et MQTT ne sont pas inscrits dans le code source : ils sont renseignés lors du provisioning ou depuis l'interface de configuration, puis conservés en NVS.
 
+Le mot de passe par défaut du point d'accès de provisioning Wi-Fi et du compte administrateur de l'interface web est `flowio1234`. Il doit être changé à la première connexion; voir [Identifiants par défaut](integration/mise-en-service.md#8-identifiants-par-défaut).
+
 ## Parcours recommandé
 
 ### Installer et raccorder

@@ -248,6 +248,7 @@ void applyDigitalDefaultsForDomainSlot(DomainSlotId domainSlot, IODigitalInputDe
     requireSetup(spec != nullptr, "unsupported digital input domain role");
     def.bindingPort = spec->bindingPort;
     def.activeHigh = spec->activeHigh;
+    def.pullMode = spec->pullMode;
     def.mode = spec->mode;
     def.edgeMode = spec->edgeMode;
     def.counterDebounceUs = spec->debounceUs;

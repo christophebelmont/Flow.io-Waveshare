@@ -132,6 +132,258 @@ static bool parseBoolParam_(const char* in, bool fallback)
     return fallback;
 }
 
+// ---------------------------------------------------------------------------
+// Authentication helpers and login page
+// ---------------------------------------------------------------------------
+
+static constexpr char kSessionCookieName[] = "flowio_session";
+static constexpr size_t kSessionTokenMax = 256;
+// Browser cookie lifetime for the session token (12 hours). Must not exceed
+// UserModule::kTokenTtlSeconds, which caps the absolute session duration.
+static constexpr uint32_t kSessionCookieMaxAgeSeconds = 12U * 60U * 60U;
+
+static bool pathStartsWith_(const char* path, const char* prefix)
+{
+    if (!path || !prefix) return false;
+    return strncmp(path, prefix, strlen(prefix)) == 0;
+}
+
+static bool pathEquals_(const char* path, const char* expected)
+{
+    if (!path || !expected) return false;
+    return strcmp(path, expected) == 0;
+}
+
+static bool isPublicAuthPath_(AsyncWebServerRequest* request, const char* url)
+{
+    if (!url || url[0] == '\0') return false;
+    const bool isGet = request && request->method() == HTTP_GET;
+
+    // Session endpoints self-authorize; always reachable.
+    if (pathStartsWith_(url, "/api/auth/")) return true;
+    // Login page and static web assets.
+    if (pathStartsWith_(url, "/login")) return true;
+    if (pathStartsWith_(url, "/webinterface/")) return true;
+    if (pathEquals_(url, "/favicon.ico")) return true;
+    if (pathEquals_(url, "/")) return true;
+    // Captive portal detectors must stay unauthenticated.
+    if (pathEquals_(url, "/generate_204") ||
+        pathEquals_(url, "/gen_204") ||
+        pathEquals_(url, "/hotspot-detect.html") ||
+        pathEquals_(url, "/connecttest.txt") ||
+        pathEquals_(url, "/ncsi.txt")) {
+        return true;
+    }
+    // Health probes.
+    if (pathEquals_(url, "/webinterface/health") || pathEquals_(url, "/webserial/health")) {
+        return true;
+    }
+    // Rescue console (left as-is by design decision) and the read-only endpoints
+    // it relies on.
+    if (pathEquals_(url, "/rescue") || pathEquals_(url, "/webinterface/rescue")) {
+        return true;
+    }
+    if (isGet &&
+        (pathEquals_(url, "/api/web/meta") ||
+         pathEquals_(url, "/api/network/mode") ||
+         pathEquals_(url, "/api/wifi/scan") ||
+         pathEquals_(url, "/api/wifi/config") ||
+         pathEquals_(url, "/api/fwupdate/config") ||
+         pathEquals_(url, "/api/fwupdate/status"))) {
+        return true;
+    }
+    return false;
+}
+
+static bool requiresAdmin_(AsyncWebServerRequest* request, const char* url)
+{
+    if (!request || request->method() != HTTP_POST || !url) return false;
+    // System update and destructive system actions are reserved to admins.
+    return pathStartsWith_(url, "/api/fwupdate/") ||
+           pathStartsWith_(url, "/api/upgrade/") ||
+           pathStartsWith_(url, "/api/system/") ||
+           pathStartsWith_(url, "/api/flow/system/") ||
+           pathStartsWith_(url, "/fwupdate/");
+}
+
+static bool extractSessionCookie_(AsyncWebServerRequest* request, char* out, size_t outLen)
+{
+    if (!request || !out || outLen == 0U) return false;
+    out[0] = '\0';
+    const String cookieHeader = request->header("Cookie");
+    if (cookieHeader.isEmpty()) return false;
+
+    const size_t nameLen = strlen(kSessionCookieName);
+    int start = 0;
+    const int total = (int)cookieHeader.length();
+    while (start < total) {
+        // Skip spaces and separators.
+        while (start < total && (cookieHeader[start] == ' ' || cookieHeader[start] == ';')) ++start;
+        // Compare cookie name.
+        if (start + (int)nameLen <= total && cookieHeader.substring(start, start + nameLen) == kSessionCookieName) {
+            int eq = start + nameLen;
+            while (eq < total && cookieHeader[eq] == ' ') ++eq;
+            if (eq < total && cookieHeader[eq] == '=') {
+                ++eq;
+                int end = eq;
+                while (end < total && cookieHeader[end] != ';') ++end;
+                const String value = cookieHeader.substring(eq, end);
+                if (!value.isEmpty() && (size_t)value.length() < outLen) {
+                    memcpy(out, value.c_str(), value.length() + 1U);
+                    return true;
+                }
+            }
+            return false;
+        }
+        // Advance to next cookie.
+        int semi = start;
+        while (semi < total && cookieHeader[semi] != ';') ++semi;
+        start = semi + 1;
+    }
+    return false;
+}
+
+static const char kLoginPageHtml[] PROGMEM = R"HTML(
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#eef8fc" />
+  <link rel="icon" type="image/png" href="/webinterface/favicon.png" />
+  <title>flow.io - Connexion</title>
+  <script>
+    (function () {
+      var theme = 'light';
+      try {
+        theme = localStorage.getItem('flow_web_theme') === 'dark' ? 'dark' : 'light';
+      } catch (err) {}
+      document.documentElement.setAttribute('data-theme', theme);
+      document.documentElement.style.colorScheme = theme;
+    })();
+  </script>
+  <style>
+  :root { color-scheme:light; --bg:#eef8fc; --panel:rgba(255,255,255,.96); --line:#cfdeea; --text:#071a35; --muted:#64748b; --accent:#09afc6; --accent-dark:#087fb2; --accent-soft:#dff6fa; --bad:#b4233a; --field:#fff; --shadow:0 28px 80px rgba(28,91,125,.16); }
+  html[data-theme="dark"] { color-scheme:dark; --bg:#07111f; --panel:rgba(17,28,43,.96); --line:#2c405a; --text:#edf5ff; --muted:#a9b9cf; --accent:#32c8d6; --accent-dark:#1687d8; --accent-soft:#12384a; --bad:#ff7b8a; --field:#0b1726; --shadow:0 28px 80px rgba(0,0,0,.42); }
+  * { box-sizing: border-box; }
+  html, body { min-height:100%; }
+  body { margin:0; min-height:100vh; color:var(--text); font-family:"Inter","Segoe UI",Roboto,Arial,sans-serif; background:
+    radial-gradient(circle at 12% 18%,rgba(41,185,211,.2),transparent 28%),
+    radial-gradient(circle at 88% 84%,rgba(71,157,220,.16),transparent 28%),
+    linear-gradient(135deg,var(--bg) 0%,#f9fcfe 52%,#e9f6fb 100%); overflow-x:hidden; }
+  html[data-theme="dark"] body { background:radial-gradient(circle at 12% 18%,rgba(41,185,211,.14),transparent 28%),radial-gradient(circle at 88% 84%,rgba(71,157,220,.12),transparent 28%),var(--bg); }
+  body::before, body::after { content:""; position:fixed; z-index:0; width:58vw; height:25vw; min-height:180px; border-radius:50%; border:1px solid rgba(87,190,219,.2); transform:rotate(-9deg); pointer-events:none; }
+  body::before { left:-18vw; bottom:-12vw; box-shadow:0 -26px 0 rgba(153,222,236,.1),0 -52px 0 rgba(153,222,236,.07); }
+  body::after { right:-25vw; top:3vw; box-shadow:0 26px 0 rgba(153,222,236,.1),0 52px 0 rgba(153,222,236,.07); }
+  .shell { position:relative; z-index:1; width:min(1120px,calc(100% - 48px)); min-height:100vh; margin:auto; display:grid; grid-template-columns:minmax(0,1.08fr) minmax(390px,.92fr); align-items:center; gap:clamp(48px,8vw,112px); padding:48px 0; }
+  .intro { padding:12px 0 12px clamp(0px,2vw,24px); }
+  .intro-brand img { display:block; width:242px; height:auto; }
+  html[data-theme="dark"] .intro-brand img, html[data-theme="dark"] .brand img { filter:brightness(0) invert(1); }
+  .tagline { max-width:540px; margin:24px 0 0; color:var(--muted); font-size:clamp(18px,1.7vw,22px); font-weight:650; line-height:1.35; letter-spacing:-.015em; }
+  .card { width:100%; max-width:480px; justify-self:end; background:var(--panel); border:1px solid rgba(255,255,255,.78); border-radius:24px; padding:clamp(32px,4vw,52px); box-shadow:var(--shadow); backdrop-filter:blur(12px); }
+  html[data-theme="dark"] .card { border-color:var(--line); }
+  .brand { display:none; justify-content:center; margin-bottom:28px; }
+  .brand img { width:184px; max-width:100%; height:auto; }
+  h1 { font-size:clamp(27px,3vw,34px); margin:0 0 8px; text-align:center; letter-spacing:-.035em; }
+  .sub { color:var(--muted); font-size:14px; margin:0 0 32px; text-align:center; line-height:1.5; }
+  label { display:block; margin:18px 0 8px; font-size:13px; font-weight:750; color:var(--text); }
+  .field { position:relative; }
+  .field-icon { position:absolute; left:15px; top:50%; width:19px; height:19px; transform:translateY(-50%); color:#70839b; pointer-events:none; }
+  input { width:100%; min-height:52px; border:1px solid var(--line); border-radius:11px; background:var(--field); color:var(--text); padding:10px 46px; font:inherit; font-size:14px; transition:border-color .16s ease,box-shadow .16s ease,background .16s ease; }
+  input::placeholder { color:#91a1b4; }
+  input:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 4px rgba(43,183,198,.14); }
+  .password-toggle { position:absolute; right:5px; top:50%; width:42px; height:42px; transform:translateY(-50%); border:0; border-radius:8px; padding:0; background:transparent; color:#70839b; cursor:pointer; display:grid; place-items:center; }
+  .password-toggle:hover { color:var(--accent-dark); background:var(--accent-soft); }
+  .password-toggle svg { width:20px; height:20px; }
+  .submit { width:100%; min-height:54px; margin-top:28px; border:0; border-radius:12px; padding:0 20px; background:linear-gradient(100deg,var(--accent-dark),var(--accent)); color:#fff; font-size:15px; font-weight:800; cursor:pointer; box-shadow:0 12px 26px rgba(9,175,198,.22); transition:transform .16s ease,filter .16s ease,box-shadow .16s ease; }
+  .submit:hover { filter:brightness(1.05); transform:translateY(-1px); box-shadow:0 15px 30px rgba(9,175,198,.28); }
+  .submit:active { transform:translateY(0); }
+  .submit:disabled { opacity:.58; cursor:wait; transform:none; }
+  .status { min-height:20px; margin-top:12px; font-size:13px; color:var(--bad); text-align:center; }
+  .secure { display:flex; align-items:center; justify-content:center; gap:8px; margin-top:18px; padding-top:20px; border-top:1px solid var(--line); color:var(--muted); font-size:12px; }
+  .secure svg { width:16px; height:16px; color:var(--accent-dark); }
+  @media (max-width:820px) {
+    .shell { width:min(100% - 32px,500px); grid-template-columns:1fr; gap:28px; padding:32px 0; }
+    .intro { padding:0; text-align:center; }
+    .intro-brand, .tagline { display:none; }
+    .card { justify-self:center; }
+    .brand { display:flex; }
+  }
+  @media (max-width:480px) {
+    .shell { width:100%; min-height:100vh; padding:0; align-items:stretch; }
+    .intro { display:none; }
+    .card { max-width:none; min-height:100vh; border:0; border-radius:0; padding:42px 24px 28px; display:flex; flex-direction:column; justify-content:center; box-shadow:none; }
+    .brand { margin-bottom:24px; }
+  }
+  @media (prefers-reduced-motion:reduce) { *, *::before, *::after { scroll-behavior:auto!important; transition:none!important; } }
+</style>
+</head>
+<body>
+  <main class="shell">
+    <section class="intro" aria-label="Présentation flow.io">
+      <div class="intro-brand"><img src="/webinterface/logo-flowio.png" alt="flow.io" /></div>
+      <p class="tagline">The Open Platform for the Connected Pool</p>
+    </section>
+    <form class="card" id="loginForm">
+      <div class="brand"><img src="/webinterface/logo-flowio.png" alt="flow.io" /></div>
+      <h1>Connexion</h1>
+      <p class="sub">Accédez à votre contrôleur de piscine connecté.</p>
+      <label for="user">Identifiant</label>
+      <div class="field">
+        <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.6-4 3-6 7-6s6.4 2 7 6"/></svg>
+        <input id="user" name="username" autocomplete="username" placeholder="Votre identifiant" autofocus required />
+      </div>
+      <label for="pass">Mot de passe</label>
+      <div class="field">
+        <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10"/></svg>
+        <input id="pass" name="password" type="password" autocomplete="current-password" placeholder="Votre mot de passe" required />
+        <button class="password-toggle" id="togglePass" type="button" aria-label="Afficher le mot de passe" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg></button>
+      </div>
+      <button class="submit" id="submit" type="submit">Se connecter&nbsp;&nbsp;→</button>
+      <div class="status" id="status" role="status" aria-live="polite"></div>
+      <div class="secure"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m12 3 7 3v5c0 4.5-2.7 7.8-7 10-4.3-2.2-7-5.5-7-10V6l7-3Z"/><path d="m9 12 2 2 4-4"/></svg><span>Accès local sécurisé</span></div>
+    </form>
+  </main>
+  <script>
+  (() => {
+    const form = document.getElementById("loginForm");
+    const status = document.getElementById("status");
+    const submit = document.getElementById("submit");
+    const password = document.getElementById("pass");
+    const togglePass = document.getElementById("togglePass");
+    togglePass.addEventListener("click", () => {
+      const reveal = password.type === "password";
+      password.type = reveal ? "text" : "password";
+      togglePass.setAttribute("aria-pressed", String(reveal));
+      togglePass.setAttribute("aria-label", reveal ? "Masquer le mot de passe" : "Afficher le mot de passe");
+    });
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      status.textContent = "";
+      submit.disabled = true;
+      try {
+        const body = new URLSearchParams();
+        body.set("username", document.getElementById("user").value);
+        body.set("password", document.getElementById("pass").value);
+        const res = await fetch("/api/auth/login", { method:"POST", body });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || data.ok !== true) {
+          status.textContent = (data && data.err && data.err.msg) ? data.err.msg : "Connexion refusée";
+          submit.disabled = false;
+          return;
+        }
+        window.location.href = "/webinterface";
+      } catch (_) {
+        status.textContent = "Erreur de connexion";
+        submit.disabled = false;
+      }
+    });
+  })();
+  </script>
+</body>
+</html>
+)HTML";
+
 static bool parseStrictBoolParam_(const char* in, bool& out)
 {
     if (!in || in[0] == '\0') return false;
@@ -5000,6 +5252,7 @@ void WebInterfaceModule::init(ConfigStore& cfg, ServiceRegistry& services)
     auto* ebSvc = services.get<EventBusService>(ServiceId::EventBus);
     eventBus_ = ebSvc ? ebSvc->bus : nullptr;
     fwUpdateSvc_ = services.get<FirmwareUpdateService>(ServiceId::FirmwareUpdate);
+    userSvc_ = services.get<UserService>(ServiceId::User);
     if (eventBus_) {
         runtimeEventsAvailable_ = dataStore_ != nullptr;
         for (const EventId id : {EventId::DataChanged, EventId::ConfigChanged, EventId::AlarmRaised,
@@ -7770,6 +8023,251 @@ void WebInterfaceModule::startServer_()
         request->redirect(webInterfaceLandingUrl());
     });
 
+    // --- Authentication routes and middleware --------------------------------
+
+    server_.addMiddleware([this](AsyncWebServerRequest* request, ArMiddlewareNext next) {
+        this->authGate_(request, next);
+    });
+
+    server_.on("/login", HTTP_GET, [](AsyncWebServerRequest* request) {
+        request->send(200, "text/html",
+                      reinterpret_cast<const uint8_t*>(kLoginPageHtml),
+                      sizeof(kLoginPageHtml) - 1U);
+    });
+
+    server_.on("/login.html", HTTP_GET, [](AsyncWebServerRequest* request) {
+        request->send(200, "text/html",
+                      reinterpret_cast<const uint8_t*>(kLoginPageHtml),
+                      sizeof(kLoginPageHtml) - 1U);
+    });
+
+    server_.on("/api/auth/login", HTTP_POST, [this](AsyncWebServerRequest* request) {
+        if (!userSvc_ && services_) {
+            userSvc_ = services_->get<UserService>(ServiceId::User);
+        }
+        char username[40] = {0};
+        char password[96] = {0};
+        copyRequestParamValue_(request, "username", true, username, sizeof(username), "");
+        copyRequestParamValue_(request, "password", true, password, sizeof(password), "");
+        if (!userSvc_ || !userSvc_->authenticate) {
+            request->send(503, "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"NotReady\",\"where\":\"auth.login\"}}");
+            return;
+        }
+        char token[kSessionTokenMax] = {0};
+        char err[32] = {0};
+        if (!userSvc_->authenticate(userSvc_->ctx, username, password, token, sizeof(token), err, sizeof(err))) {
+            char out[192] = {0};
+            snprintf(out, sizeof(out),
+                     "{\"ok\":false,\"err\":{\"code\":\"Unauthorized\",\"where\":\"auth.login\",\"msg\":\"%s\"}}",
+                     err[0] ? err : "invalid_credentials");
+            request->send(401, "application/json", out);
+            return;
+        }
+        auto* resp = request->beginResponseStream("application/json");
+        char cookie[320] = {0};
+        snprintf(cookie, sizeof(cookie),
+                 "%s=%s; Path=/; HttpOnly; SameSite=Strict; Max-Age=%lu",
+                 kSessionCookieName, token, (unsigned long)kSessionCookieMaxAgeSeconds);
+        resp->addHeader("Set-Cookie", cookie);
+        resp->print("{\"ok\":true}");
+        request->send(resp);
+    });
+
+    server_.on("/api/auth/logout", HTTP_POST, [](AsyncWebServerRequest* request) {
+        auto* resp = request->beginResponseStream("application/json");
+        char cookie[96] = {0};
+        snprintf(cookie, sizeof(cookie), "%s=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0", kSessionCookieName);
+        resp->addHeader("Set-Cookie", cookie);
+        resp->print("{\"ok\":true}");
+        request->send(resp);
+    });
+
+    server_.on("/api/auth/session", HTTP_GET, [this](AsyncWebServerRequest* request) {
+        if (!userSvc_ && services_) {
+            userSvc_ = services_->get<UserService>(ServiceId::User);
+        }
+        char token[kSessionTokenMax] = {0};
+        extractSessionCookie_(request, token, sizeof(token));
+        UserRole role = UserRole::None;
+        char username[40] = {0};
+        const bool authorized =
+            userSvc_ && userSvc_->sessionInfo &&
+            userSvc_->sessionInfo(userSvc_->ctx, token, &role, username, sizeof(username));
+        if (!authorized) role = UserRole::None;
+        char out[160] = {0};
+        snprintf(out, sizeof(out),
+                 "{\"ok\":true,\"authenticated\":%s,\"role\":\"%s\",\"username\":\"%s\"}",
+                 authorized ? "true" : "false", userRoleName(role), username);
+        request->send(200, "application/json", out);
+    });
+
+    // Refreshes the browser cookie lifetime (sliding window) without re-issuing
+    // the token: the token keeps its absolute 24h expiry, so the session can
+    // never outlive UserModule::kTokenTtlSeconds even with continuous activity.
+    server_.on("/api/auth/refresh", HTTP_POST, [this](AsyncWebServerRequest* request) {
+        if (!userSvc_ && services_) {
+            userSvc_ = services_->get<UserService>(ServiceId::User);
+        }
+        char token[kSessionTokenMax] = {0};
+        extractSessionCookie_(request, token, sizeof(token));
+        UserRole role = UserRole::None;
+        const bool authorized =
+            userSvc_ && userSvc_->authorize &&
+            userSvc_->authorize(userSvc_->ctx, token, &role);
+        auto* resp = request->beginResponseStream("application/json");
+        char cookie[320] = {0};
+        if (!authorized) {
+            snprintf(cookie, sizeof(cookie),
+                     "%s=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0",
+                     kSessionCookieName);
+            resp->addHeader("Set-Cookie", cookie);
+            resp->setCode(401);
+            resp->print("{\"ok\":false,\"err\":{\"code\":\"Unauthorized\",\"where\":\"auth.refresh\"}}");
+            request->send(resp);
+            return;
+        }
+        snprintf(cookie, sizeof(cookie),
+                 "%s=%s; Path=/; HttpOnly; SameSite=Strict; Max-Age=%lu",
+                 kSessionCookieName, token, (unsigned long)kSessionCookieMaxAgeSeconds);
+        resp->addHeader("Set-Cookie", cookie);
+        resp->print("{\"ok\":true}");
+        request->send(resp);
+    });
+
+    server_.on("/api/auth/initial", HTTP_GET, [this](AsyncWebServerRequest* request) {
+        if (!userSvc_ && services_) {
+            userSvc_ = services_->get<UserService>(ServiceId::User);
+        }
+        NetworkAccessMode mode = NetworkAccessMode::None;
+        if (netAccessSvc_ && netAccessSvc_->mode) {
+            mode = netAccessSvc_->mode(netAccessSvc_->ctx);
+        }
+        if (mode != NetworkAccessMode::AccessPoint) {
+            request->send(404, "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"NotFound\",\"where\":\"auth.initial\"}}");
+            return;
+        }
+        char username[40] = {0};
+        char password[40] = {0};
+        if (!userSvc_ || !userSvc_->getInitialCredentials ||
+            !userSvc_->getInitialCredentials(userSvc_->ctx, username, sizeof(username), password, sizeof(password))) {
+            request->send(404, "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"NotFound\",\"where\":\"auth.initial\"}}");
+            return;
+        }
+        char out[128] = {0};
+        snprintf(out, sizeof(out), "{\"ok\":true,\"username\":\"%s\",\"password\":\"%s\"}",
+                 username, password);
+        request->send(200, "application/json", out);
+    });
+
+    server_.on("/api/auth/users", HTTP_GET, [this](AsyncWebServerRequest* request) {
+        if (!userSvc_ && services_) {
+            userSvc_ = services_->get<UserService>(ServiceId::User);
+        }
+        char token[kSessionTokenMax] = {0};
+        extractSessionCookie_(request, token, sizeof(token));
+        if (!userSvc_ || !userSvc_->listUsers) {
+            request->send(503, "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"NotReady\",\"where\":\"auth.users\"}}");
+            return;
+        }
+        char out[1400] = {0};
+        bool truncated = false;
+        if (userSvc_->listUsers(userSvc_->ctx, token, out, sizeof(out), &truncated)) {
+            request->send(200, "application/json", out);
+        } else {
+            request->send(403, "application/json", out);
+        }
+    });
+
+    server_.on("/api/auth/users", HTTP_POST, [this](AsyncWebServerRequest* request) {
+        if (!userSvc_ && services_) {
+            userSvc_ = services_->get<UserService>(ServiceId::User);
+        }
+        char token[kSessionTokenMax] = {0};
+        extractSessionCookie_(request, token, sizeof(token));
+        char username[40] = {0};
+        char password[96] = {0};
+        char roleName[16] = {0};
+        copyRequestParamValue_(request, "username", true, username, sizeof(username), "");
+        copyRequestParamValue_(request, "password", true, password, sizeof(password), "");
+        copyRequestParamValue_(request, "role", true, roleName, sizeof(roleName), "operator");
+
+        UserRole role = UserRole::None;
+        if (!userRoleFromName(roleName, &role)) {
+            request->send(400, "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"BadRequest\",\"where\":\"auth.users.role\"}}");
+            return;
+        }
+        if (!userSvc_ || !userSvc_->saveUser) {
+            request->send(503, "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"NotReady\",\"where\":\"auth.users\"}}");
+            return;
+        }
+        char err[32] = {0};
+        if (!userSvc_->saveUser(userSvc_->ctx, token, username, password, role, err, sizeof(err))) {
+            char out[192] = {0};
+            snprintf(out, sizeof(out),
+                     "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"auth.users\",\"msg\":\"%s\"}}",
+                     err[0] ? err : "failed");
+            request->send(403, "application/json", out);
+            return;
+        }
+        request->send(200, "application/json", "{\"ok\":true}");
+    });
+
+    server_.on("/api/auth/users/delete", HTTP_POST, [this](AsyncWebServerRequest* request) {
+        if (!userSvc_ && services_) {
+            userSvc_ = services_->get<UserService>(ServiceId::User);
+        }
+        char token[kSessionTokenMax] = {0};
+        extractSessionCookie_(request, token, sizeof(token));
+        char username[40] = {0};
+        copyRequestParamValue_(request, "username", true, username, sizeof(username), "");
+        if (!userSvc_ || !userSvc_->deleteUser) {
+            request->send(503, "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"NotReady\",\"where\":\"auth.users.delete\"}}");
+            return;
+        }
+        char err[32] = {0};
+        if (!userSvc_->deleteUser(userSvc_->ctx, token, username, err, sizeof(err))) {
+            char out[192] = {0};
+            snprintf(out, sizeof(out),
+                     "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"auth.users.delete\",\"msg\":\"%s\"}}",
+                     err[0] ? err : "failed");
+            request->send(403, "application/json", out);
+            return;
+        }
+        request->send(200, "application/json", "{\"ok\":true}");
+    });
+
+    server_.on("/api/auth/password", HTTP_POST, [this](AsyncWebServerRequest* request) {
+        if (!userSvc_ && services_) {
+            userSvc_ = services_->get<UserService>(ServiceId::User);
+        }
+        char token[kSessionTokenMax] = {0};
+        extractSessionCookie_(request, token, sizeof(token));
+        char password[96] = {0};
+        copyRequestParamValue_(request, "password", true, password, sizeof(password), "");
+        if (!userSvc_ || !userSvc_->changeOwnPassword) {
+            request->send(503, "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"NotReady\",\"where\":\"auth.password\"}}");
+            return;
+        }
+        char err[32] = {0};
+        if (!userSvc_->changeOwnPassword(userSvc_->ctx, token, password, err, sizeof(err))) {
+            char out[192] = {0};
+            snprintf(out, sizeof(out),
+                     "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"auth.password\",\"msg\":\"%s\"}}",
+                     err[0] ? err : "failed");
+            request->send(400, "application/json", out);
+            return;
+        }
+        request->send(200, "application/json", "{\"ok\":true}");
+    });
+
     if (!provisioningOnly_) {
         configureRuntimeEvents_();
         wsLog_.onEvent([this](AsyncWebSocket* server,
@@ -7782,6 +8280,9 @@ void WebInterfaceModule::startServer_()
         });
 
         server_.addHandler(&wsLog_);
+        wsLog_.addMiddleware([this](AsyncWebServerRequest* request, ArMiddlewareNext next) {
+            this->authGate_(request, next);
+        });
         if (!bridgeUartEnabled_) {
             LOGI("WebInterface flow serial stream unavailable (bridge UART unavailable)");
         }
@@ -7839,6 +8340,61 @@ void WebInterfaceModule::startServer_()
     } else {
         LOGI("WebInterface URL: waiting for network IP");
     }
+}
+
+void WebInterfaceModule::authGate_(AsyncWebServerRequest* request, ArMiddlewareNext next)
+{
+    if (!request) return;
+    if (!userSvc_ && services_) {
+        userSvc_ = services_->get<UserService>(ServiceId::User);
+    }
+
+    const char* url = request->url().c_str();
+
+    // During AccessPoint (provisioning) mode the device is behind a WPA2-local
+    // AP and acts as a trusted setup console: skip the auth gate entirely so
+    // first-boot provisioning is never blocked.
+    if (netAccessSvc_ && netAccessSvc_->mode &&
+        netAccessSvc_->mode(netAccessSvc_->ctx) == NetworkAccessMode::AccessPoint) {
+        next();
+        return;
+    }
+
+    if (isPublicAuthPath_(request, url)) {
+        next();
+        return;
+    }
+
+    char token[kSessionTokenMax] = {0};
+    extractSessionCookie_(request, token, sizeof(token));
+
+    UserRole role = UserRole::None;
+    const bool authorized =
+        userSvc_ && userSvc_->authorize &&
+        userSvc_->authorize(userSvc_->ctx, token, &role);
+
+    if (!authorized) {
+        const bool wantsPage = request->method() == HTTP_GET &&
+                               !pathStartsWith_(url, "/api/") &&
+                               !pathStartsWith_(url, "/webserial") &&
+                               !pathStartsWith_(url, "/fwupdate");
+        if (wantsPage) {
+            request->redirect("/login");
+        } else {
+            request->send(401, "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"Unauthorized\",\"where\":\"auth\"}}");
+        }
+        return;
+    }
+
+    if (requiresAdmin_(request, url) &&
+        !roleHasPermission(role, UserPermission::UpdateSystem)) {
+        request->send(403, "application/json",
+                      "{\"ok\":false,\"err\":{\"code\":\"Forbidden\",\"where\":\"auth\"}}");
+        return;
+    }
+
+    next();
 }
 
 void WebInterfaceModule::handleUpdateRequest_(AsyncWebServerRequest* request, FirmwareUpdateTarget target)

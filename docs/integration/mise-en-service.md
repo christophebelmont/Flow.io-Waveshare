@@ -143,3 +143,12 @@ Vérifier dans le moniteur série:
 6. l'absence d'erreur de domain slot non configuré ou sans binding.
 
 Dans l'interface web, la page **Entrées/Sorties** permet de contrôler la topologie, les valeurs runtime et l'affectation des binding ports. Vérifier d'abord les entrées sans charge, puis chaque relais avec un circuit de test adapté avant de raccorder les équipements piscine.
+
+## 8. Identifiants par défaut
+
+Lors du premier démarrage, deux accès sont protégés par le même mot de passe par défaut `flowio1234`:
+
+- le point d'accès de provisioning Wi-Fi, dont le SSID est `flow.io-XXXXXX` (suffixe dérivé de l'adresse MAC);
+- le compte administrateur de l'interface web, identifiant `admin`.
+
+> **Avertissement** — Le mot de passe `flowio1234` est public et connu d'avance. Il doit être changé dès la première connexion: le mot de passe du compte administrateur se modifie depuis la page **Comptes** de l'interface web, et le mot de passe du point d'accès de provisioning est remplacé par les identifiants Wi-Fi renseignés lors du provisioning.

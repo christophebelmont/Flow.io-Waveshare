@@ -14,6 +14,9 @@ void WebInterfaceModule::configureRuntimeEvents_()
 {
     // Connections share AsyncEventSource's bounded per-client message queues.
     runtimeEvents_.addMiddleware([this](AsyncWebServerRequest* request, ArMiddlewareNext next) {
+        this->authGate_(request, next);
+    });
+    runtimeEvents_.addMiddleware([this](AsyncWebServerRequest* request, ArMiddlewareNext next) {
         if (!runtimeEventsAvailable_ || runtimeEvents_.count() >= 4U) {
             request->send(503, "application/json",
                           "{\"ok\":false,\"err\":{\"code\":\"NotReady\",\"where\":\"runtime.events\"}}");
