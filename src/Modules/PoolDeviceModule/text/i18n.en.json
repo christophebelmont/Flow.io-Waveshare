@@ -233,6 +233,9 @@
     "runtimeui.pooldev.reset.confirmationHint": "Day, week and month · Lifetime totals preserved",
     "runtimeui.pooldev.reset.confirmButtonText": "Confirm",
     "runtimeui.pooldev.reset.detailsLabel": "What gets reset",
-    "runtimeui.pooldev.reset.countText": "{count} devices"
+    "runtimeui.pooldev.reset.countText": "{count} devices",
+    "runtimeui.pooldev.setpoint": "Setpoint",
+    "cfgdocs.pooldev.driver.label": "Equipment control",
+    "cfgdocs.pooldev.driver.help": "Equipment wiring and protocol. Applied after restart."
   }
 }

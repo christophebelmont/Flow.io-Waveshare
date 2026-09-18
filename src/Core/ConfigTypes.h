@@ -54,6 +54,7 @@ struct ConfigVariable {
     struct Handler { ConfigCallback<T> cb; void* ctx; };
     Handler handlers[MAX_HANDLERS];
     uint8_t handlerCount = 0;
+    bool (*validateText)(const char*) = nullptr;
 
     /** @brief Register a change handler. */
     bool addHandler(ConfigCallback<T> cb, void* ctx) {
@@ -77,6 +78,7 @@ struct ConfigMeta {
     ConfigType type;
     ConfigPersistence persistence;
     void* valuePtr;
+    bool (*validateText)(const char*) = nullptr;
     uint16_t size;
     uint8_t moduleId = 0; // 0 = unknown
     uint8_t localBranchId = 0; // 0 = unknown

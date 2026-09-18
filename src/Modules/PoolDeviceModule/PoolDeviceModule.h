@@ -20,6 +20,8 @@
 #include "Domain/DomainTypes.h"
 #include "Modules/PoolDeviceModule/PoolDeviceModuleDataModel.h"
 #include <freertos/semphr.h>
+#include "Drivers/PoolDeviceDriver.h"
+#include "Drivers/PoolDriverConfig.h"
 
 enum PoolDeviceType : uint8_t {
     POOL_DEVICE_FILTRATION = 0,
@@ -39,7 +41,7 @@ struct PoolDeviceDefinition {
     float flowLPerHour = 0.0f;     // used for dosing volumes
     float tankCapacityMl = 0.0f;   // 0 means "not tracked"
     float tankInitialMl = 0.0f;    // <=0 means "use capacity"
-    uint8_t dependsOnMask = 0;     // bit per pool-device slot
+    uint16_t dependsOnMask = 0;     // bit per pool-device slot
     int32_t maxUptimeDaySec = 0;   // 0 means "unlimited"
 };
 
@@ -107,6 +109,20 @@ private:
         /** Cached IOServiceV2 endpoint id derived from the generic IO slot. */
         IoId ioId = IO_ID_INVALID;
 
+        PoolDriverConfig driverConfig{};
+        PoolDeviceDriver driver{};
+        char driverJson[POOL_DRIVER_CONFIG_BYTES]{};
+        char driverKey[16]{};
+        char driverError[96]{};
+        char haSuffix[24]{};
+        char haTopic[40]{};
+        char haCommand[160]{};
+        char haOptions[160]{};
+        bool driverReady = false;
+        PoolDeviceTarget desired{};
+        PoolDeviceTarget effective{};
+        PoolDeviceFeedback feedback{};
+        uint32_t revision = 0;
         bool desiredOn = false;
         bool actualOn = false;
         uint8_t blockReason = POOL_DEVICE_BLOCK_NONE;
@@ -149,7 +165,7 @@ private:
     uint8_t activeCount_() const;
     PoolDeviceSvcStatus svcMetaImpl_(uint8_t slot, PoolDeviceSvcMeta* outMeta) const;
     PoolDeviceSvcStatus svcReadActualOnImpl_(uint8_t slot, uint8_t* outOn, uint32_t* outTsMs) const;
-    PoolDeviceSvcStatus svcWriteDesiredImpl_(uint8_t slot, uint8_t on);
+    PoolDeviceSvcStatus svcSetRunningImpl_(uint8_t slot, uint8_t on);
     PoolDeviceSvcStatus svcSetWritesEnabledImpl_(uint8_t enabled);
     uint8_t svcWritesEnabledImpl_() const;
     PoolDeviceSvcStatus svcRefillTankImpl_(uint8_t slot, float remainingMl);
@@ -166,8 +182,10 @@ private:
     bool dependenciesSatisfied_(uint8_t slotIdx) const;
     void logStartInterlock_(uint8_t slotIdx, uint8_t reason) const;
     static bool maxUptimeReached_(const PoolDeviceSlot& slot);
-    bool readIoState_(const PoolDeviceSlot& slot, bool& onOut) const;
-    bool writeIo_(IoId ioId, bool on);
+    PoolDeviceSvcStatus svcSetTargetImpl_(uint8_t slot, const PoolDeviceTarget* target);
+    PoolDeviceSvcStatus svcReadStateImpl_(uint8_t slot, PoolDeviceFeedback* state) const;
+    bool configureDriver_(uint8_t slot);
+    void registerDriverHa_(uint8_t slot);
     bool actuatorWritesEnabled() const { return writesEnabled_; }
     static uint32_t toSeconds_(uint64_t ms);
 
@@ -182,6 +200,7 @@ private:
     static const char* blockReasonStr_(uint8_t reason);
 
     // Commands
+    static bool cmdPoolSetpoint_(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen);
     static bool cmdPoolWrite_(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen);
     static bool cmdPoolRefill_(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen);
     static bool cmdPoolResetUptime_(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen);
@@ -225,6 +244,7 @@ private:
     // Services and shared runtime integrations
     const LogHubService* logHub_ = nullptr;
     const IOServiceV2* ioSvc_ = nullptr;
+    const ModbusMasterService* serialSvc_ = nullptr;
     const TimeService* timeSvc_ = nullptr;
     const CommandService* cmdSvc_ = nullptr;
     const MqttService* mqttSvc_ = nullptr;
@@ -234,10 +254,12 @@ private:
         ServiceBinding::bind<&PoolDeviceModule::activeCount_>,
         ServiceBinding::bind<&PoolDeviceModule::svcMetaImpl_>,
         ServiceBinding::bind<&PoolDeviceModule::svcReadActualOnImpl_>,
-        ServiceBinding::bind<&PoolDeviceModule::svcWriteDesiredImpl_>,
+        ServiceBinding::bind<&PoolDeviceModule::svcSetRunningImpl_>,
         ServiceBinding::bind<&PoolDeviceModule::svcSetWritesEnabledImpl_>,
         ServiceBinding::bind<&PoolDeviceModule::svcWritesEnabledImpl_>,
         ServiceBinding::bind<&PoolDeviceModule::svcRefillTankImpl_>,
+        ServiceBinding::bind<&PoolDeviceModule::svcSetTargetImpl_>,
+        ServiceBinding::bind<&PoolDeviceModule::svcReadStateImpl_>,
         this
     };
     DomainStatusServiceProvider domainStatusProvider_{};
@@ -247,8 +269,9 @@ private:
     const ConfigStoreService* cfgSvc_ = nullptr;
     MqttConfigRouteProducer* cfgMqttPub_ = nullptr;
 
+    ConfigVariable<char,0>* cfgDriverVar_ = nullptr;
     ConfigVariable<bool,0>* cfgEnabledVar_ = nullptr;
-    ConfigVariable<uint8_t,0>* cfgDependsVar_ = nullptr;
+    ConfigVariable<uint16_t,0>* cfgDependsVar_ = nullptr;
     ConfigVariable<float,0>* cfgFlowVar_ = nullptr;
     ConfigVariable<float,0>* cfgTankCapVar_ = nullptr;
     ConfigVariable<float,0>* cfgTankInitVar_ = nullptr;

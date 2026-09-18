@@ -638,6 +638,14 @@ bool ConfigStore::applyJson(const char* json)
                 if (strcmp(m.module, moduleName) != 0) continue;
                 if (strcmp(m.name, keyName) != 0) continue;
                 keyKnown = true;
+                if (m.validateText) {
+                    const JsonVariantConst proposed = valueKv.value();
+                    if (!proposed.is<const char*>() || strlen(proposed.as<const char*>()) >= m.size ||
+                        !m.validateText(proposed.as<const char*>())) {
+                        Log::warn(LOG_MODULE_ID, "applyJson: invalid value for %s.%s", m.module, m.name);
+                        return false;
+                    }
+                }
                 break;
             }
             if (!keyKnown) {

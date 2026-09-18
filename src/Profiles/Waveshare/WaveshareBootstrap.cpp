@@ -173,7 +173,6 @@ void registerModules(AppContext& ctx, ModuleInstances& modules)
     }
     ctx.moduleManager.add(&modules.systemModule);
     ctx.moduleManager.add(&modules.ioModule);
-    ctx.moduleManager.add(&modules.variableSpeedPumpModule);
     ctx.moduleManager.add(&modules.poolLogicModule);
     ctx.moduleManager.add(&modules.poolDeviceModule);
     ctx.moduleManager.add(&modules.poolHistoryModule);
@@ -183,12 +182,12 @@ void registerModules(AppContext& ctx, ModuleInstances& modules)
     ctx.moduleManager.add(&modules.systemMonitorModule);
 }
 
-uint8_t dependsOnMaskForPreset(const DomainSpec& domain, const PoolDevicePreset& preset)
+uint16_t dependsOnMaskForPreset(const DomainSpec& domain, const PoolDevicePreset& preset)
 {
     if (preset.dependsOnDevice == POOL_DEVICE_INVALID) return 0;
     const PoolDevicePreset* dependency = findPoolPresetById(domain, preset.dependsOnDevice);
     if (!dependency) return 0;
-    return (uint8_t)(1u << dependency->id);
+    return (uint16_t)(1u << dependency->id);
 }
 
 void configurePoolDevices(const AppContext& ctx, ModuleInstances& modules)
@@ -208,7 +207,7 @@ void configurePoolDevices(const AppContext& ctx, ModuleInstances& modules)
         if (const PoolDevicePreset* preset = findPoolPresetById(*ctx.domain, i)) {
             const IoSlotId ioSlot = findIoSlotForDomainSlot(*ctx.domain, preset->commandSlot);
             requireSetup(ioSlot != IO_SLOT_INVALID, "missing pool device IO slot binding");
-            requireSetup(ioSlot == def.ioSlot, "pool device IO slot must match pdXX/dXX");
+            def.ioSlot = ioSlot;
 
             snprintf(def.label, sizeof(def.label), "%s", preset->displayName);
             def.commandSlot = preset->commandSlot;

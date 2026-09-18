@@ -12,7 +12,8 @@
 enum class RuntimeUiActionInputType : uint8_t {
     None = 0,
     Bool,
-    UInt32
+    UInt32,
+    Float
 };
 
 struct RuntimeUiActionManifestItem {
@@ -39,6 +40,7 @@ inline constexpr RuntimeUiActionManifestItem kRuntimeUiActionManifestItems[] = {
     {2303, "set", "poollogic.dis_pump.write", "value", RuntimeUiActionInputType::Bool, nullptr},
     {2304, "set", "poollogic.robot.write", "value", RuntimeUiActionInputType::Bool, nullptr},
     {2305, "set_device", "poollogic.device.write", "value", RuntimeUiActionInputType::Bool, "slot"},
+    {2305, "setpoint", "pooldevice.setpoint", "value", RuntimeUiActionInputType::Float, "slot"},
     {2305, "reset_uptime", "pooldevice.uptime.reset", "slot", RuntimeUiActionInputType::UInt32, nullptr},
     {2305, "reset_uptime_all", "pooldevice.uptime.reset_all", nullptr, RuntimeUiActionInputType::None, nullptr},
     {2401, "set", "poollogic.auto_mode.set", "value", RuntimeUiActionInputType::Bool, nullptr},
@@ -47,7 +49,7 @@ inline constexpr RuntimeUiActionManifestItem kRuntimeUiActionManifestItems[] = {
     {2404, "set", "poollogic.dis_auto_mode.set", "value", RuntimeUiActionInputType::Bool, nullptr},
 };
 
-inline constexpr size_t kRuntimeUiActionManifestItemCount = 13U;
+inline constexpr size_t kRuntimeUiActionManifestItemCount = 14U;
 
 inline constexpr RuntimeUiManifestItem kRuntimeUiManifestItems[] = {
     {901, "alarms.active_mask", "uint32", nullptr},

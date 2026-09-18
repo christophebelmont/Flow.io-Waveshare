@@ -157,7 +157,7 @@ bool PoolLogicModule::cmdDeviceWrite_(const CommandRequest& req, char* reply, si
 
 bool PoolLogicModule::cmdFiltrationWrite_(const CommandRequest& req, char* reply, size_t replyLen)
 {
-    if (!cfgStore_ || !poolSvc_ || !poolSvc_->writeDesired) {
+    if (!cfgStore_ || !poolSvc_ || !poolSvc_->setRunning) {
         writeCmdError_(reply, replyLen, "poollogic.filtration.write", ErrorCode::NotReady);
         return false;
     }
@@ -190,7 +190,7 @@ bool PoolLogicModule::cmdFiltrationWrite_(const CommandRequest& req, char* reply
                                               "filtration");
     }
 
-    const PoolDeviceSvcStatus st = poolSvc_->writeDesired(poolSvc_->ctx, filtrationDeviceSlot_, requested ? 1U : 0U);
+    const PoolDeviceSvcStatus st = poolSvc_->setRunning(poolSvc_->ctx, filtrationDeviceSlot_, requested ? 1U : 0U);
     if (st != POOLDEV_SVC_OK) {
         ErrorCode code = ErrorCode::Failed;
         if (st == POOLDEV_SVC_ERR_UNKNOWN_SLOT) code = ErrorCode::UnknownSlot;
@@ -311,7 +311,7 @@ bool PoolLogicModule::cmdMqttControl_(const CommandRequest& req, char* reply, si
                                 bool requested,
                                 bool forceManualAutoMode,
                                 const char* clearDosingModeKey) -> bool {
-        if (!poolSvc_ || !poolSvc_->writeDesired) {
+        if (!poolSvc_ || !poolSvc_->setRunning) {
             writeCmdError_(reply, replyLen, where, ErrorCode::NotReady);
             return false;
         }
@@ -323,7 +323,7 @@ bool PoolLogicModule::cmdMqttControl_(const CommandRequest& req, char* reply, si
             autoMode_ = false;
         }
 
-        const PoolDeviceSvcStatus st = poolSvc_->writeDesired(poolSvc_->ctx, slot, requested ? 1U : 0U);
+        const PoolDeviceSvcStatus st = poolSvc_->setRunning(poolSvc_->ctx, slot, requested ? 1U : 0U);
         if (st != POOLDEV_SVC_OK) {
             ErrorCode code = ErrorCode::Failed;
             if (st == POOLDEV_SVC_ERR_UNKNOWN_SLOT) code = ErrorCode::UnknownSlot;
@@ -364,7 +364,7 @@ bool PoolLogicModule::cmdMqttControl_(const CommandRequest& req, char* reply, si
                 else if (strcmp(clearDosingModeKey, "dis_auto_mode") == 0) orpAutoMode_ = false;
                 else if (strcmp(clearDosingModeKey, "disinfection_type") == 0) {
                     disinfectionType_ = DisinfectionDisabled;
-                    const PoolDeviceSvcStatus rest = poolSvc_->writeDesired(poolSvc_->ctx, slot, 1U);
+                    const PoolDeviceSvcStatus rest = poolSvc_->setRunning(poolSvc_->ctx, slot, 1U);
                     if (rest != POOLDEV_SVC_OK) {
                         writeCmdError_(reply, replyLen, where, ErrorCode::Failed);
                         return false;
@@ -433,7 +433,7 @@ bool PoolLogicModule::cmdMqttControl_(const CommandRequest& req, char* reply, si
     };
 
     auto applyRobotManualValue = [&](const char* where, bool requested) -> bool {
-        if (!poolSvc_ || !poolSvc_->writeDesired) {
+        if (!poolSvc_ || !poolSvc_->setRunning) {
             writeCmdError_(reply, replyLen, where, ErrorCode::NotReady);
             return false;
         }
@@ -469,7 +469,7 @@ bool PoolLogicModule::cmdMqttControl_(const CommandRequest& req, char* reply, si
         }
 
         const PoolDeviceSvcStatus st =
-            poolSvc_->writeDesired(poolSvc_->ctx, robotDeviceSlot_, requested ? 1U : 0U);
+            poolSvc_->setRunning(poolSvc_->ctx, robotDeviceSlot_, requested ? 1U : 0U);
         if (st != POOLDEV_SVC_OK) {
             if (poolLogicEnabled) {
                 portENTER_CRITICAL(&pendingMux_);

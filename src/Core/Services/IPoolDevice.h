@@ -5,6 +5,7 @@
  */
 #include <stdint.h>
 #include "IIO.h"
+#include "PoolActuatorTypes.h"
 #include "Domain/DomainTypes.h"
 
 /** Result code for PoolDeviceService calls. */
@@ -28,6 +29,10 @@ struct PoolDeviceSvcMeta {
     uint8_t enabled = 0;
     uint8_t blockReason = 0;
     IoId ioId = IO_ID_INVALID;
+    PoolDeviceCapabilities capabilities{};
+    bool driverReady = false;
+    uint8_t outputCount = 0;
+    IoId outputs[POOL_MAX_SPEED_STEPS]{};
     /** Domain actuator associated with this equipment, used for presentation. */
     DomainSlotId commandSlot = DOMAIN_SLOT_INVALID;
     char runtimeId[8] = {0};
@@ -45,13 +50,15 @@ struct PoolDeviceService {
     /** Read actual hardware state of one slot. */
     PoolDeviceSvcStatus (*readActualOn)(void* ctx, uint8_t slot, uint8_t* outOn, uint32_t* outTsMs);
     /** Write desired state of one slot. */
-    PoolDeviceSvcStatus (*writeDesired)(void* ctx, uint8_t slot, uint8_t on);
+    PoolDeviceSvcStatus (*setRunning)(void* ctx, uint8_t slot, uint8_t on);
     /** Enable or freeze physical actuator writes while keeping runtime readable. */
     PoolDeviceSvcStatus (*setWritesEnabled)(void* ctx, uint8_t enabled);
     /** Read whether physical actuator writes are currently enabled. */
     uint8_t (*writesEnabled)(void* ctx);
     /** Refill tracked tank level for one slot (peristaltic pumps). */
     PoolDeviceSvcStatus (*refillTank)(void* ctx, uint8_t slot, float remainingMl);
+    PoolDeviceSvcStatus (*setTarget)(void* ctx, uint8_t slot, const PoolDeviceTarget* target);
+    PoolDeviceSvcStatus (*readState)(void* ctx, uint8_t slot, PoolDeviceFeedback* state);
     /** Opaque implementation context. */
     void* ctx;
 };

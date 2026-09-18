@@ -223,6 +223,7 @@ bool AiInsightModule::buildPoolPreview_(AiPoolInsightPreview* outPreview,
     }
     memset(outPreview, 0, sizeof(*outPreview));
     outPreview->enabled = cfgData_.enabled;
+    outPreview->apiKeyConfigured = cfgData_.apiKey[0] != '\0';
     snprintf(outPreview->model, sizeof(outPreview->model), "%s", cfgData_.model);
 
     AiWeatherStatus weather{};

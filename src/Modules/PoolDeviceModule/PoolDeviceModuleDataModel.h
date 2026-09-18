@@ -5,6 +5,7 @@
  */
 
 #include <stdint.h>
+#include "Core/Services/PoolActuatorTypes.h"
 
 #include "Core/SystemLimits.h"
 
@@ -33,6 +34,10 @@ struct PoolDeviceRuntimeStateEntry {
     bool actualOn = false;
     uint8_t type = POOL_DEVICE_RT_RELAY_STD;
     uint8_t blockReason = POOL_DEVICE_BLOCK_NONE;
+    float desiredSetpoint = 0;
+    bool effectiveOn = false;
+    float effectiveSetpoint = 0;
+    PoolDeviceFeedback feedback{};
     uint32_t tsMs = 0;
 };
 

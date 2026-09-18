@@ -1,6 +1,6 @@
 #pragma once
 /**
- * @file ModbusRtuMaster.h
+ * @file Rs485TransactionScheduler.h
  * @brief Fixed-capacity asynchronous Modbus RTU transaction engine.
  */
 
@@ -9,21 +9,23 @@
 #include <stdint.h>
 
 #include "Core/Services/IModbusMaster.h"
-#include "Modules/IOModule/IOBus/Rs485Bus.h"
+#include "Modules/IOModule/IOBus/IRs485Transport.h"
 
-class ModbusRtuMaster {
+class Rs485TransactionScheduler {
 public:
-    explicit ModbusRtuMaster(Rs485Bus& bus);
+    explicit Rs485TransactionScheduler(IRs485Transport& bus);
 
     bool begin();
-    void tick(uint32_t nowMs, uint32_t nowUs);
+    void tick(uint32_t nowMs, uint32_t nowUs, bool enabled = true);
     ModbusMasterService& service() { return service_; }
 
 private:
-    static constexpr uint8_t kQueueCapacity = 8U;
+    static constexpr uint8_t kQueueCapacity = 16U;
     enum class SlotState : uint8_t { Free, Queued, Active, Finished };
 
     struct Slot {
+        bool abandoned = false;
+        uint32_t queuedAtMs = 0;
         SlotState state = SlotState::Free;
         uint16_t transactionId = MODBUS_TRANSACTION_INVALID;
         uint32_t order = 0U;
@@ -55,13 +57,13 @@ private:
     bool lock_(TickType_t timeout = pdMS_TO_TICKS(20U)) const;
     void unlock_() const;
     uint16_t allocateTransactionId_();
-    int8_t selectNextSlot_() const;
+    int8_t selectNextSlot_(uint32_t nowMs) const;
     bool sendActive_(Slot& slot, uint32_t nowMs, uint32_t nowUs);
     void finish_(Slot& slot, ModbusResultCode result, const ModbusResponse* response = nullptr);
-    void retryOrFinish_(Slot& slot, ModbusResultCode result, uint32_t nowMs, uint32_t nowUs);
+    void retryOrFinish_(Slot& slot, ModbusResultCode result, uint32_t nowMs);
     static bool validRequest_(const ModbusRequest& request);
 
-    Rs485Bus& bus_;
+    IRs485Transport& bus_;
     mutable StaticSemaphore_t mutexStorage_{};
     mutable SemaphoreHandle_t mutex_ = nullptr;
     // Allocated once in PSRAM and retained for the firmware lifetime.
@@ -70,7 +72,9 @@ private:
     int8_t activeIndex_ = -1;
     uint16_t nextTransactionId_ = 1U;
     uint32_t nextOrder_ = 1U;
+    uint32_t availableAtMs_ = 0;
     bool ready_ = false;
+    bool accepting_ = true;
     ModbusMasterStats statsData_{};
     ModbusMasterService service_{};
 };

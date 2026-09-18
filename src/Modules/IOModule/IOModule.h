@@ -38,7 +38,7 @@
 #include "Modules/IOModule/IORegistry/IORegistry.h"
 #include "Modules/IOModule/IOScheduler/IOScheduler.h"
 #include "Modules/IOModule/IOBus/Rs485Bus.h"
-#include "Modules/IOModule/IOProtocols/Modbus/ModbusRtuMaster.h"
+#include "Modules/IOModule/IOScheduler/Rs485TransactionScheduler.h"
 #include <stdio.h>
 
 class DataStore;
@@ -55,8 +55,8 @@ public:
     const char* taskName() const override { return "io"; }
     BaseType_t taskCore() const override { return 1; }
     uint16_t taskStackSize() const override { return 2560; }
-    uint8_t taskCount() const override { return 1; }
-    const ModuleTaskSpec* taskSpecs() const override { return singleLoopTaskSpec(); }
+    uint8_t taskCount() const override { return 2; }
+    const ModuleTaskSpec* taskSpecs() const override;
     UBaseType_t taskStackCaps() const override {
         return MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
     }
@@ -69,6 +69,8 @@ public:
         return ModuleId::Unknown;
     }
 
+    /** Register a board-provided voltage/current/PWM endpoint before module startup. */
+    bool defineAnalogOutput(const IoEndpointMeta& meta, bool (*write)(void*, float), void* context);
     void init(ConfigStore& cfg, ServiceRegistry& services) override;
     void onConfigLoaded(ConfigStore&, ServiceRegistry&) override;
     void onStart(ConfigStore& cfg, ServiceRegistry& services) override;
@@ -106,6 +108,20 @@ public:
     IORegistry& registry() { return registry_; }
 
 private:
+    static constexpr uint8_t MaxAnalogOutputs = 4;
+    struct AnalogOutput {
+        IoEndpointMeta meta{};
+        IoValue value{};
+        bool (*write)(void*, float) = nullptr;
+        void* context = nullptr;
+        uint8_t owner = 0;
+    };
+    AnalogOutput analogOutputs_[MaxAnalogOutputs]{};
+    uint8_t outputOwners_[Limits::Io::MaxDigitalOutputs]{};
+    IoStatus claimOutputs_(const IoId* ids, uint8_t count, uint8_t owner);
+    IoStatus ioWriteAnalog_(IoId id, float value, uint32_t tsMs, uint8_t owner);
+    static void serialTask_(void* context);
+    mutable ModuleTaskSpec taskSpecs_[2]{};
     struct AnalogSlot;
     struct DigitalSlot;
 
@@ -138,7 +154,7 @@ private:
     IoStatus ioBindingPortStatus_(PhysicalPortId portId, IoRuntimeStatus* outStatus) const;
     IoStatus ioReadValue_(IoId id, IoValue* outValue) const;
     IoStatus ioReadDigital_(IoId id, uint8_t* outOn, uint32_t* outTsMs, IoSeq* outSeq) const;
-    IoStatus ioWriteDigital_(IoId id, uint8_t on, uint32_t tsMs);
+    IoStatus ioWriteDigital_(IoId id, uint8_t on, uint32_t tsMs, uint8_t owner);
     IoStatus ioReadAnalog_(IoId id, float* outValue, uint32_t* outTsMs, IoSeq* outSeq) const;
     IoStatus ioTick_(uint32_t nowMs);
     IoStatus ioLastCycle_(IoCycleInfo* outCycle) const;
@@ -342,7 +358,7 @@ private:
     const UartSpec* rs485UartSpec_ = nullptr;
     HardwareSerial rs485Serial_;
     Rs485Bus rs485Bus_;
-    ModbusRtuMaster modbusMaster_;
+    Rs485TransactionScheduler modbusMaster_;
     bool rs485Ready_ = false;
 
     OneWireBus* oneWireWater_ = nullptr;
@@ -368,6 +384,8 @@ private:
         ServiceBinding::bind<&IOModule::ioLastCycle_>,
         ServiceBinding::bind<&IOModule::ioSensorStatus_>,
         ServiceBinding::bind<&IOModule::ioListInvalidSensors_>,
+        ServiceBinding::bind<&IOModule::claimOutputs_>,
+        ServiceBinding::bind<&IOModule::ioWriteAnalog_>,
         this
     };
     IoCycleInfo* lastCycle_ = nullptr;

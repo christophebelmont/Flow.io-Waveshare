@@ -1696,6 +1696,7 @@ void IOModule::refreshAnalogConfigState_()
 uint8_t IOModule::ioCount_() const
 {
     uint8_t count = 0;
+    for (const auto& output : analogOutputs_) if (output.write) ++count;
     for (uint8_t logical = 0; logical < MAX_DIGITAL_OUTPUTS; ++logical) {
         uint8_t slotIdx = 0xFF;
         if (findDigitalSlotByLogical_(DIGITAL_SLOT_OUTPUT, logical, slotIdx)) ++count;
@@ -1714,6 +1715,10 @@ IoStatus IOModule::ioIdAt_(uint8_t index, IoId* outId) const
 {
     if (!outId) return IO_ERR_INVALID_ARG;
     uint8_t seen = 0;
+    for (const auto& output : analogOutputs_) {
+        if (!output.write) continue;
+        if (seen++ == index) { *outId = output.meta.id; return IO_OK; }
+    }
 
     for (uint8_t logical = 0; logical < MAX_DIGITAL_OUTPUTS; ++logical) {
         uint8_t slotIdx = 0xFF;
@@ -1752,6 +1757,11 @@ IoStatus IOModule::ioMeta_(IoId id, IoEndpointMeta* outMeta) const
     if (!outMeta) return IO_ERR_INVALID_ARG;
     *outMeta = IoEndpointMeta{};
     outMeta->id = id;
+    if (id >= IO_ID_AO_BASE && id < IO_ID_AO_BASE + MaxAnalogOutputs) {
+        const auto& output = analogOutputs_[id - IO_ID_AO_BASE];
+        if (!output.write) return IO_ERR_UNKNOWN_ID;
+        *outMeta = output.meta; return IO_OK;
+    }
 
     uint8_t slotIdx = 0xFF;
     if (findDigitalSlotByIoId_(id, slotIdx)) {
@@ -1862,6 +1872,13 @@ IoStatus IOModule::ioMeta_(IoId id, IoEndpointMeta* outMeta) const
 
 IoStatus IOModule::ioRuntimeStatus_(IoId id, IoRuntimeStatus* outStatus) const
 {
+    if (id >= IO_ID_AO_BASE && id < IO_ID_AO_BASE + MaxAnalogOutputs) {
+        if (!outStatus) return IO_ERR_INVALID_ARG;
+        if (!analogOutputs_[id - IO_ID_AO_BASE].write) return IO_ERR_UNKNOWN_ID;
+        *outStatus = IoRuntimeStatus{}; outStatus->id = id;
+        outStatus->state = cfgData_.enabled ? IO_RUNTIME_ACTIVE : IO_RUNTIME_MANUALLY_DISABLED;
+        return IO_OK;
+    }
     if (!outStatus) return IO_ERR_INVALID_ARG;
     *outStatus = IoRuntimeStatus{};
     outStatus->id = id;
@@ -1983,6 +2000,12 @@ IoStatus IOModule::ioBindingPortStatus_(PhysicalPortId portId, IoRuntimeStatus* 
 
 IoStatus IOModule::ioReadValue_(IoId id, IoValue* outValue) const
 {
+    if (id >= IO_ID_AO_BASE && id < IO_ID_AO_BASE + MaxAnalogOutputs) {
+        if (!outValue) return IO_ERR_INVALID_ARG;
+        const auto& output = analogOutputs_[id - IO_ID_AO_BASE];
+        if (!output.write) return IO_ERR_UNKNOWN_ID;
+        *outValue = output.value; return IO_OK;
+    }
     if (!outValue) return IO_ERR_INVALID_ARG;
     *outValue = IoValue{};
 
@@ -2067,8 +2090,19 @@ IoStatus IOModule::ioReadDigital_(IoId id, uint8_t* outOn, uint32_t* outTsMs, Io
     return IO_OK;
 }
 
-IoStatus IOModule::ioWriteDigital_(IoId id, uint8_t on, uint32_t tsMs)
+IoStatus IOModule::ioWriteDigital_(IoId id, uint8_t on, uint32_t tsMs, uint8_t owner)
 {
+    if (id >= IO_ID_DO_BASE && id < IO_ID_DO_BASE + MAX_DIGITAL_OUTPUTS &&
+        outputOwners_[id - IO_ID_DO_BASE] != owner) return IO_ERR_OWNED;
+    IoEndpointMeta requestedMeta{};
+    if (ioMeta_(id, &requestedMeta) == IO_OK && requestedMeta.bindingPort) {
+        for (uint8_t i = 0; i < MAX_DIGITAL_OUTPUTS; ++i) {
+            if (!outputOwners_[i] || outputOwners_[i] == owner) continue;
+            IoEndpointMeta held{};
+            if (ioMeta_(IO_ID_DO_BASE + i, &held) == IO_OK && held.bindingPort == requestedMeta.bindingPort)
+                return IO_ERR_OWNED;
+        }
+    }
     IoRuntimeStatus runtime{};
     const IoStatus runtimeResult = ioRuntimeStatus_(id, &runtime);
     if (runtimeResult != IO_OK) return runtimeResult;
@@ -3885,7 +3919,7 @@ void IOModule::configureRuntimeAfterConfig_()
 void IOModule::loop()
 {
     const uint32_t nowMs = millis();
-    if (rs485Ready_) modbusMaster_.tick(nowMs, micros());
+
     const IoStatus st = ioTick_(nowMs);
     if (st != IO_OK) {
         if (!cfgData_.enabled || !runtimeReady_) {
@@ -3895,4 +3929,89 @@ void IOModule::loop()
     }
 
     vTaskDelay(pdMS_TO_TICKS(10));
+}
+
+const ModuleTaskSpec* IOModule::taskSpecs() const
+{
+    taskSpecs_[0] = *singleLoopTaskSpec();
+    taskSpecs_[1] = {"rs485", 3072, 2, taskCore(), &IOModule::serialTask_, const_cast<IOModule*>(this)};
+    return taskSpecs_;
+}
+
+void IOModule::serialTask_(void* context)
+{
+    auto& self = *static_cast<IOModule*>(context);
+    for (;;) {
+        if (self.rs485Ready_) self.modbusMaster_.tick(millis(), micros(), self.cfgData_.enabled);
+        vTaskDelay(1);
+    }
+}
+
+bool IOModule::defineAnalogOutput(const IoEndpointMeta& meta, bool (*write)(void*, float), void* context)
+{
+    if (meta.id < IO_ID_AO_BASE || meta.id >= IO_ID_AO_BASE + MaxAnalogOutputs || !write ||
+        !isfinite(meta.minValid) || !isfinite(meta.maxValid) || meta.minValid >= meta.maxValid) return false;
+    auto& output = analogOutputs_[meta.id - IO_ID_AO_BASE];
+    if (output.write) return false;
+    output.meta = meta; output.meta.kind = IO_KIND_ANALOG_OUT;
+    output.meta.valueType = IO_VAL_FLOAT; output.meta.capabilities = IO_CAP_R | IO_CAP_W;
+    output.write = write; output.context = context;
+    return true;
+}
+
+IoStatus IOModule::claimOutputs_(const IoId* ids, uint8_t count, uint8_t owner)
+{
+    if (!ids || !count || !owner) return IO_ERR_INVALID_ARG;
+    // Called during pool runtime assembly; reservations are immutable for this boot.
+    for (uint8_t i = 0; i < count; ++i) {
+        IoEndpointMeta meta{};
+        if (ioMeta_(ids[i], &meta) != IO_OK || !(meta.capabilities & IO_CAP_W)) return IO_ERR_INVALID_ARG;
+        uint8_t held = 0;
+        if (ids[i] >= IO_ID_AO_BASE && ids[i] < IO_ID_AO_BASE + MaxAnalogOutputs)
+            held = analogOutputs_[ids[i] - IO_ID_AO_BASE].owner;
+        else if (ids[i] < IO_ID_DO_BASE + MAX_DIGITAL_OUTPUTS) {
+            held = outputOwners_[ids[i] - IO_ID_DO_BASE];
+            uint8_t idx = 0;
+            if (!findDigitalSlotByIoId_(ids[i], idx) || digitalSlots_[idx].outDef.momentary) return IO_ERR_INVALID_ARG;
+            if (digitalSlots_[idx].logicalIdx < DIGITAL_CFG_SLOTS && digitalCfg_[digitalSlots_[idx].logicalIdx].momentary)
+                return IO_ERR_INVALID_ARG;
+        } else return IO_ERR_TYPE_MISMATCH;
+        if (held && held != owner) return IO_ERR_OWNED;
+        for (uint8_t j = 0; j < i; ++j) {
+            IoEndpointMeta other{};
+            if (ids[i] == ids[j] || (ioMeta_(ids[j], &other) == IO_OK && meta.bindingPort && meta.bindingPort == other.bindingPort))
+                return IO_ERR_INVALID_ARG;
+        }
+        for (const auto& other : analogOutputs_) {
+            if (other.owner && other.owner != owner && meta.bindingPort && other.meta.bindingPort == meta.bindingPort)
+                return IO_ERR_OWNED;
+        }
+        // Different logical endpoints may not alias a reserved physical port.
+        for (uint8_t j = 0; j < MAX_DIGITAL_OUTPUTS; ++j) {
+            if (!outputOwners_[j] || outputOwners_[j] == owner) continue;
+            IoEndpointMeta other{};
+            if (ioMeta_(IO_ID_DO_BASE + j, &other) == IO_OK && meta.bindingPort && other.bindingPort == meta.bindingPort)
+                return IO_ERR_OWNED;
+        }
+    }
+    for (uint8_t i = 0; i < count; ++i) {
+        if (ids[i] >= IO_ID_AO_BASE) analogOutputs_[ids[i] - IO_ID_AO_BASE].owner = owner;
+        else outputOwners_[ids[i] - IO_ID_DO_BASE] = owner;
+    }
+    return IO_OK;
+}
+
+IoStatus IOModule::ioWriteAnalog_(IoId id, float value, uint32_t tsMs, uint8_t owner)
+{
+    if (id < IO_ID_AO_BASE || id >= IO_ID_AO_BASE + MaxAnalogOutputs) return IO_ERR_UNKNOWN_ID;
+    auto& output = analogOutputs_[id - IO_ID_AO_BASE];
+    if (!output.write) return IO_ERR_NOT_READY;
+    if (!cfgData_.enabled) return IO_ERR_DISABLED;
+    if (output.owner != owner) return IO_ERR_OWNED;
+    if (!isfinite(value) || value < output.meta.minValid || value > output.meta.maxValid) return IO_ERR_INVALID_ARG;
+    if (!output.write(output.context, value)) return IO_ERR_HW;
+    output.value.valid = 1; output.value.type = IO_VAL_FLOAT;
+    output.value.v.f = value; output.value.tsMs = tsMs;
+    markIoCycleChanged_(id);
+    return IO_OK;
 }

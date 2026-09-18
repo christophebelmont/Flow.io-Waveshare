@@ -669,14 +669,14 @@ bool PoolLogicModule::readDeviceActualOn_(uint8_t deviceSlot, bool& onOut) const
 
 bool PoolLogicModule::writeDeviceDesired_(uint8_t deviceSlot, bool on)
 {
-    if (!poolSvc_ || !poolSvc_->writeDesired) return false;
-    const PoolDeviceSvcStatus st = poolSvc_->writeDesired(poolSvc_->ctx, deviceSlot, on ? 1U : 0U);
+    if (!poolSvc_ || !poolSvc_->setRunning) return false;
+    const PoolDeviceSvcStatus st = poolSvc_->setRunning(poolSvc_->ctx, deviceSlot, on ? 1U : 0U);
     if (st != POOLDEV_SVC_OK) {
         PoolDeviceSvcMeta meta{};
         const bool haveMeta = poolSvc_->meta &&
                               (poolSvc_->meta(poolSvc_->ctx, deviceSlot, &meta) == POOLDEV_SVC_OK);
         if (haveMeta) {
-            LOGW("pooldev.writeDesired failed slot=%u desired=%u st=%u(%s) block=%u(%s) enabled=%u io=%u",
+            LOGW("pooldev.setRunning failed slot=%u desired=%u st=%u(%s) block=%u(%s) enabled=%u io=%u",
                  (unsigned)deviceSlot,
                  on ? 1u : 0u,
                  (unsigned)st,
@@ -686,7 +686,7 @@ bool PoolLogicModule::writeDeviceDesired_(uint8_t deviceSlot, bool on)
                  (unsigned)meta.enabled,
                  (unsigned)meta.ioId);
         } else {
-            LOGW("pooldev.writeDesired failed slot=%u desired=%u st=%u(%s)",
+            LOGW("pooldev.setRunning failed slot=%u desired=%u st=%u(%s)",
                  (unsigned)deviceSlot,
                  on ? 1u : 0u,
                  (unsigned)st,

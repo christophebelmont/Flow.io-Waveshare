@@ -12,6 +12,7 @@
 #include "Core/ModuleLog.h"
 #include <esp_heap_caps.h>
 #include <new>
+#include "Core/SpiRamJsonDocument.h"
 
 namespace {
 static constexpr uint8_t kPoolDeviceCfgProducerId = 48;
@@ -56,7 +57,7 @@ bool PoolDeviceModule::ensureStorage_()
         stateMutex_ = xSemaphoreCreateRecursiveMutexStatic(&stateMutexBuf_);
     }
 
-    if (runtimePersistBuf_ && slots_ && cfgEnabledVar_ && cfgDependsVar_ && cfgFlowVar_ &&
+    if (runtimePersistBuf_ && slots_ && cfgDriverVar_ && cfgEnabledVar_ && cfgDependsVar_ && cfgFlowVar_ &&
         cfgTankCapVar_ && cfgTankInitVar_ && cfgMaxUptimeVar_) {
         return stateMutex_ != nullptr;
     }
@@ -65,14 +66,15 @@ bool PoolDeviceModule::ensureStorage_()
         runtimePersistBuf_ = allocPsramCharTable_<RUNTIME_PERSIST_BUF_LEN>(POOL_DEVICE_MAX);
     }
     if (!slots_) slots_ = allocPsramArray_<PoolDeviceSlot>(POOL_DEVICE_MAX);
+    if (!cfgDriverVar_) cfgDriverVar_ = allocPsramArray_<ConfigVariable<char,0>>(POOL_DEVICE_MAX);
     if (!cfgEnabledVar_) cfgEnabledVar_ = allocPsramArray_<ConfigVariable<bool,0>>(POOL_DEVICE_MAX);
-    if (!cfgDependsVar_) cfgDependsVar_ = allocPsramArray_<ConfigVariable<uint8_t,0>>(POOL_DEVICE_MAX);
+    if (!cfgDependsVar_) cfgDependsVar_ = allocPsramArray_<ConfigVariable<uint16_t,0>>(POOL_DEVICE_MAX);
     if (!cfgFlowVar_) cfgFlowVar_ = allocPsramArray_<ConfigVariable<float,0>>(POOL_DEVICE_MAX);
     if (!cfgTankCapVar_) cfgTankCapVar_ = allocPsramArray_<ConfigVariable<float,0>>(POOL_DEVICE_MAX);
     if (!cfgTankInitVar_) cfgTankInitVar_ = allocPsramArray_<ConfigVariable<float,0>>(POOL_DEVICE_MAX);
     if (!cfgMaxUptimeVar_) cfgMaxUptimeVar_ = allocPsramArray_<ConfigVariable<int32_t,0>>(POOL_DEVICE_MAX);
 
-    const bool ok = stateMutex_ && runtimePersistBuf_ && slots_ && cfgEnabledVar_ && cfgDependsVar_ && cfgFlowVar_ &&
+    const bool ok = stateMutex_ && runtimePersistBuf_ && slots_ && cfgDriverVar_ && cfgEnabledVar_ && cfgDependsVar_ && cfgFlowVar_ &&
                     cfgTankCapVar_ && cfgTankInitVar_ && cfgMaxUptimeVar_;
     if (ok) {
         LOGI("PoolDevice scalable storage ready slots=%u persist_bytes=%u",
@@ -167,6 +169,7 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
     logHub_ = services.get<LogHubService>(ServiceId::LogHub);
     mqttSvc_ = services.get<MqttService>(ServiceId::Mqtt);
     ioSvc_ = services.get<IOServiceV2>(ServiceId::Io);
+    serialSvc_ = services.get<ModbusMasterService>(ServiceId::ModbusMaster);
     timeSvc_ = services.get<TimeService>(ServiceId::Time);
     if (!services.add(ServiceId::PoolDevice, &poolSvc_)) {
         LOGE("service registration failed: %s", toString(ServiceId::PoolDevice));
@@ -201,6 +204,21 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
 
         const PoolDeviceSlotDescriptor& slot = PoolDeviceSlots::kSlots[i];
 
+        snprintf(s.driverKey, sizeof(s.driverKey), "act%u_driver", unsigned(i));
+        snprintf(s.driverJson, sizeof(s.driverJson), "{\"kind\":0,\"outputs\":[%u]}", unsigned(s.ioId));
+        cfgDriverVar_[i].nvsKey = s.driverKey;
+        cfgDriverVar_[i].jsonName = "driver";
+        cfgDriverVar_[i].moduleName = slot.configModuleName;
+        cfgDriverVar_[i].type = ConfigType::CharArray;
+        cfgDriverVar_[i].value = s.driverJson;
+        cfgDriverVar_[i].persistence = ConfigPersistence::Persistent;
+        cfgDriverVar_[i].size = sizeof(s.driverJson);
+        cfgDriverVar_[i].validateText = [](const char* text) {
+            PoolDriverConfig config{};
+            return parsePoolDriverConfig(text, config, nullptr, 0);
+        };
+        cfg.registerVar(cfgDriverVar_[i], kCfgModuleId, localBranchId);
+
         cfgEnabledVar_[i].nvsKey = slot.enabledKey;
         cfgEnabledVar_[i].jsonName = "enabled";
         cfgEnabledVar_[i].moduleName = slot.configModuleName;
@@ -213,7 +231,7 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
         cfgDependsVar_[i].nvsKey = slot.dependsKey;
         cfgDependsVar_[i].jsonName = "depends_on_mask";
         cfgDependsVar_[i].moduleName = slot.configModuleName;
-        cfgDependsVar_[i].type = ConfigType::UInt8;
+        cfgDependsVar_[i].type = ConfigType::UInt16;
         cfgDependsVar_[i].value = &s.def.dependsOnMask;
         cfgDependsVar_[i].persistence = ConfigPersistence::Persistent;
         cfgDependsVar_[i].size = 0;
@@ -257,6 +275,7 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
     }
 
     if (cmdSvc_ && cmdSvc_->registerHandler) {
+        cmdSvc_->registerHandler(cmdSvc_->ctx, "pooldevice.setpoint", cmdPoolSetpoint_, this);
         cmdSvc_->registerHandler(cmdSvc_->ctx, "pooldevice.write", cmdPoolWrite_, this);
         cmdSvc_->registerHandler(cmdSvc_->ctx, "pool.refill", cmdPoolRefill_, this);
         cmdSvc_->registerHandler(cmdSvc_->ctx, "pooldevice.uptime.reset", cmdPoolResetUptime_, this);
@@ -420,7 +439,7 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
                 "pd_reset_upt_flt",
                 "Reset Uptime Filtration Pump",
                 MqttTopics::SuffixCmd,
-                "{\\\"cmd\\\":\\\"pool.uptime.reset\\\",\\\"args\\\":{\\\"slot\\\":0}}",
+                "{\\\"cmd\\\":\\\"pooldevice.uptime.reset\\\",\\\"args\\\":{\\\"slot\\\":0}}",
                 "diagnostic",
                 "mdi:timer-refresh-outline"
             };
@@ -432,7 +451,7 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
                 "pd_reset_upt_ph",
                 "Reset Uptime pH Pump",
                 MqttTopics::SuffixCmd,
-                "{\\\"cmd\\\":\\\"pool.uptime.reset\\\",\\\"args\\\":{\\\"slot\\\":1}}",
+                "{\\\"cmd\\\":\\\"pooldevice.uptime.reset\\\",\\\"args\\\":{\\\"slot\\\":1}}",
                 "diagnostic",
                 "mdi:timer-refresh-outline"
             };
@@ -444,7 +463,7 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
                 "pd_reset_upt_chl",
                 "Reset Uptime Chlorine Pump",
                 MqttTopics::SuffixCmd,
-                "{\\\"cmd\\\":\\\"pool.uptime.reset\\\",\\\"args\\\":{\\\"slot\\\":2}}",
+                "{\\\"cmd\\\":\\\"pooldevice.uptime.reset\\\",\\\"args\\\":{\\\"slot\\\":2}}",
                 "diagnostic",
                 "mdi:timer-refresh-outline"
             };
@@ -456,7 +475,7 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
                 "pd_reset_upt_fill",
                 "Reset Uptime Fill Pump",
                 MqttTopics::SuffixCmd,
-                "{\\\"cmd\\\":\\\"pool.uptime.reset\\\",\\\"args\\\":{\\\"slot\\\":4}}",
+                "{\\\"cmd\\\":\\\"pooldevice.uptime.reset\\\",\\\"args\\\":{\\\"slot\\\":4}}",
                 "diagnostic",
                 "mdi:timer-refresh-outline"
             };
@@ -468,7 +487,7 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
                 "pd_reset_upt_chl_gen",
                 "Reset Uptime Chlorine Generator",
                 MqttTopics::SuffixCmd,
-                "{\\\"cmd\\\":\\\"pool.uptime.reset\\\",\\\"args\\\":{\\\"slot\\\":5}}",
+                "{\\\"cmd\\\":\\\"pooldevice.uptime.reset\\\",\\\"args\\\":{\\\"slot\\\":5}}",
                 "diagnostic",
                 "mdi:timer-refresh-outline"
             };
@@ -479,7 +498,7 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
             "pd_reset_upt_all",
             "Reset Uptime All Pool Devices",
             MqttTopics::SuffixCmd,
-            "{\\\"cmd\\\":\\\"pool.uptime.reset_all\\\"}",
+            "{\\\"cmd\\\":\\\"pooldevice.uptime.reset_all\\\"}",
             "diagnostic",
             "mdi:timer-refresh-outline"
         };
@@ -553,6 +572,7 @@ void PoolDeviceModule::onConfigLoaded(ConfigStore&, ServiceRegistry& services)
     for (uint8_t i = 0; i < POOL_DEVICE_MAX; ++i) {
         PoolDeviceSlot& s = slots_[i];
         if (!s.used) continue;
+        if (parsePoolDriverConfig(s.driverJson, s.driverConfig, s.driverError, sizeof(s.driverError))) registerDriverHa_(i);
         (void)loadPersistedMetrics_(i, s);
         if (runtimePersistBuf_[i][0] != '\0') {
             BufferUsageTracker::note(TrackedBufferId::PoolDeviceRuntimePersistTable,
@@ -583,5 +603,32 @@ void PoolDeviceModule::loop()
 
     tickDevices_(millis());
     unlockState_();
-    vTaskDelay(pdMS_TO_TICKS(200));
+    vTaskDelay(pdMS_TO_TICKS(20));
+}
+
+void PoolDeviceModule::registerDriverHa_(uint8_t slot)
+{
+    auto& s = slots_[slot];
+    const auto& c = s.driverConfig.capabilities;
+    if (!haSvc_ || !s.def.enabled || c.kind == PoolControlKind::Relay) return;
+    snprintf(s.haSuffix, sizeof(s.haSuffix), "pd%u_setpoint", unsigned(slot));
+    snprintf(s.haTopic, sizeof(s.haTopic), "rt/pdm/state/pd%u", unsigned(slot));
+    snprintf(s.haCommand, sizeof(s.haCommand),
+             "{\\\"cmd\\\":\\\"pooldevice.setpoint\\\",\\\"args\\\":{\\\"slot\\\":%u,\\\"value\\\":{{ value | float }}}}", unsigned(slot));
+    if (c.kind == PoolControlKind::Discrete && haSvc_->addSelect) {
+        SpiRamJsonDocument options(512);
+        auto array = options.to<JsonArray>();
+        for (uint8_t i = 0; i < c.stepCount; ++i) {
+            char value[24]; snprintf(value, sizeof(value), "%.6g", double(c.steps[i])); array.add(value);
+        }
+        serializeJson(options, s.haOptions, sizeof(s.haOptions));
+        const HASelectEntry entry{"pooldev", s.haSuffix, s.def.label, s.haTopic,
+            "{{ '%g' | format(value_json.setpoint) }}", MqttTopics::SuffixCmd, s.haCommand, s.haOptions, "mdi:pump", nullptr};
+        (void)haSvc_->addSelect(haSvc_->ctx, &entry);
+    } else if (haSvc_->addNumber) {
+        const HANumberEntry entry{"pooldev", s.haSuffix, s.def.label, s.haTopic,
+            "{{ value_json.setpoint }}", MqttTopics::SuffixCmd, s.haCommand,
+            c.minimum, c.maximum, 0.1f, "box", nullptr, "mdi:pump", c.unit == PoolSetpointUnit::Celsius ? "°C" : "%"};
+        (void)haSvc_->addNumber(haSvc_->ctx, &entry);
+    }
 }

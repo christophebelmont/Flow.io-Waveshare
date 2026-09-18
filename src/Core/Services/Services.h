@@ -29,5 +29,4 @@
 #include "IFlowCfg.h"
 #include "ILocale.h"
 #include "IModbusMaster.h"
-#include "IVariableSpeedPump.h"
 #include "IUser.h"

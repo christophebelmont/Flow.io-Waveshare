@@ -8,6 +8,7 @@
 #include <string.h>
 #include <esp_heap_caps.h>
 #include <new>
+#include <driver/uart.h>
 
 #define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::IOModule)
 #include "Core/ModuleLog.h"
@@ -40,9 +41,32 @@ bool Rs485Bus::begin(const UartSpec& spec)
     }
 
     serial_.begin(spec_.baud, serialConfig, spec_.rxPin, spec_.txPin);
-    frameGapUs_ = frameDurationUs_(4U);
+    frameGapUs_ = spec_.baud > 19200 ? 1750U : frameDurationUs_(3U);
+    lastRxAtUs_ = micros();
     ready_ = true;
     return true;
+}
+
+bool Rs485Bus::configureLine(const SerialLineProfile& p)
+{
+    if (!ready_ || busy() || frameReady_ || p.busId != 0 || p.baud < 1200 ||
+        p.baud > 115200 || p.parity > 2 || (p.stopBits != 1 && p.stopBits != 2)) return false;
+    const auto port = static_cast<uart_port_t>(spec_.uartIndex);
+    const uart_parity_t parity[] = {UART_PARITY_DISABLE, UART_PARITY_EVEN, UART_PARITY_ODD};
+    if (uart_set_baudrate(port, p.baud) != ESP_OK ||
+        uart_set_parity(port, parity[p.parity]) != ESP_OK ||
+        uart_set_stop_bits(port, p.stopBits == 1 ? UART_STOP_BITS_1 : UART_STOP_BITS_2) != ESP_OK) return false;
+    spec_.baud = p.baud;
+    spec_.parity = static_cast<UartSpec::Parity>(p.parity);
+    spec_.stopBits = p.stopBits;
+    const uint32_t bits = 9U + (p.parity != 0) + p.stopBits;
+    frameGapUs_ = p.baud > 19200 ? 1750U : (35U * bits * 100000U + p.baud - 1U) / p.baud;
+    return true;
+}
+
+bool Rs485Bus::quiet(uint32_t nowUs) const
+{
+    return !busy() && !frameReady_ && uint32_t(nowUs - lastRxAtUs_) >= frameGapUs_;
 }
 
 bool Rs485Bus::serialConfig_(const UartSpec& spec, uint32_t& outConfig)
@@ -113,7 +137,11 @@ bool Rs485Bus::startTransmit(const uint8_t* frame, size_t length, uint32_t nowUs
 void Rs485Bus::tick(uint32_t nowUs)
 {
     if (!ready_) return;
-    if (state_ == State::Transmitting && deadlineReached_(nowUs, txCompleteAtUs_)) {
+    if (state_ == State::Idle && !frameReady_) {
+        while (serial_.available() > 0) { (void)serial_.read(); lastRxAtUs_ = nowUs; }
+    }
+    if (state_ == State::Transmitting &&
+        uart_wait_tx_done(static_cast<uart_port_t>(spec_.uartIndex), 0) == ESP_OK) {
         setDirection_(false);
         state_ = State::Receiving;
         lastRxAtUs_ = nowUs;
@@ -157,4 +185,5 @@ void Rs485Bus::abort()
     frameReady_ = false;
     rxLength_ = 0U;
     while (ready_ && serial_.available() > 0) (void)serial_.read();
+    lastRxAtUs_ = micros();
 }

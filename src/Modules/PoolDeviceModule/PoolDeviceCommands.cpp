@@ -237,7 +237,14 @@ bool PoolDeviceModule::handlePoolWrite_(const CommandRequest& req, char* reply, 
         return false;
     }
 
-    const PoolDeviceSvcStatus st = svcWriteDesiredImpl_(slot, requested ? 1U : 0U);
+    PoolDeviceSvcStatus st;
+    if (args.containsKey("setpoint")) {
+        if (!args["setpoint"].is<float>()) {
+            writeCmdError_(reply, replyLen, "pooldevice.write", ErrorCode::MissingValue); return false;
+        }
+        const PoolDeviceTarget target{requested, args["setpoint"].as<float>()};
+        st = svcSetTargetImpl_(slot, &target);
+    } else st = svcSetRunningImpl_(slot, requested ? 1U : 0U);
     if (st != POOLDEV_SVC_OK) {
         ErrorCode code = ErrorCode::Failed;
         if (st == POOLDEV_SVC_ERR_UNKNOWN_SLOT) code = ErrorCode::UnknownSlot;
@@ -313,7 +320,7 @@ bool PoolDeviceModule::handlePoolWrite_(const CommandRequest& req, char* reply, 
                      modeKey);
             } else {
                 if (strcmp(modeKey, "disinfection_type") == 0) {
-                    const PoolDeviceSvcStatus rest = svcWriteDesiredImpl_(slot, 1U);
+                    const PoolDeviceSvcStatus rest = svcSetRunningImpl_(slot, 1U);
                     if (rest != POOLDEV_SVC_OK) {
                         writeCmdErrorSlot_(reply, replyLen, "pooldevice.write", ErrorCode::Failed, slot);
                         return false;
@@ -589,4 +596,27 @@ uint8_t PoolDeviceModule::resetUptimeAll_()
         if (resetUptimeSlot_(i)) ++count;
     }
     return count;
+}
+
+bool PoolDeviceModule::cmdPoolSetpoint_(void* ctx, const CommandRequest& req, char* reply, size_t length)
+{
+    auto* self = static_cast<PoolDeviceModule*>(ctx);
+    SpiRamJsonDocument doc(Limits::JsonCmdPoolDeviceBuf);
+    JsonObjectConst args;
+    if (!self || !parseCmdArgsObject_(req, doc, args) || !args["slot"].is<uint8_t>() || !args["value"].is<float>()) {
+        writeCmdError_(reply, length, "pooldevice.setpoint", ErrorCode::MissingArgs); return false;
+    }
+    const uint8_t slot = args["slot"].as<uint8_t>();
+    if (slot >= POOL_DEVICE_MAX || !self->lockState_()) {
+        writeCmdError_(reply, length, "pooldevice.setpoint", ErrorCode::BadSlot); return false;
+    }
+    PoolDeviceTarget target = self->slots_[slot].desired;
+    target.setpoint = args["value"].as<float>();
+    const auto result = self->svcSetTargetImpl_(slot, &target);
+    self->unlockState_();
+    if (result != POOLDEV_SVC_OK) {
+        writeCmdError_(reply, length, "pooldevice.setpoint", ErrorCode::Failed); return false;
+    }
+    snprintf(reply, length, "{\"ok\":true,\"accepted\":true,\"slot\":%u}", unsigned(slot));
+    return true;
 }

@@ -191,6 +191,7 @@ void ConfigStore::registerVar(ConfigVariable<T, H>& var)
     m.type        = var.type;
     m.persistence = var.persistence;
     m.valuePtr    = (void*)var.value;
+    m.validateText = var.validateText;
     m.size        = var.size;
     m.moduleId    = var.moduleId;
     m.localBranchId = var.localBranchId;

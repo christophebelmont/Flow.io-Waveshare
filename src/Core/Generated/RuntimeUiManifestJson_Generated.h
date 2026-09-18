@@ -447,6 +447,12 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
               "eligibleKey": "controllable"
             },
             {
+              "label": "Consigne",
+              "type": "setpoint",
+              "key": "setpoint",
+              "action": "setpoint"
+            },
+            {
               "label": "Jour",
               "durationKey": "running.day_s",
               "volumeKey": "injected.day_ml"
@@ -489,6 +495,23 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
           },
           "refreshDomains": [
             "mode",
+            "equipements",
+            "alarm"
+          ],
+          "target": {
+            "name": "slot",
+            "type": "uint32"
+          }
+        },
+        {
+          "id": "setpoint",
+          "command": "pooldevice.setpoint",
+          "presentation": "button",
+          "input": {
+            "name": "value",
+            "type": "float"
+          },
+          "refreshDomains": [
             "equipements",
             "alarm"
           ],

@@ -6,7 +6,7 @@
   },
   "docs": {
     "*/depends_on_mask": {
-      "type": "uint8_t",
+      "type": "uint16_t",
       "label_t": "cfgdocs.wildcard.depends_on_mask.label",
       "help_t": "cfgdocs.wildcard.depends_on_mask.help"
     },
@@ -40,7 +40,7 @@
       "unit": "mL"
     },
     "pdm/pd0/depends_on_mask": {
-      "type": "uint8_t",
+      "type": "uint16_t",
       "label_t": "cfgdocs.pdm.pd0.depends_on_mask.label",
       "help_t": "cfgdocs.pdm.pd0.depends_on_mask.help"
     },
@@ -74,7 +74,7 @@
       "unit": "mL"
     },
     "pdm/pd1/depends_on_mask": {
-      "type": "uint8_t",
+      "type": "uint16_t",
       "label_t": "cfgdocs.pdm.pd1.depends_on_mask.label",
       "help_t": "cfgdocs.pdm.pd1.depends_on_mask.help"
     },
@@ -108,7 +108,7 @@
       "unit": "mL"
     },
     "pdm/pd2/depends_on_mask": {
-      "type": "uint8_t",
+      "type": "uint16_t",
       "label_t": "cfgdocs.pdm.pd2.depends_on_mask.label",
       "help_t": "cfgdocs.pdm.pd2.depends_on_mask.help"
     },
@@ -142,7 +142,7 @@
       "unit": "mL"
     },
     "pdm/pd3/depends_on_mask": {
-      "type": "uint8_t",
+      "type": "uint16_t",
       "label_t": "cfgdocs.pdm.pd3.depends_on_mask.label",
       "help_t": "cfgdocs.pdm.pd3.depends_on_mask.help"
     },
@@ -176,7 +176,7 @@
       "unit": "mL"
     },
     "pdm/pd4/depends_on_mask": {
-      "type": "uint8_t",
+      "type": "uint16_t",
       "label_t": "cfgdocs.pdm.pd4.depends_on_mask.label",
       "help_t": "cfgdocs.pdm.pd4.depends_on_mask.help"
     },
@@ -210,7 +210,7 @@
       "unit": "mL"
     },
     "pdm/pd5/depends_on_mask": {
-      "type": "uint8_t",
+      "type": "uint16_t",
       "label_t": "cfgdocs.pdm.pd5.depends_on_mask.label",
       "help_t": "cfgdocs.pdm.pd5.depends_on_mask.help"
     },
@@ -244,7 +244,7 @@
       "unit": "mL"
     },
     "pdm/pd6/depends_on_mask": {
-      "type": "uint8_t",
+      "type": "uint16_t",
       "label_t": "cfgdocs.pdm.pd6.depends_on_mask.label",
       "help_t": "cfgdocs.pdm.pd6.depends_on_mask.help"
     },
@@ -278,7 +278,7 @@
       "unit": "mL"
     },
     "pdm/pd7/depends_on_mask": {
-      "type": "uint8_t",
+      "type": "uint16_t",
       "label_t": "cfgdocs.pdm.pd7.depends_on_mask.label",
       "help_t": "cfgdocs.pdm.pd7.depends_on_mask.help"
     },
@@ -312,7 +312,7 @@
       "unit": "mL"
     },
     "pdm/pd8/depends_on_mask": {
-      "type": "uint8_t",
+      "type": "uint16_t",
       "label_t": "cfgdocs.pdm.pd8.depends_on_mask.label",
       "help_t": "cfgdocs.pdm.pd8.depends_on_mask.help"
     },
@@ -346,7 +346,7 @@
       "unit": "mL"
     },
     "pdm/pd9/depends_on_mask": {
-      "type": "uint8_t",
+      "type": "uint16_t",
       "label_t": "cfgdocs.pdm.pd9.depends_on_mask.label",
       "help_t": "cfgdocs.pdm.pd9.depends_on_mask.help"
     },
@@ -380,7 +380,7 @@
       "unit": "mL"
     },
     "pdm/pd10/depends_on_mask": {
-      "type": "uint8_t",
+      "type": "uint16_t",
       "label_t": "cfgdocs.pdm.pd10.depends_on_mask.label",
       "help_t": "cfgdocs.pdm.pd10.depends_on_mask.help"
     },
@@ -414,7 +414,7 @@
       "unit": "mL"
     },
     "pdm/pd11/depends_on_mask": {
-      "type": "uint8_t",
+      "type": "uint16_t",
       "label_t": "cfgdocs.pdm.pd11.depends_on_mask.label",
       "help_t": "cfgdocs.pdm.pd11.depends_on_mask.help"
     },
@@ -448,7 +448,7 @@
       "unit": "mL"
     },
     "pdm/pd12/depends_on_mask": {
-      "type": "uint8_t",
+      "type": "uint16_t",
       "label_t": "cfgdocs.pdm.pd12.depends_on_mask.label",
       "help_t": "cfgdocs.pdm.pd12.depends_on_mask.help"
     },
@@ -482,7 +482,7 @@
       "unit": "mL"
     },
     "pdm/pd13/depends_on_mask": {
-      "type": "uint8_t",
+      "type": "uint16_t",
       "label_t": "cfgdocs.pdm.pd13.depends_on_mask.label",
       "help_t": "cfgdocs.pdm.pd13.depends_on_mask.help"
     },
@@ -516,7 +516,7 @@
       "unit": "mL"
     },
     "pdm/pd14/depends_on_mask": {
-      "type": "uint8_t",
+      "type": "uint16_t",
       "label_t": "cfgdocs.pdm.pd14.depends_on_mask.label",
       "help_t": "cfgdocs.pdm.pd14.depends_on_mask.help"
     },
@@ -550,7 +550,7 @@
       "unit": "mL"
     },
     "pdm/pd15/depends_on_mask": {
-      "type": "uint8_t",
+      "type": "uint16_t",
       "label_t": "cfgdocs.pdm.pd15.depends_on_mask.label",
       "help_t": "cfgdocs.pdm.pd15.depends_on_mask.help"
     },
@@ -582,6 +582,12 @@
       "label_t": "cfgdocs.pdm.pd15.tank_init_ml.label",
       "help_t": "cfgdocs.pdm.pd15.tank_init_ml.help",
       "unit": "mL"
+    },
+    "*/driver": {
+      "type": "char[]",
+      "widget": "pool-driver",
+      "label_t": "cfgdocs.pooldev.driver.label",
+      "help_t": "cfgdocs.pooldev.driver.help"
     }
   }
 }

@@ -5921,6 +5921,8 @@ void WebInterfaceModule::startServer_()
 
         responseState->print("{\"ok\":true,\"enabled\":");
         responseState->print(preview->enabled ? "true" : "false");
+        responseState->print(",\"api_key_configured\":");
+        responseState->print(preview->apiKeyConfigured ? "true" : "false");
         responseState->print(",\"history_available\":");
         responseState->print(preview->historyAvailable ? "true" : "false");
         responseState->print(",\"weather_state\":");
@@ -7124,6 +7126,14 @@ void WebInterfaceModule::startServer_()
                          "{\"%s\":%lu}",
                          action->inputName,
                          (unsigned long)value);
+            } else if (action->inputType == RuntimeUiActionInputType::Float) {
+                char* end = nullptr;
+                const float value = strtof(inputText, &end);
+                if (end == inputText || *end || !isfinite(value)) {
+                    request->send(400, "application/json", "{\"ok\":false,\"err\":{\"code\":\"InvalidArg\"}}");
+                    return;
+                }
+                snprintf(args, sizeof(args), "{\"%s\":%.9g}", action->inputName, double(value));
             } else {
                 request->send(500, "application/json",
                               "{\"ok\":false,\"err\":{\"code\":\"InvalidMode\",\"where\":\"runtime.action.input.type\"}}");
@@ -7279,8 +7289,8 @@ void WebInterfaceModule::startServer_()
             if (meta.used) devices[count++] = meta;
         }
 
-        SpiRamJsonDocument deviceDoc(768);
-        if (deviceDoc.capacity() < 768U) {
+        SpiRamJsonDocument deviceDoc(2048);
+        if (deviceDoc.capacity() < 2048U) {
             request->send(503, "application/json",
                           "{\"ok\":false,\"err\":{\"code\":\"NoMemory\",\"where\":\"runtime.pooldevice_options\"}}");
             return;
@@ -7297,9 +7307,23 @@ void WebInterfaceModule::startServer_()
             deviceDoc["domainSlot"] = devices[idx].commandSlot;
             PoolDeviceRuntimeStateEntry state{};
             const bool stateAvailable = dataStore_ && poolDeviceRuntimeState(*dataStore_, devices[idx].slot, state);
-            deviceDoc["controllable"] = stateAvailable && devices[idx].enabled &&
+            deviceDoc["controllable"] = stateAvailable && devices[idx].enabled && devices[idx].driverReady &&
                 poolSvc->writesEnabled && poolSvc->writesEnabled(poolSvc->ctx);
-            if (stateAvailable) {
+            auto outputs = deviceDoc.createNestedArray("outputs");
+            for (uint8_t n = 0; n < devices[idx].outputCount; ++n) outputs.add(devices[idx].outputs[n]);
+            deviceDoc["kind"] = uint8_t(devices[idx].capabilities.kind);
+            deviceDoc["unit"] = uint8_t(devices[idx].capabilities.unit);
+            deviceDoc["minimum"] = devices[idx].capabilities.minimum;
+            deviceDoc["maximum"] = devices[idx].capabilities.maximum;
+            auto steps = deviceDoc.createNestedArray("steps");
+            for (uint8_t n = 0; n < devices[idx].capabilities.stepCount; ++n) steps.add(devices[idx].capabilities.steps[n]);
+            deviceDoc["setpoint"] = state.desiredSetpoint;
+            deviceDoc["desiredOn"] = state.desiredOn;
+            deviceDoc["quality"] = uint8_t(state.feedback.quality);
+            deviceDoc["phase"] = uint8_t(state.feedback.phase);
+            deviceDoc["error"] = state.feedback.error;
+            if (stateAvailable && state.feedback.observedValid) {
+                deviceDoc["observedSetpoint"] = state.feedback.observed.setpoint;
                 deviceDoc["actualOn"] = state.actualOn;
             } else {
                 deviceDoc["actualOn"] = nullptr;

@@ -1908,14 +1908,13 @@
     const localReleaseSelectBtn = document.getElementById('localReleaseSelect');
     const localReleaseSummary = document.getElementById('localReleaseSummary');
     const cancelUpgradeUiBtn = document.getElementById('cancelUpgradeUi');
-    const upgradeCards = document.getElementById('upgradeCards');
     const upgradeTableBody = document.getElementById('upgradeTableBody');
     const upgradeProgressBar = document.getElementById('upgradeProgressBar');
     const upgradePct = document.getElementById('upgradePct');
     const upgradeJourneyLabel = document.getElementById('upgradeJourneyLabel');
     const upgradeSteps = document.getElementById('upgradeSteps');
     const upgradeFooterStatus = document.getElementById('upgradeFooterStatus');
-    const upgradeEta = document.getElementById('upgradeEta');
+    const upgradeProgressPanel = document.getElementById('upgradeProgressPanel');
     const upStatusChip = document.getElementById('upStatusChip');
 
     const wifiEnabled = document.getElementById('wifiEnabled');
@@ -1946,7 +1945,6 @@
     const ioSummaryTables = document.getElementById('ioSummaryTables');
     const poolMeasuresDomains = document.getElementById('poolMeasuresDomains');
     const poolMeasuresGrid = document.getElementById('poolMeasuresGrid');
-    const poolConfigTitle = document.getElementById('poolConfigTitle');
     const poolConfigSummary = document.getElementById('poolConfigSummary');
     const poolHeroState = document.getElementById('poolHeroState');
     const poolFiltrationStart = document.getElementById('poolFiltrationStart');
@@ -2192,6 +2190,7 @@
     let poolAiPreviewLoadedOnce = false;
     let poolAiPreviewReqSeq = 0;
     let poolAiPreviewPollTimer = null;
+    let poolAiReady = false;
     const poolConfigModuleDefs = Object.freeze([
       Object.freeze({ module: 'poollogic/modes', titleKey: 'pool.card.modes.title', title: 'Pilotage général', icon: 'tune', noteKey: 'pool.card.modes.note', note: 'Ces interrupteurs définissent si PoolLogic pilote la piscine et quelle stratégie de traitement est retenue.' }),
       Object.freeze({ module: 'poollogic/filtration', titleKey: 'pool.card.filtration.title', title: 'Filtration', icon: 'waves', noteKey: 'pool.card.filtration.note', note: 'La plage de filtration combine contraintes horaires et température d’eau pour protéger le bassin.' }),
@@ -2911,6 +2910,7 @@
       if (key === 'waveshare') return 'FlowIOS3';
       if (key === 'spiffs') return 'SPIFFS';
       if (key === 'nextion') return 'Nextion';
+      if (key === 'release') return 'Flow.IO';
       return 'Firmware';
     }
 
@@ -3074,6 +3074,11 @@
       const phase = String(safeSession.phase || 'idle');
       const detail = String(safeSession.detail || '');
       const targetLabel = upgradeTargetLabel(safeSession.target);
+      if (upgradeProgressPanel) {
+        const progressVisible = phase === 'target' || phase === 'download' || phase === 'flash'
+          || phase === 'reboot' || phase === 'reconnect';
+        upgradeProgressPanel.hidden = !progressVisible;
+      }
       const stateLabel = phase === 'idle'
         ? tr('updates.phase.idle', 'Prêt')
         : phase === 'target'
@@ -3257,6 +3262,18 @@
       scheduleUpgradeReconnectPhase(700);
     }
 
+    function localReleaseOverallProgress(current, target, progress) {
+      const filesystemTotal = Number(current && current.releaseFilesystemTotal) || 0;
+      const firmwareTotal = Number(current && current.releaseFirmwareTotal) || 0;
+      const total = filesystemTotal + firmwareTotal;
+      const percent = Math.max(0, Math.min(100, Number(progress) || 0));
+      if (total <= 0) return percent;
+      if (String(target || '').trim().toLowerCase() === 'spiffs') {
+        return Math.round((percent / 100) * filesystemTotal / total * 100);
+      }
+      return Math.round((filesystemTotal + (percent / 100) * firmwareTotal) / total * 100);
+    }
+
     function updateUpgradeView(data) {
       if (!data || data.ok !== true) return;
       const current = readUpgradeUiSession();
@@ -3307,6 +3324,28 @@
       if (upgradeUiStatusMuted) {
         if (state !== 'idle' && state !== 'done' && state !== 'error') return;
         upgradeUiStatusMuted = false;
+      }
+
+      const isLocalRelease = String(current && current.target || '').trim().toLowerCase() === 'release';
+      if (isLocalRelease && !(current && current.awaitingReconnect)
+          && (state === 'queued' || state === 'downloading' || state === 'flashing' || state === 'done')) {
+        stopUpgradeReconnectFlow();
+        updateUpgradeUiSession({
+          phase: state === 'queued' ? 'target' : 'flash',
+          target: 'release',
+          detail: state === 'queued'
+            ? tr('updates.detail.targetSelected', 'Sélection de la cible {target}.')
+              .replace('{target}', upgradeTargetLabel('release'))
+            : tr('updates.phase.flash', 'Mise à jour') + (state === 'done' ? '…' : '.'),
+          backendProgress: localReleaseOverallProgress(current, target, progress),
+          awaitingReconnect: false,
+          reconnectShown: false,
+          reconnectProgress: 0,
+          operationId: operationId || currentOperationId,
+          bootId: bootId,
+          failedStep: ''
+        });
+        return;
       }
 
       if (state === 'idle') {
@@ -3912,67 +3951,6 @@
       return control;
     }
 
-    function renderUpgradeSummaryCards(rows) {
-      if (!upgradeCards) return;
-      upgradeCards.innerHTML = '';
-      upgradeCards.classList.remove('has-error');
-      rows.forEach((row) => {
-        const card = document.createElement('article');
-        card.className = 'update-summary-card update-summary-' + row.tone + (row.unavailable ? ' is-disabled' : '');
-        if (row.unavailable) card.setAttribute('aria-disabled', 'true');
-        card.appendChild(createUpgradeComponentBadge(row, 'update-component-badge-lg'));
-
-        const body = document.createElement('div');
-        body.className = 'update-summary-body';
-        const title = document.createElement('h3');
-        title.textContent = row.title + ' ';
-        const subtitle = document.createElement('span');
-        subtitle.textContent = '(' + row.subtitle + ')';
-        title.appendChild(subtitle);
-        body.appendChild(title);
-
-        const currentLine = document.createElement('div');
-        currentLine.className = 'update-summary-line';
-        currentLine.appendChild(document.createTextNode(tr('updates.currentVersion', 'Version actuelle')));
-        const currentPill = document.createElement('b');
-        currentPill.textContent = row.current.version || '-';
-        currentLine.appendChild(currentPill);
-        body.appendChild(currentLine);
-
-        const availableLine = document.createElement('div');
-        availableLine.className = 'update-summary-line';
-        availableLine.appendChild(document.createTextNode(tr('updates.availableVersion', 'Version disponible')));
-        const availablePill = document.createElement('b');
-        availablePill.className = row.updateAvailable ? 'is-green' : '';
-        availablePill.textContent = row.available.version || '-';
-        availableLine.appendChild(availablePill);
-        body.appendChild(availableLine);
-        card.appendChild(body);
-
-        const stateIcon = document.createElement('span');
-        stateIcon.className = 'ui-msr update-summary-state';
-        stateIcon.setAttribute('aria-hidden', 'true');
-        stateIcon.textContent = row.statusMessage
-          ? 'build'
-          : (row.unavailable ? 'link_off' : (row.updateAvailable ? 'arrow_upward' : 'horizontal_rule'));
-        if (row.statusKnown) card.appendChild(stateIcon);
-
-        const foot = document.createElement('div');
-        foot.className = 'update-summary-foot';
-        if (row.statusKnown) {
-          const dot = document.createElement('span');
-          dot.className = 'update-dot ' + (row.statusMessage || row.unavailable
-            ? 'is-gray'
-            : (row.updateAvailable ? 'is-green' : 'is-blue'));
-          foot.appendChild(dot);
-          foot.appendChild(document.createTextNode(upgradeStatusLabel(row)));
-        }
-        card.appendChild(foot);
-
-        upgradeCards.appendChild(card);
-      });
-    }
-
     function renderUpgradeTable(rows) {
       if (!upgradeTableBody) return;
       upgradeTableBody.innerHTML = '';
@@ -4020,7 +3998,6 @@
 
     function renderUpgradeCatalog(options) {
       const rows = buildUpgradeComponentRows();
-      renderUpgradeSummaryCards(rows);
       renderUpgradeTable(rows);
       if (options && options.error) {
         setUpgradeMessage(tr('updates.err.checkGeneric', 'Échec de la vérification.') + ' : ' + options.error);
@@ -4290,6 +4267,10 @@
         if (!confirm(description + '\n\nInstaller cette release puis redémarrer ?')) return;
 
         startUpgradeUiSession('release');
+        updateUpgradeUiSession({
+          releaseFilesystemTotal: Number(manifest.filesystem && manifest.filesystem.size) || 0,
+          releaseFirmwareTotal: Number(manifest.firmware && manifest.firmware.size) || 0
+        });
         setUpgradeMessage('Préparation de la release ' + manifest.version + '…');
         const started = await fetchOkJson('/api/upgrade/begin', {
           method: 'POST',
@@ -6762,7 +6743,7 @@
       return view;
     }
 
-    function buildRuntimeActionCell(target, column, buildSwitch) {
+    function buildRuntimeActionCell(target, column, buildSwitch, buildSetpoint) {
       const cell = document.createElement('td');
       let update;
       if (column.muted) cell.className = 'runtime-counter-secondary';
@@ -6771,6 +6752,9 @@
         const control = buildSwitch(target, column);
         cell.appendChild(control.element);
         update = control.update;
+      } else if (column.type === 'setpoint') {
+        const control = buildSetpoint(target, column);
+        cell.appendChild(control.element); update = control.update;
       } else if (column.type === 'datetime') {
         const empty = document.createElement('span');
         empty.textContent = '—';
@@ -7006,7 +6990,7 @@
         // Keep cells and listeners mounted while the row structure is stable.
         const sameRows = targets.length > 0 && targets.length === rowViews.length && targets.every((target, index) => {
           const previous = rowViews[index].target;
-          return target.value === previous.value && ('actualOn' in target) === ('actualOn' in previous) &&
+          return target.value === previous.value && target.kind === previous.kind && ('actualOn' in target) === ('actualOn' in previous) &&
             !!target.deviceId === !!previous.deviceId &&
             automatic(target) === automatic(previous);
         });
@@ -7097,7 +7081,7 @@
             (managementLayout ? identity : name).appendChild(deviceId);
           }
           row.appendChild(name);
-          const cells = config.columns.map((column) => buildRuntimeActionCell(target, column, buildSwitch));
+          const cells = config.columns.map((column) => buildRuntimeActionCell(target, column, buildSwitch, buildSetpoint));
           cells.forEach((cell) => row.appendChild(cell.element));
           const view = { target, row, name, indicator, label, deviceId, cells, iconHost,
             iconKind: null, reset: null };
@@ -7204,6 +7188,46 @@
           setRuntimeActionAttribute(reset, 'aria-label', config.rowButtonText + ' — ' + target.label);
         }
         cells.forEach((cell) => cell.update(target));
+      }
+
+      function buildSetpoint(target, column) {
+        const wrapper = document.createElement('div');
+        if (!target.kind) {
+          wrapper.textContent = '—';
+          return { element: wrapper, update: () => {} };
+        }
+        wrapper.className = 'runtime-setpoint';
+        const discrete = target.kind === 1;
+        const input = document.createElement(discrete ? 'select' : 'input');
+        input.className = 'control-input';
+        if (discrete) (target.steps || []).forEach((value) => {
+          const option = document.createElement('option');
+          option.value = String(value); option.textContent = String(value); input.appendChild(option);
+        });
+        else { input.type = 'number'; input.step = 'any'; input.min = target.minimum; input.max = target.maximum; }
+        input.setAttribute('aria-label', column.label + ' — ' + target.label);
+        const status = document.createElement('span');
+        const control = { input, target, column, available: false };
+        switchControls.push(control);
+        input.addEventListener('change', () => {
+          if (!control.available || pending || runtimeActionBusyKey || !input.checkValidity()) return;
+          const value = Number(input.value);
+          if (!Number.isFinite(value)) return;
+          const action = actions.find((item) => item.id === column.action);
+          if (action) applyTargetAction(target, action, value, target.value,
+            tr('dashboard.action.setpointAccepted', 'Consigne acceptée'));
+        });
+        wrapper.append(input, status);
+        return { element: wrapper, update: (current) => {
+          control.available = current.controllable === true;
+          if (document.activeElement !== input) input.value = String(current.setpoint ?? '');
+          const qualityKeys = ['unknownState', 'estimated', 'confirmed', 'stale'];
+          const qualityFallbacks = ['Indisponible', 'Estimé', 'Confirmé', 'Périmé'];
+          const q = Number(current.quality) || 0;
+          const quality = tr('dashboard.action.' + qualityKeys[q], qualityFallbacks[q]);
+          const suffix = current.unit === 2 ? ' °C' : ' %';
+          setRuntimeActionText(status, (current.observedSetpoint == null ? '—' : current.observedSetpoint + suffix) + ' · ' + quality);
+        } };
       }
 
       function buildSwitch(target, column) {
@@ -7445,9 +7469,6 @@
           const data = dashboardDualStateTileViews.get(next.tiles[index]);
           dashboardDualStateTileViews.get(tile).update(data.label, data.value, data.options);
         });
-        if (previous.footer) previous.footer.remove();
-        if (next.footer) previousCard.appendChild(next.footer);
-        previous.footer = next.footer;
         return previousCard;
       });
       const retained = new Set(cards);
@@ -7764,10 +7785,11 @@
         const actionButton = buildRuntimeActionDialogButton(entry);
         if (actionButton) actionFooter.appendChild(actionButton);
       });
-      if (actionFooter.childElementCount) {
-        card.classList.add('has-runtime-actions');
-        card.appendChild(actionFooter);
-      }
+      if (!actionFooter.childElementCount) return;
+      card.classList.add('has-runtime-actions');
+      const header = card.querySelector('.dashboard-measure-card-head');
+      if (header) header.appendChild(actionFooter);
+      else card.appendChild(actionFooter);
     }
 
     function buildPoolMeasureCards(entries, values, options) {
@@ -7927,8 +7949,7 @@
         // transitions can complete while values, pending state and commands change.
         if (booleanNodes.length && !badgeNodes.length && !flagEntries.length && !horizGaugeRows.length && !valueRows.length) {
           card.dataset.runtimeCardId = String(Number(group.entries[0].id));
-          dashboardBooleanCardViews.set(card, { header: card.firstElementChild, tiles: booleanNodes,
-            footer: card.querySelector('.runtime-card-actions') });
+          dashboardBooleanCardViews.set(card, { header: card.firstElementChild, tiles: booleanNodes });
         }
 
         fragment.appendChild(card);
@@ -8376,11 +8397,6 @@
       const stopValue = filtration.filtr_stop_clc ?? filtration.filtr_stop_max;
       const start = poolConfigFormatHour(startValue);
       const stop = poolConfigFormatHour(stopValue);
-      if (poolConfigTitle) {
-        poolConfigTitle.classList.remove('is-loading');
-        poolConfigTitle.removeAttribute('aria-busy');
-        poolConfigTitle.textContent = tr('pool.overview.title', 'État Général');
-      }
       if (poolHeroState) {
         poolHeroState.className = 'pool-hero-state ' + (alarms.length ? 'is-alert' : 'is-ok');
         poolHeroState.removeAttribute('aria-busy');
@@ -8627,11 +8643,6 @@
     }
 
     function poolConfigRenderSkeleton() {
-      if (poolConfigTitle) {
-        poolConfigTitle.textContent = '';
-        poolConfigTitle.classList.add('is-loading');
-        poolConfigTitle.setAttribute('aria-busy', 'true');
-      }
       if (poolHeroState) {
         poolHeroState.innerHTML = '';
         poolHeroState.className = 'pool-hero-state is-loading';
@@ -8678,11 +8689,6 @@
 
     function poolConfigRenderError(err) {
       const detailText = String(err || tr('pool.error.readFailed', 'Lecture de la configuration impossible.'));
-      if (poolConfigTitle) {
-        poolConfigTitle.classList.remove('is-loading');
-        poolConfigTitle.removeAttribute('aria-busy');
-        poolConfigTitle.textContent = tr('pool.overview.title', 'État général');
-      }
       if (poolHeroState) {
         poolHeroState.className = 'pool-hero-state is-alert';
         poolHeroState.removeAttribute('aria-busy');
@@ -8784,6 +8790,11 @@
         : tr('pool.ai.result', 'Préconisation et explication');
     }
 
+    function syncPoolAiRefreshButton(busy) {
+      if (!poolAiRefreshBtn) return;
+      poolAiRefreshBtn.disabled = !!busy || !poolAiReady;
+    }
+
     function renderPoolAiPreview(payload) {
       const insightText = String(payload && payload.insight_text ? payload.insight_text : '');
       if (poolAiInsightText) {
@@ -8806,26 +8817,16 @@
           ? instructions + '\n\nDONNÉES DYNAMIQUES ENVOYÉES\n\n' + input
           : (instructions || input || '—');
       }
+      const enabled = !!(payload && payload.enabled === true);
+      const apiKeyConfigured = !!(payload && payload.api_key_configured === true);
+      poolAiReady = enabled && apiKeyConfigured;
+      syncPoolAiRefreshButton(false);
       if (!poolAiStatus) return;
 
       poolAiStatus.classList.remove('is-ready', 'is-error');
-      const weatherState = String(payload && payload.weather_state ? payload.weather_state : 'idle');
       const insightState = String(payload && payload.insight_state ? payload.insight_state : 'idle');
       if (insightState === 'queued' || insightState === 'loading') {
         poolAiStatus.textContent = tr('pool.ai.analysisPending', 'Analyse IA en cours…');
-        return;
-      }
-      if (weatherState === 'queued' || weatherState === 'loading') {
-        poolAiStatus.textContent = tr('pool.ai.pending', 'Actualisation météo en cours…');
-        return;
-      }
-      if (payload && payload.enabled === false) {
-        poolAiStatus.textContent = tr('pool.ai.disabled', 'Fonction IA désactivée : le prompt est visible, mais la météo ne peut pas être actualisée.');
-        return;
-      }
-      if (payload && payload.refresh_requested && payload.refresh_accepted === false && payload.refresh_message) {
-        poolAiStatus.textContent = tr('pool.ai.error', 'Analyse IA indisponible.') + ' ' + String(payload.refresh_message);
-        poolAiStatus.classList.add('is-error');
         return;
       }
       if (insightState === 'failed') {
@@ -8836,31 +8837,21 @@
         poolAiStatus.classList.add('is-error');
         return;
       }
-      if (weatherState === 'failed') {
-        const detail = String(payload && payload.weather_message ? payload.weather_message : '').trim();
-        poolAiStatus.textContent = detail
-          ? tr('pool.ai.error', 'Analyse IA indisponible.') + ' ' + detail
-          : tr('pool.ai.error', 'Analyse IA indisponible.');
-        poolAiStatus.classList.add('is-error');
-        return;
-      }
-      if (weatherState === 'idle') {
-        poolAiStatus.textContent = tr('pool.ai.weatherWaiting', 'Prompt prêt, données météo en attente.');
-        return;
-      }
-      if (insightState === 'ready') {
-        poolAiStatus.textContent = tr('pool.ai.ready', 'Analyse prête.');
+      if (poolAiReady) {
+        poolAiStatus.textContent = tr('pool.ai.agentReady', 'Agent prêt');
         poolAiStatus.classList.add('is-ready');
         return;
       }
-      poolAiStatus.textContent = tr('pool.ai.analysisIdle', 'Appuyez sur le bouton pour générer l’analyse.');
+      poolAiStatus.textContent = enabled
+        ? tr('pool.ai.agentMissingKey', 'Clé API OpenAI non configurée.')
+        : tr('pool.ai.agentDisabled', 'Fonction IA désactivée.');
     }
 
     async function loadPoolAiPreview(refreshWeather, pollAttempt) {
       const attempt = Math.max(0, Number(pollAttempt) || 0);
       const reqSeq = ++poolAiPreviewReqSeq;
       stopPoolAiPreviewPolling();
-      if (poolAiRefreshBtn) poolAiRefreshBtn.disabled = true;
+      syncPoolAiRefreshButton(true);
       if (poolAiStatus && (refreshWeather || !poolAiPreviewLoadedOnce)) {
         poolAiStatus.textContent = tr('pool.ai.loading', 'Chargement de l’analyse…');
         poolAiStatus.classList.remove('is-ready', 'is-error');
@@ -8892,15 +8883,15 @@
           poolAiStatus.classList.add('is-error');
         }
       } finally {
-        if (reqSeq === poolAiPreviewReqSeq && poolAiRefreshBtn) {
-          poolAiRefreshBtn.disabled = false;
+        if (reqSeq === poolAiPreviewReqSeq) {
+          syncPoolAiRefreshButton(false);
         }
       }
     }
 
     async function requestPoolAiInsight() {
       stopPoolAiPreviewPolling();
-      if (poolAiRefreshBtn) poolAiRefreshBtn.disabled = true;
+      syncPoolAiRefreshButton(true);
       if (poolAiStatus) {
         poolAiStatus.textContent = tr('pool.ai.analysisPending', 'Analyse IA en cours…');
         poolAiStatus.classList.remove('is-ready', 'is-error');
@@ -8924,7 +8915,7 @@
           poolAiStatus.classList.add('is-error');
         }
       } finally {
-        if (poolAiRefreshBtn) poolAiRefreshBtn.disabled = false;
+        syncPoolAiRefreshButton(false);
       }
     }
 
@@ -11235,6 +11226,97 @@
       return JSON.stringify(patch);
     }
 
+    function buildPoolDriverEditor(value) {
+      const root = document.createElement('div');
+      root.className = 'pool-driver-editor';
+      const stored = document.createElement('input');
+      stored.type = 'hidden'; stored.className = 'control-input'; stored.value = String(value);
+      root.appendChild(stored);
+      let config;
+      try { config = JSON.parse(value); } catch (_) { config = null; }
+      if (!config || typeof config !== 'object' || Array.isArray(config)) {
+        const recovery = document.createElement('textarea');
+        recovery.value = String(value); recovery.setAttribute('aria-label', 'Configuration équipement');
+        recovery.addEventListener('input', () => {
+          stored.value = recovery.value; stored.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        root.appendChild(recovery);
+        return { element: root, input: stored };
+      }
+      const controls = document.createElement('div'); root.appendChild(controls);
+      const hint = document.createElement('small');
+      hint.textContent = tr('pool.driver.restart', 'Les changements de raccordement prennent effet au redémarrage.');
+      root.appendChild(hint);
+      const commit = () => {
+        stored.value = JSON.stringify(config);
+        stored.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      const add = (object, key, label, fallback, choices = null, array = false) => {
+        const row = document.createElement('label'); row.textContent = label;
+        const input = document.createElement(choices ? 'select' : 'input');
+        input.className = 'control-input';
+        if (choices) choices.forEach(([v, text]) => {
+          const option = document.createElement('option'); option.value = v; option.textContent = text;
+          input.appendChild(option);
+        });
+        else { input.type = array ? 'text' : 'number'; input.step = 'any'; }
+        const current = object[key] ?? fallback;
+        input.value = array ? JSON.stringify(current) : String(typeof current === 'boolean' ? Number(current) : current);
+        input.addEventListener('change', () => {
+          let next;
+          try {
+            next = array ? JSON.parse(input.value) : Number(input.value);
+            if (array ? !Array.isArray(next) : !Number.isFinite(next)) throw new Error();
+            input.setCustomValidity('');
+          } catch (_) { input.setCustomValidity(tr('pool.driver.invalid', 'Valeur invalide')); input.reportValidity(); return; }
+          object[key] = typeof fallback === 'boolean' ? next === 1 : next;
+          if (key === 'kind') render(); commit();
+        });
+        row.appendChild(input); controls.appendChild(row);
+      };
+      const render = () => {
+        controls.replaceChildren();
+        add(config, 'kind', tr('pool.driver.kind', 'Commande'), 0,
+          [[0,'On/Off'],[1,tr('pool.driver.discrete','Vitesses par sorties')],[2,tr('pool.driver.analog','Sortie analogique')],[3,'RS485']]);
+        if (config.kind !== 3) add(config, 'outputs', tr('pool.driver.outputs','Identifiants des sorties'), [0], null, true);
+        if (config.kind === 1) {
+          add(config, 'steps', tr('pool.driver.steps','Consignes des vitesses'), [30,60,100], null, true);
+          add(config, 'dead_ms', tr('pool.driver.dead','Temps mort (ms)'), 250);
+        }
+        if (config.kind !== 0) {
+          add(config, 'unit', tr('pool.driver.unit','Unité'), 0, [[0,tr('pool.driver.speed','Vitesse (%)')],[1,tr('pool.driver.power','Puissance (%)')],[2,'°C']]);
+          add(config, 'minimum', 'Minimum', 0); add(config, 'maximum', 'Maximum', 100);
+          add(config, 'startup', tr('pool.driver.startup','Consigne au démarrage'), 100);
+          add(config, 'flow_curve', tr('pool.driver.flow','Courbe débit : [[consigne, L/h], …]'), [], null, true);
+        }
+        add(config, 'dependency_minimum', tr('pool.driver.dependency','Consigne minimale des dépendances'), 0);
+        add(config, 'dependency_confirmed', tr('pool.driver.confirmed','Retour confirmé des dépendances requis'), false, [[0,'Non / No'],[1,'Oui / Yes']]);
+        if (config.kind === 2) {
+          add(config, 'gain', tr('pool.driver.gain','Gain de conversion'), 0.1);
+          add(config, 'offset', 'Offset', 0); add(config, 'off', tr('pool.driver.off','Valeur à l’arrêt'), 0);
+        }
+        if (config.kind === 3) {
+          const serial = config.serial || (config.serial = {});
+          add(serial, 'protocol', tr('pool.driver.protocol','Format de trame'), 0, [[0,'Modbus RTU'],[1,'Vendor Register RTU']]);
+          add(serial, 'bus', 'Bus', 0); add(serial, 'address', tr('pool.driver.address','Adresse'), 1);
+          add(serial, 'baud', 'Baud', 9600);
+          add(serial, 'parity', tr('pool.driver.parity','Parité'), 0, [[0,'None'],[1,'Even'],[2,'Odd']]);
+          add(serial, 'stop_bits', 'Stop bits', 1, [[1,'1'],[2,'2']]);
+          [['quiet_ms',5],['late_guard_ms',100],['timeout_ms',300],['poll_ms',1000],['stale_ms',5000],['retries',1],
+           ['run_value',1],['stop_value',0],['running_mask',1],['raw_per_unit',1],['raw_offset',0],
+           ['feedback_gain',1],['feedback_offset',0]].forEach(([key,fallback]) => add(serial,key,key,fallback));
+          add(serial, 'has_feedback', tr('pool.driver.feedback','Lecture de l’état et de la consigne réelle'), false, [[0,'Non / No'],[1,'Oui / Yes']]);
+          [['run',0,6,1],['setpoint',1,6,1],['status',0,3,0],['feedback',1,3,0]].forEach(([name,address,fn,layout]) => {
+            const op = serial[name] || (serial[name] = { address, function: fn, layout });
+            add(op,'address',name + ' · register',address); add(op,'function',name + ' · function',fn);
+            add(op,'layout',name + ' · format',layout,[[0,'Read registers'],[1,'Write single / echo'],[2,'Write multiple / address + count']]);
+          });
+        }
+      };
+      render();
+      return { element: root, input: stored };
+    }
+
     function renderConfigFields(containerEl, moduleName, dataObj, options) {
       const opts = options || {};
       const appendMode = !!opts.append;
@@ -11305,7 +11387,13 @@
         const valueWrap = document.createElement('div');
         valueWrap.className = 'control-value-wrap';
 
-        if (enumOptions && enumOptions.length > 0 && enumOptions.some((opt) => opt && typeof opt.color === 'string' && opt.color.trim().length > 0)) {
+        if (doc && doc.widget === 'pool-driver') {
+          const editor = buildPoolDriverEditor(value);
+          inputEl = editor.input;
+          inputEl.dataset.key = key; inputEl.dataset.kind = 'string'; inputEl.dataset.module = moduleName;
+          storeConfigFieldInitialValue(inputEl, value);
+          valueWrap.appendChild(editor.element);
+        } else if (enumOptions && enumOptions.length > 0 && enumOptions.some((opt) => opt && typeof opt.color === 'string' && opt.color.trim().length > 0)) {
           const colorControl = createColorPickerControl(doc, key, value, enumOptions);
           inputEl = colorControl.input;
           inputEl.dataset.module = moduleName;
@@ -11565,7 +11653,12 @@
     }
 
     async function loadFlowCfgPdmExtensionData(moduleName, dataObj) {
-      const pdmModule = flowCfgPdmModuleForIoOutput(moduleName, dataObj);
+      const output = flowCfgIoOutputSlotIndex(moduleName, dataObj);
+      if (output < 0) return null;
+      const optionsResponse = await fetchWithBusyRetry('/api/runtime/pooldevice_options', { cache: 'no-store' });
+      const options = await optionsResponse.json();
+      const device = (options.options || []).find((item) => Array.isArray(item.outputs) && item.outputs.includes(output));
+      const pdmModule = device ? 'pdm/pd' + device.value : '';
       if (!pdmModule) return null;
       try {
         const res = await fetchWithBusyRetry(
@@ -12451,6 +12544,7 @@
         }
       });
       bindClickAction(poolAiRefreshBtn, requestPoolAiInsight);
+      syncPoolAiRefreshButton(false);
     }
 
     function initInfoBindings() {

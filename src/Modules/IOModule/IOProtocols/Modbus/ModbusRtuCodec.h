@@ -11,6 +11,8 @@
 
 class ModbusRtuCodec {
 public:
+    static bool validRequest(const ModbusRequest& request);
+    static RegisterOperation operation(const ModbusRequest& request);
     static uint16_t crc16(const uint8_t* data, size_t length);
     static bool encodeRequest(const ModbusRequest& request,
                               uint8_t* outFrame,

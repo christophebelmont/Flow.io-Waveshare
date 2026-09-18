@@ -62,6 +62,36 @@ bool DomainStatusServiceProvider::slotStatus_(DomainSlotId domainSlot, DomainSlo
     *outStatus = DomainSlotStatus{};
     outStatus->domainSlot = domainSlot;
 
+    const PoolDevicePreset* devicePreset = findPoolDevice_(domainSlot);
+    if (devicePreset && poolSvc_ && poolSvc_->meta) {
+        PoolDeviceSvcMeta meta{};
+        if (poolSvc_->meta(poolSvc_->ctx, devicePreset->id, &meta) == POOLDEV_SVC_OK && meta.used) {
+            outStatus->hasPoolDevice = 1; outStatus->poolMeta = meta; outStatus->ioId = meta.ioId;
+            if (!meta.enabled) {
+                outStatus->state = DomainSlotRuntimeState::ManuallyDisabled;
+                outStatus->reason = DomainSlotStatusReason::SlotDisabled;
+            } else if (!meta.driverReady || meta.blockReason != POOL_DEVICE_BLOCK_NONE) {
+                outStatus->state = DomainSlotRuntimeState::Error; outStatus->error = 1;
+                outStatus->reason = DomainSlotStatusReason::PoolDeviceBlocked;
+            } else {
+                PoolDeviceFeedback feedback{};
+                if (poolSvc_->readState && poolSvc_->readState(poolSvc_->ctx, devicePreset->id, &feedback) == POOLDEV_SVC_OK &&
+                    feedback.observedValid) {
+                    outStatus->poolActualOn = feedback.observed.running;
+                    outStatus->poolActualTsMs = feedback.observedAtMs;
+                    outStatus->value.valid = 1; outStatus->value.type = IO_VAL_BOOL;
+                    outStatus->value.v.b = feedback.observed.running; outStatus->value.tsMs = feedback.observedAtMs;
+                    outStatus->hasValue = 1; outStatus->active = 1;
+                    outStatus->state = DomainSlotRuntimeState::Active;
+                } else {
+                    outStatus->state = DomainSlotRuntimeState::Error; outStatus->error = 1;
+                    outStatus->reason = DomainSlotStatusReason::NoValidValue;
+                }
+            }
+            return true;
+        }
+    }
+
     const DomainIoSlotBinding* binding = findBinding_(domainSlot);
     if (!binding || binding->ioSlot == IO_SLOT_INVALID) {
         outStatus->reason = DomainSlotStatusReason::Unbound;
@@ -78,21 +108,6 @@ bool DomainStatusServiceProvider::slotStatus_(DomainSlotId domainSlot, DomainSlo
 
     outStatus->hasMeta = 1U;
     outStatus->hasBindingPort = bindingPortExists_(outStatus->meta.bindingPort) ? 1U : 0U;
-
-    const PoolDevicePreset* devicePreset = findPoolDevice_(domainSlot);
-    if (devicePreset && poolSvc_ && poolSvc_->meta) {
-        PoolDeviceSvcMeta poolMeta{};
-        if (poolSvc_->meta(poolSvc_->ctx, devicePreset->id, &poolMeta) == POOLDEV_SVC_OK && poolMeta.used) {
-            outStatus->hasPoolDevice = 1U;
-            outStatus->poolMeta = poolMeta;
-            if (poolSvc_->readActualOn) {
-                (void)poolSvc_->readActualOn(poolSvc_->ctx,
-                                             devicePreset->id,
-                                             &outStatus->poolActualOn,
-                                             &outStatus->poolActualTsMs);
-            }
-        }
-    }
 
     if (!outStatus->hasBindingPort) {
         outStatus->reason = DomainSlotStatusReason::NoBinding;

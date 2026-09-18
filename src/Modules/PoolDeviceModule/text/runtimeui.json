@@ -16,8 +16,14 @@
           "id": "set",
           "command": "poollogic.filtration.write",
           "presentation": "switch",
-          "input": { "name": "value", "type": "bool" },
-          "refreshDomains": ["mode", "equipements"]
+          "input": {
+            "name": "value",
+            "type": "bool"
+          },
+          "refreshDomains": [
+            "mode",
+            "equipements"
+          ]
         }
       ],
       "order": 70,
@@ -35,8 +41,14 @@
           "id": "set",
           "command": "poollogic.ph_pump.write",
           "presentation": "switch",
-          "input": { "name": "value", "type": "bool" },
-          "refreshDomains": ["mode", "equipements"]
+          "input": {
+            "name": "value",
+            "type": "bool"
+          },
+          "refreshDomains": [
+            "mode",
+            "equipements"
+          ]
         }
       ],
       "order": 80,
@@ -54,8 +66,14 @@
           "id": "set",
           "command": "poollogic.dis_pump.write",
           "presentation": "switch",
-          "input": { "name": "value", "type": "bool" },
-          "refreshDomains": ["mode", "equipements"]
+          "input": {
+            "name": "value",
+            "type": "bool"
+          },
+          "refreshDomains": [
+            "mode",
+            "equipements"
+          ]
         }
       ],
       "order": 90,
@@ -73,8 +91,14 @@
           "id": "set",
           "command": "poollogic.robot.write",
           "presentation": "switch",
-          "input": { "name": "value", "type": "bool" },
-          "refreshDomains": ["mode", "equipements"]
+          "input": {
+            "name": "value",
+            "type": "bool"
+          },
+          "refreshDomains": [
+            "mode",
+            "equipements"
+          ]
         }
       ],
       "order": 100,
@@ -108,6 +132,12 @@
               "action": "set_device",
               "targetKey": "value",
               "eligibleKey": "controllable"
+            },
+            {
+              "label_t": "runtimeui.pooldev.setpoint",
+              "type": "setpoint",
+              "key": "setpoint",
+              "action": "setpoint"
             },
             {
               "label_t": "runtimeui.pooldev.reset.day",
@@ -146,9 +176,36 @@
           "id": "set_device",
           "command": "poollogic.device.write",
           "presentation": "switch",
-          "input": { "name": "value", "type": "bool" },
-          "target": { "name": "slot", "type": "uint32" },
-          "refreshDomains": ["mode", "equipements", "alarm"]
+          "input": {
+            "name": "value",
+            "type": "bool"
+          },
+          "target": {
+            "name": "slot",
+            "type": "uint32"
+          },
+          "refreshDomains": [
+            "mode",
+            "equipements",
+            "alarm"
+          ]
+        },
+        {
+          "id": "setpoint",
+          "command": "pooldevice.setpoint",
+          "presentation": "button",
+          "input": {
+            "name": "value",
+            "type": "float"
+          },
+          "target": {
+            "name": "slot",
+            "type": "uint32"
+          },
+          "refreshDomains": [
+            "equipements",
+            "alarm"
+          ]
         },
         {
           "id": "reset_uptime",

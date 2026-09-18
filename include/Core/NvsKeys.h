@@ -462,20 +462,21 @@ constexpr char CoverClosedAtNight[] = "pl_covnight"; // True when the cover is n
 }  // namespace PoolLogic
 
 namespace PoolDevice {
-/** @brief printf format for per-slot `enabled` key (example `pd0en`). */
-constexpr char EnabledFmt[] = "pd%uen"; // Pool device module key template; `%u` is replaced by slot index before NVS access.
-/** @brief printf format for per-slot dependency mask key (example `pd0dp`). */
-constexpr char DependsFmt[] = "pd%udp"; // Pool device module key template; `%u` is replaced by slot index before NVS access.
-/** @brief printf format for per-slot flow key (example `pd0flh`). */
-constexpr char FlowFmt[] = "pd%uflh"; // Pool device module key template; `%u` is replaced by slot index before NVS access.
-/** @brief printf format for per-slot tank capacity key (example `pd0tc`). */
-constexpr char TankCapFmt[] = "pd%utc"; // Pool device module key template; `%u` is replaced by slot index before NVS access.
-/** @brief printf format for per-slot tank initial value key (example `pd0ti`). */
-constexpr char TankInitFmt[] = "pd%uti"; // Pool device module key template; `%u` is replaced by slot index before NVS access.
-/** @brief printf format for per-slot max daily uptime in seconds (example `pd0mu`). */
-constexpr char MaxUptimeFmt[] = "pd%umu"; // Pool device module key template; `%u` is replaced by slot index before NVS access.
-/** @brief printf format for per-slot runtime metrics blob key (example `pd0rt`). */
-constexpr char RuntimeFmt[] = "pd%urt"; // Pool device module runtime metrics key template; `%u` is replaced by slot index before NVS access.
+/** @brief printf format for per-slot `enabled` key (example `act0_en`). */
+constexpr char EnabledFmt[] = "act%u_en"; // Pool device module key template; `%u` is replaced by slot index before NVS access.
+/** @brief printf format for per-slot dependency mask key (example `act0_dp`). */
+constexpr char DependsFmt[] = "act%u_dp"; // Pool device module key template; `%u` is replaced by slot index before NVS access.
+/** @brief printf format for per-slot flow key (example `act0_flh`). */
+constexpr char FlowFmt[] = "act%u_flh"; // Pool device module key template; `%u` is replaced by slot index before NVS access.
+/** @brief printf format for per-slot tank capacity key (example `act0_tc`). */
+constexpr char TankCapFmt[] = "act%u_tc"; // Pool device module key template; `%u` is replaced by slot index before NVS access.
+/** @brief printf format for per-slot tank initial value key (example `act0_ti`). */
+constexpr char TankInitFmt[] = "act%u_ti"; // Pool device module key template; `%u` is replaced by slot index before NVS access.
+/** @brief printf format for per-slot max daily uptime in seconds (example `act0_mu`). */
+constexpr char MaxUptimeFmt[] = "act%u_mu"; // Pool device module key template; `%u` is replaced by slot index before NVS access.
+/** @brief printf format for per-slot runtime metrics blob key (example `act0_rt`). */
+constexpr char RuntimeFmt[] = "act%u_rt"; // Pool device module runtime metrics key template; `%u` is replaced by slot index before NVS access.
+constexpr char DriverFmt[] = "act%u_driver"; // Complete driver configuration, applied at boot.
 }  // namespace PoolDevice
 
 namespace PoolHistory {

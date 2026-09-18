@@ -232,6 +232,9 @@
     "runtimeui.pooldev.reset.confirmationHint": "Jour, semaine et mois · Totaux conservés",
     "runtimeui.pooldev.reset.confirmButtonText": "Confirmer",
     "runtimeui.pooldev.reset.detailsLabel": "Ce qui est remis à zéro",
-    "runtimeui.pooldev.reset.countText": "{count} équipements"
+    "runtimeui.pooldev.reset.countText": "{count} équipements",
+    "runtimeui.pooldev.setpoint": "Consigne",
+    "cfgdocs.pooldev.driver.label": "Commande équipement",
+    "cfgdocs.pooldev.driver.help": "Raccordement et protocole de l’équipement. Appliqué au redémarrage."
   }
 }

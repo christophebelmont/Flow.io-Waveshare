@@ -14,6 +14,7 @@
 #include <Arduino.h>
 #include <math.h>
 #include <string.h>
+#include "Core/SpiRamJsonDocument.h"
 
 namespace {
 static constexpr const char* kPoolDeviceCfgTopicBase = "cfg/pdm";
@@ -208,26 +209,38 @@ bool PoolDeviceModule::buildStateSnapshot_(uint8_t slotIdx, char* out, size_t le
         return false;
     }
 
-    char label[sizeof(PoolDeviceDefinition::label)] = {0};
-    const PoolDeviceSlot& s = slots_[slotIdx];
-    snprintf(label, sizeof(label), "%s", (s.def.label[0] != '\0') ? s.def.label : (s.id ? s.id : "pd"));
-    const char* blockReason = blockReasonStr_(entry.blockReason);
-    const int wrote = snprintf(
-        out, len,
-        "{\"id\":\"pd%u\",\"name\":\"%s\",\"enabled\":%s,\"desired\":%s,\"on\":%s,"
-        "\"block\":\"%s\",\"ts\":%lu}",
-        (unsigned)slotIdx,
-        label[0] ? label : "pd",
-        entry.enabled ? "true" : "false",
-        entry.desiredOn ? "true" : "false",
-        entry.actualOn ? "true" : "false",
-        blockReason,
-        (unsigned long)entry.tsMs
-    );
-    if (wrote < 0 || (size_t)wrote >= len) {
-        unlockState_();
-        return false;
-    }
+    const auto& s = slots_[slotIdx];
+    SpiRamJsonDocument doc(3072);
+    doc["id"] = s.id;
+    doc["name"] = s.def.label;
+    doc["enabled"] = entry.enabled;
+    doc["desired"] = entry.desiredOn;
+    doc["on"] = entry.actualOn;
+    doc["block"] = blockReasonStr_(entry.blockReason);
+    doc["driver_ready"] = s.driverReady;
+    doc["driver_error"] = s.driverError;
+    doc["kind"] = uint8_t(s.driverConfig.capabilities.kind);
+    doc["unit"] = uint8_t(s.driverConfig.capabilities.unit);
+    doc["minimum"] = s.driverConfig.capabilities.minimum;
+    doc["maximum"] = s.driverConfig.capabilities.maximum;
+    doc["startup"] = s.driverConfig.capabilities.startup;
+    auto steps = doc.createNestedArray("steps");
+    for (uint8_t i = 0; i < s.driverConfig.capabilities.stepCount; ++i) steps.add(s.driverConfig.capabilities.steps[i]);
+    doc["setpoint"] = s.desired.setpoint;
+    auto effective = doc.createNestedObject("effective");
+    effective["on"] = s.effective.running; effective["setpoint"] = s.effective.setpoint;
+    const auto& f = s.feedback;
+    auto applied = doc.createNestedObject("applied");
+    applied["valid"] = f.appliedValid; applied["on"] = f.applied.running;
+    applied["setpoint"] = f.applied.setpoint; applied["revision"] = f.appliedRevision;
+    auto observed = doc.createNestedObject("observed");
+    observed["valid"] = f.observedValid; observed["on"] = f.observed.running;
+    observed["setpoint"] = f.observed.setpoint; observed["ts"] = f.observedAtMs;
+    doc["quality"] = uint8_t(f.quality); doc["phase"] = uint8_t(f.phase);
+    doc["online"] = f.online; doc["error"] = f.error;
+    doc["ts"] = entry.tsMs;
+    if (doc.overflowed() || measureJson(doc) >= len) { unlockState_(); return false; }
+    serializeJson(doc, out, len);
 
     maxTsOut = (entry.tsMs == 0U) ? 1U : entry.tsMs;
     unlockState_();
@@ -345,35 +358,12 @@ bool PoolDeviceModule::configureRuntime_()
         PoolDeviceSlot& s = slots_[i];
         if (!s.used) continue;
 
-        bool ioReady = false;
-        bool ioManuallyDisabled = false;
-        IoEndpointMeta meta{};
-        const IoStatus metaStatus = ioSvc_->meta(ioSvc_->ctx, s.ioId, &meta);
-        if (metaStatus == IO_OK && ioSvc_->runtimeStatus) {
-            IoRuntimeStatus runtime{};
-            ioManuallyDisabled =
-                ioSvc_->runtimeStatus(ioSvc_->ctx, s.ioId, &runtime) == IO_OK &&
-                runtime.state == IO_RUNTIME_MANUALLY_DISABLED;
-        }
-        if (!ioManuallyDisabled &&
-            metaStatus == IO_OK &&
-            meta.kind == IO_KIND_DIGITAL_OUT &&
-            (meta.capabilities & IO_CAP_W) != 0) {
-            ioReady = true;
-        } else {
-            LOGD("Pool device %s sleeping ioId=%u status=%u kind=%u caps=0x%02X",
-                 s.id,
-                 (unsigned)s.ioId,
-                 (unsigned)metaStatus,
-                 (unsigned)meta.kind,
-                 (unsigned)meta.capabilities);
-            s.actualOn = false;
-            s.desiredOn = false;
-            s.blockReason = !s.def.enabled
-                ? POOL_DEVICE_BLOCK_DISABLED
-                : (ioManuallyDisabled ? POOL_DEVICE_BLOCK_IO_DISABLED : POOL_DEVICE_BLOCK_UNBOUND);
-        }
-        s.runtimePublishable = ioReady;
+        s.driverReady = configureDriver_(i);
+        s.runtimePublishable = true;
+        s.actualOn = s.desiredOn = false;
+        s.desired = {false, s.driverConfig.capabilities.startup};
+        s.effective = s.desired;
+        s.blockReason = s.driverReady ? POOL_DEVICE_BLOCK_NONE : POOL_DEVICE_BLOCK_UNBOUND;
 
         if (s.def.tankCapacityMl <= 0.0f) {
             s.tankRemainingMl = 0.0f;
@@ -385,15 +375,6 @@ bool PoolDeviceModule::configureRuntime_()
         } else {
             if (!isFiniteNonNegative_(s.tankRemainingMl)) s.tankRemainingMl = 0.0f;
             if (s.tankRemainingMl > s.def.tankCapacityMl) s.tankRemainingMl = s.def.tankCapacityMl;
-        }
-
-        bool initialIoOn = false;
-        if (ioReady && readIoState_(s, initialIoOn)) {
-            s.actualOn = initialIoOn;
-            s.desiredOn = initialIoOn;
-            if (initialIoOn) {
-                LOGI("Pool device %s boot sync: hardware ON adopted as desired", s.id);
-            }
         }
 
         s.lastTickMs = now;
@@ -479,7 +460,7 @@ MqttBuildResult PoolDeviceModule::buildCfgBasePdm_(MqttBuildContext& buildCtx)
         }
         if (!includeSlot) continue;
 
-        char moduleJson[640] = {0};
+        char moduleJson[POOL_DRIVER_CONFIG_BYTES + 640] = {0};
         bool truncatedModule = false;
         const bool hasAny = cfgStore_->toJsonModule(PoolDeviceSlots::kSlots[i].configModuleName,
                                                     moduleJson,
@@ -537,4 +518,58 @@ MqttBuildResult PoolDeviceModule::buildCfgBasePdm_(MqttBuildContext& buildCtx)
     buildCtx.qos = 1;
     buildCtx.retain = true;
     return MqttBuildResult::Ready;
+}
+
+bool PoolDeviceModule::configureDriver_(uint8_t slot)
+{
+    auto& s = slots_[slot];
+    if (!parsePoolDriverConfig(s.driverJson, s.driverConfig, s.driverError, sizeof(s.driverError))) return false;
+    if (s.def.tankCapacityMl > 0 && s.driverConfig.capabilities.kind != PoolControlKind::Relay &&
+        (!isfinite(poolCalibratedFlow(s.driverConfig, s.driverConfig.capabilities.minimum)) ||
+         !isfinite(poolCalibratedFlow(s.driverConfig, s.driverConfig.capabilities.maximum)))) {
+        snprintf(s.driverError, sizeof(s.driverError), "Dosing requires a flow curve covering the operating range");
+        return false;
+    }
+    if (!s.def.enabled) return false;
+    const auto kind = s.driverConfig.capabilities.kind;
+    s.ioId = kind == PoolControlKind::Relay ? s.driverConfig.outputs[0] : IO_ID_INVALID;
+    const uint8_t owner = slot + 1;
+    if (kind != PoolControlKind::Rs485) {
+        const uint8_t count = kind == PoolControlKind::Discrete ? s.driverConfig.capabilities.stepCount : 1;
+        for (uint8_t i = 0; i < count; ++i) {
+            IoEndpointMeta meta{};
+            if (!ioSvc_->meta || ioSvc_->meta(ioSvc_->ctx, s.driverConfig.outputs[i], &meta) != IO_OK ||
+                meta.kind != (kind == PoolControlKind::Analog ? IO_KIND_ANALOG_OUT : IO_KIND_DIGITAL_OUT)) {
+                snprintf(s.driverError, sizeof(s.driverError), "Output %u unavailable or wrong kind", s.driverConfig.outputs[i]);
+                return false;
+            }
+            if (kind == PoolControlKind::Analog) {
+                const float values[] = {s.driverConfig.analogOff,
+                    s.driverConfig.capabilities.minimum * s.driverConfig.analogGain + s.driverConfig.analogOffset,
+                    s.driverConfig.capabilities.maximum * s.driverConfig.analogGain + s.driverConfig.analogOffset};
+                for (float value : values) if (value < meta.minValid || value > meta.maxValid) {
+                    snprintf(s.driverError, sizeof(s.driverError), "Analog conversion exceeds endpoint range"); return false;
+                }
+            }
+        }
+        if (s.def.enabled && (!ioSvc_->claimOutputs ||
+            ioSvc_->claimOutputs(ioSvc_->ctx, s.driverConfig.outputs, count, owner) != IO_OK)) {
+            snprintf(s.driverError, sizeof(s.driverError), "Output reservation conflict or pulse output"); return false;
+        }
+    } else {
+        for (uint8_t i = 0; i < slot; ++i) {
+            const auto& other = slots_[i];
+            if (other.used && other.driverReady && other.def.enabled && s.def.enabled &&
+                other.driverConfig.capabilities.kind == PoolControlKind::Rs485 &&
+                other.driverConfig.serial.line.busId == s.driverConfig.serial.line.busId &&
+                other.driverConfig.serial.address == s.driverConfig.serial.address) {
+                snprintf(s.driverError, sizeof(s.driverError), "Duplicate address on serial bus"); return false;
+            }
+        }
+    }
+    auto& driver = s.driver.configure(kind);
+    if (!driver.begin(s.driverConfig, ioSvc_, serialSvc_, owner)) {
+        snprintf(s.driverError, sizeof(s.driverError), "Driver service unavailable"); return false;
+    }
+    return true;
 }

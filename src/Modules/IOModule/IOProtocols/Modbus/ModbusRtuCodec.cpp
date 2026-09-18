@@ -5,6 +5,27 @@
 
 #include "ModbusRtuCodec.h"
 
+RegisterOperation ModbusRtuCodec::operation(const ModbusRequest& r)
+{
+    if (r.protocol == RegisterWireProtocol::VendorRegisterRtu) return r.operation;
+    if (r.function == MODBUS_FC_WRITE_SINGLE_REGISTER) return RegisterOperation::WriteSingle;
+    if (r.function == MODBUS_FC_WRITE_MULTIPLE_REGISTERS) return RegisterOperation::WriteMultiple;
+    return RegisterOperation::Read;
+}
+
+bool ModbusRtuCodec::validRequest(const ModbusRequest& r)
+{
+    if (r.slaveAddress == 0 || r.slaveAddress > 247 || r.registerCount == 0 ||
+        r.registerCount > MODBUS_MAX_REGISTERS_PER_REQUEST ||
+        uint32_t(r.registerAddress) + r.registerCount > 65536U) return false;
+    if (r.protocol == RegisterWireProtocol::ModbusRtu) {
+        if (r.function != 0x03 && r.function != 0x04 && r.function != 0x06 && r.function != 0x10) return false;
+    } else if (r.protocol == RegisterWireProtocol::VendorRegisterRtu) {
+        if (!r.function || uint8_t(r.operation) > uint8_t(RegisterOperation::WriteMultiple)) return false;
+    } else return false;
+    return operation(r) != RegisterOperation::WriteSingle || r.registerCount == 1;
+}
+
 uint16_t ModbusRtuCodec::crc16(const uint8_t* data, size_t length)
 {
     if (!data && length != 0U) return 0U;
@@ -38,15 +59,10 @@ bool ModbusRtuCodec::encodeRequest(const ModbusRequest& request,
                                    size_t& outLength)
 {
     outLength = 0U;
-    if (!outFrame || request.slaveAddress == 0U || request.slaveAddress > 247U ||
-        request.registerCount == 0U ||
-        request.registerCount > MODBUS_MAX_REGISTERS_PER_REQUEST) {
-        return false;
-    }
+    if (!outFrame || !validRequest(request)) return false;
 
-    switch (request.function) {
-        case MODBUS_FC_READ_HOLDING_REGISTERS:
-        case MODBUS_FC_READ_INPUT_REGISTERS:
+    switch (operation(request)) {
+        case RegisterOperation::Read:
             if (capacity < 8U) return false;
             outFrame[0] = request.slaveAddress;
             outFrame[1] = request.function;
@@ -58,7 +74,7 @@ bool ModbusRtuCodec::encodeRequest(const ModbusRequest& request,
             outLength = 8U;
             return true;
 
-        case MODBUS_FC_WRITE_SINGLE_REGISTER:
+        case RegisterOperation::WriteSingle:
             if (capacity < 8U || request.registerCount != 1U) return false;
             outFrame[0] = request.slaveAddress;
             outFrame[1] = request.function;
@@ -70,7 +86,7 @@ bool ModbusRtuCodec::encodeRequest(const ModbusRequest& request,
             outLength = 8U;
             return true;
 
-        case MODBUS_FC_WRITE_MULTIPLE_REGISTERS: {
+        case RegisterOperation::WriteMultiple: {
             const size_t payloadLength = 7U + ((size_t)request.registerCount * 2U);
             if (capacity < payloadLength + 2U) return false;
             outFrame[0] = request.slaveAddress;
@@ -103,7 +119,7 @@ ModbusResultCode ModbusRtuCodec::decodeResponse(const ModbusRequest& request,
     outResponse.slaveAddress = request.slaveAddress;
     outResponse.function = request.function;
     outResponse.registerAddress = request.registerAddress;
-    if (!frame || length < 5U) return MODBUS_RESULT_PROTOCOL_ERROR;
+    if (!validRequest(request) || !frame || length < 5U) return MODBUS_RESULT_PROTOCOL_ERROR;
 
     const uint16_t expectedCrc = crc16(frame, length - 2U);
     const uint16_t receivedCrc = (uint16_t)(frame[length - 2U] |
@@ -111,15 +127,15 @@ ModbusResultCode ModbusRtuCodec::decodeResponse(const ModbusRequest& request,
     if (expectedCrc != receivedCrc) return MODBUS_RESULT_CRC_ERROR;
     if (frame[0] != request.slaveAddress) return MODBUS_RESULT_PROTOCOL_ERROR;
 
-    if (frame[1] == (uint8_t)(request.function | 0x80U)) {
+    if (request.protocol == RegisterWireProtocol::ModbusRtu &&
+        frame[1] == (uint8_t)(request.function | 0x80U)) {
         if (length != 5U) return MODBUS_RESULT_PROTOCOL_ERROR;
         outResponse.exceptionCode = frame[2];
         return MODBUS_RESULT_EXCEPTION;
     }
     if (frame[1] != request.function) return MODBUS_RESULT_PROTOCOL_ERROR;
 
-    if (request.function == MODBUS_FC_READ_HOLDING_REGISTERS ||
-        request.function == MODBUS_FC_READ_INPUT_REGISTERS) {
+    if (operation(request) == RegisterOperation::Read) {
         const uint8_t byteCount = frame[2];
         if (byteCount != request.registerCount * 2U || length != (size_t)byteCount + 5U) {
             return MODBUS_RESULT_PROTOCOL_ERROR;
@@ -134,13 +150,13 @@ ModbusResultCode ModbusRtuCodec::decodeResponse(const ModbusRequest& request,
     if (length != 8U || readU16_(&frame[2]) != request.registerAddress) {
         return MODBUS_RESULT_PROTOCOL_ERROR;
     }
-    if (request.function == MODBUS_FC_WRITE_SINGLE_REGISTER) {
+    if (operation(request) == RegisterOperation::WriteSingle) {
         if (readU16_(&frame[4]) != request.values[0]) return MODBUS_RESULT_PROTOCOL_ERROR;
         outResponse.registerCount = 1U;
         outResponse.values[0] = request.values[0];
         return MODBUS_RESULT_OK;
     }
-    if (request.function == MODBUS_FC_WRITE_MULTIPLE_REGISTERS) {
+    if (operation(request) == RegisterOperation::WriteMultiple) {
         if (readU16_(&frame[4]) != request.registerCount) return MODBUS_RESULT_PROTOCOL_ERROR;
         outResponse.registerCount = request.registerCount;
         return MODBUS_RESULT_OK;

@@ -125,7 +125,7 @@ def _write_header(out_path: Path, entries):
         f.write("enum class RuntimeUiActionInputType : uint8_t {\n")
         f.write("    None = 0,\n")
         f.write("    Bool,\n")
-        f.write("    UInt32\n")
+        f.write("    UInt32,\n    Float\n")
         f.write("};\n\n")
         f.write("struct RuntimeUiActionManifestItem {\n")
         f.write("    RuntimeUiId runtimeId;\n")
@@ -146,6 +146,7 @@ def _write_header(out_path: Path, entries):
             "none": "RuntimeUiActionInputType::None",
             "bool": "RuntimeUiActionInputType::Bool",
             "uint32": "RuntimeUiActionInputType::UInt32",
+            "float": "RuntimeUiActionInputType::Float",
         }
         flattened_actions = [
             (entry, action)
@@ -398,7 +399,7 @@ def _validate_action_dialog(display_config, actions, path):
         if not isinstance(column, dict) or not isinstance(column.get("label"), str) or not column["label"].strip():
             raise RuntimeError(f"actionDialog invalid column label in {path}")
         column_type = column.get("type", "counters")
-        if column_type not in ("counters", "datetime", "enum", "switch"):
+        if column_type not in ("counters", "datetime", "enum", "switch", "setpoint"):
             raise RuntimeError(f"actionDialog invalid column type in {path}")
         fields = ("durationKey", "volumeKey") if column_type == "counters" else ("key",)
         for field in fields:
@@ -431,6 +432,12 @@ def _validate_action_dialog(display_config, actions, path):
         raise RuntimeError(f"actionDialog invalid optionsUrl in {path}")
     by_id = {action["id"]: action for action in actions}
     for column in columns:
+        if column.get("type") == "setpoint":
+            action = by_id.get(column.get("action"))
+            if (not action or action["input"]["type"] != "float" or
+                (action.get("target") or {}).get("type") != "uint32"):
+                raise RuntimeError(f"actionDialog invalid setpoint action binding in {path}")
+            continue
         if column.get("type") != "switch":
             continue
         action = by_id.get(column.get("action"))
@@ -544,7 +551,7 @@ def _collect_entries_for_locale(modules_root: Path, locale: str, numeric_by_name
                     input_type = action_input.get("type")
                     if not isinstance(input_name, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,31}", input_name):
                         raise RuntimeError(f"invalid action input name in {path}: {input_name!r}")
-                    if input_type not in ("bool", "uint32"):
+                    if input_type not in ("bool", "uint32", "float"):
                         raise RuntimeError(f"unsupported action input type in {path}: {input_type!r}")
                     normalized_input = {"name": input_name, "type": input_type}
 

@@ -128,6 +128,7 @@ struct AiPoolInsightPreview {
     static constexpr size_t PromptCapacity = 20U * 1024U;
 
     bool enabled = false;
+    bool apiKeyConfigured = false;
     bool historyAvailable = false;
     PoolHistorySnapshot history{};
     AiWeatherState weatherState = AiWeatherState::Idle;

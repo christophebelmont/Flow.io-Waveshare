@@ -40,7 +40,6 @@ enum class LogModuleIdValue : LogModuleId {
     PoolLogicModule = 25,
     HMIModule = 26,
     HmiUdpServerModule = 27,
-    VariableSpeedPumpModule = 28,
     BootLogCaptureModule = 32,
     ActivityLogModule = 33,
 
@@ -80,7 +79,6 @@ static inline LogModuleId logModuleIdFromModuleId(ModuleId moduleId)
         case ModuleId::PoolDevice: return (LogModuleId)LogModuleIdValue::PoolDeviceModule;
         case ModuleId::PoolLogic: return (LogModuleId)LogModuleIdValue::PoolLogicModule;
         case ModuleId::HmiUdpServer: return (LogModuleId)LogModuleIdValue::HmiUdpServerModule;
-        case ModuleId::VariableSpeedPump: return (LogModuleId)LogModuleIdValue::VariableSpeedPumpModule;
         case ModuleId::BootLogCapture: return (LogModuleId)LogModuleIdValue::BootLogCaptureModule;
         case ModuleId::ActivityLog: return (LogModuleId)LogModuleIdValue::ActivityLogModule;
         case ModuleId::User: return (LogModuleId)LogModuleIdValue::UserModule;
@@ -125,7 +123,6 @@ static inline const char* logModuleNameFromId(LogModuleId moduleId)
         case LogModuleIdValue::PoolLogicModule: return "poollogic";
         case LogModuleIdValue::HMIModule: return "hmi";
         case LogModuleIdValue::HmiUdpServerModule: return "hmi.udp.server";
-        case LogModuleIdValue::VariableSpeedPumpModule: return "pump.variable";
         case LogModuleIdValue::BootLogCaptureModule: return "log.bootcapture";
         case LogModuleIdValue::ActivityLogModule: return "activitylog";
         case LogModuleIdValue::UserModule: return "users";

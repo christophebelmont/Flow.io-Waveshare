@@ -99,7 +99,6 @@
             <div class="pool-hero-main">
               <span class="ui-msr pool-hero-icon" aria-hidden="true">pool</span>
               <div class="pool-hero-copy">
-                <h2 id="poolConfigTitle" class="is-loading" aria-busy="true"></h2>
                 <div id="poolHeroState" class="pool-hero-state is-loading" aria-live="polite" aria-busy="true"></div>
                 <p id="poolConfigSummary" class="is-loading" aria-busy="true"></p>
                 <div class="pool-filtration-daybar" aria-hidden="true">
@@ -190,58 +189,81 @@
 
       <section id="page-system" class="page" data-admin-only>
         <div class="card updates-panel">
-          <div class="local-release-upload">
-            <div>
-              <strong data-i18n="updates.local.title">Installer un package local</strong>
-              <p data-i18n="updates.local.description">Sélectionnez un package Flow.IO complet contenant le firmware et le filesystem.</p>
-              <div id="localReleaseSummary" class="status-txt" aria-live="polite"></div>
-            </div>
-            <input id="localReleaseFile" type="file" accept=".zip,application/zip" hidden>
-            <button id="localReleaseSelect" type="button" class="btn-tonal" data-admin-only-action>
-              <span class="ui-msr btn-msr" aria-hidden="true">upload_file</span>
-              <span data-i18n="updates.local.select">Sélectionner un ZIP</span>
-            </button>
-          </div>
-
-          <div class="updates-info-panel">
-            <span class="ui-msr updates-info-icon" aria-hidden="true">info</span>
-            <div class="updates-info-copy">
-              <strong data-i18n="updates.infoTitle">Informations</strong>
-              <p data-i18n="updates.infoLine1">Les versions disponibles sont récupérées depuis le serveur de mises à jour.</p>
-              <p data-i18n="updates.infoLine2">Assurez-vous d’avoir une connexion stable avant de lancer une mise à jour.</p>
-              <div class="upgrade-journey" aria-label="Statut de l’upgrade" data-i18n-aria-label="updates.progress">
-                <div class="ug-header">
-                  <span id="upgradeJourneyLabel" class="ug-label" data-i18n="updates.progress">Statut de l’upgrade</span>
+          <div class="updates-sources">
+            <article class="updates-source-card updates-source-server">
+              <div class="updates-source-head">
+                <span class="updates-source-icon" aria-hidden="true"><span class="ui-msr">cloud_download</span></span>
+                <div class="updates-source-copy">
+                  <h2 data-i18n="updates.server.title">Depuis le serveur d’upgrade</h2>
+                  <p data-i18n="updates.server.description">Consultez le serveur pour découvrir les versions publiées, puis lancez l’installation des mises à jour.</p>
                 </div>
-                <div id="upgradeSteps" class="steps"></div>
               </div>
-              <div id="upgradeFooterStatus" class="status-txt" aria-live="polite"></div>
-              <span id="upgradeEta" class="eta-txt"></span>
-              <div id="upgradeProgressBar" class="bar-fill visually-hidden"></div>
-              <span id="upgradePct" class="visually-hidden">0%</span>
-            </div>
-            <div class="updates-action-stack">
-              <button id="checkUpdates" type="button" class="btn-tonal updates-check-btn" data-admin-only-action><span class="refresh-icon-glyph" aria-hidden="true"></span><span data-i18n="updates.check">Vérifier les mises à jour</span></button>
-              <button id="cancelUpgradeUi" type="button" class="btn-tonal updates-cancel-btn" hidden disabled><span class="ui-msr btn-msr" aria-hidden="true">close</span><span data-i18n="updates.cancel">Annuler</span></button>
-            </div>
+              <div class="updates-source-actions">
+                <button id="checkUpdates" type="button" class="btn-tonal updates-check-btn" data-admin-only-action><span class="refresh-icon-glyph" aria-hidden="true"></span><span data-i18n="updates.check">Vérifier les mises à jour</span></button>
+              </div>
+            </article>
+
+            <article class="updates-source-card updates-source-local">
+              <div class="updates-source-head">
+                <span class="updates-source-icon updates-source-icon-local" aria-hidden="true"><span class="ui-msr">upload_file</span></span>
+                <div class="updates-source-copy">
+                  <h2 data-i18n="updates.local.title">Installer un package local</h2>
+                  <p data-i18n="updates.local.description">Sélectionnez un package Flow.IO complet contenant le firmware et le filesystem.</p>
+                </div>
+              </div>
+              <div id="localReleaseSummary" class="status-txt" aria-live="polite"></div>
+              <div class="updates-source-actions">
+                <input id="localReleaseFile" type="file" accept=".zip,application/zip" hidden>
+                <button id="localReleaseSelect" type="button" class="btn-tonal updates-local-btn" data-admin-only-action>
+                  <span class="ui-msr btn-msr" aria-hidden="true">upload_file</span>
+                  <span data-i18n="updates.local.select">Sélectionner un package</span>
+                </button>
+              </div>
+            </article>
           </div>
 
-          <div id="upgradeCards" class="updates-summary-grid" aria-live="polite"></div>
+          <section id="upgradeProgressPanel" class="updates-progress-panel" aria-live="polite" hidden>
+            <span class="updates-progress-icon" aria-hidden="true"><span class="ui-msr">sync</span></span>
+            <div class="updates-progress-body">
+              <div class="ug-header">
+                <span id="upgradeJourneyLabel" class="ug-label" data-i18n="updates.progress">Statut de l’upgrade</span>
+              </div>
+              <div id="upgradeSteps" class="steps"></div>
+              <div class="updates-progress-bar-row">
+                <div class="bar-shell"><div id="upgradeProgressBar" class="bar-fill"></div></div>
+                <span id="upgradePct" class="updates-progress-pct">0%</span>
+              </div>
+            </div>
+            <button id="cancelUpgradeUi" type="button" class="btn-tonal updates-cancel-btn" hidden disabled><span class="ui-msr btn-msr" aria-hidden="true">close</span><span data-i18n="updates.cancel">Annuler</span></button>
+          </section>
 
-          <div class="updates-table-shell">
-            <table class="updates-table">
-              <thead>
-                <tr>
-                  <th data-i18n="updates.table.component">Composant</th>
-                  <th data-i18n="updates.table.current">Version actuelle</th>
-                  <th data-i18n="updates.table.available">Version disponible</th>
-                  <th data-i18n="updates.table.status">Statut</th>
-                  <th data-i18n="updates.table.action">Action</th>
-                </tr>
-              </thead>
-              <tbody id="upgradeTableBody"></tbody>
-            </table>
-          </div>
+          <section class="updates-results">
+            <div class="updates-results-head">
+              <div class="updates-results-title">
+                <span class="updates-results-icon" aria-hidden="true"><span class="ui-msr">list</span></span>
+                <div>
+                  <h2 data-i18n="updates.availableTitle">Mises à jour disponibles</h2>
+                  <p data-i18n="updates.availableSubtitle">Consultez les versions actuelles de votre système et les versions disponibles.</p>
+                </div>
+              </div>
+              <div id="upgradeFooterStatus" class="status-txt updates-results-status" aria-live="polite"></div>
+            </div>
+
+            <div class="updates-table-shell">
+              <table class="updates-table">
+                <thead>
+                  <tr>
+                    <th data-i18n="updates.table.component">Composant</th>
+                    <th data-i18n="updates.table.current">Version actuelle</th>
+                    <th data-i18n="updates.table.available">Version disponible</th>
+                    <th data-i18n="updates.table.status">Statut</th>
+                    <th data-i18n="updates.table.action">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="upgradeTableBody"></tbody>
+              </table>
+            </div>
+          </section>
         </div>
       </section>
 

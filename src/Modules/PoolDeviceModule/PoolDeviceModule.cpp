@@ -14,6 +14,8 @@
 // the generator keys dynamic jsonName/moduleName aliases by translation-unit stem.
 static void poolDeviceCfgDocsAnchor_(PoolDeviceModule& self)
 {
+    self.cfgDriverVar_[0].jsonName = "driver";
+    self.cfgDriverVar_[0].moduleName = "pdm/pd0";
     self.cfgEnabledVar_[0].jsonName = "enabled";
     self.cfgDependsVar_[0].jsonName = "depends_on_mask";
     self.cfgFlowVar_[0].jsonName = "flow_l_h";

@@ -19,6 +19,7 @@ constexpr IoId IO_ID_DO_BASE = 0;
 constexpr IoId IO_ID_DI_BASE = 64;
 /** Reserved base for analog inputs. */
 constexpr IoId IO_ID_AI_BASE = 192;
+constexpr IoId IO_ID_AO_BASE = 256;
 /** Hard upper bound used by static service implementations. */
 constexpr uint8_t IO_SVC_MAX_ENDPOINTS = 40;
 /** Max length for display names in metadata payloads. */
@@ -35,7 +36,8 @@ enum IoStatus : uint8_t {
     IO_ERR_READ_ONLY = 4,
     IO_ERR_NOT_READY = 5,
     IO_ERR_HW = 6,
-    IO_ERR_DISABLED = 7
+    IO_ERR_DISABLED = 7,
+    IO_ERR_OWNED = 8
 };
 
 /** Runtime value type transported by I/O APIs. */
@@ -49,7 +51,8 @@ enum IoValueType : uint8_t {
 enum IoKind : uint8_t {
     IO_KIND_DIGITAL_IN = 0,
     IO_KIND_DIGITAL_OUT = 1,
-    IO_KIND_ANALOG_IN = 2
+    IO_KIND_ANALOG_IN = 2,
+    IO_KIND_ANALOG_OUT = 3
 };
 
 /** Physical/backend origin of an endpoint. */
@@ -213,7 +216,7 @@ struct IOServiceV2 {
     /** Read the latest digital value (DI or DO). */
     IoStatus (*readDigital)(void* ctx, IoId id, uint8_t* outOn, uint32_t* outTsMs, IoSeq* outSeq);
     /** Write a digital output endpoint. */
-    IoStatus (*writeDigital)(void* ctx, IoId id, uint8_t on, uint32_t tsMs);
+    IoStatus (*writeDigital)(void* ctx, IoId id, uint8_t on, uint32_t tsMs, uint8_t owner);
     /** Read the latest analog value (AI). */
     IoStatus (*readAnalog)(void* ctx, IoId id, float* outValue, uint32_t* outTsMs, IoSeq* outSeq);
 
@@ -226,6 +229,9 @@ struct IOServiceV2 {
     /** List enabled sensor endpoints that are currently invalid. */
     IoStatus (*listInvalidSensors)(void* ctx, IoId* outIds, uint8_t maxIds, uint8_t* outCount);
 
+    /** Atomically reserve output endpoints for a non-zero equipment owner (boot assembly). */
+    IoStatus (*claimOutputs)(void* ctx, const IoId* ids, uint8_t count, uint8_t owner);
+    IoStatus (*writeAnalog)(void* ctx, IoId id, float value, uint32_t tsMs, uint8_t owner);
     /** Opaque implementation context. */
     void* ctx;
 };

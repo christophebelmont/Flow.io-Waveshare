@@ -10,8 +10,8 @@
 #include <stdint.h>
 
 #include "Board/BoardTypes.h"
+#include "IRs485Transport.h"
 
-constexpr size_t RS485_MAX_FRAME_BYTES = 256U;
 
 struct Rs485BusStats {
     uint32_t transmittedFrames = 0U;
@@ -20,12 +20,14 @@ struct Rs485BusStats {
     uint32_t ioErrors = 0U;
 };
 
-class Rs485Bus {
+class Rs485Bus final : public IRs485Transport {
 public:
     explicit Rs485Bus(HardwareSerial& serial) : serial_(serial) {}
 
     bool begin(const UartSpec& spec);
     void end();
+    bool configureLine(const SerialLineProfile& profile);
+    bool quiet(uint32_t nowUs) const;
     void tick(uint32_t nowUs);
 
     bool startTransmit(const uint8_t* frame, size_t length, uint32_t nowUs);
