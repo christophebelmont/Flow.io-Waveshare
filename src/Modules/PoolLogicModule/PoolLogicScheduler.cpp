@@ -202,7 +202,8 @@ bool PoolLogicModule::recalcAndApplyFiltrationWindow_(uint8_t* startHourOut,
                       filtrationDeviceSlot_,
                       "Plage de filtration recalculée",
                       detail,
-                      "schedule");
+                      "schedule",
+                      systemActor());
     } else {
         LOGI("Filtration duration=%uh water=unavailable start=%uh stop=%uh",
              (unsigned)duration,
@@ -224,7 +225,8 @@ bool PoolLogicModule::recalcAndApplyFiltrationWindow_(uint8_t* startHourOut,
                       filtrationDeviceSlot_,
                       "Plage de filtration recalculée",
                       detail,
-                      "schedule");
+                      "schedule",
+                      systemActor());
     }
     return true;
 }

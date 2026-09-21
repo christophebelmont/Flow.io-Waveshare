@@ -148,22 +148,6 @@ void copyTaskName_(char* out, size_t outLen, TaskHandle_t task)
 }
 #endif
 
-bool isLikelyValidTaskHandle_(TaskHandle_t handle)
-{
-    const uintptr_t raw = (uintptr_t)handle;
-    if (raw == 0U) return false;
-    // Task handles are TCB pointers in DRAM; lower bounds differ by target.
-    // ESP32-S3 (and RISC-V families) commonly allocate around 0x3FCxxxxx.
-#if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32C3) || \
-    defined(CONFIG_IDF_TARGET_ESP32C6) || defined(CONFIG_IDF_TARGET_ESP32H2)
-    if (raw < 0x3FC00000U) return false;
-#else
-    if (raw < 0x3FF00000U) return false;
-#endif
-    if (raw > 0x60000000U) return false;
-    return true;
-}
-
 }
 
 const char* SystemMonitorModule::wifiStateStr(WifiState st) {
@@ -214,6 +198,21 @@ void SystemMonitorModule::init(ConfigStore& cfg, ServiceRegistry& services) {
         LOGW("Task snapshot unavailable capacity=%u bytes=%lu memory=%s",
              (unsigned)kTaskStatusSnapshotCapacity,
              (unsigned long)(kTaskStatusSnapshotCapacity * sizeof(TaskStatus_t)),
+             taskSnapshotMemory);
+    }
+
+    stackBaselines_ = static_cast<StackBaselineEntry*>(
+        heap_caps_calloc(kStackBaselineCapacity, sizeof(StackBaselineEntry), taskSnapshotCaps)
+    );
+    if (stackBaselines_) {
+        LOGI("Stack baseline allocated capacity=%u bytes=%lu memory=%s",
+             (unsigned)kStackBaselineCapacity,
+             (unsigned long)(kStackBaselineCapacity * sizeof(StackBaselineEntry)),
+             taskSnapshotMemory);
+    } else {
+        LOGW("Stack baseline unavailable capacity=%u bytes=%lu memory=%s",
+             (unsigned)kStackBaselineCapacity,
+             (unsigned long)(kStackBaselineCapacity * sizeof(StackBaselineEntry)),
              taskSnapshotMemory);
     }
 #endif
@@ -378,26 +377,29 @@ void SystemMonitorModule::logHeapStats() {
     }
 }
 
-void SystemMonitorModule::logTaskStacks() {
+SystemMonitorModule::StackBaselineEntry* SystemMonitorModule::stackBaselineFor_(const char* taskName)
+{
+    if (!taskName || !taskName[0]) taskName = "-";
 
-    if (!moduleManager) {
-        LOGD("ModuleManager not set, task stats disabled");
-        return;
+    for (size_t i = 0; i < stackBaselineCount_; ++i) {
+        if (strcmp(stackBaselines_[i].name, taskName) == 0) {
+            return &stackBaselines_[i];
+        }
+    }
+    if (!stackBaselines_ || stackBaselineCount_ >= kStackBaselineCapacity) {
+        return nullptr;
     }
 
-    static constexpr char kStackPrefix[] = "Stack ";
-    static constexpr uint8_t kMaxTasksPerLine = 3;
-    static constexpr size_t kLineMsgBudget = (size_t)LOG_MSG_MAX - sizeof(kStackPrefix);
-    char line[kLineMsgBudget + 1];
-    size_t off = 0;
-    line[0] = '\0';
-    uint8_t tasksOnLine = 0;
-    bool hasTask = false;
-    uint16_t skippedInvalidHandles = 0;
-    uint16_t removedEndedTasks = 0;
+    StackBaselineEntry& entry = stackBaselines_[stackBaselineCount_++];
+    entry = StackBaselineEntry{};
+    snprintf(entry.name, sizeof(entry.name), "%s", taskName);
+    entry.minFreeBytes = UINT32_MAX;
+    return &entry;
+}
 
+void SystemMonitorModule::logTaskStacks() {
 #if defined(configUSE_TRACE_FACILITY) && (configUSE_TRACE_FACILITY == 1)
-    UBaseType_t liveTaskCount = uxTaskGetNumberOfTasks();
+    const UBaseType_t liveTaskCount = uxTaskGetNumberOfTasks();
     if (liveTaskCount == 0U) {
         LOGD("Stack none");
         return;
@@ -414,11 +416,155 @@ void SystemMonitorModule::logTaskStacks() {
              (unsigned)kTaskStatusSnapshotCapacity);
         return;
     }
-    liveTaskCount =
+    const UBaseType_t captured =
         uxTaskGetSystemState(liveTasks, (UBaseType_t)kTaskStatusSnapshotCapacity, nullptr);
-    if (liveTaskCount == 0U) {
+    if (captured == 0U) {
         LOGD("Stack none");
         return;
+    }
+    if (!stackBaselines_) {
+        static bool warnedNoBaseline = false;
+        if (!warnedNoBaseline) {
+            warnedNoBaseline = true;
+            LOGW("Stack baseline unavailable (PSRAM allocation failed)");
+        }
+        return;
+    }
+
+    // Drop ModuleManager task entries whose task has already ended so the
+    // module task registry stays bounded across self-deleting tasks.
+    uint16_t removedEndedTasks = 0U;
+    if (moduleManager) {
+        uint8_t i = 0U;
+        while (i < moduleManager->getTaskEntryCount()) {
+            const ModuleManager::TaskEntry* entry = moduleManager->getTaskEntry(i);
+            if (!entry || !entry->handle) {
+                ++i;
+                continue;
+            }
+            bool live = false;
+            for (UBaseType_t t = 0; t < captured; ++t) {
+                if (liveTasks[t].xHandle == entry->handle) {
+                    live = true;
+                    break;
+                }
+            }
+            if (live || !moduleManager->removeTaskEntry(entry->handle)) {
+                ++i;
+                continue;
+            }
+            ++removedEndedTasks;
+        }
+    }
+
+    static constexpr char kStackPrefix[] = "Stack ";
+    static constexpr size_t kLineMsgBudget = (size_t)LOG_MSG_MAX - sizeof(kStackPrefix);
+    char line[kLineMsgBudget + 1];
+    size_t off = 0U;
+    uint8_t tasksOnLine = 0U;
+    line[0] = '\0';
+
+    uint16_t observedTasks = 0U;
+    uint16_t lowTasks = 0U;
+    uint16_t overflowTasks = 0U;
+
+    for (UBaseType_t t = 0; t < captured; ++t) {
+        const TaskHandle_t handle = liveTasks[t].xHandle;
+        if (!handle) continue;
+
+        const ModuleTaskSpec* spec = nullptr;
+        ModuleId moduleId = ModuleId::Unknown;
+        if (moduleManager) {
+            const uint8_t moduleTaskCount = moduleManager->getTaskEntryCount();
+            for (uint8_t m = 0U; m < moduleTaskCount; ++m) {
+                const ModuleManager::TaskEntry* entry = moduleManager->getTaskEntry(m);
+                if (!entry || entry->handle != handle || !entry->module) continue;
+                const ModuleTaskSpec* specs = entry->module->taskSpecs();
+                if (specs && entry->taskIndex < entry->module->taskCount()) {
+                    spec = &specs[entry->taskIndex];
+                }
+                moduleId = entry->module->moduleId();
+                break;
+            }
+        }
+
+        const uint32_t minFree = (uint32_t)uxTaskGetStackHighWaterMark(handle);
+        StackBaselineEntry* base = stackBaselineFor_(liveTasks[t].pcTaskName);
+        if (!base) continue;
+        if (minFree < base->minFreeBytes) {
+            base->minFreeBytes = minFree;
+        }
+        if (base->configuredBytes == 0U && spec) {
+            base->configuredBytes = spec->stackSize;
+        }
+
+        const uint32_t observedMin = base->minFreeBytes;
+        const uint32_t lowThreshold =
+            (moduleId == ModuleId::Mqtt) ? kStackBaselineMqttLowFreeBytes : kStackBaselineLowFreeBytes;
+        const bool isLow = (observedMin < lowThreshold);
+
+        ++observedTasks;
+        if (observedMin == 0U) ++overflowTasks;
+        if (isLow) ++lowTasks;
+
+        char entry[96];
+        int ew;
+        if (spec && base->configuredBytes > 0U) {
+            ew = snprintf(entry, sizeof(entry), "%s/%s@c%ld min=%lu/%luB%s",
+                          toString(moduleId),
+                          spec->name ? spec->name : "?",
+                          (long)spec->coreId,
+                          (unsigned long)observedMin,
+                          (unsigned long)base->configuredBytes,
+                          isLow ? "!" : "");
+        } else {
+            ew = snprintf(entry, sizeof(entry), "%s min=%luB%s",
+                          (liveTasks[t].pcTaskName && liveTasks[t].pcTaskName[0])
+                              ? liveTasks[t].pcTaskName
+                              : "-",
+                          (unsigned long)observedMin,
+                          isLow ? "!" : "");
+        }
+        if (ew < 0) continue;
+
+        const size_t entryLen = (size_t)ew;
+        const size_t sepLen = (tasksOnLine > 0U) ? 1U : 0U;
+        if (tasksOnLine > 0U && (off + sepLen + entryLen) > kLineMsgBudget) {
+            LOGD("Stack %s", line);
+            off = 0U;
+            line[0] = '\0';
+            tasksOnLine = 0U;
+        }
+        if ((off + ((tasksOnLine > 0U) ? 1U : 0U) + entryLen) > kLineMsgBudget) {
+            continue;
+        }
+        if (tasksOnLine > 0U) {
+            line[off++] = ' ';
+            line[off] = '\0';
+        }
+        memcpy(line + off, entry, entryLen + 1U);
+        off += entryLen;
+        ++tasksOnLine;
+    }
+
+    if (observedTasks == 0U) {
+        LOGD("Stack none");
+    } else if (tasksOnLine > 0U) {
+        LOGD("Stack %s", line);
+    }
+
+    if (overflowTasks > 0U) {
+        LOGW("Stack baseline overflow tasks=%u observed=%u",
+             (unsigned)overflowTasks,
+             (unsigned)observedTasks);
+    } else {
+        LOGD("Stack baseline tasks=%u low=%u",
+             (unsigned)observedTasks,
+             (unsigned)lowTasks);
+    }
+
+    if (removedEndedTasks > 0U) {
+        LOGD("Stack pruned ended tasks=%u", (unsigned)removedEndedTasks);
     }
 #else
     static bool warnedNoTraceFacility = false;
@@ -426,157 +572,7 @@ void SystemMonitorModule::logTaskStacks() {
         warnedNoTraceFacility = true;
         LOGW("Stack task monitoring disabled (configUSE_TRACE_FACILITY not enabled)");
     }
-    return;
 #endif
-
-    uint8_t n = moduleManager->getTaskEntryCount();
-    for (uint8_t i = 0; i < n; ++i) {
-        const ModuleManager::TaskEntry* task = moduleManager->getTaskEntry(i);
-        if (!task || !task->module) continue;
-
-        // Snapshot the task handle once to avoid a race where another core
-        // clears/replaces it between validation and the watermark query.
-        const TaskHandle_t taskHandle = task->handle;
-        if (!taskHandle) {
-            ++skippedInvalidHandles;
-            continue;
-        }
-
-        const ModuleTaskSpec* specs = task->module->taskSpecs();
-        const uint8_t taskCount = task->module->taskCount();
-        if (!specs || task->taskIndex >= taskCount) continue;
-        const ModuleTaskSpec spec = specs[task->taskIndex];
-
-        UBaseType_t hw = 0;
-#if defined(configUSE_TRACE_FACILITY) && (configUSE_TRACE_FACILITY == 1)
-        const TaskStatus_t* liveTask = nullptr;
-        for (UBaseType_t t = 0; t < liveTaskCount; ++t) {
-            if (liveTasks[t].xHandle == taskHandle) {
-                liveTask = &liveTasks[t];
-                break;
-            }
-        }
-        if (!liveTask) {
-            if (moduleManager->removeTaskEntry(taskHandle)) {
-                ++removedEndedTasks;
-                --n;
-                --i;
-            } else {
-                ++skippedInvalidHandles;
-            }
-            continue;
-        }
-        if (!isLikelyValidTaskHandle_(taskHandle)) {
-            ++skippedInvalidHandles;
-            continue;
-        }
-        hw = (UBaseType_t)liveTask->usStackHighWaterMark;
-#else
-        ++skippedInvalidHandles;
-        continue;
-#endif
-        hasTask = true;
-        const bool isMqttWorker = task->module->moduleId() == ModuleId::Mqtt;
-        const bool isLow = isMqttWorker ? (hw < 1536U) : (hw < 300U);
-
-        char entry[80];
-        const int ew = isMqttWorker
-            ? snprintf(entry, sizeof(entry), "%s/%s@c%ld size=%luB free_min=%uB%s",
-                       toString(task->module->moduleId()),
-                       spec.name ? spec.name : "?",
-                       (long)spec.coreId,
-                       (unsigned long)spec.stackSize,
-                       (unsigned)hw,
-                       isLow ? "!" : "")
-            : snprintf(entry, sizeof(entry), "%s/%s@c%ld=%u%s",
-                       toString(task->module->moduleId()),
-                       spec.name ? spec.name : "?",
-                       (long)spec.coreId,
-                       (unsigned)hw,
-                       isLow ? "!" : "");
-        if (ew < 0) continue;
-
-        const size_t entryLen = (size_t)ew;
-        const size_t sepLen = (tasksOnLine > 0) ? 1U : 0U;
-
-        if (tasksOnLine >= kMaxTasksPerLine || (off + sepLen + entryLen) > kLineMsgBudget) {
-            if (tasksOnLine > 0) {
-                LOGD("Stack %s", line);
-            }
-            off = 0;
-            line[0] = '\0';
-            tasksOnLine = 0;
-        }
-
-        if ((off + sepLen + entryLen) > kLineMsgBudget) {
-            continue;
-        }
-
-        if (sepLen) {
-            line[off++] = ' ';
-            line[off] = '\0';
-        }
-        memcpy(line + off, entry, entryLen + 1);
-        off += entryLen;
-        ++tasksOnLine;
-
-        if (tasksOnLine >= kMaxTasksPerLine) {
-            LOGD("Stack %s", line);
-            off = 0;
-            line[0] = '\0';
-            tasksOnLine = 0;
-        }
-    }
-
-    if (!hasTask) {
-        LOGD("Stack none");
-        if (skippedInvalidHandles > 0U) {
-            LOGW("Stack skipped invalid handles=%u", (unsigned)skippedInvalidHandles);
-        }
-        if (removedEndedTasks > 0U) {
-            LOGD("Stack pruned ended tasks=%u", (unsigned)removedEndedTasks);
-        }
-        return;
-    }
-
-    if (tasksOnLine > 0) {
-        LOGD("Stack %s", line);
-    }
-#if defined(configUSE_TRACE_FACILITY) && (configUSE_TRACE_FACILITY == 1)
-    for (UBaseType_t t = 0; t < liveTaskCount; ++t) {
-        const char* name = liveTasks[t].pcTaskName;
-        if (!name) continue;
-        if (strcmp(name, "async_tcp") != 0 &&
-            strcmp(name, "mqtt_task") != 0 &&
-            strcmp(name, "esp_mqtt_task") != 0) {
-            continue;
-        }
-        const UBaseType_t hw = (UBaseType_t)liveTasks[t].usStackHighWaterMark;
-        if (strcmp(name, "async_tcp") == 0) {
-            const uint32_t configuredBytes = (uint32_t)CONFIG_ASYNC_TCP_STACK_SIZE;
-            const uint32_t minFreeBytes = (uint32_t)hw;
-            const uint32_t maxUsedBytes =
-                (minFreeBytes < configuredBytes) ? (configuredBytes - minFreeBytes) : 0U;
-            LOGD("Stack external/%s size=%luB used_max=%luB free_min=%luB%s",
-                 name,
-                 (unsigned long)configuredBytes,
-                 (unsigned long)maxUsedBytes,
-                 (unsigned long)minFreeBytes,
-                 (minFreeBytes < 2048U) ? "!" : "");
-        } else {
-            LOGD("Stack external/%s free_min=%uB%s",
-                 name,
-                 (unsigned)hw,
-                 (hw < 1024U) ? "!" : "");
-        }
-    }
-#endif
-    if (skippedInvalidHandles > 0U) {
-        LOGW("Stack skipped invalid handles=%u", (unsigned)skippedInvalidHandles);
-    }
-    if (removedEndedTasks > 0U) {
-        LOGD("Stack pruned ended tasks=%u", (unsigned)removedEndedTasks);
-    }
 }
 
 void SystemMonitorModule::logTrackedBuffers()
@@ -926,7 +922,7 @@ void SystemMonitorModule::pollMemoryPressureReboot_(uint32_t now)
     }
     if (cmdSvc_ && cmdSvc_->execute) {
         char reply[160] = {0};
-        (void)cmdSvc_->execute(cmdSvc_->ctx, "system.reboot", "{}", nullptr, reply, sizeof(reply));
+        (void)cmdSvc_->execute(cmdSvc_->ctx, "system.reboot", "{}", nullptr, systemActor(), reply, sizeof(reply));
     }
     vTaskDelay(pdMS_TO_TICKS(150));
     esp_restart();
@@ -1068,7 +1064,7 @@ void SystemMonitorModule::pollWebWatchdog_(uint32_t now)
     LOGE("Web watchdog threshold reached, reboot requested");
     if (cmdSvc_ && cmdSvc_->execute) {
         char reply[160] = {0};
-        (void)cmdSvc_->execute(cmdSvc_->ctx, "system.reboot", "{}", nullptr, reply, sizeof(reply));
+        (void)cmdSvc_->execute(cmdSvc_->ctx, "system.reboot", "{}", nullptr, systemActor(), reply, sizeof(reply));
     }
     vTaskDelay(pdMS_TO_TICKS(150));
     esp_restart();

@@ -53,6 +53,13 @@ private:
     // The buffer is allocated once during init and retained for the firmware lifetime.
     static constexpr size_t kTaskStatusSnapshotCapacity =
         Limits::Core::Capacity::MaxModuleTasks + 32U;
+    // Per-task running minimum of the FreeRTOS stack high-water mark. The table
+    // is sized for every task visible through uxTaskGetSystemState and is
+    // allocated once in PSRAM so it survives task recreation during the run.
+    static constexpr size_t kStackBaselineCapacity = kTaskStatusSnapshotCapacity;
+    static constexpr size_t kStackBaselineNameLen = configMAX_TASK_NAME_LEN;
+    static constexpr uint32_t kStackBaselineLowFreeBytes = 512U;
+    static constexpr uint32_t kStackBaselineMqttLowFreeBytes = 1536U;
     static constexpr uint32_t kHeapWatchSamplePeriodMs = 50U;
     static constexpr uint32_t kHeapWatchTripFreeBytes = 2048U;
     static constexpr uint32_t kHeapWatchRecoverFreeBytes = 8192U;
@@ -63,6 +70,12 @@ private:
 #ifdef CONFIG_HEAP_TASK_TRACKING
     static constexpr size_t kHeapWatchTaskTotalsMax = 12U;
 #endif
+
+    struct StackBaselineEntry {
+        char name[kStackBaselineNameLen] = {0};
+        uint32_t configuredBytes = 0;
+        uint32_t minFreeBytes = 0;
+    };
 
     struct HeapWatchSample {
         uint32_t uptimeMs = 0;
@@ -105,6 +118,8 @@ private:
     const LogHubService* logHub = nullptr;
     const HAService* haSvc_ = nullptr;
     TaskStatus_t* taskStatusSnapshot_ = nullptr;
+    StackBaselineEntry* stackBaselines_ = nullptr;
+    size_t stackBaselineCount_ = 0;
     bool haEntitiesRegistered_ = false;
 
     uint32_t lastJsonDumpMs = 0;
@@ -142,6 +157,7 @@ private:
     void logBootInfo();
     void logHeapStats();
     void logTaskStacks();
+    StackBaselineEntry* stackBaselineFor_(const char* taskName);
     void logTrackedBuffers();
     void pollHeapWatch_(uint32_t now);
     void appendHeapWatchSample_(const SystemStatsSnapshot& snap);

@@ -97,3 +97,50 @@ bool parsePoolDriverConfig(const char* json, PoolDriverConfig& out, char* error,
     if (error && errorSize) error[0] = '\0';
     return true;
 }
+
+bool serializePoolDriverConfig(const PoolDriverConfig& c, char* out, size_t size)
+{
+    if (!out || !size || !validatePoolDriverConfig(c)) return false;
+    SpiRamJsonDocument doc(6144);
+    doc["kind"] = uint8_t(c.capabilities.kind); doc["unit"] = uint8_t(c.capabilities.unit);
+    doc["minimum"] = c.capabilities.minimum; doc["maximum"] = c.capabilities.maximum;
+    doc["startup"] = c.capabilities.startup;
+    doc["dependency_minimum"] = c.dependencyMinimum; doc["dependency_confirmed"] = c.requireConfirmedDependency;
+    if (c.flowPointCount) {
+        auto curve = doc.createNestedArray("flow_curve");
+        for (uint8_t i = 0; i < c.flowPointCount; ++i) {
+            auto point = curve.createNestedArray(); point.add(c.flowPoints[i].setpoint); point.add(c.flowPoints[i].litresPerHour);
+        }
+    }
+    if (c.capabilities.kind != PoolControlKind::Rs485) {
+        auto outputs = doc.createNestedArray("outputs");
+        const uint8_t count = c.capabilities.kind == PoolControlKind::Discrete ? c.capabilities.stepCount : 1;
+        for (uint8_t i = 0; i < count; ++i) outputs.add(c.outputs[i]);
+        if (c.capabilities.kind == PoolControlKind::Discrete) {
+            auto steps = doc.createNestedArray("steps");
+            for (uint8_t i = 0; i < count; ++i) steps.add(c.capabilities.steps[i]);
+            doc["dead_ms"] = c.breakBeforeMakeMs;
+        } else if (c.capabilities.kind == PoolControlKind::Analog) {
+            doc["gain"] = c.analogGain; doc["offset"] = c.analogOffset; doc["off"] = c.analogOff;
+        }
+    } else {
+        const auto& s = c.serial;
+        auto serial = doc.createNestedObject("serial");
+        serial["protocol"] = uint8_t(s.protocol); serial["bus"] = s.line.busId; serial["address"] = s.address;
+        serial["baud"] = s.line.baud; serial["parity"] = s.line.parity; serial["stop_bits"] = s.line.stopBits;
+        serial["quiet_ms"] = s.line.quietMs; serial["late_guard_ms"] = s.line.lateResponseGuardMs;
+        serial["timeout_ms"] = s.timeoutMs; serial["poll_ms"] = s.pollMs; serial["stale_ms"] = s.staleMs;
+        serial["retries"] = s.retries; serial["has_feedback"] = s.hasFeedback;
+        serial["run_value"] = s.runValue; serial["stop_value"] = s.stopValue; serial["running_mask"] = s.runningMask;
+        serial["raw_per_unit"] = s.rawPerUnit; serial["raw_offset"] = s.rawOffset;
+        serial["feedback_gain"] = s.feedbackUnitsPerRaw; serial["feedback_offset"] = s.feedbackOffset;
+        const char* names[] = {"run", "setpoint", "status", "feedback"};
+        const PoolRegisterOperation* ops[] = {&s.run, &s.setpoint, &s.status, &s.feedback};
+        for (uint8_t i = 0; i < 4; ++i) {
+            auto op = serial.createNestedObject(names[i]);
+            op["address"] = ops[i]->address; op["function"] = ops[i]->function; op["layout"] = uint8_t(ops[i]->operation);
+        }
+    }
+    if (doc.overflowed() || measureJson(doc) >= size) return false;
+    serializeJson(doc, out, size); return true;
+}

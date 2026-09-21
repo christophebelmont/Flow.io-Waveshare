@@ -110,7 +110,7 @@ void MQTTModule::processRxCmd_(const RxMsg& msg)
     }
 
     const bool ok = cmdSvc_->execute(
-        cmdSvc_->ctx, cmd, msg.payload, argsJson, scratch_->reply, sizeof(scratch_->reply)
+        cmdSvc_->ctx, cmd, msg.payload, argsJson, systemActor(), scratch_->reply, sizeof(scratch_->reply)
     );
     if (!ok) {
         publishRxError_(MqttTopics::SuffixAck, ErrorCode::CmdHandlerFailed, "cmd", false);

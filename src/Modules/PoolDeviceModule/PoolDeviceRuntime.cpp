@@ -50,25 +50,12 @@ bool PoolDeviceModule::defineDevice(const PoolDeviceDefinition& def)
         strncpy(s.def.label, s.id, sizeof(s.def.label) - 1);
         s.def.label[sizeof(s.def.label) - 1] = '\0';
     }
-    if (s.def.ioSlot == IO_SLOT_INVALID) {
-        LOGW("Pool device %s missing IO slot binding", s.id);
-        s.used = false;
-        unlockState_();
-        return false;
+    s.driverConfig = def.control;
+    if (!serializePoolDriverConfig(def.control, s.driverJson, sizeof(s.driverJson))) {
+        LOGW("Pool device %s has invalid default control configuration", s.id);
+        s.used = false; unlockState_(); return false;
     }
-    if (ioSlotKind(s.def.ioSlot) != IO_SLOT_DIGITAL_OUTPUT) {
-        LOGW("Pool device %s IO slot is not a digital output", s.id);
-        s.used = false;
-        unlockState_();
-        return false;
-    }
-    s.ioId = ioIdFromSlot(s.def.ioSlot);
-    if (s.ioId == IO_ID_INVALID) {
-        LOGW("Pool device %s IO slot cannot resolve ioId", s.id);
-        s.used = false;
-        unlockState_();
-        return false;
-    }
+    s.ioId = def.control.capabilities.kind == PoolControlKind::Relay ? def.control.outputs[0] : IO_ID_INVALID;
     if (s.def.maxUptimeDaySec < 0) {
         s.def.maxUptimeDaySec = 0;
     }
@@ -217,6 +204,7 @@ bool PoolDeviceModule::buildStateSnapshot_(uint8_t slotIdx, char* out, size_t le
     doc["desired"] = entry.desiredOn;
     doc["on"] = entry.actualOn;
     doc["block"] = blockReasonStr_(entry.blockReason);
+    doc["interlock_state"] = static_cast<uint8_t>(entry.interlockState);
     doc["driver_ready"] = s.driverReady;
     doc["driver_error"] = s.driverError;
     doc["kind"] = uint8_t(s.driverConfig.capabilities.kind);
@@ -361,6 +349,7 @@ bool PoolDeviceModule::configureRuntime_()
         s.driverReady = configureDriver_(i);
         s.runtimePublishable = true;
         s.actualOn = s.desiredOn = false;
+        s.interlockState = PoolInterlockState::Ready;
         s.desired = {false, s.driverConfig.capabilities.startup};
         s.effective = s.desired;
         s.blockReason = s.driverReady ? POOL_DEVICE_BLOCK_NONE : POOL_DEVICE_BLOCK_UNBOUND;

@@ -420,12 +420,6 @@ void syncSwitches(const DomainSpec& domain, ModuleInstances& modules)
         const PoolDevicePreset& device = domain.poolDevices[i];
         const DomainSlotPreset* commandSlot = findDomainSlotById(domain, device.commandSlot);
         if (!commandSlot) continue;
-        const IoSlotId ioSlot = findIoSlotForDomainSlot(domain, device.commandSlot);
-        if (ioSlot == IO_SLOT_INVALID || ioSlotKind(ioSlot) != IO_SLOT_DIGITAL_OUTPUT) continue;
-
-        const uint8_t logical = ioSlotIndex(ioSlot);
-        if (!modules.ioModule.digitalOutputSlotWritable(logical)) continue;
-
         snprintf(
             gDiscoveryHeap->switchStateSuffix[i],
             sizeof(gDiscoveryHeap->switchStateSuffix[i]),

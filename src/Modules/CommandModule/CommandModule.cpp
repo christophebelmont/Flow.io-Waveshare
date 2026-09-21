@@ -12,8 +12,8 @@ bool CommandModule::registerHandler_(const char* cmd, CommandHandler fn, void* u
 }
 
 bool CommandModule::execute_(const char* cmd, const char* json, const char* args,
-                             char* reply, size_t replyLen) {
-    return registry.execute(cmd, json, args, reply, replyLen);
+                             const Actor& actor, char* reply, size_t replyLen) {
+    return registry.execute(cmd, json, args, actor, reply, replyLen);
 }
 
 void CommandModule::init(ConfigStore&, ServiceRegistry& services) {

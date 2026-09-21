@@ -110,7 +110,6 @@ Le remplacement dynamique d'un service pendant l'exécution n'est pas utilisé d
 | `FlowCfg` | `flowcfg` | `FlowCfgRemoteService` |
 | `I2cBus` | `i2c_bus` | `I2cBusService` |
 | `ModbusMaster` | `modbus_master` | `ModbusMasterService` |
-| `VariableSpeedPump` | `variable_speed_pump` | `VariableSpeedPumpService` |
 
 La présence effective d'un service dépend du profil compilé et des modules enregistrés par ce profil.
 

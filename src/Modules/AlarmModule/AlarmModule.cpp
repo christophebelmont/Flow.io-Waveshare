@@ -91,7 +91,7 @@ void AlarmModule::emitAlarmEvent_(EventId id, AlarmId alarmId) const
     (void)eventBus_->post(id, &payload, sizeof(payload), ModuleId::Alarm);
 }
 
-void AlarmModule::emitAlarmActivity_(ActivityCode code, AlarmId alarmId)
+void AlarmModule::emitAlarmActivity_(ActivityCode code, AlarmId alarmId, const Actor& actor)
 {
     if (!activityLogSvc_ || !activityLogSvc_->emit) return;
 
@@ -109,6 +109,7 @@ void AlarmModule::emitAlarmActivity_(ActivityCode code, AlarmId alarmId)
     if (!found || !def.activityLogEnabled) return;
 
     ActivityEvent event{};
+    event.actor = actor;
     event.code = (uint16_t)code;
     event.alarmId = (uint16_t)alarmId;
     event.domain = (uint8_t)ActivityDomain::Alarm;
@@ -259,6 +260,11 @@ bool AlarmModule::registerAlarm_(const AlarmRegistration& def, AlarmCondFn condF
 
 bool AlarmModule::reset_(AlarmId id)
 {
+    return resetWithActor_(id, systemActor());
+}
+
+bool AlarmModule::resetWithActor_(AlarmId id, const Actor& actor)
+{
     bool postReset = false;
     bool warnConditionTrue = false;
     bool warnNotActive = false;
@@ -296,7 +302,7 @@ bool AlarmModule::reset_(AlarmId id)
              condStateStr_(resetCond));
         LOGI("Alarm reset id=%u code=%s", (unsigned)id, alarmCode[0] ? alarmCode : "?");
         emitAlarmEvent_(EventId::AlarmReset, id);
-        emitAlarmActivity_(ActivityCode::AlarmReset, id);
+        emitAlarmActivity_(ActivityCode::AlarmReset, id, actor);
         emitAlarmEvent_(EventId::AlarmCleared, id);
     } else if (warnConditionTrue) {
         LOGW("Alarm reset denied id=%u code=%s cond=true active=1 latched=1",
@@ -315,6 +321,11 @@ bool AlarmModule::reset_(AlarmId id)
 
 uint8_t AlarmModule::resetAll_()
 {
+    return resetAllWithActor_(systemActor());
+}
+
+uint8_t AlarmModule::resetAllWithActor_(const Actor& actor)
+{
     AlarmId pending[Limits::Alarm::MaxAlarms]{};
     uint8_t pendingCount = 0;
 
@@ -330,7 +341,7 @@ uint8_t AlarmModule::resetAll_()
 
     uint8_t resetCount = 0;
     for (uint8_t i = 0; i < pendingCount; ++i) {
-        if (reset_(pending[i])) ++resetCount;
+        if (resetWithActor_(pending[i], actor)) ++resetCount;
     }
     return resetCount;
 }
@@ -609,7 +620,7 @@ bool AlarmModule::handleCmdReset_(const CommandRequest& req, char* reply, size_t
 
     const uint32_t idRaw = args["id"].as<uint32_t>();
     const AlarmId id = (AlarmId)((uint16_t)idRaw);
-    if (!reset_(id)) {
+    if (!resetWithActor_(id, req.actor)) {
         if (!writeErrorJson(reply, replyLen, ErrorCode::Failed, "alarms.reset")) {
             snprintf(reply, replyLen, "{\"ok\":false}");
         }
@@ -661,7 +672,7 @@ bool AlarmModule::handleCmdResetSlot_(const CommandRequest& req, char* reply, si
         return false;
     }
 
-    if (!reset_(id)) {
+    if (!resetWithActor_(id, req.actor)) {
         if (!writeErrorJson(reply, replyLen, ErrorCode::Failed, "alarms.reset_slot")) {
             snprintf(reply, replyLen, "{\"ok\":false}");
         }
@@ -687,11 +698,11 @@ bool AlarmModule::cmdResetSlot_(void* userCtx, const CommandRequest& req, char* 
     return self->handleCmdResetSlot_(req, reply, replyLen);
 }
 
-bool AlarmModule::cmdResetAll_(void* userCtx, const CommandRequest&, char* reply, size_t replyLen)
+bool AlarmModule::cmdResetAll_(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen)
 {
     AlarmModule* self = static_cast<AlarmModule*>(userCtx);
     if (!self) return false;
-    const uint8_t resetCount = self->resetAll_();
+    const uint8_t resetCount = self->resetAllWithActor_(req.actor);
     snprintf(reply, replyLen, "{\"ok\":true,\"reset\":%u}", (unsigned)resetCount);
     return true;
 }
@@ -919,17 +930,17 @@ void AlarmModule::evaluateOnce_(uint32_t nowMs)
         if (postRaised) {
             noteAlarmNotified_(id, nowMs);
             emitAlarmEvent_(EventId::AlarmRaised, id);
-            emitAlarmActivity_(ActivityCode::AlarmRaised, id);
+            emitAlarmActivity_(ActivityCode::AlarmRaised, id, systemActor());
         } else if (postCleared) {
             noteAlarmNotified_(id, nowMs);
             emitAlarmEvent_(EventId::AlarmCleared, id);
-            emitAlarmActivity_(ActivityCode::AlarmConditionOk, id);
+            emitAlarmActivity_(ActivityCode::AlarmConditionOk, id, systemActor());
         } else if (postCondTrue || postCondFalse) {
             noteAlarmNotified_(id, nowMs);
             emitAlarmEvent_(EventId::AlarmConditionChanged, id);
         }
         if (postConditionOk) {
-            emitAlarmActivity_(ActivityCode::AlarmConditionOk, id);
+            emitAlarmActivity_(ActivityCode::AlarmConditionOk, id, systemActor());
         }
     }
 }

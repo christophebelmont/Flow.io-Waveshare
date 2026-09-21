@@ -187,6 +187,13 @@ void ActivityLogModule::normalizeEvent_(ActivityEvent& event)
     event.title[sizeof(event.title) - 1U] = '\0';
     event.detail[sizeof(event.detail) - 1U] = '\0';
     event.icon[sizeof(event.icon) - 1U] = '\0';
+    event.actor.username[sizeof(event.actor.username) - 1U] = '\0';
+    if (event.actor.kind == ActorKind::User && event.actor.username[0] == '\0') {
+        event.actor.kind = ActorKind::System;
+    }
+    if (event.actor.kind == ActorKind::System) {
+        event.actor.username[0] = '\0';
+    }
     if (event.icon[0] == '\0') {
         copyText_(event.icon, sizeof(event.icon), "history");
     }
@@ -301,7 +308,7 @@ bool ActivityLogModule::formatLine_(const ActivityEvent& event, char* out, size_
 {
     if (!out || outLen == 0U) return false;
     out[0] = '\0';
-    StaticJsonDocument<512> doc;
+    StaticJsonDocument<640> doc;
     doc["seq"] = event.seq;
     doc["ts"] = event.ts_ms;
     doc["epoch"] = event.epoch_s;
@@ -314,6 +321,8 @@ bool ActivityLogModule::formatLine_(const ActivityEvent& event, char* out, size_
     doc["state"] = event.state;
     doc["reason"] = event.reason;
     doc["slot"] = event.targetSlot;
+    doc["actor_kind"] = (uint8_t)event.actor.kind;
+    doc["actor"] = event.actor.username;
     doc["title"] = event.title;
     doc["detail"] = event.detail;
     doc["icon"] = event.icon;
@@ -324,7 +333,7 @@ bool ActivityLogModule::formatLine_(const ActivityEvent& event, char* out, size_
 bool ActivityLogModule::parseLine_(const char* line, ActivityEvent& out) const
 {
     if (!line || line[0] == '\0') return false;
-    StaticJsonDocument<512> doc;
+    StaticJsonDocument<640> doc;
     if (deserializeJson(doc, line) != DeserializationError::Ok) return false;
 
     out = {};
@@ -340,6 +349,8 @@ bool ActivityLogModule::parseLine_(const char* line, ActivityEvent& out) const
     out.state = doc["state"] | (uint8_t)ActivityState::None;
     out.reason = doc["reason"] | (uint8_t)ActivityReason::None;
     out.targetSlot = doc["slot"] | ACTIVITY_TARGET_NONE;
+    out.actor.kind = (ActorKind)(doc["actor_kind"] | (uint8_t)ActorKind::System);
+    copyText_(out.actor.username, sizeof(out.actor.username), doc["actor"] | "");
     copyText_(out.title, sizeof(out.title), doc["title"] | "");
     copyText_(out.detail, sizeof(out.detail), doc["detail"] | "");
     copyText_(out.icon, sizeof(out.icon), doc["icon"] | "history");

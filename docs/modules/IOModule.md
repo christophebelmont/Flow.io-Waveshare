@@ -337,3 +337,9 @@ Cette synchronisation repose sur:
 - les compteurs digitaux peuvent être persistés en NVS
 - le module maintient `IoCycleInfo` pour exposer la liste des `IoId` modifiés sur le dernier cycle
 - les labels exposés par `endpointLabel()` viennent des définitions construites par le profil
+
+## Commande des équipements
+
+Le module expose également la réservation des sorties, `writeAnalog`, les endpoints analogiques `o00..o03` déclarés par le profil et une tâche RS485 dédiée à un tick FreeRTOS. La boucle d'acquisition IO reste séparée. Le service de registres accepte un profil série par transaction et le format explicite Vendor Register RTU en plus du Modbus standard.
+
+Voir [Pilotage des équipements](PoolActuators.md) pour les descripteurs, les fonctions constructeur, la distinction commande/observation et les limites matérielles.

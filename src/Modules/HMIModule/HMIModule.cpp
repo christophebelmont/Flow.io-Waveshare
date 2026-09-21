@@ -2449,7 +2449,7 @@ bool HMIModule::executeCommandBool_(const char* cmdName, bool value)
     char reply[192]{};
     snprintf(args, sizeof(args), "{\"value\":%s}", value ? "true" : "false");
 
-    const bool ok = cmdSvc_->execute(cmdSvc_->ctx, cmdName, args, nullptr, reply, sizeof(reply));
+    const bool ok = cmdSvc_->execute(cmdSvc_->ctx, cmdName, args, nullptr, systemActor(), reply, sizeof(reply));
     if (!ok) {
         LOGW("HMI command failed cmd=%s args=%s reply=%s",
              cmdName,
@@ -2476,7 +2476,7 @@ bool HMIModule::executePoolDeviceWrite_(uint8_t slot, bool value)
     char reply[192]{};
     snprintf(args, sizeof(args), "{\"slot\":%u,\"value\":%s}", (unsigned)slot, value ? "true" : "false");
 
-    const bool ok = cmdSvc_->execute(cmdSvc_->ctx, "pooldevice.write", args, nullptr, reply, sizeof(reply));
+    const bool ok = cmdSvc_->execute(cmdSvc_->ctx, "pooldevice.write", args, nullptr, systemActor(), reply, sizeof(reply));
     if (!ok) {
         LOGW("HMI command failed cmd=pooldevice.write args=%s reply=%s",
              args,

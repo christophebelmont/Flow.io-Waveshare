@@ -1301,7 +1301,8 @@ void PoolLogicModule::emitStartupActivityIfReady_(uint32_t nowMs)
                       ACTIVITY_TARGET_NONE,
                       "PoolLogic est prêt",
                       "Les automatismes piscine sont initialisés.",
-                      "pool");
+                      "pool",
+                      systemActor());
     } else {
         emitActivity_(ActivityCode::PoolLogicDisabled,
                       ActivitySource::System,
@@ -1312,7 +1313,8 @@ void PoolLogicModule::emitStartupActivityIfReady_(uint32_t nowMs)
                       ACTIVITY_TARGET_NONE,
                       "PoolLogic est désactivé",
                       "Les automatismes piscine ne pilotent pas les équipements.",
-                      "toggle_off");
+                      "toggle_off",
+                      systemActor());
     }
     startupActivityPending_ = false;
 }

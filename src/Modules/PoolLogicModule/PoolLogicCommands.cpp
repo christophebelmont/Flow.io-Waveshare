@@ -152,7 +152,7 @@ bool PoolLogicModule::cmdDeviceWrite_(const CommandRequest& req, char* reply, si
     const PoolManualDeviceSlots roles{filtrationDeviceSlot_, phPumpDeviceSlot_, orpPumpDeviceSlot_,
                                      robotDeviceSlot_, heaterDeviceSlot_, swgDeviceSlot_};
     const char* command = poolManualDeviceWriteCommand(args["slot"].as<uint8_t>(), roles);
-    return commandSvc_->execute(commandSvc_->ctx, command, req.json, req.args, reply, replyLen);
+    return commandSvc_->execute(commandSvc_->ctx, command, req.json, req.args, req.actor, reply, replyLen);
 }
 
 bool PoolLogicModule::cmdFiltrationWrite_(const CommandRequest& req, char* reply, size_t replyLen)
@@ -187,7 +187,8 @@ bool PoolLogicModule::cmdFiltrationWrite_(const CommandRequest& req, char* reply
     if (wasAutoMode) {
         emitAutoModeDisabledByManualActivity_(ActivityRole::Filtration,
                                               filtrationDeviceSlot_,
-                                              "filtration");
+                                              "filtration",
+                                              req.actor);
     }
 
     const PoolDeviceSvcStatus st = poolSvc_->setRunning(poolSvc_->ctx, filtrationDeviceSlot_, requested ? 1U : 0U);
@@ -339,7 +340,8 @@ bool PoolLogicModule::cmdMqttControl_(const CommandRequest& req, char* reply, si
         if (disabledAutoMode) {
             emitAutoModeDisabledByManualActivity_(ActivityRole::Filtration,
                                                   slot,
-                                                  "filtration");
+                                                  "filtration",
+                                                  req.actor);
         }
 
         // Keep behavior aligned with pooldevice.write: manual pump start disables
@@ -373,11 +375,13 @@ bool PoolLogicModule::cmdMqttControl_(const CommandRequest& req, char* reply, si
                 if (disabledPhAutoMode) {
                     emitAutoModeDisabledByManualActivity_(ActivityRole::Ph,
                                                           slot,
-                                                          "pH");
+                                                          "pH",
+                                                          req.actor);
                 } else if (disabledOrpAutoMode || disabledDisinfection) {
                     emitAutoModeDisabledByManualActivity_(ActivityRole::Disinfection,
                                                           slot,
-                                                          "ORP");
+                                                          "ORP",
+                                                          req.actor);
                 }
             }
         }

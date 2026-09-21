@@ -34,8 +34,8 @@ struct PoolDeviceDefinition {
     uint8_t slot = 0xFF;
     /** Optional domain actuator slot used by this pool device command path. */
     DomainSlotId commandSlot = DOMAIN_SLOT_INVALID;
-    /** Generic IO output slot driven by this pool device. */
-    IoSlotId ioSlot = IO_SLOT_INVALID;
+    /** Complete default driver descriptor, replaced by the configured descriptor at boot. */
+    PoolDriverConfig control{};
     uint8_t type = POOL_DEVICE_RELAY_STD;
     bool enabled = true;
     float flowLPerHour = 0.0f;     // used for dosing volumes
@@ -125,6 +125,7 @@ private:
         uint32_t revision = 0;
         bool desiredOn = false;
         bool actualOn = false;
+        PoolInterlockState interlockState = PoolInterlockState::Ready;
         uint8_t blockReason = POOL_DEVICE_BLOCK_NONE;
         bool runtimePublishable = false;
 
@@ -220,8 +221,12 @@ private:
                        uint8_t slot,
                        const char* title,
                        const char* detail,
-                       const char* icon) const;
-    void emitAutoModeDisabledByManualActivity_(ActivityRole role, uint8_t slot, const char* autoLabel) const;
+                       const char* icon,
+                       const Actor& actor) const;
+    void emitAutoModeDisabledByManualActivity_(ActivityRole role,
+                                               uint8_t slot,
+                                               const char* autoLabel,
+                                               const Actor& actor) const;
     ActivityRole activityRoleForSlot_(uint8_t slot) const;
     bool ensureStorage_();
     bool lockState_(TickType_t timeoutTicks = pdMS_TO_TICKS(200)) const;

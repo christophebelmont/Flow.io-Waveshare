@@ -30,7 +30,7 @@ private:
     static constexpr uint16_t kCapacity = 768;
     static constexpr uint8_t kPersistQueueLen = 24;
     static constexpr size_t kFileMaxBytes = 96U * 1024U;
-    static constexpr size_t kLineMax = 448U;
+    static constexpr size_t kLineMax = 512U;
     static constexpr uint32_t kBootEventMaxDelayMs = 30000U;
     static constexpr const char* kLogPath = "/activity.log";
     static constexpr const char* kRotatedLogPath = "/activity.1.log";

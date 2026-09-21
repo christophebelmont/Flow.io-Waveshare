@@ -7,6 +7,7 @@
  * Lifecycle translation units.
  */
 
+#include "Core/Actor.h"
 #include "Core/Module.h"
 #include "Core/ServiceBinding.h"
 #include "Core/Services/Services.h"
@@ -130,8 +131,12 @@ private:
     void dumpBootLogCapture_(AsyncWebSocketClient* client);
     void sendBootLogHttpResponse_(AsyncWebServerRequest* request, bool statusOnly);
     void sendActivityLogHttpResponse_(AsyncWebServerRequest* request, bool statusOnly);
-    void emitConfigActivity_(const char* contextLabel, const char* modulesLabel, uint16_t fieldCount);
-    void emitConfigPatchActivity_(const char* contextLabel, const char* patchJson);
+    void emitConfigActivity_(const char* contextLabel,
+                             const char* modulesLabel,
+                             uint16_t fieldCount,
+                             const Actor& actor);
+    void emitConfigPatchActivity_(const char* contextLabel, const char* patchJson, const Actor& actor);
+    bool resolveRequestActor_(AsyncWebServerRequest* request, Actor& out);
     bool initLocalLogQueue_();
     void freeLocalLogQueue_();
 

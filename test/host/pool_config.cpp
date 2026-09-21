@@ -13,5 +13,11 @@ int main() {
     assert(parsePoolDriverConfig("{\"kind\":3,\"serial\":{\"protocol\":1,\"baud\":19200,\"run\":{\"function\":208},\"setpoint\":{\"function\":208},\"status\":{\"function\":195},\"feedback\":{\"function\":195},\"has_feedback\":true}}",c,error,sizeof(error)));
     assert(parsePoolDriverConfig("{\"kind\":2,\"outputs\":[256],\"flow_curve\":[[0,0],[50,800],[100,2400]]}",c,error,sizeof(error)));
     assert(c.flowPointCount==3);
+    char encoded[POOL_DRIVER_CONFIG_BYTES]; PoolDriverConfig decoded;
+    assert(serializePoolDriverConfig(c,encoded,sizeof(encoded)));
+    assert(parsePoolDriverConfig(encoded,decoded,error,sizeof(error)) && decoded.flowPointCount==3);
+    assert(parsePoolDriverConfig("{\"kind\":3,\"serial\":{\"baud\":19200}}",c,error,sizeof(error)));
+    assert(serializePoolDriverConfig(c,encoded,sizeof(encoded)));
+    assert(parsePoolDriverConfig(encoded,decoded,error,sizeof(error)) && decoded.serial.line.baud==19200);
     puts("pool config tests passed");
 }

@@ -2524,6 +2524,13 @@
       return dayText;
     }
 
+    function formatActivityActor(ev) {
+      if (ev && String(ev.actor_kind || '') === 'user' && ev.actor) {
+        return 'par ' + String(ev.actor);
+      }
+      return 'Système';
+    }
+
     function formatActivityRelative(date) {
       if (!date) return 'heure non synchronisée';
       const diffSec = Math.max(0, Math.round((Date.now() - date.getTime()) / 1000));
@@ -2645,7 +2652,7 @@
         title.appendChild(strong);
         const meta = document.createElement('div');
         meta.className = 'activity-row-meta';
-        meta.textContent = formatActivityRelative(date);
+        meta.textContent = formatActivityRelative(date) + ' · ' + formatActivityActor(ev);
         main.appendChild(title);
         if (ev.detail) {
           const detail = document.createElement('div');
@@ -5473,6 +5480,29 @@
       return badge;
     }
 
+    function createIoDeviceStateBadge(row) {
+      const badge = createIoStateBadge(row.state);
+      const device = row.pool_device;
+      if (!device || !device.enabled || (device.block_code !== 0 && device.block_code !== 2)) return badge;
+      switch (device.interlock_state) {
+        case 1:
+          badge.title = tr('io.interlock.unavailable', 'Démarrage indisponible : dépendance non satisfaite');
+          break;
+        case 2:
+          badge.textContent = tr('io.interlock.rejected', 'Bloqué par interlock');
+          badge.title = tr('io.interlock.unavailable', 'Démarrage indisponible : dépendance non satisfaite');
+          return badge;
+        case 3:
+          badge.textContent = tr('io.interlock.stopped', 'Arrêt de sécurité : interlock');
+          return badge;
+      }
+      if (row.state === 'active' && !device.actual_on) {
+        badge.className = 'io-state-badge is-sleeping';
+        badge.textContent = tr('io.state.stopped', 'Arrêté');
+      }
+      return badge;
+    }
+
     function createIoCompactTable(title, columns, rows) {
       const section = document.createElement('section');
       section.className = 'io-table-section';
@@ -5699,7 +5729,7 @@
             { key: 'kind', label: tr('io.col.kind', 'Type') },
             { key: 'driver', label: tr('io.col.driver', 'Driver'), render: (row) => createIoOptionalCell(row.driver) },
             { key: 'channel', label: tr('io.col.channel', 'Canal interne'), render: (row) => createIoOptionalCell(row.channel) },
-            { key: 'state', label: tr('io.col.state', 'Etat'), render: (row) => createIoStateBadge(row.state) },
+            { key: 'state', label: tr('io.col.state', 'Etat'), render: (row) => createIoDeviceStateBadge(row) },
             { key: 'last_value', label: tr('io.col.lastValue', 'Dernière valeur') },
             { key: 'error', label: tr('io.col.error', 'Erreur') }
           ],
@@ -5711,7 +5741,7 @@
             { key: 'display_name', label: tr('io.col.domainSlot', 'Domaine') },
             { key: 'io_name', label: tr('io.col.ioName', 'IONAME'), render: (row) => ioSummaryText(row.io_name, '-') },
             { key: 'io_slot', label: tr('io.col.ioSlot', 'IOSlot'), render: (row) => ioSummarySlotLabel(row) },
-            { key: 'state', label: tr('io.col.state', 'Etat'), render: (row) => createIoStateBadge(row.state) },
+            { key: 'state', label: tr('io.col.state', 'Etat'), render: (row) => createIoDeviceStateBadge(row) },
             { key: 'last_value', label: tr('io.col.lastValue', 'Dernière valeur') }
           ],
           domainSlots
@@ -7254,6 +7284,8 @@
         wrapper.append(switchView.element, status);
         return { element: wrapper, update: (current) => {
           state = runtimeCounterValue(current, column.key);
+          const actualUnknown = typeof state !== 'boolean';
+          if (actualUnknown && typeof current.desiredOn === 'boolean') state = current.desiredOn;
           available = !!action && typeof state === 'boolean' && runtimeCounterValue(current, column.eligibleKey) === true;
           control.available = available;
           switchView.update({
@@ -7261,7 +7293,7 @@
             label: column.label + ' — ' + current.label,
             title: available ? current.label : tr('dashboard.action.unavailable', 'Commande indisponible')
           });
-          setRuntimeActionText(status, typeof state === 'boolean' ? (state ? 'On' : 'Off') : '—');
+          setRuntimeActionText(status, actualUnknown ? tr('dashboard.action.unknownState', 'État indisponible') : (state ? 'On' : 'Off'));
         } };
       }
 

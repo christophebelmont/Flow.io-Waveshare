@@ -138,10 +138,12 @@ void PoolDeviceModule::emitActivity_(ActivityCode code,
                                      uint8_t slot,
                                      const char* title,
                                      const char* detail,
-                                     const char* icon) const
+                                     const char* icon,
+                                     const Actor& actor) const
 {
     if (!activityLogSvc_ || !activityLogSvc_->emit) return;
     ActivityEvent event{};
+    event.actor = actor;
     event.code = (uint16_t)code;
     event.domain = (uint8_t)ActivityDomain::PoolDevice;
     event.source = (uint8_t)source;
@@ -158,7 +160,8 @@ void PoolDeviceModule::emitActivity_(ActivityCode code,
 
 void PoolDeviceModule::emitAutoModeDisabledByManualActivity_(ActivityRole role,
                                                              uint8_t slot,
-                                                             const char* autoLabel) const
+                                                             const char* autoLabel,
+                                                             const Actor& actor) const
 {
     const char* roleLabel = "équipement";
     const char* icon = "settings";
@@ -186,10 +189,11 @@ void PoolDeviceModule::emitAutoModeDisabledByManualActivity_(ActivityRole role,
                   role,
                   ActivityState::None,
                   ActivityReason::Manual,
-                  slot,
-                  title,
-                  detail,
-                  icon);
+                   slot,
+                   title,
+                   detail,
+                   icon,
+                   actor);
 }
 
 bool PoolDeviceModule::handlePoolWrite_(const CommandRequest& req, char* reply, size_t replyLen)
@@ -224,14 +228,8 @@ bool PoolDeviceModule::handlePoolWrite_(const CommandRequest& req, char* reply, 
     bool requested = false;
     if (value.is<bool>()) {
         requested = value.as<bool>();
-    } else if (value.is<int32_t>() || value.is<uint32_t>() || value.is<float>()) {
-        requested = (value.as<float>() != 0.0f);
-    } else if (value.is<const char*>()) {
-        const char* s = value.as<const char*>();
-        if (!s) s = "0";
-        if (strcmp(s, "true") == 0) requested = true;
-        else if (strcmp(s, "false") == 0) requested = false;
-        else requested = (atoi(s) != 0);
+    } else if (value.is<uint8_t>() && value.as<uint8_t>() <= 1) {
+        requested = value.as<uint8_t>() == 1;
     } else {
         writeCmdError_(reply, replyLen, "pooldevice.write", ErrorCode::MissingValue);
         return false;
@@ -333,7 +331,7 @@ bool PoolDeviceModule::handlePoolWrite_(const CommandRequest& req, char* reply, 
                          modeKey);
                 }
                 if (shouldLogAutoDisabled) {
-                    emitAutoModeDisabledByManualActivity_(disabledRole, slot, disabledLabel);
+                    emitAutoModeDisabledByManualActivity_(disabledRole, slot, disabledLabel, req.actor);
                 }
             }
         }
@@ -364,10 +362,11 @@ bool PoolDeviceModule::handlePoolWrite_(const CommandRequest& req, char* reply, 
                   activityRoleForSlot_(slot),
                   requested ? ActivityState::RequestedOn : ActivityState::RequestedOff,
                   ActivityReason::Manual,
-                  slot,
-                  title,
-                  detail,
-                  requested ? "play_arrow" : "stop");
+                   slot,
+                   title,
+                   detail,
+                   requested ? "play_arrow" : "stop",
+                   req.actor);
     snprintf(reply, replyLen, "{\"ok\":true,\"slot\":%u}", (unsigned)slot);
     return true;
 }
@@ -454,10 +453,11 @@ bool PoolDeviceModule::handlePoolRefill_(const CommandRequest& req, char* reply,
                   activityRoleForSlot_(slot),
                   ActivityState::None,
                   ActivityReason::Manual,
-                  slot,
-                  title,
-                  detail,
-                  "water_drop");
+                   slot,
+                   title,
+                   detail,
+                   "water_drop",
+                   req.actor);
     snprintf(reply, replyLen, "{\"ok\":true,\"slot\":%u,\"remaining_ml\":%.1f}", (unsigned)slot, (double)applied);
     return true;
 }
@@ -517,15 +517,16 @@ bool PoolDeviceModule::handlePoolResetUptime_(const CommandRequest& req, char* r
                   activityRoleForSlot_(slot),
                   ActivityState::None,
                   ActivityReason::Manual,
-                  slot,
-                  title,
-                  detail,
-                  "restart_alt");
+                   slot,
+                   title,
+                   detail,
+                   "restart_alt",
+                   req.actor);
     snprintf(reply, replyLen, "{\"ok\":true,\"slot\":%u}", (unsigned)slot);
     return true;
 }
 
-bool PoolDeviceModule::handlePoolResetUptimeAll_(const CommandRequest&, char* reply, size_t replyLen)
+bool PoolDeviceModule::handlePoolResetUptimeAll_(const CommandRequest& req, char* reply, size_t replyLen)
 {
     const uint8_t resetCount = resetUptimeAll_();
     if (lockState_()) {
@@ -541,10 +542,11 @@ bool PoolDeviceModule::handlePoolResetUptimeAll_(const CommandRequest&, char* re
                   ActivityRole::None,
                   ActivityState::None,
                   ActivityReason::Manual,
-                  ACTIVITY_TARGET_NONE,
-                  "Tous les compteurs piscine remis à zéro",
-                  detail,
-                  "restart_alt");
+                   ACTIVITY_TARGET_NONE,
+                   "Tous les compteurs piscine remis à zéro",
+                   detail,
+                   "restart_alt",
+                   req.actor);
     snprintf(reply, replyLen, "{\"ok\":true,\"reset\":%u}", (unsigned)resetCount);
     return true;
 }

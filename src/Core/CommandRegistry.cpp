@@ -63,7 +63,12 @@ bool CommandRegistry::registerHandler(const char* cmd, CommandHandler fn, void* 
     return true;
 }
 
-bool CommandRegistry::execute(const char* cmd, const char* json, const char* args, char* reply, size_t replyLen) {
+bool CommandRegistry::execute(const char* cmd,
+                              const char* json,
+                              const char* args,
+                              const Actor& actor,
+                              char* reply,
+                              size_t replyLen) {
     if (!cmd) {
         if (reply && replyLen) {
             if (!writeErrorJson(reply, replyLen, ErrorCode::UnknownCmd, "command")) {
@@ -75,7 +80,7 @@ bool CommandRegistry::execute(const char* cmd, const char* json, const char* arg
     const char* resolvedCmd = resolveCommandAlias_(cmd);
     for (uint8_t i = 0; i < count; ++i) {
         if (strcmp(entries[i].cmd, resolvedCmd) == 0) {
-            CommandRequest req{resolvedCmd, json, args};
+            CommandRequest req{resolvedCmd, json, args, actor};
             const bool ok = entries[i].fn(entries[i].userCtx, req, reply, replyLen);
             if (reply && replyLen) {
                 if (!isJsonObjectReply_(reply, replyLen)) {

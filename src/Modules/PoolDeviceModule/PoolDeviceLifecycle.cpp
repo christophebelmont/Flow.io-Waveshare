@@ -205,7 +205,6 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
         const PoolDeviceSlotDescriptor& slot = PoolDeviceSlots::kSlots[i];
 
         snprintf(s.driverKey, sizeof(s.driverKey), "act%u_driver", unsigned(i));
-        snprintf(s.driverJson, sizeof(s.driverJson), "{\"kind\":0,\"outputs\":[%u]}", unsigned(s.ioId));
         cfgDriverVar_[i].nvsKey = s.driverKey;
         cfgDriverVar_[i].jsonName = "driver";
         cfgDriverVar_[i].moduleName = slot.configModuleName;

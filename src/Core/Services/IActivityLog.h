@@ -7,6 +7,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#include "Core/Actor.h"
+
 enum class ActivityDomain : uint8_t {
     System = 0,
     PoolLogic = 1,
@@ -104,6 +106,7 @@ struct ActivityEvent {
     uint8_t state = (uint8_t)ActivityState::None;
     uint8_t reason = (uint8_t)ActivityReason::None;
     uint8_t targetSlot = ACTIVITY_TARGET_NONE;
+    Actor actor{};
     char title[ACTIVITY_TITLE_MAX] = {0};
     char detail[ACTIVITY_DETAIL_MAX] = {0};
     char icon[ACTIVITY_ICON_MAX] = {0};

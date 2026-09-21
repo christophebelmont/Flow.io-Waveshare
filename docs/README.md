@@ -51,7 +51,7 @@ Le mot de passe par défaut du point d'accès de provisioning Wi-Fi et du compte
 
 - [Topologie et conventions MQTT](core/mqtt-topics.md)
 - [Intégrer un équipement RS485 / Modbus RTU](modules/ModbusMaster.md)
-- [Définir une pompe à vitesse variable Modbus](modules/VariableSpeedPumpModule.md)
+- [Définir une pompe à vitesse variable Modbus](modules/PoolActuators.md)
 - [Matrice de qualité des modules](core/module-quality-gates.md)
 - [Historique de la spécialisation Waveshare](../MIGRATION.md)
 
@@ -113,7 +113,7 @@ La [cartographie IO](core/waveshare-io-map.md) contient les valeurs par défaut 
 - [AlarmModule](modules/AlarmModule.md)
 - [IOModule](modules/IOModule.md)
 - [Maître RS485 / Modbus RTU](modules/ModbusMaster.md)
-- [VariableSpeedPumpModule](modules/VariableSpeedPumpModule.md)
+- [Pilotage des équipements](modules/PoolActuators.md)
 - [PoolLogicModule](modules/PoolLogicModule.md)
 - [PoolDeviceModule](modules/PoolDeviceModule.md)
 - [PoolHistoryModule](modules/PoolHistoryModule.md)

@@ -22,6 +22,7 @@ protected:
     void failed_(uint16_t error, uint32_t now);
     bool writeDigital_(IoId, bool, uint32_t);
     bool writable_(bool enabled);
+    bool outputsAvailable_(uint32_t now);
     PoolDriverConfig config_{};
     const IOServiceV2* io_ = nullptr;
     const ModbusMasterService* bus_ = nullptr;

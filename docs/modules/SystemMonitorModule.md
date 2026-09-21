@@ -43,5 +43,25 @@ Aucun direct.
 ## Particularités
 
 - accepte un pointeur `ModuleManager` pour inspecter les stacks (`setModuleManager`)
-- format stack log: `module@cX=watermark` (avec `!` si faible)
+- baseline stack: à chaque cycle, chaque tâche FreeRTOS est échantillonnée via
+  `uxTaskGetStackHighWaterMark()`; le minimum observé depuis le boot est conservé
+  par nom de tâche (table PSRAM allouée une fois dans `init`), ce qui survit à la
+  recréation d'une tâche et fournit une référence stable pour le redimensionnement.
+- format entries: `module/task@cX min=<freeMin>/<stackSize>B` pour les tâches
+  modules (taille configurée connue) et `task min=<freeMin>B` pour les autres.
+- format résumé: `Stack baseline tasks=<n> low=<n>`; si une tâche atteint un
+  watermark nul, `Stack baseline overflow tasks=<n>` est émis en `warn`.
+- `!` marque un minimum sous le seuil de sécurité (`512 B`, `1536 B` pour la
+  tâche module MQTT).
 - log des écritures NVS via `ConfigStore::logNvsWriteSummaryIfDue()`
+
+## Baseline stack (relevé de référence)
+
+Séquence de validation: laisser Flow.IO fonctionner environ 1 h en charge avec au
+moins une reconnexion réseau, du trafic MQTT, l'ouverture de l'interface Web et
+des changements HMI. À la fin:
+
+- chaque tâche doit afficher un `min=` non nul;
+- aucune valeur ne doit continuer à chuter fortement entre deux cycles;
+- conserver la sortie `Stack baseline ...` comme référence à comparer aux
+  prochaines versions avant tout redimensionnement de stack.

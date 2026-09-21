@@ -46,12 +46,15 @@ bool validatePoolDriverConfig(const PoolDriverConfig& c)
     }
     if (p.kind == PoolControlKind::Analog)
         return std::isfinite(c.analogGain) && c.analogGain != 0 &&
-            std::isfinite(c.analogOffset) && std::isfinite(c.analogOff);
+            std::isfinite(c.analogOffset) && std::isfinite(c.analogOff) &&
+            std::isfinite(p.minimum * c.analogGain + c.analogOffset) &&
+            std::isfinite(p.maximum * c.analogGain + c.analogOffset);
     if (p.kind != PoolControlKind::Rs485) return true;
     const auto& s = c.serial;
     if (!std::isfinite(s.rawPerUnit) || s.rawPerUnit <= 0 || !std::isfinite(s.rawOffset) ||
         !std::isfinite(s.feedbackUnitsPerRaw) || s.feedbackUnitsPerRaw <= 0 ||
-        !std::isfinite(s.feedbackOffset) || s.runValue == s.stopValue || !s.runningMask ||
+        !std::isfinite(s.feedbackOffset) || !std::isfinite(65535.0f * s.feedbackUnitsPerRaw + s.feedbackOffset) ||
+        s.runValue == s.stopValue || !s.runningMask ||
         s.line.busId != 0 || s.line.baud < 1200 || s.line.baud > 115200 || s.line.parity > 2 ||
         (s.line.stopBits != 1 && s.line.stopBits != 2) || s.line.quietMs > 1000 ||
         s.line.lateResponseGuardMs > 5000 || s.timeoutMs < 10 || s.timeoutMs > 5000 || s.retries > 3 ||
@@ -78,7 +81,8 @@ bool PoolDriverBase::begin(const PoolDriverConfig& config, const IOServiceV2* io
     config_ = config; io_ = io; bus_ = bus; owner_ = owner;
     target_ = {false, config.capabilities.startup};
     return config.capabilities.kind == PoolControlKind::Rs485 ?
-        bus && bus->submit && bus->poll && bus->cancelOwner : io && io->writeDigital && io->writeAnalog;
+        bus && bus->submit && bus->poll && bus->cancelOwner :
+        io && io->runtimeStatus && io->readDigital && io->readValue && io->writeDigital && io->writeAnalog;
 }
 
 void PoolDriverBase::applyTarget(const PoolDeviceTarget& t, uint32_t revision)
@@ -92,6 +96,23 @@ void PoolDriverBase::applyTarget(const PoolDeviceTarget& t, uint32_t revision)
 bool PoolDriverBase::writable_(bool enabled)
 {
     if (!enabled) { state_.phase = PoolCommandPhase::Frozen; return false; }
+    return true;
+}
+
+bool PoolDriverBase::outputsAvailable_(uint32_t now)
+{
+    const uint8_t count = config_.capabilities.kind == PoolControlKind::Discrete ?
+        config_.capabilities.stepCount : 1;
+    for (uint8_t i = 0; i < count; ++i) {
+        IoRuntimeStatus runtime{};
+        const IoStatus result = io_->runtimeStatus(io_->ctx, config_.outputs[i], &runtime);
+        if (result == IO_OK && runtime.state == IO_RUNTIME_ACTIVE) continue;
+        const IoStatus error = result != IO_OK ? result :
+            (runtime.state == IO_RUNTIME_MANUALLY_DISABLED ? IO_ERR_DISABLED : IO_ERR_NOT_READY);
+        state_.appliedValid = false;
+        failed_(error, now);
+        return false;
+    }
     return true;
 }
 
@@ -115,6 +136,7 @@ void PoolDriverBase::applied_(const PoolDeviceTarget& t, uint32_t revision, uint
 void PoolDriverBase::failed_(uint16_t error, uint32_t now)
 {
     state_.error = error; state_.phase = PoolCommandPhase::Failed;
+    state_.appliedValid = false;
     state_.online = false; state_.observedValid = false;
     state_.quality = PoolFeedbackQuality::Unknown; state_.changedAtMs = now;
     retryAt_ = now + 1000;
@@ -125,6 +147,7 @@ bool PoolDriverBase::writeDigital_(IoId id, bool on, uint32_t now)
 }
 void DigitalRelayDriver::tick(uint32_t now, bool enabled)
 {
+    if (!outputsAvailable_(now)) return;
     if (!writable_(enabled) || !due(now, retryAt_)) return;
     uint8_t on = 0;
     if (state_.appliedValid && state_.appliedRevision == revision_ &&
@@ -135,9 +158,20 @@ void DigitalRelayDriver::tick(uint32_t now, bool enabled)
 }
 void DiscreteSpeedDriver::tick(uint32_t now, bool enabled)
 {
+    if (!outputsAvailable_(now)) { cleared_ = false; return; }
     if (!writable_(enabled) || !due(now, retryAt_)) return;
-    if (state_.appliedValid && state_.appliedRevision == revision_) {
-        state_.phase = PoolCommandPhase::Applied; return;
+    if (!cleared_ && state_.appliedValid && state_.appliedRevision == revision_) {
+        bool matches = true;
+        for (uint8_t i = 0; i < config_.capabilities.stepCount; ++i) {
+            uint8_t on = 0;
+            const IoStatus result = io_->readDigital(io_->ctx, config_.outputs[i], &on, nullptr, nullptr);
+            if (result != IO_OK) { failed_(result, now); return; }
+            const bool expected = target_.running && target_.setpoint == config_.capabilities.steps[i];
+            matches = matches && ((on != 0) == expected);
+        }
+        if (matches) { state_.phase = PoolCommandPhase::Applied; return; }
+        // Any output mismatch requires a new all-off interval before energising a speed.
+        cleared_ = false;
     }
     if (!cleared_) {
         bool ok = true;
@@ -163,11 +197,16 @@ void DiscreteSpeedDriver::tick(uint32_t now, bool enabled)
 }
 void AnalogSetpointDriver::tick(uint32_t now, bool enabled)
 {
+    if (!outputsAvailable_(now)) return;
     if (!writable_(enabled) || !due(now, retryAt_)) return;
-    if (state_.appliedValid && state_.appliedRevision == revision_) {
-        state_.phase = PoolCommandPhase::Applied; return;
-    }
     const float value = target_.running ? target_.setpoint * config_.analogGain + config_.analogOffset : config_.analogOff;
+    if (state_.appliedValid && state_.appliedRevision == revision_) {
+        IoValue current{};
+        if (io_->readValue(io_->ctx, config_.outputs[0], &current) == IO_OK &&
+            current.valid && current.type == IO_VAL_FLOAT && current.v.f == value) {
+            state_.phase = PoolCommandPhase::Applied; return;
+        }
+    }
     const IoStatus result = io_->writeAnalog(io_->ctx, config_.outputs[0], value, now, owner_);
     if (result == IO_OK) applied_(target_, revision_, now);
     else failed_(result, now);
@@ -242,7 +281,8 @@ void SerialDeviceDriver::tick(uint32_t now, bool enabled)
         ModbusResponse r{};
         const auto result = bus_->poll(bus_->ctx, transaction_, &r);
         if (result != MODBUS_RESULT_NOT_READY) {
-            if (result == MODBUS_RESULT_OK) consume_(r, now); else failed_(result, now);
+            if (result == MODBUS_RESULT_OK) consume_(r, now);
+            else { statusValid_ = levelValid_ = false; failed_(result, now); }
             transaction_ = MODBUS_TRANSACTION_INVALID; operation_ = Operation::None;
         }
     }

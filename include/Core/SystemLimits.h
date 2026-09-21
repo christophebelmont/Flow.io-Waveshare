@@ -238,7 +238,8 @@ constexpr uint8_t MaxDigitalOutputs = BoardCapacityProfile::kIoCapacity.digitalO
 constexpr uint8_t AnalogConfigSlots = BoardCapacityProfile::kIoCapacity.analogConfigSlots;
 constexpr uint8_t DigitalInputConfigSlots = BoardCapacityProfile::kIoCapacity.digitalInputConfigSlots;
 constexpr uint8_t DigitalOutputConfigSlots = BoardCapacityProfile::kIoCapacity.digitalOutputConfigSlots;
-constexpr uint16_t MaxEndpoints = ioEndpointCapacity(BoardCapacityProfile::kIoCapacity);
+constexpr uint8_t MaxAnalogOutputs = 4;
+constexpr uint16_t MaxEndpoints = ioEndpointCapacity(BoardCapacityProfile::kIoCapacity) + MaxAnalogOutputs;
 constexpr uint8_t MaxDomainSlots = 20;
 constexpr uint8_t MaxDomainIoSlotBindings = 20;
 // pd07 remains the water-heater device; eight indices are therefore required

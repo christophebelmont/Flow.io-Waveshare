@@ -71,6 +71,7 @@ PoolDeviceSvcStatus PoolDeviceModule::svcMetaImpl_(uint8_t slot, PoolDeviceSvcMe
     outMeta->type = s.def.type;
     outMeta->enabled = s.def.enabled ? 1U : 0U;
     outMeta->blockReason = s.blockReason;
+    outMeta->interlockState = s.interlockState;
     outMeta->ioId = s.ioId;
     outMeta->capabilities = s.driverConfig.capabilities;
     outMeta->driverReady = s.driverReady;
@@ -135,8 +136,13 @@ PoolDeviceSvcStatus PoolDeviceModule::svcSetTargetImpl_(uint8_t slot, const Pool
     if (target->running) {
         if (!s.def.enabled) return finish(POOLDEV_SVC_ERR_DISABLED);
         if (maxUptimeReached_(s)) return finish(POOLDEV_SVC_ERR_MAX_UPTIME);
-        if (!dependenciesSatisfied_(slot)) return finish(POOLDEV_SVC_ERR_INTERLOCK);
+        if (!dependenciesSatisfied_(slot)) {
+            s.interlockState = PoolInterlockState::StartRejected;
+            tickDevices_(millis(), false);
+            return finish(POOLDEV_SVC_ERR_INTERLOCK);
+        }
     }
+    s.interlockState = PoolInterlockState::Ready;
     s.desired = *target;
     s.desiredOn = target->running;
     tickDevices_(millis(), false);
@@ -586,14 +592,17 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
         }
 
         const auto previous = s.feedback;
+        const bool dependenciesReady = dependenciesSatisfied_(i);
+        s.interlockState = updatePoolInterlockState(s.interlockState, dependenciesReady,
+                                                    s.desiredOn || s.effective.running || s.actualOn);
         s.blockReason = !s.def.enabled ? POOL_DEVICE_BLOCK_DISABLED :
             !s.driverReady ? POOL_DEVICE_BLOCK_UNBOUND :
             maxUptimeReached_(s) ? POOL_DEVICE_BLOCK_MAX_UPTIME :
-            !dependenciesSatisfied_(i) ? POOL_DEVICE_BLOCK_INTERLOCK : POOL_DEVICE_BLOCK_NONE;
+            poolInterlockBlocked(s.interlockState) ? POOL_DEVICE_BLOCK_INTERLOCK : POOL_DEVICE_BLOCK_NONE;
         if (s.blockReason != POOL_DEVICE_BLOCK_NONE || s.feedback.error ||
             s.feedback.quality == PoolFeedbackQuality::Stale) s.desiredOn = s.desired.running = false;
         PoolDeviceTarget effective = s.desired;
-        effective.running = s.desiredOn && s.blockReason == POOL_DEVICE_BLOCK_NONE;
+        effective.running = s.desiredOn && dependenciesReady && s.blockReason == POOL_DEVICE_BLOCK_NONE;
         if (s.driverReady) {
             if (!s.revision || effective.running != s.effective.running || effective.setpoint != s.effective.setpoint) {
                 s.effective = effective;
@@ -609,7 +618,7 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
             previous.phase != s.feedback.phase || previous.quality != s.feedback.quality ||
             previous.observedValid != s.feedback.observedValid;
 
-        if (s.actualOn && deltaMs > 0) {
+        if (wasActualOn && deltaMs > 0) {
             s.runningMsDay += deltaMs;
             s.runningMsWeek += deltaMs;
             s.runningMsMonth += deltaMs;
@@ -617,7 +626,7 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
 
             // Convert L/h to ml/ms for injected volume accumulation.
             const float flowLph = s.driverConfig.capabilities.kind == PoolControlKind::Relay
-                ? s.def.flowLPerHour : poolCalibratedFlow(s.driverConfig, s.feedback.observed.setpoint);
+                ? s.def.flowLPerHour : poolCalibratedFlow(s.driverConfig, previous.observed.setpoint);
             const float flowPerMs = isfinite(flowLph) ? flowLph / 3600.0f : 0.0f;
             const float injectedDelta = flowPerMs * (float)deltaMs;
             if (injectedDelta > 0.0f) {
@@ -647,6 +656,7 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
                     (prevState.desiredOn != s.desiredOn) ||
                     (prevState.actualOn != s.actualOn) ||
                     (prevState.type != s.def.type) ||
+                    (prevState.interlockState != s.interlockState) ||
                     (prevState.blockReason != s.blockReason)) {
                     stateChanged = true;
                 }
@@ -672,6 +682,7 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
             rtState.actualOn = s.actualOn;
             rtState.type = s.def.type;
             rtState.blockReason = s.blockReason;
+            rtState.interlockState = s.interlockState;
             rtState.tsMs = s.stateTsMs;
             rtState.desiredSetpoint = s.desired.setpoint;
             rtState.effectiveOn = s.effective.running;

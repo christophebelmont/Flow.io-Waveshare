@@ -394,7 +394,7 @@ static bool isInputEndpointIdLocal(const char* id)
 static bool isOutputEndpointIdLocal(const char* id)
 {
     if (!id || id[0] == '\0') return false;
-    return id[0] == 'd' && hasDecimalSuffixLocal(id + 1);
+    return (id[0] == 'd' || id[0] == 'o') && hasDecimalSuffixLocal(id + 1);
 }
 
 static const char* ioEdgeModeLabelLocal(uint8_t edgeMode)
@@ -868,6 +868,9 @@ uint32_t IOModule::takeAnalogConfigDirtyMask()
 
 const char* IOModule::endpointLabel(const char* endpointId) const
 {
+    for (const auto& output : analogOutputs_) {
+        if (output.write && endpointId && strcmp(output.id, endpointId) == 0) return output.meta.name;
+    }
     if (!endpointId || endpointId[0] == '\0') return nullptr;
     if (endpointId[0] == 'a' && hasDecimalSuffixLocal(endpointId + 1)) {
         uint8_t idx = (uint8_t)atoi(endpointId + 1);
@@ -984,6 +987,7 @@ uint8_t IOModule::runtimeSnapshotCount() const
     if (!cfgData_.enabled) return 0;
 
     uint8_t count = 0;
+    for (const auto& output : analogOutputs_) if (output.write) ++count;
     for (uint8_t i = 0; i < MAX_ANALOG_ENDPOINTS; ++i) {
         if (analogRuntimeRoutePublished_(i)) ++count;
     }
@@ -1032,6 +1036,10 @@ bool IOModule::runtimeSnapshotRouteFromIndex_(uint8_t snapshotIdx, uint8_t& rout
             return true;
         }
         ++seen;
+    }
+    for (uint8_t i = 0; i < MaxAnalogOutputs; ++i) {
+        if (!analogOutputs_[i].write) continue;
+        if (seen++ == snapshotIdx) { routeTypeOut = ROUTE_ANALOG_OUTPUT; slotIdxOut = i; return true; }
     }
     return false;
 }
@@ -1087,6 +1095,10 @@ const char* IOModule::runtimeSnapshotSuffix(uint8_t idx) const
     if (!runtimeSnapshotRouteFromIndex_(idx, routeType, slotIdx)) return nullptr;
 
     static char suffix[24];
+    if (routeType == ROUTE_ANALOG_OUTPUT) {
+        snprintf(suffix, sizeof(suffix), "rt/io/output/o%02u", unsigned(slotIdx));
+        return suffix;
+    }
     if (routeType == ROUTE_ANALOG) {
         snprintf(suffix, sizeof(suffix), "rt/io/input/a%02u", (unsigned)slotIdx);
     } else {
@@ -1110,7 +1122,7 @@ RuntimeRouteClass IOModule::runtimeSnapshotClass(uint8_t idx) const
         return RuntimeRouteClass::NumericThrottled;
     }
     (void)slotIdx;
-    return (routeType == ROUTE_DIGITAL_OUTPUT)
+    return (routeType == ROUTE_DIGITAL_OUTPUT || routeType == ROUTE_ANALOG_OUTPUT)
         ? RuntimeRouteClass::ActuatorImmediate
         : RuntimeRouteClass::NumericThrottled;
 }
@@ -1128,7 +1140,9 @@ bool IOModule::runtimeSnapshotAffectsKey(uint8_t idx, DataKey key) const
     if (!runtimeSnapshotRouteFromIndex_(idx, routeType, slotIdx)) return false;
 
     IOEndpoint* ep = nullptr;
-    if (routeType == ROUTE_ANALOG) {
+    if (routeType == ROUTE_ANALOG_OUTPUT) {
+        ep = &analogOutputs_[slotIdx].endpoint;
+    } else if (routeType == ROUTE_ANALOG) {
         ep = static_cast<IOEndpoint*>(analogSlots_[slotIdx].endpoint);
     } else if (routeType == ROUTE_DIGITAL_INPUT || routeType == ROUTE_DIGITAL_OUTPUT) {
         ep = digitalSlots_[slotIdx].endpoint;
@@ -1151,6 +1165,7 @@ bool IOModule::buildRuntimeSnapshot(uint8_t idx, char* out, size_t len, uint32_t
     uint8_t slotIdx = 0xFF;
     if (!runtimeSnapshotRouteFromIndex_(idx, routeType, slotIdx)) return false;
 
+    if (routeType == ROUTE_ANALOG_OUTPUT) return buildEndpointSnapshot_(&analogOutputs_[slotIdx].endpoint, out, len, maxTsOut);
     IOEndpoint* ep = nullptr;
     if (routeType == ROUTE_ANALOG) {
         ep = static_cast<IOEndpoint*>(analogSlots_[slotIdx].endpoint);
@@ -2004,7 +2019,10 @@ IoStatus IOModule::ioReadValue_(IoId id, IoValue* outValue) const
         if (!outValue) return IO_ERR_INVALID_ARG;
         const auto& output = analogOutputs_[id - IO_ID_AO_BASE];
         if (!output.write) return IO_ERR_UNKNOWN_ID;
-        *outValue = output.value; return IO_OK;
+        const auto& value = output.endpoint.value();
+        *outValue = IoValue{}; outValue->valid = value.valid; outValue->type = IO_VAL_FLOAT;
+        outValue->v.f = value.v.f; outValue->tsMs = value.timestampMs;
+        return cfgData_.enabled ? IO_OK : IO_ERR_DISABLED;
     }
     if (!outValue) return IO_ERR_INVALID_ARG;
     *outValue = IoValue{};
@@ -3435,6 +3453,9 @@ bool IOModule::configureRuntime_()
     dinJob.ctx = this;
     scheduler_.add(dinJob);
 
+    for (auto& output : analogOutputs_) {
+        if (output.write && !registry_.add(&output.endpoint)) return false;
+    }
     runtimeReady_ = true;
     const char* expanderState = "off";
     if (needTcaOutput) expanderState = "tca9554";
@@ -3953,9 +3974,12 @@ bool IOModule::defineAnalogOutput(const IoEndpointMeta& meta, bool (*write)(void
         !isfinite(meta.minValid) || !isfinite(meta.maxValid) || meta.minValid >= meta.maxValid) return false;
     auto& output = analogOutputs_[meta.id - IO_ID_AO_BASE];
     if (output.write) return false;
+    if (runtimeInitAttempted_) return false;
     output.meta = meta; output.meta.kind = IO_KIND_ANALOG_OUT;
     output.meta.valueType = IO_VAL_FLOAT; output.meta.capabilities = IO_CAP_R | IO_CAP_W;
     output.write = write; output.context = context;
+    snprintf(output.id, sizeof(output.id), "o%02u", unsigned(meta.id - IO_ID_AO_BASE));
+    output.endpoint.configure(output.id, meta.minValid, meta.maxValid, write, context);
     return true;
 }
 
@@ -4009,9 +4033,12 @@ IoStatus IOModule::ioWriteAnalog_(IoId id, float value, uint32_t tsMs, uint8_t o
     if (!cfgData_.enabled) return IO_ERR_DISABLED;
     if (output.owner != owner) return IO_ERR_OWNED;
     if (!isfinite(value) || value < output.meta.minValid || value > output.meta.maxValid) return IO_ERR_INVALID_ARG;
-    if (!output.write(output.context, value)) return IO_ERR_HW;
-    output.value.valid = 1; output.value.type = IO_VAL_FLOAT;
-    output.value.v.f = value; output.value.tsMs = tsMs;
+    IOEndpointValue next{}; next.valid = true; next.valueType = IO_EP_VALUE_FLOAT;
+    next.v.f = value; next.timestampMs = tsMs;
+    if (!output.endpoint.write(next)) return IO_ERR_HW;
+    uint8_t index = 0;
+    if (dataStore_ && endpointIndexFromId_(output.id, index))
+        (void)setIoEndpointFloat(*dataStore_, index, value, tsMs);
     markIoCycleChanged_(id);
     return IO_OK;
 }

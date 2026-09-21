@@ -200,14 +200,14 @@ void configurePoolDevices(const AppContext& ctx, ModuleInstances& modules)
         PoolDeviceDefinition def{};
         snprintf(def.label, sizeof(def.label), "PD%02u", (unsigned)i);
         def.slot = i;
-        def.ioSlot = digitalOutputSlot(i);
+        def.control.outputs[0] = ioIdFromSlot(digitalOutputSlot(i));
         def.type = POOL_DEVICE_RELAY_STD;
         def.enabled = true;
 
         if (const PoolDevicePreset* preset = findPoolPresetById(*ctx.domain, i)) {
             const IoSlotId ioSlot = findIoSlotForDomainSlot(*ctx.domain, preset->commandSlot);
             requireSetup(ioSlot != IO_SLOT_INVALID, "missing pool device IO slot binding");
-            def.ioSlot = ioSlot;
+            def.control.outputs[0] = ioIdFromSlot(ioSlot);
 
             snprintf(def.label, sizeof(def.label), "%s", preset->displayName);
             def.commandSlot = preset->commandSlot;

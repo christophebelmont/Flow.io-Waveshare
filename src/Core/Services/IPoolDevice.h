@@ -4,6 +4,7 @@
  * @brief Pool device domain service interface.
  */
 #include <stdint.h>
+#include "Core/Services/PoolInterlockState.h"
 #include "IIO.h"
 #include "PoolActuatorTypes.h"
 #include "Domain/DomainTypes.h"
@@ -27,6 +28,7 @@ struct PoolDeviceSvcMeta {
     uint8_t used = 0;
     uint8_t type = 0;
     uint8_t enabled = 0;
+    PoolInterlockState interlockState = PoolInterlockState::Ready;
     uint8_t blockReason = 0;
     IoId ioId = IO_ID_INVALID;
     PoolDeviceCapabilities capabilities{};

@@ -72,7 +72,9 @@ private:
     bool registerAlarmSvc_(const AlarmRegistration* def, AlarmCondFn condFn, void* condCtx);
     bool registerAlarm_(const AlarmRegistration& def, AlarmCondFn condFn, void* condCtx);
     bool reset_(AlarmId id);
+    bool resetWithActor_(AlarmId id, const Actor& actor);
     uint8_t resetAll_();
+    uint8_t resetAllWithActor_(const Actor& actor);
     bool isActive_(AlarmId id) const;
     bool isResettable_(AlarmId id) const;
     uint8_t activeCount_() const;
@@ -91,7 +93,7 @@ private:
     int16_t findSlotById_(AlarmId id) const;
     int16_t findFreeSlot_() const;
     void emitAlarmEvent_(EventId id, AlarmId alarmId) const;
-    void emitAlarmActivity_(ActivityCode code, AlarmId alarmId);
+    void emitAlarmActivity_(ActivityCode code, AlarmId alarmId, const Actor& actor);
     void noteAlarmNotified_(AlarmId id, uint32_t nowMs);
     uint8_t takeDueAlarmReminderIds_(AlarmId* out, uint8_t max, uint32_t nowMs);
     static bool delayReached_(uint32_t sinceMs, uint32_t delayMs, uint32_t nowMs);

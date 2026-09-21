@@ -156,10 +156,12 @@ void PoolLogicModule::emitActivity_(ActivityCode code,
                                     uint8_t deviceSlot,
                                     const char* title,
                                     const char* detail,
-                                    const char* icon) const
+                                    const char* icon,
+                                    const Actor& actor) const
 {
     if (!activityLogSvc_ || !activityLogSvc_->emit) return;
     ActivityEvent event{};
+    event.actor = actor;
     event.code = (uint16_t)code;
     event.domain = (uint8_t)ActivityDomain::PoolLogic;
     event.source = (uint8_t)source;
@@ -212,10 +214,11 @@ void PoolLogicModule::emitDeviceActivity_(bool requested,
                       role,
                       on ? ActivityState::RequestedOn : ActivityState::RequestedOff,
                       reason,
-                      deviceSlot,
-                      title,
-                      detail,
-                      icon);
+                       deviceSlot,
+                       title,
+                       detail,
+                       icon,
+                       systemActor());
         return;
     }
 
@@ -234,16 +237,18 @@ void PoolLogicModule::emitDeviceActivity_(bool requested,
                   on ? ActivitySeverity::Success : ActivitySeverity::Info,
                   role,
                   on ? ActivityState::On : ActivityState::Off,
-                  ActivityReason::None,
-                  deviceSlot,
-                  title,
-                  detail,
-                  icon);
+                   ActivityReason::None,
+                   deviceSlot,
+                   title,
+                   detail,
+                   icon,
+                   systemActor());
 }
 
 void PoolLogicModule::emitAutoModeDisabledByManualActivity_(ActivityRole role,
                                                             uint8_t deviceSlot,
-                                                            const char* autoLabel) const
+                                                            const char* autoLabel,
+                                                            const Actor& actor) const
 {
     const char* roleLabel = activityRoleLabel_(role);
     const char* label = (autoLabel && autoLabel[0] != '\0') ? autoLabel : roleLabel;
@@ -267,7 +272,8 @@ void PoolLogicModule::emitAutoModeDisabledByManualActivity_(ActivityRole role,
                   deviceSlot,
                   title,
                   detail,
-                  icon);
+                  icon,
+                  actor);
 }
 
 bool PoolLogicModule::readPoolDeviceFlowLh_(uint8_t deviceSlot, float& flowLhOut) const
@@ -390,7 +396,8 @@ void PoolLogicModule::setO2ProtocolState_(uint8_t state, uint8_t blockReason, ui
                           orpPumpDeviceSlot_,
                           "Protocole oxygène actif mis à jour",
                           detail,
-                          "science");
+                          "science",
+                          systemActor());
         }
     }
     persistO2Protocol_(nowMs, false);
@@ -1036,7 +1043,8 @@ void PoolLogicModule::runControlLoop_(uint32_t nowMs)
                               filtrationDeviceSlot_,
                               "Sécurité pression piscine activée",
                               detail,
-                              "warning");
+                              "warning",
+                              systemActor());
             }
         }
     }
@@ -1058,7 +1066,8 @@ void PoolLogicModule::runControlLoop_(uint32_t nowMs)
                           phPumpDeviceSlot_,
                           "Régulation pH activée",
                           "La filtration est stable, le PID pH peut piloter la pompe.",
-                          "science");
+                          "science",
+                          systemActor());
         }
         if (orpAutoMode_ && isDisinfectionType_(DisinfectionChlorineBromine) &&
             !orpPidEnabled_ && runMin >= delayPidsMin_) {
@@ -1073,7 +1082,8 @@ void PoolLogicModule::runControlLoop_(uint32_t nowMs)
                           orpPumpDeviceSlot_,
                           "Régulation ORP activée",
                           "La filtration est stable, le PID ORP peut piloter la désinfection.",
-                          "science");
+                          "science",
+                          systemActor());
         }
     } else {
         phPidEnabled_ = false;

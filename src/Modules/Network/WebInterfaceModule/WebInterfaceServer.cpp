@@ -640,6 +640,15 @@ static const char* activityRoleName_(uint8_t role)
     }
 }
 
+static const char* activityActorKindName_(uint8_t kind)
+{
+    switch ((ActorKind)kind) {
+        case ActorKind::System: return "system";
+        case ActorKind::User: return "user";
+        default: return "system";
+    }
+}
+
 static const char* activityStateName_(uint8_t state)
 {
     switch ((ActivityState)state) {
@@ -904,6 +913,10 @@ private:
             (unsigned)event.state,
             (unsigned)event.reason,
             (unsigned)event.targetSlot);
+        out.append(",\"actor_kind\":");
+        out.appendJsonString(activityActorKindName_((uint8_t)event.actor.kind));
+        out.append(",\"actor\":");
+        out.appendJsonString(event.actor.username);
         out.append(",\"domain_name\":");
         out.appendJsonString(activityDomainName_(event.domain));
         out.append(",\"source_name\":");
@@ -3541,6 +3554,10 @@ void wavesharePrintPoolDeviceJson_(Print& response, const WaveshareIoSummaryStat
     response.print(state.poolMeta.enabled ? "true" : "false");
     response.print(",\"actual_on\":");
     response.print(state.poolActualOn ? "true" : "false");
+    response.print(",\"interlock_state\":");
+    response.print(static_cast<unsigned>(state.poolMeta.interlockState));
+    response.print(",\"block_code\":");
+    response.print(static_cast<unsigned>(state.poolMeta.blockReason));
     response.print(",\"block_reason\":");
     printJsonEscaped_(response, wavesharePoolDeviceBlockReasonLabel_(state.poolMeta.blockReason));
     response.print("}");
@@ -5184,7 +5201,10 @@ void WebInterfaceModule::sendActivityLogHttpResponse_(AsyncWebServerRequest* req
     request->send(response);
 }
 
-void WebInterfaceModule::emitConfigActivity_(const char* contextLabel, const char* modulesLabel, uint16_t fieldCount)
+void WebInterfaceModule::emitConfigActivity_(const char* contextLabel,
+                                             const char* modulesLabel,
+                                             uint16_t fieldCount,
+                                             const Actor& actor)
 {
     if (fieldCount == 0U) return;
     if (!activityLog_ && services_) {
@@ -5201,6 +5221,7 @@ void WebInterfaceModule::emitConfigActivity_(const char* contextLabel, const cha
     event.state = (uint8_t)ActivityState::None;
     event.reason = (uint8_t)ActivityReason::Manual;
     event.targetSlot = ACTIVITY_TARGET_NONE;
+    event.actor = actor;
     snprintf(event.title, sizeof(event.title), "Configuration modifiée");
     if (modulesLabel && modulesLabel[0] != '\0') {
         snprintf(event.detail,
@@ -5220,11 +5241,35 @@ void WebInterfaceModule::emitConfigActivity_(const char* contextLabel, const cha
     (void)activityLog_->emit(activityLog_->ctx, &event);
 }
 
-void WebInterfaceModule::emitConfigPatchActivity_(const char* contextLabel, const char* patchJson)
+void WebInterfaceModule::emitConfigPatchActivity_(const char* contextLabel,
+                                                  const char* patchJson,
+                                                  const Actor& actor)
 {
     char modules[72] = {0};
     const uint16_t fieldCount = summarizeConfigPatch_(patchJson, modules, sizeof(modules));
-    emitConfigActivity_(contextLabel, modules, fieldCount);
+    emitConfigActivity_(contextLabel, modules, fieldCount, actor);
+}
+
+bool WebInterfaceModule::resolveRequestActor_(AsyncWebServerRequest* request, Actor& out)
+{
+    out = systemActor();
+    if (!request) return false;
+    if (!userSvc_ && services_) {
+        userSvc_ = services_->get<UserService>(ServiceId::User);
+    }
+    if (!userSvc_ || !userSvc_->sessionInfo) return false;
+
+    char token[kSessionTokenMax] = {0};
+    if (!extractSessionCookie_(request, token, sizeof(token))) return false;
+
+    UserRole role = UserRole::None;
+    char username[ACTOR_NAME_MAX] = {0};
+    if (!userSvc_->sessionInfo(userSvc_->ctx, token, &role, username, sizeof(username))) {
+        return false;
+    }
+    if (username[0] == '\0') return false;
+    out = userActor(username);
+    return true;
 }
 
 void WebInterfaceModule::init(ConfigStore& cfg, ServiceRegistry& services)
@@ -6563,7 +6608,12 @@ void WebInterfaceModule::startServer_()
             return;
         }
 
-        emitConfigActivity_("Mise à jour", "fwupdate", (uint16_t)((hasHost ? 1U : 0U) + (hasUpdatePath ? 1U : 0U)));
+        Actor actor{};
+        resolveRequestActor_(request, actor);
+        emitConfigActivity_("Mise à jour",
+                            "fwupdate",
+                            (uint16_t)((hasHost ? 1U : 0U) + (hasUpdatePath ? 1U : 0U)),
+                            actor);
         request->send(200, "application/json", "{\"ok\":true}");
     });
 
@@ -6770,7 +6820,9 @@ void WebInterfaceModule::startServer_()
                           "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"wifi.config.set\"}}");
             return;
         }
-        emitConfigPatchActivity_("WiFi", patchJson);
+        Actor actor{};
+        resolveRequestActor_(request, actor);
+        emitConfigPatchActivity_("WiFi", patchJson, actor);
 
         if (!netAccessSvc_ && services_) {
             netAccessSvc_ = services_->get<NetworkAccessService>(ServiceId::NetworkAccess);
@@ -6830,6 +6882,7 @@ void WebInterfaceModule::startServer_()
                                                 "flow.system.reboot",
                                                 "{}",
                                                 nullptr,
+                                                systemActor(),
                                                 rebootReply,
                                                 sizeof(rebootReply));
                 if (!flowRebootOk) {
@@ -6941,7 +6994,9 @@ void WebInterfaceModule::startServer_()
                           "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"mqtt.config.set\"}}");
             return;
         }
-        emitConfigPatchActivity_("MQTT", patchJson);
+        Actor actor{};
+        resolveRequestActor_(request, actor);
+        emitConfigPatchActivity_("MQTT", patchJson, actor);
         const bool provisioningConfigured =
             provisioningOnly_ &&
             provisioningDisableAfterConfigured_ &&
@@ -7172,10 +7227,13 @@ void WebInterfaceModule::startServer_()
              (unsigned)runtimeIdRaw,
              action->actionId,
              action->command);
+        Actor actor{};
+        resolveRequestActor_(request, actor);
         const bool ok = cmdSvc_->execute(cmdSvc_->ctx,
                                          action->command,
                                          args,
                                          nullptr,
+                                         actor,
                                          reply,
                                          sizeof(reply));
         if (!ok) {
@@ -7688,7 +7746,9 @@ void WebInterfaceModule::startServer_()
                           "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"flowcfg.apply.exec\"}}");
             return;
         }
-        emitConfigPatchActivity_("Config flow.io", patchStr.data);
+        Actor actor{};
+        resolveRequestActor_(request, actor);
+        emitConfigPatchActivity_("Config flow.io", patchStr.data, actor);
         request->send(200, "application/json", "{\"ok\":true}");
         return;
     });
@@ -7705,7 +7765,9 @@ void WebInterfaceModule::startServer_()
         }
 
         char reply[196] = {0};
-        const bool ok = cmdSvc_->execute(cmdSvc_->ctx, "system.reboot", "{}", nullptr, reply, sizeof(reply));
+        Actor actor{};
+        resolveRequestActor_(request, actor);
+        const bool ok = cmdSvc_->execute(cmdSvc_->ctx, "system.reboot", "{}", nullptr, actor, reply, sizeof(reply));
         if (!ok) {
             request->send(500,
                           "application/json",
@@ -7729,7 +7791,9 @@ void WebInterfaceModule::startServer_()
         }
 
         char reply[220] = {0};
-        const bool ok = cmdSvc_->execute(cmdSvc_->ctx, "system.factory_reset", "{}", nullptr, reply, sizeof(reply));
+        Actor actor{};
+        resolveRequestActor_(request, actor);
+        const bool ok = cmdSvc_->execute(cmdSvc_->ctx, "system.factory_reset", "{}", nullptr, actor, reply, sizeof(reply));
         if (!ok) {
             request->send(500,
                           "application/json",
@@ -7753,7 +7817,9 @@ void WebInterfaceModule::startServer_()
         }
 
         char reply[220] = {0};
-        const bool ok = cmdSvc_->execute(cmdSvc_->ctx, "fw.nextion.reboot", "{}", nullptr, reply, sizeof(reply));
+        Actor actor{};
+        resolveRequestActor_(request, actor);
+        const bool ok = cmdSvc_->execute(cmdSvc_->ctx, "fw.nextion.reboot", "{}", nullptr, actor, reply, sizeof(reply));
         if (!ok) {
             request->send(500,
                           "application/json",
@@ -7777,7 +7843,9 @@ void WebInterfaceModule::startServer_()
         }
 
         char reply[220] = {0};
-        const bool ok = cmdSvc_->execute(cmdSvc_->ctx, "flow.system.reboot", "{}", nullptr, reply, sizeof(reply));
+        Actor actor{};
+        resolveRequestActor_(request, actor);
+        const bool ok = cmdSvc_->execute(cmdSvc_->ctx, "flow.system.reboot", "{}", nullptr, actor, reply, sizeof(reply));
         if (!ok) {
             request->send(500,
                           "application/json",
@@ -7801,7 +7869,9 @@ void WebInterfaceModule::startServer_()
         }
 
         char reply[220] = {0};
-        const bool ok = cmdSvc_->execute(cmdSvc_->ctx, "flow.system.factory_reset", "{}", nullptr, reply, sizeof(reply));
+        Actor actor{};
+        resolveRequestActor_(request, actor);
+        const bool ok = cmdSvc_->execute(cmdSvc_->ctx, "flow.system.factory_reset", "{}", nullptr, actor, reply, sizeof(reply));
         if (!ok) {
             request->send(500,
                           "application/json",

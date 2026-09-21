@@ -9,7 +9,8 @@
 enum IOEndpointType : uint8_t {
     IO_EP_ANALOG_SENSOR = 0,
     IO_EP_DIGITAL_SENSOR = 1,
-    IO_EP_DIGITAL_ACTUATOR = 2
+    IO_EP_DIGITAL_ACTUATOR = 2,
+    IO_EP_ANALOG_ACTUATOR = 3
 };
 
 enum IOEndpointValueType : uint8_t {

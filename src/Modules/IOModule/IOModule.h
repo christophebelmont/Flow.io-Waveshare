@@ -1,4 +1,5 @@
 #pragma once
+#include "IOEndpoints/AnalogActuatorEndpoint.h"
 /**
  * @file IOModule.h
  * @brief Unified IO module with endpoint registry and scheduler.
@@ -108,10 +109,12 @@ public:
     IORegistry& registry() { return registry_; }
 
 private:
-    static constexpr uint8_t MaxAnalogOutputs = 4;
+    static constexpr uint8_t ROUTE_ANALOG_OUTPUT = 3;
+    static constexpr uint8_t MaxAnalogOutputs = Limits::Io::MaxAnalogOutputs;
     struct AnalogOutput {
         IoEndpointMeta meta{};
-        IoValue value{};
+        char id[8]{};
+        mutable AnalogActuatorEndpoint endpoint{};
         bool (*write)(void*, float) = nullptr;
         void* context = nullptr;
         uint8_t owner = 0;

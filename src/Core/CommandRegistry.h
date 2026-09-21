@@ -6,6 +6,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#include "Core/Actor.h"
+
 /** @brief Maximum number of registered commands. */
 constexpr uint8_t MAX_COMMANDS = 64;
 
@@ -14,6 +16,7 @@ struct CommandRequest {
     const char* cmd;
     const char* json;
     const char* args;
+    Actor actor{};
 };
 
 /** @brief Handler signature for commands. */
@@ -36,8 +39,13 @@ class CommandRegistry {
 public:
     /** @brief Register a handler for a command string. */
     bool registerHandler(const char* cmd, CommandHandler fn, void* userCtx);
-    /** @brief Execute a command into a reply buffer. */
-    bool execute(const char* cmd, const char* json, const char* args, char* reply, size_t replyLen);
+    /** @brief Execute a command into a reply buffer, attributing it to an actor. */
+    bool execute(const char* cmd,
+                 const char* json,
+                 const char* args,
+                 const Actor& actor,
+                 char* reply,
+                 size_t replyLen);
 
 private:
     CommandEntry entries[MAX_COMMANDS]{};

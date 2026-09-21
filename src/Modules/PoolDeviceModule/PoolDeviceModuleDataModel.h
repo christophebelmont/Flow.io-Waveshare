@@ -5,6 +5,7 @@
  */
 
 #include <stdint.h>
+#include "Core/Services/PoolInterlockState.h"
 #include "Core/Services/PoolActuatorTypes.h"
 
 #include "Core/SystemLimits.h"
@@ -33,6 +34,7 @@ struct PoolDeviceRuntimeStateEntry {
     bool desiredOn = false;
     bool actualOn = false;
     uint8_t type = POOL_DEVICE_RT_RELAY_STD;
+    PoolInterlockState interlockState = PoolInterlockState::Ready;
     uint8_t blockReason = POOL_DEVICE_BLOCK_NONE;
     float desiredSetpoint = 0;
     bool effectiveOn = false;

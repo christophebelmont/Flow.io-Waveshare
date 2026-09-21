@@ -40,6 +40,7 @@ bool Rs485Bus::begin(const UartSpec& spec)
         setDirection_(false);
     }
 
+    serial_.setTxBufferSize(RS485_MAX_FRAME_BYTES);
     serial_.begin(spec_.baud, serialConfig, spec_.rxPin, spec_.txPin);
     frameGapUs_ = spec_.baud > 19200 ? 1750U : frameDurationUs_(3U);
     lastRxAtUs_ = micros();

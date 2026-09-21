@@ -505,13 +505,17 @@ private:
                        uint8_t deviceSlot,
                        const char* title,
                        const char* detail,
-                       const char* icon) const;
+                       const char* icon,
+                       const Actor& actor) const;
     void emitDeviceActivity_(bool requested,
                              bool on,
                              uint8_t deviceSlot,
                              const char* label,
                              ActivityReason reason) const;
-    void emitAutoModeDisabledByManualActivity_(ActivityRole role, uint8_t deviceSlot, const char* autoLabel) const;
+    void emitAutoModeDisabledByManualActivity_(ActivityRole role,
+                                               uint8_t deviceSlot,
+                                               const char* autoLabel,
+                                               const Actor& actor) const;
     bool isDisinfectionType_(DisinfectionType type) const;
     bool readPoolDeviceFlowLh_(uint8_t deviceSlot, float& flowLhOut) const;
     bool currentO2LocalTime_(uint16_t& dayKeyOut,

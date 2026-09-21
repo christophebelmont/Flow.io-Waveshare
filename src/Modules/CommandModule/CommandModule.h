@@ -28,7 +28,12 @@ private:
     const LogHubService* logHub = nullptr;
 
     bool registerHandler_(const char* cmd, CommandHandler fn, void* userCtx);
-    bool execute_(const char* cmd, const char* json, const char* args, char* reply, size_t replyLen);
+    bool execute_(const char* cmd,
+                  const char* json,
+                  const char* args,
+                  const Actor& actor,
+                  char* reply,
+                  size_t replyLen);
 
     CommandService svc_{
         ServiceBinding::bind<&CommandModule::registerHandler_>,

@@ -10,10 +10,19 @@ struct FakeIo {
     std::vector<std::tuple<IoId,bool,uint32_t>> writes;
     bool values[16]{};
     bool failOff = false;
+    bool available = true;
     float analog = 0;
     IOServiceV2 service{};
     FakeIo() {
         service.ctx = this;
+        service.runtimeStatus = [](void* ctx, IoId, IoRuntimeStatus* out) {
+            out->state = static_cast<FakeIo*>(ctx)->available ? IO_RUNTIME_ACTIVE : IO_RUNTIME_MANUALLY_DISABLED;
+            return IO_OK;
+        };
+        service.readValue = [](void* ctx, IoId, IoValue* out) {
+            out->valid = 1; out->type = IO_VAL_FLOAT;
+            out->v.f = static_cast<FakeIo*>(ctx)->analog; return IO_OK;
+        };
         service.writeDigital = [](void* ctx, IoId id, uint8_t on, uint32_t time, uint8_t owner) {
             assert(owner == 1); auto& self = *static_cast<FakeIo*>(ctx);
             self.writes.emplace_back(id, bool(on), time);
@@ -113,6 +122,30 @@ void serialCommands() {
     assert(bus.requests.size()==n); d.tick(42,true); assert(bus.requests.back().values[0]==50);
     bus.reply(0,MODBUS_RESULT_TIMEOUT); d.tick(43,true); assert(!d.readState().observedValid);
 }
+void outputAvailability() {
+    FakeIo io; PoolDriverConfig c; c.outputs[0] = 0;
+    c.capabilities.kind = PoolControlKind::Discrete;
+    c.capabilities.stepCount = 2; c.capabilities.steps[0] = 50; c.capabilities.steps[1] = 100;
+    c.outputs[1] = 1; c.breakBeforeMakeMs = 10;
+    DiscreteSpeedDriver discrete; assert(discrete.begin(c, &io.service, nullptr, 1));
+    discrete.applyTarget({true, 50}, 1); discrete.tick(0, true); discrete.tick(10, true);
+    assert(io.values[0] && discrete.readState().observedValid);
+    io.values[1] = true; discrete.tick(11, true);
+    assert(!io.values[0] && !io.values[1]);
+    discrete.tick(21, true); assert(io.values[0] && !io.values[1]);
+    io.available = false; discrete.tick(22, true);
+    assert(!discrete.readState().observedValid && discrete.readState().error == IO_ERR_DISABLED);
+    // Restored I/O must acknowledge the latest stop, never reuse the old applied state.
+    io.available = true; discrete.applyTarget({false, 50}, 2); discrete.tick(23, true);
+    assert(!io.values[0] && discrete.readState().observedValid);
+    c.capabilities.kind = PoolControlKind::Analog;
+    AnalogSetpointDriver analog; assert(analog.begin(c, &io.service, nullptr, 1));
+    analog.applyTarget({true, 50}, 1); analog.tick(30, true);
+    io.available = false; analog.tick(31, false);
+    assert(!analog.readState().observedValid);
+    io.available = true; analog.applyTarget({false, 50}, 2); analog.tick(32, true);
+    assert(analog.readState().observedValid && !analog.readState().observed.running);
+}
 void codecDialects() {
     ModbusRequest r; r.slaveAddress=7; r.function=0xC3; r.registerCount=1;
     uint8_t frame[64]{}; size_t length=0;
@@ -131,4 +164,4 @@ void codecDialects() {
     uint8_t exception[]={7,0x83,2,0,0};crc=ModbusRtuCodec::crc16(exception,3);exception[3]=crc;exception[4]=crc>>8;
     assert(ModbusRtuCodec::decodeResponse(r,exception,sizeof(exception),result)==MODBUS_RESULT_EXCEPTION);
 }
-int main() { discreteTransitions();relayAndAnalog();serialCommands();codecDialects();puts("pool actuator tests passed"); }
+int main() { discreteTransitions();relayAndAnalog();serialCommands();outputAvailability();codecDialects();puts("pool actuator tests passed"); }
