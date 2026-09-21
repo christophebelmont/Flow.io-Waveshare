@@ -52,7 +52,12 @@ Aucun direct.
 - format résumé: `Stack baseline tasks=<n> low=<n>`; si une tâche atteint un
   watermark nul, `Stack baseline overflow tasks=<n>` est émis en `warn`.
 - `!` marque un minimum sous le seuil de sécurité (`512 B`, `1536 B` pour la
-  tâche module MQTT).
+  tâche module MQTT) **uniquement pour les tâches dont la taille de stack est
+  connue** (tâches modules). Les tâches internes FreeRTOS/ESP-IDF (idle, ipc,
+  timer, ...) ont des stacks fixes non redimensionnables: leur minimum est
+  affiché mais non signalé, pour éviter de faux positifs.
+- au plus `3` tâches par ligne, pour que le relevé reste lisible dans un
+  terminal de largeur limitée.
 - log des écritures NVS via `ConfigStore::logNvsWriteSummaryIfDue()`
 
 ## Baseline stack (relevé de référence)

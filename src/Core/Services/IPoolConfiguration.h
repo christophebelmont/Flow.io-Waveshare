@@ -47,6 +47,14 @@ struct PoolOperatingConfiguration {
     float orpSetpointMv = 0.0f;
     bool heaterSetpointValid = false;
     float heaterSetpointC = 0.0f;
+    bool filtrationAutoModeSinceValid = false;
+    uint32_t filtrationAutoModeSinceMs = 0;
+    bool winterModeSinceValid = false;
+    uint32_t winterModeSinceMs = 0;
+    bool phAutoModeSinceValid = false;
+    uint32_t phAutoModeSinceMs = 0;
+    bool orpAutoModeSinceValid = false;
+    uint32_t orpAutoModeSinceMs = 0;
 };
 
 struct PoolConfigurationService {

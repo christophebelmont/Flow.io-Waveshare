@@ -237,6 +237,24 @@ bool PoolLogicModule::getPoolOperatingConfiguration_(
     outConfiguration.orpSetpointMv = orpSetpoint_;
     outConfiguration.heaterSetpointValid = std::isfinite(heaterSetpoint_);
     outConfiguration.heaterSetpointC = heaterSetpoint_;
+
+    const uint32_t nowMs = millis();
+    if (autoModeTrace_.known) {
+        outConfiguration.filtrationAutoModeSinceValid = true;
+        outConfiguration.filtrationAutoModeSinceMs = (uint32_t)(nowMs - autoModeTrace_.sinceMs);
+    }
+    if (winterModeTrace_.known) {
+        outConfiguration.winterModeSinceValid = true;
+        outConfiguration.winterModeSinceMs = (uint32_t)(nowMs - winterModeTrace_.sinceMs);
+    }
+    if (phAutoModeTrace_.known) {
+        outConfiguration.phAutoModeSinceValid = true;
+        outConfiguration.phAutoModeSinceMs = (uint32_t)(nowMs - phAutoModeTrace_.sinceMs);
+    }
+    if (orpAutoModeTrace_.known) {
+        outConfiguration.orpAutoModeSinceValid = true;
+        outConfiguration.orpAutoModeSinceMs = (uint32_t)(nowMs - orpAutoModeTrace_.sinceMs);
+    }
     return true;
 }
 

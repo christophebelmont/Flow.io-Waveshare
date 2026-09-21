@@ -143,6 +143,7 @@ private:
         uint32_t weekKey = 0;
         uint32_t monthKey = 0;
         uint32_t stateTsMs = 0;
+        uint32_t actualOnSinceMs = 0;
         uint32_t metricsTsMs = 0;
         uint32_t lastRuntimeCommitMs = 0;
         uint32_t lastPersistMs = 0;

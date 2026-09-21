@@ -614,6 +614,9 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
             if (s.feedback.error) s.blockReason = POOL_DEVICE_BLOCK_IO_ERROR;
         }
         s.actualOn = s.feedback.observedValid && s.feedback.observed.running;
+        if (s.actualOn != wasActualOn || s.actualOnSinceMs == 0U) {
+            s.actualOnSinceMs = nowMs;
+        }
         stateChanged = previous.changedAtMs != s.feedback.changedAtMs ||
             previous.phase != s.feedback.phase || previous.quality != s.feedback.quality ||
             previous.observedValid != s.feedback.observedValid;
@@ -684,6 +687,7 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
             rtState.blockReason = s.blockReason;
             rtState.interlockState = s.interlockState;
             rtState.tsMs = s.stateTsMs;
+            rtState.actualOnSinceMs = s.actualOnSinceMs;
             rtState.desiredSetpoint = s.desired.setpoint;
             rtState.effectiveOn = s.effective.running;
             rtState.effectiveSetpoint = s.effective.setpoint;

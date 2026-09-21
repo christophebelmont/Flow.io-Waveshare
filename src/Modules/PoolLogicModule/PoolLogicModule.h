@@ -105,6 +105,14 @@ private:
         uint32_t lastCmdMs = 0;
     };
 
+    // Edge-oriented trace of a boolean mode: records when the value last
+    // changed so the UI can display how long the current state has been held.
+    struct ModeStateTrace {
+        bool known = false;
+        bool value = false;
+        uint32_t sinceMs = 0;
+    };
+
     struct TemporalPidState {
         bool initialized = false;
         bool sampleValid = false;
@@ -158,6 +166,10 @@ private:
     bool phAutoMode_ = false;
     bool orpAutoMode_ = false;
     bool heaterAutoMode_ = false;
+    ModeStateTrace autoModeTrace_{};
+    ModeStateTrace winterModeTrace_{};
+    ModeStateTrace phAutoModeTrace_{};
+    ModeStateTrace orpAutoModeTrace_{};
     bool phDosePlus_ = false;
     bool indoorPool_ = false;
     bool automaticCoverPresent_ = false;
@@ -476,6 +488,7 @@ private:
     bool setPoolDeviceWritesEnabled_(bool enabled);
     void syncDeviceState_(uint8_t deviceSlot, DeviceFsm& fsm, uint32_t nowMs, bool& turnedOnOut, bool& turnedOffOut);
     void syncAllDeviceStates_(uint32_t nowMs);
+    void syncModeStateTraces_(uint32_t nowMs);
     void adoptBootDeviceState_(uint32_t nowMs);
     uint32_t stateUptimeSec_(const DeviceFsm& fsm, uint32_t nowMs) const;
     bool loadAnalogSensor_(IoId ioId, float& out, uint32_t* tsMsOut = nullptr) const;

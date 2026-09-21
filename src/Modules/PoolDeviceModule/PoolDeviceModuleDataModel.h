@@ -41,6 +41,7 @@ struct PoolDeviceRuntimeStateEntry {
     float effectiveSetpoint = 0;
     PoolDeviceFeedback feedback{};
     uint32_t tsMs = 0;
+    uint32_t actualOnSinceMs = 0;
 };
 
 struct PoolDeviceRuntimeMetricsEntry {

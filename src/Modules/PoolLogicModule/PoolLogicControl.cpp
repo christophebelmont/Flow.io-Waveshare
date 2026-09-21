@@ -766,9 +766,25 @@ void PoolLogicModule::syncAllDeviceStates_(uint32_t nowMs)
     syncDeviceState_(heaterDeviceSlot_, heaterFsm_, nowMs, unusedStart, unusedStop);
 }
 
+void PoolLogicModule::syncModeStateTraces_(uint32_t nowMs)
+{
+    const auto syncTrace = [](ModeStateTrace& trace, bool value, uint32_t now) {
+        if (!trace.known || trace.value != value) {
+            trace.known = true;
+            trace.value = value;
+            trace.sinceMs = now;
+        }
+    };
+    syncTrace(autoModeTrace_, autoMode_, nowMs);
+    syncTrace(winterModeTrace_, winterMode_, nowMs);
+    syncTrace(phAutoModeTrace_, phAutoMode_, nowMs);
+    syncTrace(orpAutoModeTrace_, orpAutoMode_, nowMs);
+}
+
 void PoolLogicModule::adoptBootDeviceState_(uint32_t nowMs)
 {
     syncAllDeviceStates_(nowMs);
+    syncModeStateTraces_(nowMs);
     filtrationFsm_.lastDesired = filtrationFsm_.on;
     robotFsm_.lastDesired = robotFsm_.on;
     swgFsm_.lastDesired = swgFsm_.on;
@@ -934,6 +950,8 @@ void PoolLogicModule::applyDeviceControl_(uint8_t deviceSlot,
 
 void PoolLogicModule::runControlLoop_(uint32_t nowMs)
 {
+    syncModeStateTraces_(nowMs);
+
     // The loop always starts by refreshing observed actuator states so all
     // subsequent decisions are based on the latest physical feedback.
     bool filtrationStarted = false;

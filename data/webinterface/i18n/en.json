@@ -113,6 +113,8 @@
     "dashboard.alarm.conditionActive": "Condition active",
     "dashboard.alarm.normal": "Normal",
     "dashboard.alarm.default": "Alarm",
+    "dashboard.state.since": "since",
+    "dashboard.sonde.range": "range",
     "dashboard.loading": "Loading...",
     "dashboard.empty.domainNoRuntime": "No runtime value exposed for this domain.",
     "dashboard.empty.activeDomainsNoRuntime": "No runtime value available for dashboard domains.",

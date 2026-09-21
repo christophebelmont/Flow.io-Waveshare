@@ -24,6 +24,7 @@ async function main() {
   assert(configSwitchSource.includes('buildFlowSwitch('));
 
   const sharedSource = sourceBetween('    function setRuntimeActionText(', '    function buildRuntimeActionCell(');
+  const sinceSource = sourceBetween('    function formatStateDurationMs(', '    function formatRuntimeDurationMs(');
   const browser = await chromium.launch({
     headless: true,
     ...(process.env.FLOWIO_TEST_BROWSER ? { executablePath: process.env.FLOWIO_TEST_BROWSER } : {})
@@ -32,12 +33,13 @@ async function main() {
     const page = await browser.newPage({ viewport: { width: 900, height: 520 } });
     await page.setContent('<html lang="fr"><body><main id="test-root"></main></body></html>');
     await page.addStyleTag({ content: fs.readFileSync(path.join(project, 'data/webinterface/app-core.css'), 'utf8') });
-    await page.evaluate(({ sharedSource, dashboardSwitchSource }) => {
+    await page.evaluate(({ sharedSource, sinceSource, dashboardSwitchSource }) => {
       const script = document.createElement('script');
       script.textContent = `
         const dashboardDualStateTileViews = new WeakMap();
         function tr(_key, fallback) { return fallback; }
         ${sharedSource}
+        ${sinceSource}
         ${dashboardSwitchSource}
         const root = document.getElementById('test-root');
         const dashboardOptions = {
@@ -58,7 +60,7 @@ async function main() {
         root.appendChild(window.configSwitch.element);
       `;
       document.body.appendChild(script);
-    }, { sharedSource, dashboardSwitchSource });
+    }, { sharedSource, sinceSource, dashboardSwitchSource });
 
     const dashboard = page.getByRole('switch', { name: 'Mode automatique : Inactif' });
     const config = page.getByRole('switch', { name: 'Protection antigel' });

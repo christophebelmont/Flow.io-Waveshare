@@ -459,6 +459,7 @@ void SystemMonitorModule::logTaskStacks() {
 
     static constexpr char kStackPrefix[] = "Stack ";
     static constexpr size_t kLineMsgBudget = (size_t)LOG_MSG_MAX - sizeof(kStackPrefix);
+    static constexpr uint8_t kMaxTasksPerLine = 3U;
     char line[kLineMsgBudget + 1];
     size_t off = 0U;
     uint8_t tasksOnLine = 0U;
@@ -499,37 +500,45 @@ void SystemMonitorModule::logTaskStacks() {
         }
 
         const uint32_t observedMin = base->minFreeBytes;
+        const bool hasKnownStack = (spec != nullptr) && (base->configuredBytes > 0U);
         const uint32_t lowThreshold =
             (moduleId == ModuleId::Mqtt) ? kStackBaselineMqttLowFreeBytes : kStackBaselineLowFreeBytes;
-        const bool isLow = (observedMin < lowThreshold);
+        // Only tasks with a known configured size are assessed against a safety
+        // margin. IDF-internal tasks (idle, ipc, timer, ...) use fixed stacks
+        // that are never resized and would otherwise raise false positives. A
+        // zero watermark is always reported, whatever the task.
+        const bool isOverflow = (observedMin == 0U);
+        const bool isLow = hasKnownStack && (observedMin < lowThreshold);
+        const bool warn = isLow || isOverflow;
 
         ++observedTasks;
-        if (observedMin == 0U) ++overflowTasks;
+        if (isOverflow) ++overflowTasks;
         if (isLow) ++lowTasks;
 
         char entry[96];
         int ew;
-        if (spec && base->configuredBytes > 0U) {
+        if (hasKnownStack) {
             ew = snprintf(entry, sizeof(entry), "%s/%s@c%ld min=%lu/%luB%s",
                           toString(moduleId),
                           spec->name ? spec->name : "?",
                           (long)spec->coreId,
                           (unsigned long)observedMin,
                           (unsigned long)base->configuredBytes,
-                          isLow ? "!" : "");
+                          warn ? "!" : "");
         } else {
             ew = snprintf(entry, sizeof(entry), "%s min=%luB%s",
                           (liveTasks[t].pcTaskName && liveTasks[t].pcTaskName[0])
                               ? liveTasks[t].pcTaskName
                               : "-",
                           (unsigned long)observedMin,
-                          isLow ? "!" : "");
+                          warn ? "!" : "");
         }
         if (ew < 0) continue;
 
         const size_t entryLen = (size_t)ew;
         const size_t sepLen = (tasksOnLine > 0U) ? 1U : 0U;
-        if (tasksOnLine > 0U && (off + sepLen + entryLen) > kLineMsgBudget) {
+        if (tasksOnLine > 0U &&
+            (tasksOnLine >= kMaxTasksPerLine || (off + sepLen + entryLen) > kLineMsgBudget)) {
             LOGD("Stack %s", line);
             off = 0U;
             line[0] = '\0';

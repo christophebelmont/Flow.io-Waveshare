@@ -20,6 +20,7 @@
 #include "Domain/Pool/PoolIds.h"
 #include "Domain/Pool/PoolDomain.h"
 #include "Core/Services/IPoolDevice.h"
+#include "Core/Services/IPoolConfiguration.h"
 #include "Modules/IOModule/IORuntime.h"
 #include "Modules/PoolDeviceModule/PoolDeviceRuntime.h"
 #include "Modules/Network/MQTTModule/MQTTRuntime.h"
@@ -2042,6 +2043,57 @@ void printRuntimeUnavailable_(Print& out, bool& firstValue, RuntimeUiId id, cons
     out.print(",\"status\":\"unavailable\"}");
 }
 
+// Emits a boolean runtime value with the elapsed time (ms) since the value
+// last changed, so clients can render "since xxh xxmn" without tracking state.
+void printRuntimeBoolWithSince_(Print& out,
+                                bool& firstValue,
+                                RuntimeUiId id,
+                                const char* key,
+                                bool value,
+                                bool hasSince,
+                                uint32_t sinceMs)
+{
+    printRuntimeValuePrefix_(out, firstValue, id, key, "bool", nullptr);
+    out.print(",\"value\":");
+    out.print(value ? "true" : "false");
+    if (hasSince) {
+        out.print(",\"since_ms\":");
+        out.print((unsigned long)sinceMs);
+    }
+    out.print('}');
+}
+
+bool waveshareReadPoolModeSince_(const PoolConfigurationService* poolCfgSvc,
+                                 RuntimeUiId id,
+                                 uint32_t& outSinceMs)
+{
+    outSinceMs = 0U;
+    if (!poolCfgSvc || !poolCfgSvc->getOperatingConfiguration) return false;
+    PoolOperatingConfiguration op{};
+    if (!poolCfgSvc->getOperatingConfiguration(poolCfgSvc->ctx, &op)) return false;
+
+    switch (id) {
+        case 2401:
+            if (!op.filtrationAutoModeSinceValid) return false;
+            outSinceMs = op.filtrationAutoModeSinceMs;
+            return true;
+        case 2402:
+            if (!op.winterModeSinceValid) return false;
+            outSinceMs = op.winterModeSinceMs;
+            return true;
+        case 2403:
+            if (!op.phAutoModeSinceValid) return false;
+            outSinceMs = op.phAutoModeSinceMs;
+            return true;
+        case 2404:
+            if (!op.orpAutoModeSinceValid) return false;
+            outSinceMs = op.orpAutoModeSinceMs;
+            return true;
+        default:
+            return false;
+    }
+}
+
 
 bool waveshareLoadPoolModeFlags_(ConfigStore* cfgStore,
                                 bool& hasMode,
@@ -2210,6 +2262,7 @@ bool appendWaveshareLocalRuntimeValue_(Print& out,
                                       DataStore* dataStore,
                                       ConfigStore* cfgStore,
                                       const AlarmService* alarmSvc,
+                                      const PoolConfigurationService* poolCfgSvc,
                                       RuntimeUiId id,
                                       bool& firstValue,
                                       WaveshareRuntimeContext& ctx)
@@ -2232,38 +2285,50 @@ bool appendWaveshareLocalRuntimeValue_(Print& out,
             waveshareEnsureAlarmMasks_(ctx, alarmSvc);
             printRuntimeU32_(out, firstValue, id, "alarms.condition_mask", ctx.alarmConditionMask);
             return true;
-        case 2401:
+        case 2401: {
             waveshareEnsurePoolMode_(ctx, cfgStore);
             if (!ctx.poolModeAvailable) {
                 wavesharePrintUnavailableByManifestType_(out, firstValue, id);
             } else {
-                printRuntimeBool_(out, firstValue, id, "pool.auto_mode", ctx.poolAutoMode);
+                uint32_t sinceMs = 0U;
+                const bool hasSince = waveshareReadPoolModeSince_(poolCfgSvc, id, sinceMs);
+                printRuntimeBoolWithSince_(out, firstValue, id, "pool.auto_mode", ctx.poolAutoMode, hasSince, sinceMs);
             }
             return true;
-        case 2402:
+        }
+        case 2402: {
             waveshareEnsurePoolMode_(ctx, cfgStore);
             if (!ctx.poolModeAvailable) {
                 wavesharePrintUnavailableByManifestType_(out, firstValue, id);
             } else {
-                printRuntimeBool_(out, firstValue, id, "pool.winter_mode", ctx.poolWinterMode);
+                uint32_t sinceMs = 0U;
+                const bool hasSince = waveshareReadPoolModeSince_(poolCfgSvc, id, sinceMs);
+                printRuntimeBoolWithSince_(out, firstValue, id, "pool.winter_mode", ctx.poolWinterMode, hasSince, sinceMs);
             }
             return true;
-        case 2403:
+        }
+        case 2403: {
             waveshareEnsurePoolMode_(ctx, cfgStore);
             if (!ctx.poolModeAvailable) {
                 wavesharePrintUnavailableByManifestType_(out, firstValue, id);
             } else {
-                printRuntimeBool_(out, firstValue, id, "pool.ph_auto_mode", ctx.poolPhAutoMode);
+                uint32_t sinceMs = 0U;
+                const bool hasSince = waveshareReadPoolModeSince_(poolCfgSvc, id, sinceMs);
+                printRuntimeBoolWithSince_(out, firstValue, id, "pool.ph_auto_mode", ctx.poolPhAutoMode, hasSince, sinceMs);
             }
             return true;
-        case 2404:
+        }
+        case 2404: {
             waveshareEnsurePoolMode_(ctx, cfgStore);
             if (!ctx.poolModeAvailable) {
                 wavesharePrintUnavailableByManifestType_(out, firstValue, id);
             } else {
-                printRuntimeBool_(out, firstValue, id, "pool.dis_auto_mode", ctx.poolOrpAutoMode);
+                uint32_t sinceMs = 0U;
+                const bool hasSince = waveshareReadPoolModeSince_(poolCfgSvc, id, sinceMs);
+                printRuntimeBoolWithSince_(out, firstValue, id, "pool.dis_auto_mode", ctx.poolOrpAutoMode, hasSince, sinceMs);
             }
             return true;
+        }
         case 2305:
             printRuntimeU32_(out, firstValue, id, "pool.device_count", poolDeviceRuntimeCount(*dataStore));
             return true;
@@ -2288,7 +2353,8 @@ bool appendWaveshareLocalRuntimeValue_(Print& out,
             if (!poolDeviceRuntimeState(*dataStore, slot, state)) {
                 wavesharePrintUnavailableByManifestType_(out, firstValue, id);
             } else {
-                printRuntimeBool_(out, firstValue, id, key, state.actualOn);
+                const uint32_t sinceMs = (uint32_t)(millis() - state.actualOnSinceMs);
+                printRuntimeBoolWithSince_(out, firstValue, id, key, state.actualOn, true, sinceMs);
             }
             return true;
         }
@@ -2427,6 +2493,7 @@ void sendWaveshareLocalRuntimeValuesResponse_(AsyncWebServerRequest* request,
                                              DataStore* dataStore,
                                              ConfigStore* cfgStore,
                                              const AlarmService* alarmSvc,
+                                             const PoolConfigurationService* poolCfgSvc,
                                              const RuntimeUiId* ids,
                                              size_t idCount)
 {
@@ -2445,7 +2512,7 @@ void sendWaveshareLocalRuntimeValuesResponse_(AsyncWebServerRequest* request,
     response->print("{\"ok\":true,\"values\":[");
     bool firstValue = true;
     for (size_t i = 0U; i < idCount; ++i) {
-        (void)appendWaveshareLocalRuntimeValue_(*response, dataStore, cfgStore, alarmSvc, ids[i], firstValue, ctx);
+        (void)appendWaveshareLocalRuntimeValue_(*response, dataStore, cfgStore, alarmSvc, poolCfgSvc, ids[i], firstValue, ctx);
     }
     response->print("]}");
     request->send(response);
@@ -2707,6 +2774,8 @@ struct WaveshareAlarmDashboardSlotState {
     bool resettable = false;
     bool conditionKnown = false;
     bool conditionTrue = false;
+    bool lastChangeValid = false;
+    uint32_t lastChangeMs = 0U;
 };
 
 struct WaveshareDashboardRuntimeValue {
@@ -3924,6 +3993,10 @@ bool waveshareReadAlarmDashboardSlotState_(const AlarmService* alarmSvc,
     const uint8_t condition = doc["c"] | 2U;
     out.conditionKnown = condition != (uint8_t)AlarmCondState::Unknown;
     out.conditionTrue = condition == (uint8_t)AlarmCondState::True;
+    if (doc.containsKey("lc")) {
+        out.lastChangeValid = true;
+        out.lastChangeMs = doc["lc"] | 0U;
+    }
     return true;
 }
 
@@ -4028,6 +4101,12 @@ void sendWaveshareAlarmDashboardSlotsResponse_(AsyncResponseStream& response,
         response.print(state.conditionKnown ? "true" : "false");
         response.print(",\"condition_true\":");
         response.print(state.conditionTrue ? "true" : "false");
+        response.print(",\"since_ms\":");
+        if (state.lastChangeValid) {
+            response.print((unsigned long)(uint32_t)(millis() - state.lastChangeMs));
+        } else {
+            response.print("null");
+        }
         response.print("}");
         firstSlot = false;
     }
@@ -7465,7 +7544,8 @@ void WebInterfaceModule::startServer_()
 
         {
             const AlarmService* alarmSvc = services_ ? services_->get<AlarmService>(ServiceId::Alarm) : nullptr;
-            sendWaveshareLocalRuntimeValuesResponse_(request, dataStore_, cfgStore_, alarmSvc, ids, idCount);
+            const PoolConfigurationService* poolCfgSvc = services_ ? services_->get<PoolConfigurationService>(ServiceId::PoolConfiguration) : nullptr;
+            sendWaveshareLocalRuntimeValuesResponse_(request, dataStore_, cfgStore_, alarmSvc, poolCfgSvc, ids, idCount);
         }
     });
 
@@ -7528,7 +7608,8 @@ void WebInterfaceModule::startServer_()
 
             {
                 const AlarmService* alarmSvc = services_ ? services_->get<AlarmService>(ServiceId::Alarm) : nullptr;
-                sendWaveshareLocalRuntimeValuesResponse_(request, dataStore_, cfgStore_, alarmSvc, ids, idCount);
+                const PoolConfigurationService* poolCfgSvc = services_ ? services_->get<PoolConfigurationService>(ServiceId::PoolConfiguration) : nullptr;
+                sendWaveshareLocalRuntimeValuesResponse_(request, dataStore_, cfgStore_, alarmSvc, poolCfgSvc, ids, idCount);
             }
         },
         nullptr,

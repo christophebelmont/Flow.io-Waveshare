@@ -113,6 +113,8 @@
     "dashboard.alarm.conditionActive": "Condition active",
     "dashboard.alarm.normal": "Normal",
     "dashboard.alarm.default": "Alarme",
+    "dashboard.state.since": "depuis",
+    "dashboard.sonde.range": "plage",
     "dashboard.loading": "Chargement en cours...",
     "dashboard.empty.domainNoRuntime": "Aucune valeur runtime exposée pour ce domaine.",
     "dashboard.empty.activeDomainsNoRuntime": "Aucune valeur runtime disponible pour les domaines du tableau de bord.",

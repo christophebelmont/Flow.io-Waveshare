@@ -98,15 +98,16 @@ async function main() {
 
     // Check the actual tile builder and card footer rather than a copy of their markup.
     const app = fs.readFileSync(path.join(project, 'data/webinterface/app.js'), 'utf8');
+    const since = app.slice(app.indexOf('    function formatStateDurationMs('), app.indexOf('    function formatRuntimeDurationMs('));
     const tile = app.slice(app.indexOf('    function buildDashboardAlarmTile('), app.indexOf('    function buildRuntimeAlarmGrid('));
     const footer = app.slice(app.indexOf('    function appendRuntimeCardActions('), app.indexOf('    function buildPoolMeasureCards('));
-    await page.evaluate(({ tile, footer }) => {
+    await page.evaluate(({ since, tile, footer }) => {
       window.decorateDashboardAlarmTile = () => {};
       window.dashboardAlarmStateText = () => 'À acquitter';
       const script = document.createElement('script');
-      script.textContent = tile + footer + '\nconst alarmCard = document.createElement("div"); alarmCard.id="testAlarmCard"; alarmCard.className="status-card"; alarmCard.appendChild(buildDashboardAlarmTile({label:"Pompe pH",conditionValue:false,latchValue:true,resettable:true,inputValue:107,actionBinding:{entry:testEntry,action:testEntry.actions[0]}})); appendRuntimeCardActions(alarmCard,[testEntry]); document.body.appendChild(alarmCard);';
+      script.textContent = since + tile + footer + '\nconst alarmCard = document.createElement("div"); alarmCard.id="testAlarmCard"; alarmCard.className="status-card"; alarmCard.appendChild(buildDashboardAlarmTile({label:"Pompe pH",conditionValue:false,latchValue:true,resettable:true,inputValue:107,actionBinding:{entry:testEntry,action:testEntry.actions[0]}})); appendRuntimeCardActions(alarmCard,[testEntry]); document.body.appendChild(alarmCard);';
       document.body.appendChild(script);
-    }, { tile, footer });
+    }, { since, tile, footer });
     assert.equal(await page.locator('#testAlarmCard .status-alarm-slot').evaluate(element => element.tagName), 'DIV');
     const requestCount = await page.evaluate(() => testState.requests.length);
     await page.locator('#testAlarmCard .status-alarm-slot').click();

@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>flow.io — Tableau de bord (proposal)</title>
+<style>
+  :root{
+    --bg:#F2F2F7;
+    --surface:#FFFFFF;
+    --surface-soft:#F7F7FA;
+    --surface-inset:#F2F2F7;
+    --separator:rgba(60,60,67,0.12);
+    --separator-strong:rgba(60,60,67,0.20);
+    --text:#1C1C1E;
+    --text-2:#6E6E73;
+    --text-3:#8E8E93;
+    --accent:#007AFF;
+    --accent-soft:rgba(0,122,255,0.10);
+    --green:#34C759;
+    --green-deep:#248A3D;
+    --green-soft:rgba(52,199,89,0.12);
+    --orange:#FF9500;
+    --orange-soft:rgba(255,149,0,0.13);
+    --red:#FF3B30;
+    --red-soft:rgba(255,59,48,0.12);
+    --violet:#AF52DE;
+    --violet-soft:rgba(175,82,222,0.12);
+    --teal:#32ADE6;
+    --teal-soft:rgba(50,173,230,0.13);
+    --radius-card:20px;
+    --radius-tile:14px;
+    --radius-chip:10px;
+    --shadow-card:0 1px 2px rgba(0,0,0,0.04), 0 8px 24px rgba(17,24,39,0.06);
+    --shadow-tile:0 1px 2px rgba(0,0,0,0.03);
+    --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    width:1560px;height:810px;overflow:hidden;
+    font-family:var(--font);
+    background:var(--bg);color:var(--text);
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  }
+  .app{display:flex;height:810px}
+
+  /* ── Sidebar ─────────────────────────────── */
+  .drawer{
+    width:216px;flex:0 0 216px;background:#FFFFFF;
+    border-right:1px solid var(--separator);
+    display:flex;flex-direction:column;padding:14px 12px;
+  }
+  .brand{display:flex;align-items:center;gap:9px;padding:8px 10px 16px}
+  .brand-mark{width:30px;height:30px;border-radius:9px;background:linear-gradient(180deg,#0A84FF,#0060DF);
+    display:flex;align-items:center;justify-content:center;color:#fff}
+  .brand-name{font-size:19px;font-weight:700;letter-spacing:-0.3px}
+  .brand-name .io{color:var(--accent)}
+  .menu{display:flex;flex-direction:column;gap:2px;flex:1}
+  .menu-item{display:flex;align-items:center;gap:11px;padding:8px 11px;border-radius:11px;
+    color:#3C3C43;font-size:13.5px;font-weight:550;letter-spacing:-0.1px}
+  .menu-item svg{width:18px;height:18px;stroke:#8E8E93;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .menu-item.active{background:var(--accent-soft);color:var(--accent)}
+  .menu-item.active svg{stroke:var(--accent)}
+  .drawer-foot{display:flex;flex-direction:column;gap:10px}
+  .account{display:flex;align-items:center;gap:10px;padding:8px;border-radius:13px;background:var(--surface-inset)}
+  .avatar{width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;font-weight:700;
+    font-size:13px;display:flex;align-items:center;justify-content:center}
+  .account-name{font-size:13px;font-weight:600;line-height:1.15}
+  .account-role{font-size:11px;color:var(--text-2)}
+  .account .logout{margin-left:auto;color:var(--text-3);display:flex}
+  .account .logout svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .dark-row{display:flex;align-items:center;justify-content:space-between;padding:8px 11px;
+    border-radius:13px;background:var(--surface-inset);font-size:13px;color:#3C3C43}
+  .ios-switch{width:40px;height:24px;border-radius:12px;background:#E5E5EA;position:relative;transition:.2s}
+  .ios-switch::after{content:"";position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;
+    background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+  .ios-switch.on{background:var(--green)}
+  .ios-switch.on::after{transform:translateX(16px)}
+
+  /* ── Content ─────────────────────────────── */
+  .content{flex:1;min-width:0;padding:18px 22px;display:flex;flex-direction:column;gap:14px}
+  .header{display:flex;align-items:center;gap:12px}
+  .page-title{font-size:23px;font-weight:700;letter-spacing:-0.5px;margin-right:auto}
+  .pill{display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid var(--separator);
+    border-radius:12px;padding:7px 12px;font-size:12.5px;color:var(--text-2);box-shadow:var(--shadow-card)}
+  .pill svg{width:15px;height:15px;stroke:var(--text-2);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .pill b{color:var(--text);font-weight:600}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px var(--green-soft)}
+
+  /* ── Hero ────────────────────────────────── */
+  .hero{display:grid;grid-template-columns:1.15fr 1fr;gap:16px;background:#fff;border:1px solid var(--separator);
+    border-radius:var(--radius-card);box-shadow:var(--shadow-card);padding:16px 18px}
+  .hero-left{display:flex;gap:13px;align-items:flex-start}
+  .hero-ico{width:46px;height:46px;border-radius:14px;background:var(--accent-soft);display:flex;
+    align-items:center;justify-content:center;flex:0 0 auto}
+  .hero-ico svg{width:24px;height:24px;stroke:var(--accent);fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .hero-state{display:inline-flex;align-items:center;gap:7px;font-size:16px;font-weight:700;color:var(--green-deep)}
+  .hero-state svg{width:17px;height:17px;stroke:var(--green-deep);fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+  .hero-sub{margin:5px 0 12px;font-size:13px;line-height:1.45;color:var(--text-2);max-width:460px}
+  .daybar{display:flex;align-items:center;gap:10px;max-width:420px}
+  .daybar .t{font-size:12.5px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+  .track{flex:1;height:6px;border-radius:3px;background:#E5E5EA;overflow:hidden}
+  .fill{display:block;height:100%;width:44%;border-radius:3px;background:linear-gradient(90deg,#0A84FF,#34C759)}
+  .hero-right{display:flex;flex-direction:column;gap:10px;border-left:1px solid var(--separator);padding-left:16px}
+  .ai-head{display:flex;align-items:center;gap:8px}
+  .btn-ai{display:inline-flex;align-items:center;gap:7px;background:var(--accent);color:#fff;border:none;
+    border-radius:11px;padding:8px 13px;font-size:13px;font-weight:600;font-family:inherit}
+  .btn-ai svg{width:15px;height:15px;stroke:#fff;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .ai-status{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--accent)}
+  .ai-box{background:var(--surface-inset);border-radius:12px;padding:10px 12px;flex:1}
+  .ai-box h4{margin:0 0 4px;font-size:11.5px;font-weight:650;color:var(--text-2);text-transform:none}
+  .ai-box p{margin:0;font-size:12.5px;color:var(--text-3)}
+
+  /* ── Grid of cards ───────────────────────── */
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+
+  /* ── Line cards ──────────────────────────── */
+  .line-card{background:#fff;border:1px solid var(--separator);border-radius:var(--radius-card);
+    box-shadow:var(--shadow-card);padding:14px;display:flex;flex-direction:column;gap:11px}
+  .card-head{display:flex;align-items:center;gap:10px}
+  .card-ico{width:30px;height:30px;border-radius:10px;background:var(--accent-soft);display:flex;
+    align-items:center;justify-content:center}
+  .card-ico svg{width:17px;height:17px;stroke:var(--accent);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .card-title{font-size:14.5px;font-weight:650;letter-spacing:-0.2px}
+  .card-count{font-size:11.5px;color:var(--text-3);font-weight:500}
+  .link{margin-left:auto;font-size:12.5px;font-weight:600;color:var(--accent)}
+  .tiles{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .tile{display:flex;align-items:center;gap:9px;background:var(--surface-inset);border-radius:var(--radius-tile);
+    padding:10px 11px;min-height:58px}
+  .tile-copy{min-width:0;display:flex;flex-direction:column;gap:2px}
+  .tile-label{font-size:12.5px;font-weight:600;color:var(--text);letter-spacing:-0.1px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tile-state{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:650;color:var(--green-deep)}
+  .tile-state .dot{width:6px;height:6px;box-shadow:none}
+  .tile-sub{font-size:10.5px;font-weight:500;color:var(--text-3);letter-spacing:0;font-variant-numeric:tabular-nums}
+  .tile .ios-switch{margin-left:auto;flex:0 0 auto}
+  .tile.off .tile-state{color:var(--text-3)}
+  .tile.off .tile-state .dot{background:#C7C7CC}
+  .tile.off .ios-switch{background:#E5E5EA}
+
+  /* ── Measures ────────────────────────────── */
+  .measures{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+  .measure{border-radius:var(--radius-tile);padding:10px 11px;display:flex;flex-direction:column;gap:5px;
+    min-height:74px;border:1px solid var(--separator)}
+  .measure .m-label{font-size:11.5px;font-weight:600;color:var(--text-2)}
+  .measure .m-value{font-size:20px;font-weight:700;letter-spacing:-0.5px;line-height:1;font-variant-numeric:tabular-nums}
+  .measure .m-value small{font-size:12px;font-weight:600;color:var(--text-2);margin-left:2px;letter-spacing:0}
+  .measure .m-range{font-size:10px;color:var(--text-3)}
+  .m-bar{height:5px;border-radius:3px;background:rgba(60,60,67,0.14);overflow:hidden}
+  .m-bar span{display:block;height:100%;border-radius:3px}
+  .m-blue{background:#EAF3FF}.m-blue .m-bar span{background:#0A84FF}
+  .m-teal{background:#E9F7FE}.m-teal .m-bar span{background:#32ADE6}
+  .m-green{background:#EAF9EE}.m-green .m-bar span{background:#34C759}
+  .m-violet{background:#F5ECFD}.m-violet .m-bar span{background:#AF52DE}
+  .m-orange{background:#FFF3E4}.m-orange .m-bar span{background:#FF9500}
+  .m-muted{background:var(--surface-inset)}
+  .m-muted .m-value{color:var(--text-3)}
+  .m-muted .m-range{color:var(--text-3)}
+
+  /* ── Alarms ──────────────────────────────── */
+  .alarms{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+  .alarm{border-radius:var(--radius-tile);padding:10px 11px;display:flex;flex-direction:column;gap:5px;
+    min-height:70px;justify-content:center}
+  .alarm.ok{background:var(--green-soft)}
+  .alarm.warn{background:var(--orange-soft)}
+  .alarm.crit{background:var(--red-soft)}
+  .alarm .a-label{font-size:11.5px;font-weight:600;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .alarm .a-state{font-size:13.5px;font-weight:700;color:var(--green-deep);display:flex;align-items:center;gap:6px}
+  .alarm.warn .a-state{color:#B36B00}
+  .alarm.crit .a-state{color:#C4261E}
+  .alarm .a-state .dot{width:6px;height:6px;box-shadow:none}
+  .alarm.warn .a-state .dot{background:var(--orange)}
+  .alarm.crit .a-state .dot{background:var(--red)}
+  .alarm .a-sub{font-size:10.5px;color:var(--text-3);font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></symbol>
+  <symbol id="i-flask" viewBox="0 0 24 24"><path d="M9 3h6M10 3v6l-4.6 8a2.5 2.5 0 0 0 2.2 3.7h8.8A2.5 2.5 0 0 0 18.6 17L14 9V3"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v3h16v-3"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 13.5a7.7 7.7 0 0 0 0-3l2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-2.6-1.5L14 2.5h-4l-.4 2.5A7.6 7.6 0 0 0 7 6.5l-2.4-1-2 3.4 2 1.6a7.7 7.7 0 0 0 0 3l-2 1.6 2 3.4 2.4-1a7.6 7.6 0 0 0 2.6 1.5l.4 2.5h4l.4-2.5a7.6 7.6 0 0 0 2.6-1.5l2.4 1 2-3.4-2-1.6Z"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0"/><path d="M16 5.5a3.2 3.2 0 0 1 0 6M20.5 19a5.5 5.5 0 0 0-4-5.3"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 16l-4-4 4-4M6 12h10"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2.5 9a15 15 0 0 1 19 0M5.5 12.5a10 10 0 0 1 13 0M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1"/></symbol>
+  <symbol id="i-chip" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M10 2v3M14 2v3M10 19v3M14 19v3M2 10h3M2 14h3M19 10h3M19 14h3"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M2 14.5c2.2 0 3-2 5.2-2s3 2 5.2 2 3-2 5.2-2 2.2 1.4 3.4 1.9"/><path d="M2 19c2.2 0 3-2 5.2-2s3 2 5.2 2 3-2 5.2-2 2.2 1.4 3.4 1.9"/><path d="M2 10c2.2 0 3-2 5.2-2s3 2 5.2 2 3-2 5.2-2 2.2 1.4 3.4 1.9"/></symbol>
+  <symbol id="i-pool" viewBox="0 0 24 24"><path d="M3 16c2 0 2.5 1.2 4.5 1.2S10 16 12 16s2.5 1.2 4.5 1.2S19 16 21 16"/><path d="M3 20c2 0 2.5 1.2 4.5 1.2S10 20 12 20s2.5 1.2 4.5 1.2S19 20 21 20"/><path d="M8 12a4 4 0 0 1 8 0"/><path d="M12 3v3"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M4 12.5 9.5 18 20 6.5"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 8h10M18 8h2M4 16h4M12 16h8"/><circle cx="16" cy="8" r="2.2"/><circle cx="10" cy="16" r="2.2"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 18a9 9 0 0 1 16 0"/><path d="M12 18l4-4"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2H4.5L6 16Z"/><path d="M10 21h4"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.8 4.7L18.5 9l-4.7 1.8L12 15.5l-1.8-4.7L5.5 9l4.7-1.3L12 3Z"/><path d="M18 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2Z"/></symbol>
+</svg>
+
+<div class="app">
+  <aside class="drawer">
+    <div class="brand">
+      <span class="brand-mark"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><use href="#i-wave"/></svg></span>
+      <span class="brand-name">flow<span class="io">.io</span></span>
+    </div>
+    <nav class="menu">
+      <div class="menu-item active"><svg><use href="#i-grid"/></svg>Tableau de bord</div>
+      <div class="menu-item"><svg><use href="#i-list"/></svg>Entrées/Sorties</div>
+      <div class="menu-item"><svg><use href="#i-flask"/></svg>Étalonnage</div>
+      <div class="menu-item"><svg><use href="#i-clock"/></svg>Activité</div>
+      <div class="menu-item"><svg><use href="#i-down"/></svg>Mises à Jour</div>
+      <div class="menu-item"><svg><use href="#i-gear"/></svg>Configuration</div>
+      <div class="menu-item"><svg><use href="#i-info"/></svg>Informations</div>
+      <div class="menu-item"><svg><use href="#i-users"/></svg>Comptes</div>
+    </nav>
+    <div class="drawer-foot">
+      <div class="account">
+        <span class="avatar">A</span>
+        <span><span class="account-name">admin</span><br><span class="account-role">Administrateur</span></span>
+        <span class="logout"><svg><use href="#i-logout"/></svg></span>
+      </div>
+      <div class="dark-row">Mode sombre<span class="ios-switch"></span></div>
+    </div>
+  </aside>
+
+  <main class="content">
+    <header class="header">
+      <div class="page-title">Tableau de bord</div>
+      <div class="pill"><svg><use href="#i-wifi"/></svg>Réseau <span class="dot"></span><b>Connecté</b></div>
+      <div class="pill"><svg><use href="#i-chip"/></svg>Appareil <span class="dot"></span><b>Joignable</b></div>
+      <div class="pill"><svg><use href="#i-clock"/></svg>Heure (NTP) <b>16:39:21</b></div>
+    </header>
+
+    <section class="hero">
+      <div class="hero-left">
+        <span class="hero-ico"><svg><use href="#i-pool"/></svg></span>
+        <div>
+          <div class="hero-state"><svg><use href="#i-check"/></svg>État normal</div>
+          <p class="hero-sub">Mode automatique : filtration 08:00–22:00, traitement Chlore / Brome, chauffage arrêté.</p>
+          <div class="daybar">
+            <span class="t">08:00</span>
+            <span class="track"><span class="fill"></span></span>
+            <span class="t">22:00</span>
+          </div>
+        </div>
+      </div>
+      <div class="hero-right">
+        <div class="ai-head">
+          <button class="btn-ai"><svg><use href="#i-spark"/></svg>Analyse IA</button>
+          <span class="ai-status">Chargement de l’analyse…</span>
+        </div>
+        <div class="ai-box">
+          <h4>Préconisation et explication</h4>
+          <p>—</p>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid">
+      <!-- MODE -->
+      <section class="line-card">
+        <div class="card-head">
+          <span class="card-ico"><svg><use href="#i-sliders"/></svg></span>
+          <span class="card-title">Mode</span>
+          <span class="card-count">3 actifs</span>
+        </div>
+        <div class="tiles">
+          <div class="tile">
+            <div class="tile-copy">
+              <span class="tile-label">Mode auto</span>
+              <span class="tile-state"><span class="dot"></span>Actif</span>
+              <span class="tile-sub">depuis 6h 12mn</span>
+            </div>
+            <span class="ios-switch on"></span>
+          </div>
+          <div class="tile off">
+            <div class="tile-copy">
+              <span class="tile-label">Mode hiver</span>
+              <span class="tile-state"><span class="dot"></span>Arrêt</span>
+              <span class="tile-sub">depuis 2j 03h</span>
+            </div>
+            <span class="ios-switch"></span>
+          </div>
+          <div class="tile">
+            <div class="tile-copy">
+              <span class="tile-label">pH auto</span>
+              <span class="tile-state"><span class="dot"></span>Actif</span>
+              <span class="tile-sub">depuis 6h 12mn</span>
+            </div>
+            <span class="ios-switch on"></span>
+          </div>
+          <div class="tile off">
+            <div class="tile-copy">
+              <span class="tile-label">Traitement auto</span>
+              <span class="tile-state"><span class="dot"></span>Arrêt</span>
+              <span class="tile-sub">depuis 11h 48mn</span>
+            </div>
+            <span class="ios-switch"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ÉQUIPEMENTS -->
+      <section class="line-card">
+        <div class="card-head">
+          <span class="card-ico"><svg><use href="#i-gear"/></svg></span>
+          <span class="card-title">Équipements</span>
+          <span class="link">Gérer les équipements</span>
+        </div>
+        <div class="tiles">
+          <div class="tile">
+            <div class="tile-copy">
+              <span class="tile-label">Filtration</span>
+              <span class="tile-state"><span class="dot"></span>Marche</span>
+              <span class="tile-sub">depuis 2h 05mn</span>
+            </div>
+            <span class="ios-switch on"></span>
+          </div>
+          <div class="tile off">
+            <div class="tile-copy">
+              <span class="tile-label">Pompe pH</span>
+              <span class="tile-state"><span class="dot"></span>Arrêté</span>
+              <span class="tile-sub">depuis 8h 40mn</span>
+            </div>
+            <span class="ios-switch"></span>
+          </div>
+          <div class="tile off">
+            <div class="tile-copy">
+              <span class="tile-label">Pompe chlore</span>
+              <span class="tile-state"><span class="dot"></span>Arrêté</span>
+              <span class="tile-sub">depuis 8h 40mn</span>
+            </div>
+            <span class="ios-switch"></span>
+          </div>
+          <div class="tile">
+            <div class="tile-copy">
+              <span class="tile-label">Robot</span>
+              <span class="tile-state"><span class="dot"></span>Marche</span>
+              <span class="tile-sub">depuis 1h 15mn</span>
+            </div>
+            <span class="ios-switch on"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- SONDES -->
+      <section class="line-card">
+        <div class="card-head">
+          <span class="card-ico"><svg><use href="#i-gauge"/></svg></span>
+          <span class="card-title">Sondes</span>
+          <span class="card-count">6 mesures</span>
+        </div>
+        <div class="measures">
+          <div class="measure m-blue">
+            <span class="m-label">Eau</span>
+            <span class="m-value">28.8<small>°C</small></span>
+            <span class="m-bar"><span style="width:72%"></span></span>
+            <span class="m-range">plage 24–31 °C</span>
+          </div>
+          <div class="measure m-teal">
+            <span class="m-label">Air</span>
+            <span class="m-value">30.6<small>°C</small></span>
+            <span class="m-bar"><span style="width:64%"></span></span>
+            <span class="m-range">plage 18–35 °C</span>
+          </div>
+          <div class="measure m-green">
+            <span class="m-label">pH</span>
+            <span class="m-value">5.3</span>
+            <span class="m-bar"><span style="width:41%"></span></span>
+            <span class="m-range">plage 6.4–8.4</span>
+          </div>
+          <div class="measure m-violet">
+            <span class="m-label">ORP</span>
+            <span class="m-value">454<small>mV</small></span>
+            <span class="m-bar"><span style="width:52%"></span></span>
+            <span class="m-range">plage 350–900 mV</span>
+          </div>
+          <div class="measure m-muted">
+            <span class="m-label">Compteur</span>
+            <span class="m-value">—</span>
+            <span class="m-range">non disponible</span>
+          </div>
+          <div class="measure m-muted">
+            <span class="m-label">BME680</span>
+            <span class="m-value">—</span>
+            <span class="m-range">non disponible</span>
+          </div>
+          <div class="measure m-muted">
+            <span class="m-label">BMP280</span>
+            <span class="m-value">—</span>
+            <span class="m-range">non disponible</span>
+          </div>
+          <div class="measure m-orange">
+            <span class="m-label">PSI</span>
+            <span class="m-value">0<small>PSI</small></span>
+            <span class="m-bar"><span style="width:2%"></span></span>
+            <span class="m-range">plage 0.5–2.5</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ALARMES -->
+      <section class="line-card">
+        <div class="card-head">
+          <span class="card-ico"><svg><use href="#i-bell"/></svg></span>
+          <span class="card-title">Alarmes</span>
+          <span class="link">Gérer les alarmes</span>
+        </div>
+        <div class="alarms">
+          <div class="alarm ok">
+            <span class="a-label">PSI bas</span>
+            <span class="a-state"><span class="dot"></span>Normal</span>
+            <span class="a-sub">depuis 3j 04h</span>
+          </div>
+          <div class="alarm ok">
+            <span class="a-label">PSI haut</span>
+            <span class="a-state"><span class="dot"></span>Normal</span>
+            <span class="a-sub">depuis 3j 04h</span>
+          </div>
+          <div class="alarm ok">
+            <span class="a-label">pH vide</span>
+            <span class="a-state"><span class="dot"></span>Normal</span>
+            <span class="a-sub">depuis 12h 30mn</span>
+          </div>
+          <div class="alarm ok">
+            <span class="a-label">Chlore vide</span>
+            <span class="a-state"><span class="dot"></span>Normal</span>
+            <span class="a-sub">depuis 12h 30mn</span>
+          </div>
+          <div class="alarm ok">
+            <span class="a-label">pH uptime</span>
+            <span class="a-state"><span class="dot"></span>Normal</span>
+            <span class="a-sub">depuis 6h 12mn</span>
+          </div>
+          <div class="alarm ok">
+            <span class="a-label">ORP uptime</span>
+            <span class="a-state"><span class="dot"></span>Normal</span>
+            <span class="a-sub">depuis 6h 12mn</span>
+          </div>
+          <div class="alarm ok">
+            <span class="a-label">Eau basse</span>
+            <span class="a-state"><span class="dot"></span>Normal</span>
+            <span class="a-sub">depuis 3j 04h</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>

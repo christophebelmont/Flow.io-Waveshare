@@ -368,6 +368,7 @@ bool PoolDeviceModule::configureRuntime_()
 
         s.lastTickMs = now;
         s.stateTsMs = now;
+        s.actualOnSinceMs = now;
         s.metricsTsMs = now;
         s.lastRuntimeCommitMs = now;
         s.lastPersistMs = now;
@@ -380,6 +381,7 @@ bool PoolDeviceModule::configureRuntime_()
         rtState.type = s.def.type;
         rtState.blockReason = s.blockReason;
         rtState.tsMs = s.stateTsMs;
+        rtState.actualOnSinceMs = s.actualOnSinceMs;
 
         PoolDeviceRuntimeMetricsEntry rtMetrics{};
         rtMetrics.valid = true;

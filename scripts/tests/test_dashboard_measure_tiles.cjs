@@ -7,6 +7,14 @@ const { chromium } = require('playwright');
 
 const project = path.resolve(__dirname, '../..');
 const app = fs.readFileSync(path.join(project, 'data/webinterface/app.js'), 'utf8');
+const sinceCode = app.slice(
+  app.indexOf('    function formatStateDurationMs('),
+  app.indexOf('    function formatRuntimeDurationMs(')
+);
+const floatCode = app.slice(
+  app.indexOf('    function formatRuntimeFloatValue('),
+  app.indexOf('    function formatRuntimeMeasureValue(')
+);
 const sensorCode = app.slice(
   app.indexOf('    function poolSondeRangeFromEntry('),
   app.indexOf('    function runtimeMeasureResolvedLabel(')
@@ -26,11 +34,11 @@ async function main() {
     const page = await browser.newPage({ viewport: { width: 1100, height: 760 } });
     await page.setContent('<html lang="fr"><body><main></main></body></html>');
     await page.addStyleTag({ content: fs.readFileSync(path.join(project, 'data/webinterface/app-core.css'), 'utf8') });
-    await page.evaluate(({ sensorCode, alarmCode }) => {
+    await page.evaluate(({ sinceCode, floatCode, sensorCode, alarmCode }) => {
       window.runtimeMeasureDisplayConfig = entry => entry && entry.displayConfig ? entry.displayConfig : {};
       window.tr = (_key, fallback) => fallback;
       const script = document.createElement('script');
-      script.textContent = sensorCode + '\n' + alarmCode + `
+      script.textContent = sinceCode + '\n' + floatCode + '\n' + sensorCode + '\n' + alarmCode + `
         const entries = [
           {id:2201,displayConfig:{bands:{min:0,max:40}}},
           {id:2203,displayConfig:{bands:{min:6.4,max:8.4}}},
@@ -48,17 +56,20 @@ async function main() {
         const alarmCard = document.createElement('section');
         alarmCard.className = 'status-card'; alarmCard.innerHTML = '<h3>Alarmes</h3>';
         const alarmGrid = document.createElement('div'); alarmGrid.className = 'status-alarm-slot-grid';
-        alarmGrid.appendChild(buildDashboardAlarmTile({label:'Pression basse',conditionValue:false,latchValue:false}));
+        alarmGrid.appendChild(buildDashboardAlarmTile({label:'Pression basse',conditionValue:false,latchValue:false,sinceMs:3*3600000+12*60000}));
         alarmGrid.appendChild(buildDashboardAlarmTile({label:'Cuve pH',conditionValue:true,latchValue:true}));
         alarmGrid.appendChild(buildDashboardAlarmTile({label:'Durée pompe',conditionValue:false,latchValue:true}));
         alarmCard.appendChild(alarmGrid); document.querySelector('main').appendChild(alarmCard);`;
       document.body.appendChild(script);
-    }, { sensorCode, alarmCode });
+    }, { sinceCode, floatCode, sensorCode, alarmCode });
 
     assert.equal(await page.locator('.status-sonde-slot').count(), 8);
     assert.equal(await page.locator('.status-sonde-slot-range').count(), 3, 'Only configured credible ranges render bars');
     assert.equal(await page.locator('.status-sonde-slot-range[aria-label="pH"]').getAttribute('aria-valuemin'), '6.4');
+    assert.deepEqual(await page.locator('.status-sonde-slot-range-label').allTextContents(),
+      ['plage 0–40 °C', 'plage 6.4–8.4', 'plage 350–900 mV']);
     assert.deepEqual(await page.locator('.status-alarm-slot-value').allTextContents(), ['Normal', 'Alarme active', 'À acquitter']);
+    assert.deepEqual(await page.locator('.status-alarm-slot-since').allTextContents(), ['depuis 3h 12mn']);
     const desktopColumns = await page.locator('.status-sonde-slot-grid').evaluate(element => getComputedStyle(element).gridTemplateColumns.split(' ').length);
     assert.equal(desktopColumns, 3, 'Desktop measurement cards use three tiles per row');
     await page.screenshot({ animations: 'disabled', path: '/tmp/flowio-dashboard-measure-tiles.png' });

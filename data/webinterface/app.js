@@ -14,7 +14,32 @@
     const headerDeviceStatus = document.getElementById('headerDeviceStatus');
     const headerClockLabel = document.getElementById('headerClockLabel');
     const headerClockStatus = document.getElementById('headerClockStatus');
+    const appHeader = document.querySelector('.app-header');
+    const appHeaderStatus = document.querySelector('.app-header-status');
+    const mobileTopbar = document.querySelector('.mobile-topbar');
+    const mobileHeaderQuery = window.matchMedia('(max-width: 900px)');
     const themeToggle = document.getElementById('themeToggle');
+
+    // On mobile the network and device badges move into the sticky top bar
+    // (reduced to icon + status dot) and nothing is added to the drawer.
+    function syncMobileStatusLayout(isMobile) {
+      if (!appHeaderStatus || !appHeader) return;
+      const target = isMobile ? mobileTopbar : appHeader;
+      if (target && appHeaderStatus.parentElement !== target) target.appendChild(appHeaderStatus);
+    }
+
+    function watchMobileStatusLayout() {
+      syncMobileStatusLayout(mobileHeaderQuery.matches);
+      const onChange = (event) => syncMobileStatusLayout(event.matches);
+      if (typeof mobileHeaderQuery.addEventListener === 'function') {
+        mobileHeaderQuery.addEventListener('change', onChange);
+      } else if (typeof mobileHeaderQuery.addListener === 'function') {
+        mobileHeaderQuery.addListener(onChange);
+      }
+    }
+
+    watchMobileStatusLayout();
+
     const flowWebAssetVersionStorageKey = 'flow_web_asset_version';
     const flowWebThemeStorageKey = 'flow_web_theme';
     const deferredVisualAssetsStateKey = 'flow_web_deferred_visual_assets';
@@ -6129,6 +6154,27 @@
       return slug || 'default';
     }
 
+    function formatStateDurationMs(ms) {
+      const totalMs = Number(ms);
+      if (!Number.isFinite(totalMs) || totalMs < 0) return '';
+      const totalMinutes = Math.floor(totalMs / 60000);
+      if (totalMinutes < 1) return Math.max(0, Math.round(totalMs / 1000)) + 's';
+      const days = Math.floor(totalMinutes / 1440);
+      const hours = Math.floor((totalMinutes % 1440) / 60);
+      const minutes = totalMinutes % 60;
+      if (days > 0) return days + 'j ' + String(hours).padStart(2, '0') + 'h';
+      if (hours > 0) return hours + 'h ' + String(minutes).padStart(2, '0') + 'mn';
+      return minutes + 'mn';
+    }
+
+    function formatStateSinceText(sinceMs) {
+      const value = Number(sinceMs);
+      if (!Number.isFinite(value) || value < 0) return '';
+      const duration = formatStateDurationMs(value);
+      if (!duration) return '';
+      return tr('dashboard.state.since', 'depuis') + ' ' + duration;
+    }
+
     function formatRuntimeDurationMs(ms) {
       const totalMs = Number(ms);
       if (!Number.isFinite(totalMs) || totalMs < 0) return '-';
@@ -6260,7 +6306,10 @@
             latched: !!(slot && slot.latched),
             resettable: !!(slot && slot.resettable),
             conditionKnown: !!(slot && slot.condition_known),
-            conditionTrue: !!(slot && slot.condition_true)
+            conditionTrue: !!(slot && slot.condition_true),
+            sinceMs: slot && slot.since_ms !== null && slot.since_ms !== undefined && Number.isFinite(Number(slot.since_ms))
+              ? Number(slot.since_ms)
+              : null
           };
         })
         .sort((a, b) => a.slot - b.slot)
@@ -6353,23 +6402,35 @@
         const numericValue = Number(display.value);
         const rangeMin = Number(slot && slot.rangeMin);
         const rangeMax = Number(slot && slot.rangeMax);
-        if (available && Number.isFinite(numericValue) && Number.isFinite(rangeMin)
-            && Number.isFinite(rangeMax) && rangeMax > rangeMin) {
-          const progress = Math.max(0, Math.min(100, ((numericValue - rangeMin) / (rangeMax - rangeMin)) * 100));
-          const range = document.createElement('div');
-          range.className = 'status-sonde-slot-range';
-          range.setAttribute('role', 'progressbar');
-          range.setAttribute('aria-label', title.textContent);
-          range.setAttribute('aria-valuemin', String(rangeMin));
-          range.setAttribute('aria-valuemax', String(rangeMax));
-          range.setAttribute('aria-valuenow', String(numericValue));
-          range.title = String(rangeMin) + (display.unit ? ' ' + display.unit : '')
-            + ' – ' + String(rangeMax) + (display.unit ? ' ' + display.unit : '');
-          const fill = document.createElement('span');
-          fill.className = 'status-sonde-slot-range-fill';
-          fill.style.width = progress.toFixed(2) + '%';
-          range.appendChild(fill);
-          tile.appendChild(range);
+        const hasRange = Number.isFinite(rangeMin) && Number.isFinite(rangeMax) && rangeMax > rangeMin;
+        if (available || hasRange) {
+          const rangeGroup = document.createElement('div');
+          rangeGroup.className = 'status-sonde-slot-range-group';
+          const unitSuffix = display.unit ? ' ' + display.unit : '';
+          if (available && Number.isFinite(numericValue) && hasRange) {
+            const progress = Math.max(0, Math.min(100, ((numericValue - rangeMin) / (rangeMax - rangeMin)) * 100));
+            const range = document.createElement('div');
+            range.className = 'status-sonde-slot-range';
+            range.setAttribute('role', 'progressbar');
+            range.setAttribute('aria-label', title.textContent);
+            range.setAttribute('aria-valuemin', String(rangeMin));
+            range.setAttribute('aria-valuemax', String(rangeMax));
+            range.setAttribute('aria-valuenow', String(numericValue));
+            range.title = String(rangeMin) + unitSuffix + ' – ' + String(rangeMax) + unitSuffix;
+            const fill = document.createElement('span');
+            fill.className = 'status-sonde-slot-range-fill';
+            fill.style.width = progress.toFixed(2) + '%';
+            range.appendChild(fill);
+            rangeGroup.appendChild(range);
+          }
+          if (hasRange) {
+            const rangeLabel = document.createElement('div');
+            rangeLabel.className = 'status-sonde-slot-range-label';
+            rangeLabel.textContent = tr('dashboard.sonde.range', 'plage') + ' '
+              + formatRuntimeFloatValue(rangeMin, null) + '–' + formatRuntimeFloatValue(rangeMax, null) + unitSuffix;
+            rangeGroup.appendChild(rangeLabel);
+          }
+          if (rangeGroup.childElementCount) tile.appendChild(rangeGroup);
         }
         grid.appendChild(tile);
       }
@@ -6508,6 +6569,7 @@
           unknownText: booleanTexts.unknownText || displayConfig.unknownText,
           action: action,
           pending: !!actionKey && runtimeActionBusyKey === actionKey,
+          sinceMs: runtimeValue && Number.isFinite(Number(runtimeValue.since_ms)) ? Number(runtimeValue.since_ms) : null,
           disabled: !stateKnown || (!!runtimeActionBusyKey && runtimeActionBusyKey !== actionKey),
           feedback: actionKey ? runtimeActionFeedback.get(actionKey) : null,
           onAction: action
@@ -7431,7 +7493,10 @@
       dot.setAttribute('aria-hidden', 'true');
       const text = document.createElement('span');
       state.append(dot, text);
-      tile.append(title, state);
+      const since = document.createElement('div');
+      since.className = 'status-dual-since';
+      since.hidden = true;
+      tile.append(title, state, since);
       const switchView = buildFlowSwitch({
         host: tile,
         interactive: !!currentOptions.action,
@@ -7476,6 +7541,9 @@
         });
         setRuntimeActionText(title, nextLabel);
         setRuntimeActionText(text, stateText);
+        const sinceText = formatStateSinceText(currentOptions.sinceMs);
+        setRuntimeActionText(since, sinceText);
+        since.hidden = !sinceText;
       } };
       dashboardDualStateTileViews.set(tile, view);
       view.update(label, value, currentOptions);
@@ -7671,6 +7739,13 @@
       value.className = 'status-alarm-slot-value';
       value.textContent = dashboardAlarmStateText(opts.conditionValue, opts.latchValue);
       tile.appendChild(value);
+      const sinceText = formatStateSinceText(opts.sinceMs);
+      if (sinceText) {
+        const since = document.createElement('div');
+        since.className = 'status-alarm-slot-since';
+        since.textContent = sinceText;
+        tile.appendChild(since);
+      }
       return tile;
     }
 
@@ -7732,7 +7807,8 @@
         const tile = buildDashboardAlarmTile({
           label: slot && slot.label ? slot.label : tr('dashboard.alarm.default', 'Alarme'),
           conditionValue: conditionValue,
-          latchValue: latchValue
+          latchValue: latchValue,
+          sinceMs: slot && Number.isFinite(Number(slot.sinceMs)) ? Number(slot.sinceMs) : null
         });
         grid.appendChild(tile);
       }
