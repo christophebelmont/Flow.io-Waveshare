@@ -28,6 +28,7 @@ Type: module actif (event-driven par notification task).
 - `ha` -> `HAService`
   - `addSensor`, `addBinarySensor`, `addSwitch`, `addNumber`, `addButton`
   - `requestRefresh`
+  - `addDiscoveryRemoval` (suppression retained des anciennes découvertes)
 
 ## Services consommés
 
@@ -43,11 +44,11 @@ Capacités compile-time du profil Waveshare, résolues depuis
 | Type d'entité | Capacité |
 |---|---:|
 | sensors | 48 |
-| binary sensors | 16 |
+| binary sensors | 32 |
 | switches | 16 |
-| numbers | 30 |
-| buttons | 24 |
-| selects | 6 |
+| numbers | 38 |
+| buttons | 32 |
+| selects | 14 |
 
 ## Config / NVS
 
@@ -121,3 +122,51 @@ Ce mode est utilisé par le firmware Waveshare:
 - après publication retained de toutes les entités discovery, les tables sont libérées et la tâche `ha` appelle `vTaskDelete(nullptr)`
 - le service HA reste présent mais refuse les nouveaux enregistrements après teardown, afin d'éviter des pointeurs pendants dans les services/callbacks existants
 - pour diagnostiquer la séquence de boot one-shot, le build peut activer `FLOW_HA_BOOT_TRACE=1` (logs de jalons alloc/enqueue/publish/release)
+
+## Alarmes natives
+
+`AlarmModule` génère la découverte depuis son registre après l'initialisation de
+l'ensemble des modules et avant le démarrage des tâches. Aucun template YAML
+Home Assistant n'est nécessaire.
+
+Pour chaque alarme enregistrée:
+- `binary_sensor.<prefix>_alm_<AlarmId>_active`, avec classe `problem`;
+- `button.<prefix>_alm_<AlarmId>_reset`, commande `alarms.reset` avec `args.id`;
+- attributs du capteur: `alarm_id`, `slot`, `resettable`, `latch_enabled`,
+  `condition` (`true`, `false`, `unknown`), `severity` (valeur numérique).
+
+Ces nouvelles identités n'incluent pas le nom affiché: un changement de titre
+ou d'ordre des slots ne change pas la cible de l'entité. Les entités existantes
+conservent leur convention d'identité historique.
+
+Le bouton individuel est disponible seulement si Flow.IO est en ligne et
+`r == 1`. Les alarmes automatiques ont également un bouton, mais il reste
+indisponible. Le moteur conserve la validation autoritaire du reset.
+
+Entités globales:
+- `alm_any_active`: au moins une alarme active;
+- `alm_active_count`: nombre d'alarmes actives;
+- `alm_reset_all`: bouton historique conservé, disponible si au moins une
+  alarme est acquittable et si Flow.IO est en ligne;
+- `alm_pack`: diagnostic historique conservé pour les consommateurs existants.
+
+Les états MQTT des alarmes sont retained et resynchronisés à chaque connexion
+Flow.IO au broker. Une reconnexion de Home Assistant récupère ainsi les derniers
+états sans attendre une transition. La disponibilité globale reste liée au LWT.
+
+Les anciennes découvertes `alm_reset_slot_0` à `alm_reset_slot_7` sont supprimées
+par publication vide retained, après enregistrement des nouvelles entités. Les
+helpers YAML installés manuellement ne sont pas supprimés: leurs utilisateurs
+peuvent migrer leurs cartes/automatisations puis retirer l'ancien include.
+
+### Contrat des boutons
+
+`HAButtonEntry.payloadPress` contient toujours le payload MQTT brut. Le
+sérialiseur ArduinoJson réalise l'échappement JSON de la découverte; les modules
+ne doivent pas fournir de JSON pré-échappé. Les commandes de boutons ne sont
+jamais retained. `availabilityTopicSuffix` et `availabilityTemplate` ajoutent une
+condition de disponibilité combinée au statut de l'appareil (`all`).
+
+Les capteurs binaires peuvent transmettre `attributesTemplate` pour extraire
+leurs attributs depuis le même topic d'état. Les documents temporaires de ces
+deux constructeurs sont alloués en PSRAM; un débordement échoue explicitement.

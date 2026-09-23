@@ -12,6 +12,7 @@
 #include "Core/Services/Services.h"
 #include "Core/Runtime.h"
 #include "Core/ConfigDefaults.h"
+#include <ArduinoJson.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -69,7 +70,8 @@ private:
     static constexpr uint8_t MAX_HA_SELECTS = Limits::Ha::Capacity::MaxSelects;
     static constexpr uint16_t MAX_HA_ENTITIES =
         MAX_HA_SENSORS + MAX_HA_BINARY_SENSORS + MAX_HA_SWITCHES + MAX_HA_NUMBERS + MAX_HA_BUTTONS + MAX_HA_SELECTS;
-    static constexpr uint16_t MAX_HA_MESSAGES = MAX_HA_ENTITIES;
+    static constexpr uint16_t MAX_HA_REMOVALS = 8;
+    static constexpr uint16_t MAX_HA_MESSAGES = MAX_HA_ENTITIES + MAX_HA_REMOVALS;
     static constexpr uint16_t HA_PENDING_WORDS = (MAX_HA_MESSAGES + 31U) / 32U;
 
     struct HAConfig {
@@ -121,6 +123,8 @@ private:
     HASelectEntry selects_[MAX_HA_SELECTS]{};
     uint32_t pendingBits_[HA_PENDING_WORDS] = {0};
 #endif
+    HADiscoveryRemovalEntry removals_[MAX_HA_REMOVALS]{};
+    uint8_t removalCount_ = 0;
     uint8_t sensorCount_ = 0;
     uint8_t binarySensorCount_ = 0;
     uint8_t switchCount_ = 0;
@@ -166,6 +170,8 @@ private:
     bool addSelectSvc_(const HASelectEntry* entry);
     bool addButtonSvc_(const HAButtonEntry* entry);
     bool requestRefreshSvc_();
+    bool addDiscoveryRemovalSvc_(const HADiscoveryRemovalEntry* entry);
+    bool initDiscoveryDocument_(JsonDocument& doc, const char* component, const char* objectId, const char* name, bool includeNameInUniqueId);
     bool ensureStorage_();
     void releaseOneShotResources_();
     size_t entityTableUsedBytes_() const;
@@ -199,6 +205,7 @@ private:
     void markBootLogCaptureCompleteAfterDiscovery_();
 
     bool buildEntityMessage_(uint16_t messageId, MqttBuildContext& buildCtx);
+    bool buildRemovalMessage_(uint16_t index, MqttBuildContext& buildCtx);
     bool resolveMqttTopicDeviceId_(char* out, size_t outLen) const;
 
     bool buildObjectId(const char* suffix, char* out, size_t outLen) const;
@@ -219,6 +226,8 @@ private:
                              const char* deviceClass = nullptr,
                              const char* entityCategory = nullptr,
                              const char* icon = nullptr,
+                             const char* attributesTemplate = nullptr,
+                             bool includeNameInUniqueId = true,
                              MqttBuildContext* outCtx = nullptr);
     bool publishSwitch(const char* objectId, const char* name,
                        const char* stateTopic, const char* valueTemplate,
@@ -247,6 +256,9 @@ private:
                        const char* commandTopic, const char* payloadPress,
                        const char* entityCategory = nullptr,
                        const char* icon = nullptr,
+                       const char* availabilityTopic = nullptr,
+                       const char* availabilityTemplate = nullptr,
+                       bool includeNameInUniqueId = true,
                        MqttBuildContext* outCtx = nullptr);
     bool publishDiscovery(const char* component, const char* objectId, MqttBuildContext& outCtx);
 
@@ -262,6 +274,7 @@ private:
         ServiceBinding::bind<&HAModule::addSelectSvc_>,
         ServiceBinding::bind<&HAModule::addButtonSvc_>,
         ServiceBinding::bind<&HAModule::requestRefreshSvc_>,
-        this
+        this,
+        ServiceBinding::bind<&HAModule::addDiscoveryRemovalSvc_>
     };
 };

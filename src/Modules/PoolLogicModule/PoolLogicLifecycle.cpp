@@ -1043,7 +1043,7 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
             "pl_flt_recalc",
             "Recalculate Filtration Window",
             MqttTopics::SuffixCmd,
-            "{\\\"cmd\\\":\\\"poollogic.filtration.recalc\\\"}",
+            "{\"cmd\":\"poollogic.filtration.recalc\"}",
             "config",
             "mdi:refresh"
         };

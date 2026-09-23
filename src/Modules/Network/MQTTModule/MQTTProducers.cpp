@@ -245,18 +245,27 @@ MqttBuildResult MQTTModule::buildAlarm_(uint16_t messageId, MqttBuildContext& ct
 
         const uint8_t active = alarmSvc_->activeCount(alarmSvc_->ctx);
         const AlarmSeverity highest = alarmSvc_->highestSeverity(alarmSvc_->ctx);
+        uint8_t resettable = 0;
+        if (alarmSvc_->listIds && alarmSvc_->isResettable) {
+            AlarmId ids[Limits::Alarm::MaxAlarms]{};
+            const uint8_t count = alarmSvc_->listIds(alarmSvc_->ctx, ids, (uint8_t)Limits::Alarm::MaxAlarms);
+            for (uint8_t i = 0; i < count; ++i) {
+                if (alarmSvc_->isResettable(alarmSvc_->ctx, ids[i])) ++resettable;
+            }
+        }
         const int pw = snprintf(ctx.payload,
                                 ctx.payloadCapacity,
-                                "{\"a\":%u,\"h\":%u,\"ts\":%lu}",
+                                "{\"a\":%u,\"h\":%u,\"r\":%u,\"ts\":%lu}",
                                 (unsigned)active,
                                 (unsigned)((uint8_t)highest),
+                                (unsigned)resettable,
                                 (unsigned long)millis());
         if (!(pw > 0 && (uint16_t)pw < ctx.payloadCapacity)) return MqttBuildResult::PermanentError;
 
         ctx.topicLen = (uint16_t)tw;
         ctx.payloadLen = (uint16_t)pw;
         ctx.qos = 0;
-        ctx.retain = false;
+        ctx.retain = true;
         return MqttBuildResult::Ready;
     }
 
@@ -273,7 +282,7 @@ MqttBuildResult MQTTModule::buildAlarm_(uint16_t messageId, MqttBuildContext& ct
         ctx.topicLen = (uint16_t)tw;
         ctx.payloadLen = (uint16_t)strnlen(ctx.payload, ctx.payloadCapacity);
         ctx.qos = 0;
-        ctx.retain = false;
+        ctx.retain = true;
         return MqttBuildResult::Ready;
     }
 
@@ -297,7 +306,7 @@ MqttBuildResult MQTTModule::buildAlarm_(uint16_t messageId, MqttBuildContext& ct
         ctx.topicLen = (uint16_t)tw;
         ctx.payloadLen = (uint16_t)strnlen(ctx.payload, ctx.payloadCapacity);
         ctx.qos = 0;
-        ctx.retain = false;
+        ctx.retain = true;
         return MqttBuildResult::Ready;
     }
 

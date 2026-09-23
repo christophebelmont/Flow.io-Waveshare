@@ -136,7 +136,7 @@ constexpr size_t BaseTopic = BoardCapacityProfile::kMqttBuffers.baseTopic;
 constexpr size_t DeviceId = BoardCapacityProfile::kMqttBuffers.deviceId;
 /** @brief MQTT device display name buffer length used by MQTT config and HA device metadata. */
 constexpr size_t DeviceName = 32;
-/** @brief MQTT full topic buffer length used by `MQTTModule` fixed topics (`cmd`, `ack`, `status`, `cfg/*`). */
+/** @brief MQTT full topic buffer length used by `MQTTModule` fixed topics (`cmd`, `ack`, `status`, and `cfg/` subtopics). */
 constexpr size_t Topic = BoardCapacityProfile::kMqttBuffers.topic;
 /** @brief MQTT temporary topic buffer length for dynamic subtopics in `MQTTModule` (`cfg/<module>`, scheduler slots). */
 constexpr size_t DynamicTopic = BoardCapacityProfile::kMqttBuffers.dynamicTopic;

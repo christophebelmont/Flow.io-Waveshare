@@ -23,15 +23,12 @@ static constexpr uint8_t kAlarmCfgBranch = 1;
 static constexpr MqttConfigRouteProducer::Route kAlarmCfgRoutes[] = {
     {1, {(uint8_t)ConfigModuleId::Alarms, kAlarmCfgBranch}, "alarms", "alarms", (uint8_t)MqttPublishPriority::Normal, nullptr},
 };
-static constexpr HAButtonEntry kAlarmResetSlotButtons[] = {
-    {"alarms", "alm_reset_slot_0", "Reset Alarm Slot 0", MqttTopics::SuffixCmd, "{\"cmd\":\"alarms.reset_slot\",\"args\":{\"slot\":0}}", "diagnostic", "mdi:numeric-0-box-outline"},
-    {"alarms", "alm_reset_slot_1", "Reset Alarm Slot 1", MqttTopics::SuffixCmd, "{\"cmd\":\"alarms.reset_slot\",\"args\":{\"slot\":1}}", "diagnostic", "mdi:numeric-1-box-outline"},
-    {"alarms", "alm_reset_slot_2", "Reset Alarm Slot 2", MqttTopics::SuffixCmd, "{\"cmd\":\"alarms.reset_slot\",\"args\":{\"slot\":2}}", "diagnostic", "mdi:numeric-2-box-outline"},
-    {"alarms", "alm_reset_slot_3", "Reset Alarm Slot 3", MqttTopics::SuffixCmd, "{\"cmd\":\"alarms.reset_slot\",\"args\":{\"slot\":3}}", "diagnostic", "mdi:numeric-3-box-outline"},
-    {"alarms", "alm_reset_slot_4", "Reset Alarm Slot 4", MqttTopics::SuffixCmd, "{\"cmd\":\"alarms.reset_slot\",\"args\":{\"slot\":4}}", "diagnostic", "mdi:numeric-4-box-outline"},
-    {"alarms", "alm_reset_slot_5", "Reset Alarm Slot 5", MqttTopics::SuffixCmd, "{\"cmd\":\"alarms.reset_slot\",\"args\":{\"slot\":5}}", "diagnostic", "mdi:numeric-5-box-outline"},
-    {"alarms", "alm_reset_slot_6", "Reset Alarm Slot 6", MqttTopics::SuffixCmd, "{\"cmd\":\"alarms.reset_slot\",\"args\":{\"slot\":6}}", "diagnostic", "mdi:numeric-6-box-outline"},
-    {"alarms", "alm_reset_slot_7", "Reset Alarm Slot 7", MqttTopics::SuffixCmd, "{\"cmd\":\"alarms.reset_slot\",\"args\":{\"slot\":7}}", "diagnostic", "mdi:numeric-7-box-outline"},
+// Remove old slot-based discovery records when migrating to stable AlarmIds.
+static constexpr HADiscoveryRemovalEntry kLegacyAlarmButtons[] = {
+    {"button", "alm_reset_slot_0"}, {"button", "alm_reset_slot_1"},
+    {"button", "alm_reset_slot_2"}, {"button", "alm_reset_slot_3"},
+    {"button", "alm_reset_slot_4"}, {"button", "alm_reset_slot_5"},
+    {"button", "alm_reset_slot_6"}, {"button", "alm_reset_slot_7"},
 };
 }
 
@@ -496,13 +493,14 @@ bool AlarmModule::buildAlarmState_(AlarmId id, char* out, size_t len) const
     const int wrote = snprintf(
         out,
         len,
-        "{\"id\":%u,\"slot\":%u,\"a\":%u,\"r\":%u,\"c\":%u,\"s\":%u,\"lc\":%lu}",
+        "{\"id\":%u,\"slot\":%u,\"a\":%u,\"r\":%u,\"c\":%u,\"s\":%u,\"l\":%u,\"lc\":%lu}",
         (unsigned)snap.id,
         (unsigned)slotIndex,
         snap.active ? 1u : 0u,
         (snap.active && snap.def.latched && snap.lastCond == AlarmCondState::False) ? 1u : 0u,
         (unsigned)((uint8_t)snap.lastCond),
         (unsigned)((uint8_t)snap.def.severity),
+        snap.def.latched ? 1u : 0u,
         (unsigned long)snap.lastChangeMs);
     return (wrote > 0) && ((size_t)wrote < len);
 }
@@ -743,54 +741,84 @@ void AlarmModule::registerHaEntities_(ServiceRegistry& services)
     if (!haSvc_) haSvc_ = services.get<HAService>(ServiceId::Ha);
     if (!haSvc_) return;
 
-    bool registeredAny = false;
+    if (!haSvc_->addSensor || !haSvc_->addBinarySensor || !haSvc_->addButton ||
+        !haSvc_->addDiscoveryRemoval) return;
 
-    if (haSvc_->addSensor) {
-        const HASensorEntry alarmsPack{
-            "alarms",
-            "alm_pack",
-            "Alarms Pack",
-            "rt/alarms/p",
-            "{{ value_json.p | int(0) }}",
-            "diagnostic",
-            "mdi:alarm-light-outline",
-            nullptr,
-            false,
-            nullptr
+    bool ok = true;
+    const HASensorEntry alarmsPack{
+        "alarms", "alm_pack", "Alarms Pack", "rt/alarms/p",
+        "{{ value_json.p | int(0) }}", "diagnostic", "mdi:alarm-light-outline",
+        nullptr, false, nullptr, false
+    };
+    ok = haSvc_->addSensor(haSvc_->ctx, &alarmsPack) && ok;
+    const HABinarySensorEntry anyActive{
+        "alarms", "alm_any_active", "Any Alarm Active", "rt/alarms/m",
+        "{{ 'True' if value_json.a > 0 else 'False' }}", "problem", nullptr,
+        "mdi:alarm-light"
+    };
+    ok = haSvc_->addBinarySensor(haSvc_->ctx, &anyActive) && ok;
+    const HASensorEntry activeCount{
+        "alarms", "alm_active_count", "Active Alarm Count", "rt/alarms/m",
+        "{{ value_json.a }}", nullptr, "mdi:alarm-multiple", nullptr, false, nullptr, false
+    };
+    ok = haSvc_->addSensor(haSvc_->ctx, &activeCount) && ok;
+    // Keep the original identity and command for existing HA automations.
+    const HAButtonEntry resetAll{
+        "alarms", "alm_reset_all", "Reset Cleared Latched Alarms", MqttTopics::SuffixCmd,
+        "{\"cmd\":\"alarms.reset_all\"}", "diagnostic", "mdi:alarm-off",
+        "rt/alarms/m", "{{ 'online' if value_json.r > 0 else 'offline' }}"
+    };
+    ok = haSvc_->addButton(haSvc_->ctx, &resetAll) && ok;
+
+    // ModuleManager calls onConfigLoaded after every module's init. The alarm
+    // registry is complete here, before any task or one-shot discovery starts.
+    for (uint16_t i = 0; i < Limits::Alarm::MaxAlarms; ++i) {
+        const AlarmSlot& slot = slots_[i];
+        if (!slot.used) continue;
+        if (!haAlarms_[i]) {
+            haAlarms_[i] = static_cast<HaAlarmDiscovery*>(heap_caps_calloc(
+                1, sizeof(HaAlarmDiscovery), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        }
+        if (!haAlarms_[i]) {
+            LOGW("HA alarm discovery allocation failed id=%u", (unsigned)slot.id);
+            ok = false;
+            continue;
+        }
+        HaAlarmDiscovery& strings = *haAlarms_[i];
+        snprintf(strings.stateObject, sizeof(strings.stateObject), "alm_%u_active", (unsigned)slot.id);
+        snprintf(strings.resetObject, sizeof(strings.resetObject), "alm_%u_reset", (unsigned)slot.id);
+        snprintf(strings.stateTopic, sizeof(strings.stateTopic), "rt/alarms/id%u", (unsigned)slot.id);
+        snprintf(strings.resetName, sizeof(strings.resetName), "Reset %s", slot.def.title);
+        snprintf(strings.resetPayload, sizeof(strings.resetPayload),
+                 "{\"cmd\":\"alarms.reset\",\"args\":{\"id\":%u}}", (unsigned)slot.id);
+        const HABinarySensorEntry active{
+            "alarms", strings.stateObject, slot.def.title, strings.stateTopic,
+            "{{ 'True' if value_json.a else 'False' }}", "problem", nullptr, "mdi:alarm-light",
+            "{{ {'alarm_id': value_json.id, 'slot': value_json.slot, "
+            "'resettable': value_json.r == 1, 'latch_enabled': value_json.l == 1, "
+            "'condition': 'true' if value_json.c == 1 else ('false' if value_json.c == 0 else 'unknown'), "
+            "'severity': value_json.s} | tojson }}", false
         };
-        if (haSvc_->addSensor(haSvc_->ctx, &alarmsPack)) {
-            registeredAny = true;
-        } else {
-            LOGW("HA registration failed: alm_pack");
+        const HAButtonEntry reset{
+            "alarms", strings.resetObject, strings.resetName, MqttTopics::SuffixCmd,
+            strings.resetPayload, nullptr, "mdi:alarm-off", strings.stateTopic,
+            "{{ 'online' if value_json.r == 1 else 'offline' }}", false
+        };
+        const bool stateOk = haSvc_->addBinarySensor(haSvc_->ctx, &active);
+        const bool buttonOk = haSvc_->addButton(haSvc_->ctx, &reset);
+        if (!stateOk || !buttonOk) {
+            LOGW("HA alarm registration failed id=%u", (unsigned)slot.id);
+            ok = false;
         }
     }
-
-    if (haSvc_->addButton) {
-        const HAButtonEntry resetAll{
-            "alarms",
-            "alm_reset_all",
-            "Reset Cleared Latched Alarms",
-            MqttTopics::SuffixCmd,
-            "{\\\"cmd\\\":\\\"alarms.reset_all\\\"}",
-            "diagnostic",
-            "mdi:alarm-off"
-        };
-        if (haSvc_->addButton(haSvc_->ctx, &resetAll)) {
-            registeredAny = true;
-        } else {
-            LOGW("HA registration failed: alm_reset_all");
-        }
-
-        for (uint8_t i = 0; i < (uint8_t)(sizeof(kAlarmResetSlotButtons) / sizeof(kAlarmResetSlotButtons[0])); ++i) {
-            if (haSvc_->addButton(haSvc_->ctx, &kAlarmResetSlotButtons[i])) {
-                registeredAny = true;
-            } else {
-                LOGW("HA registration failed: %s", kAlarmResetSlotButtons[i].objectSuffix);
-            }
+    // Only remove legacy records after all replacement entries were registered.
+    if (ok) {
+        for (const auto& entry : kLegacyAlarmButtons) {
+            ok = haSvc_->addDiscoveryRemoval(haSvc_->ctx, &entry) && ok;
         }
     }
-
-    haEntitiesRegistered_ = registeredAny;
+    haEntitiesRegistered_ = ok;
+    if (!ok) LOGW("HA alarm discovery registration incomplete");
 }
 
 void AlarmModule::onConfigLoaded(ConfigStore&, ServiceRegistry& services)

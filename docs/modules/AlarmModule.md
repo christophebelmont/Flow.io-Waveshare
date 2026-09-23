@@ -135,7 +135,23 @@ Le module est générique. Dans le projet actuel, `PoolLogicModule` enregistre:
 - `AlarmId::PoolPsiHigh`
 - `AlarmId::PoolPhTankLow`
 - `AlarmId::PoolChlorineTankLow`
+- `AlarmId::PoolPhPumpMaxUptime`
+- `AlarmId::PoolChlorinePumpMaxUptime`
+- `AlarmId::PoolWaterLevelLow`
 
 Pour `PoolLogic`, ces alarmes servent d'interlock sécurité:
 - `PoolLogic` lit `isActive()` sur ces IDs
 - si l'une est active, la filtration est forcée OFF (auto et manuel)
+
+## Home Assistant et états MQTT
+
+Voir [HAModule](HAModule.md#alarmes-natives) pour la découverte automatique des
+capteurs et boutons par identifiant stable. Les slots libres ne créent pas
+d'entité. Le reset conserve sa sémantique: effacer un latch actif uniquement
+lorsque la condition est explicitement fausse, jamais lorsqu'elle est inconnue.
+
+Les messages `rt/alarms/id<id>` exposent `id`, `slot`, `a` (active), `r`
+(acquittable), `c` (0=false, 1=true, 2=unknown), `s` (sévérité), `l` (latch
+configuré), `lc` (dernier changement en millisecondes depuis le démarrage).
+`rt/alarms/m` expose `a` (nombre actif), `h` (sévérité maximale), `r` (nombre
+acquittable), `ts`. Meta, pack et états individuels sont retained.

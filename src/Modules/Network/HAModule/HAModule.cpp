@@ -4,6 +4,8 @@
  */
 
 #include "HAModule.h"
+#include "HADiscoveryJson.h"
+#include "Core/SpiRamJsonDocument.h"
 #include "Core/BufferUsageTracker.h"
 #include "Core/FirmwareVersion.h"
 #include "Modules/Network/HAModule/HARuntime.h"
@@ -601,50 +603,52 @@ bool HAModule::publishSensor(const char* objectId, const char* name,
     return publishDiscovery("sensor", objectId, buildCtx);
 }
 
+bool HAModule::initDiscoveryDocument_(JsonDocument& doc, const char* component,
+                                      const char* objectId, const char* name, bool includeNameInUniqueId)
+{
+    if (!objectId || !name || doc.capacity() == 0) return false;
+    char defaultEntityId[224]{};
+    char uniqueId[256]{};
+    if (!buildDefaultEntityId(component, objectId, defaultEntityId, sizeof(defaultEntityId)) ||
+        !buildUniqueId(objectId, includeNameInUniqueId ? name : nullptr, uniqueId, sizeof(uniqueId))) return false;
+    doc["name"] = name;
+    doc["obj_id"] = objectId;
+    // Copy local buffers into the document's PSRAM pool.
+    doc["def_ent_id"] = defaultEntityId;
+    doc["uniq_id"] = uniqueId;
+    doc["has_entity_name"] = false;
+    doc["o"]["name"] = originName_;
+    JsonObject device = doc.createNestedObject("dev");
+    device.createNestedArray("ids").add(deviceIdent_);
+    device["name"] = deviceName_;
+    device["mf"] = cfgData_.vendor;
+    device["mdl"] = cfgData_.model;
+    device["sw"] = FirmwareVersion::Full;
+    device["cu"] = kHaDeviceConfigUrl;
+    return !doc.overflowed();
+}
+
 bool HAModule::publishBinarySensor(const char* objectId, const char* name,
                                    const char* stateTopic, const char* valueTemplate,
                                    const char* deviceClass, const char* entityCategory,
-                                   const char* icon,
+                                   const char* icon, const char* attributesTemplate, bool includeNameInUniqueId,
                                    MqttBuildContext* outCtx)
 {
-    if (!outCtx) return false;
-    MqttBuildContext& buildCtx = *outCtx;
-    if (!objectId || !name || !stateTopic || !valueTemplate) return false;
-
-    char defaultEntityId[224] = {0};
-    if (!buildDefaultEntityId("binary_sensor", objectId, defaultEntityId, sizeof(defaultEntityId))) return false;
-    char uniqueId[256] = {0};
-    if (!buildUniqueId(objectId, name, uniqueId, sizeof(uniqueId))) return false;
-    char availabilityField[384] = {0};
-    buildAvailabilityField(mqttSvc_, availabilityField, sizeof(availabilityField));
-    char deviceClassField[64] = {0};
-    if (deviceClass && deviceClass[0] != '\0') {
-        snprintf(deviceClassField, sizeof(deviceClassField), ",\"dev_cla\":\"%s\"", deviceClass);
-    }
-    char entityCategoryField[64] = {0};
-    if (entityCategory && entityCategory[0] != '\0') {
-        snprintf(entityCategoryField, sizeof(entityCategoryField), ",\"ent_cat\":\"%s\"", entityCategory);
-    }
-    char iconField[64] = {0};
-    if (icon && icon[0] != '\0') {
-        snprintf(iconField, sizeof(iconField), ",\"ic\":\"%s\"", icon);
-    }
-
-    if (!formatChecked(buildCtx.payload, buildCtx.payloadCapacity,
-             "{\"name\":\"%s\",\"obj_id\":\"%s\",\"def_ent_id\":\"%s\",\"uniq_id\":\"%s\","
-             "\"stat_t\":\"%s\",\"val_tpl\":\"%s\",\"pl_on\":\"True\",\"pl_off\":\"False\","
-             "\"has_entity_name\":false%s%s%s%s,"
-             "\"o\":{\"name\":\"%s\"},"
-             "\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\","
-             "\"mf\":\"%s\",\"mdl\":\"%s\",\"sw\":\"%s\",\"cu\":\"%s\"}}",
-             name, objectId, defaultEntityId, uniqueId, stateTopic, valueTemplate,
-             deviceClassField, entityCategoryField, iconField, availabilityField,
-             originName_, deviceIdent_, deviceName_, cfgData_.vendor, cfgData_.model, FirmwareVersion::Full, kHaDeviceConfigUrl)) {
-        LOGW("HA binary_sensor payload truncated object=%s", objectId);
+    if (!outCtx || !stateTopic || !valueTemplate) return false;
+    SpiRamJsonDocument doc(4096);
+    if (!initDiscoveryDocument_(doc, "binary_sensor", objectId, name, includeNameInUniqueId)) return false;
+    if (deviceClass && deviceClass[0]) doc["dev_cla"] = deviceClass;
+    if (entityCategory && entityCategory[0]) doc["ent_cat"] = entityCategory;
+    if (icon && icon[0]) doc["ic"] = icon;
+    char statusTopic[192]{};
+    mqttSvc_->formatTopic(mqttSvc_->ctx, MqttTopics::SuffixStatus, statusTopic, sizeof(statusTopic));
+    HADiscoveryJson::availability(doc.as<JsonObject>(), statusTopic);
+    HADiscoveryJson::binarySensor(doc.as<JsonObject>(), stateTopic, valueTemplate, attributesTemplate);
+    if (!HADiscoveryJson::serialize(doc, outCtx->payload, outCtx->payloadCapacity)) {
+        LOGW("HA binary_sensor payload overflow object=%s", objectId);
         return false;
     }
-
-    return publishDiscovery("binary_sensor", objectId, buildCtx);
+    return publishDiscovery("binary_sensor", objectId, *outCtx);
 }
 
 bool HAModule::publishSwitch(const char* objectId, const char* name,
@@ -829,53 +833,37 @@ bool HAModule::publishSelect(const char* objectId, const char* name,
 bool HAModule::publishButton(const char* objectId, const char* name,
                              const char* commandTopic, const char* payloadPress,
                              const char* entityCategory, const char* icon,
+                             const char* availabilityTopic, const char* availabilityTemplate, bool includeNameInUniqueId,
                              MqttBuildContext* outCtx)
 {
-    if (!outCtx) return false;
-    MqttBuildContext& buildCtx = *outCtx;
-    if (!objectId || !name || !commandTopic || !payloadPress) return false;
-    char defaultEntityId[224] = {0};
-    if (!buildDefaultEntityId("button", objectId, defaultEntityId, sizeof(defaultEntityId))) return false;
-    char uniqueId[256] = {0};
-    if (!buildUniqueId(objectId, name, uniqueId, sizeof(uniqueId))) return false;
-    char availabilityField[384] = {0};
-    buildAvailabilityField(mqttSvc_, availabilityField, sizeof(availabilityField));
-    char entityCategoryField[64] = {0};
-    if (entityCategory && entityCategory[0] != '\0') {
-        snprintf(entityCategoryField, sizeof(entityCategoryField), ",\"ent_cat\":\"%s\"", entityCategory);
+    if (!outCtx || !commandTopic || !payloadPress) return false;
+    SpiRamJsonDocument doc(4096);
+    if (!initDiscoveryDocument_(doc, "button", objectId, name, includeNameInUniqueId)) return false;
+    if (entityCategory && entityCategory[0]) doc["ent_cat"] = entityCategory;
+    if (icon && icon[0]) doc["ic"] = icon;
+    char statusTopic[192]{};
+    mqttSvc_->formatTopic(mqttSvc_->ctx, MqttTopics::SuffixStatus, statusTopic, sizeof(statusTopic));
+    HADiscoveryJson::availability(doc.as<JsonObject>(), statusTopic, availabilityTopic, availabilityTemplate);
+    HADiscoveryJson::button(doc.as<JsonObject>(), commandTopic, payloadPress);
+    if (!HADiscoveryJson::serialize(doc, outCtx->payload, outCtx->payloadCapacity)) {
+        LOGW("HA button payload overflow object=%s", objectId);
+        return false;
     }
+    return publishDiscovery("button", objectId, *outCtx);
+}
 
-    if (icon && icon[0] != '\0') {
-        if (!formatChecked(buildCtx.payload, buildCtx.payloadCapacity,
-                 "{\"name\":\"%s\",\"obj_id\":\"%s\",\"def_ent_id\":\"%s\",\"uniq_id\":\"%s\","
-                 "\"cmd_t\":\"%s\",\"pl_prs\":\"%s\",\"ic\":\"%s\"%s%s,"
-                 "\"o\":{\"name\":\"%s\"},"
-                 "\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\","
-                 "\"mf\":\"%s\",\"mdl\":\"%s\",\"sw\":\"%s\",\"cu\":\"%s\"}}",
-                 name, objectId, defaultEntityId, uniqueId,
-                 commandTopic, payloadPress, icon,
-                 entityCategoryField, availabilityField,
-                 originName_, deviceIdent_, deviceName_, cfgData_.vendor, cfgData_.model, FirmwareVersion::Full, kHaDeviceConfigUrl)) {
-            LOGW("HA button payload truncated object=%s", objectId);
-            return false;
-        }
-    } else {
-        if (!formatChecked(buildCtx.payload, buildCtx.payloadCapacity,
-                 "{\"name\":\"%s\",\"obj_id\":\"%s\",\"def_ent_id\":\"%s\",\"uniq_id\":\"%s\","
-                 "\"cmd_t\":\"%s\",\"pl_prs\":\"%s\"%s%s,"
-                 "\"o\":{\"name\":\"%s\"},"
-                 "\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\","
-                 "\"mf\":\"%s\",\"mdl\":\"%s\",\"sw\":\"%s\",\"cu\":\"%s\"}}",
-                 name, objectId, defaultEntityId, uniqueId,
-                 commandTopic, payloadPress,
-                 entityCategoryField, availabilityField,
-                 originName_, deviceIdent_, deviceName_, cfgData_.vendor, cfgData_.model, FirmwareVersion::Full, kHaDeviceConfigUrl)) {
-            LOGW("HA button payload truncated object=%s", objectId);
-            return false;
-        }
+bool HAModule::addDiscoveryRemovalSvc_(const HADiscoveryRemovalEntry* entry)
+{
+    if (!entry || !entry->component || !entry->objectSuffix || oneShotCompleted_) return false;
+    if (!ensureStorage_()) return false;
+    for (uint8_t i = 0; i < removalCount_; ++i) {
+        if (strcmp(removals_[i].component, entry->component) == 0 &&
+            strcmp(removals_[i].objectSuffix, entry->objectSuffix) == 0) return true;
     }
-
-    return publishDiscovery("button", objectId, buildCtx);
+    if (removalCount_ >= MAX_HA_REMOVALS) return false;
+    removals_[removalCount_++] = *entry;
+    requestAutoconfigRefresh();
+    return true;
 }
 
 void HAModule::setStartupReady(bool ready)
@@ -989,7 +977,7 @@ uint16_t HAModule::entityCount_() const
 
 uint16_t HAModule::messageCount_() const
 {
-    return entityCount_();
+    return entityCount_() + removalCount_;
 }
 
 bool HAModule::isPending_(uint16_t messageId) const
@@ -1101,7 +1089,7 @@ bool HAModule::buildEntityMessage_(uint16_t messageId, MqttBuildContext& buildCt
             const HABinarySensorEntry& e = binarySensors_[messageId - cursor];
             if (buildObjectId(e.objectSuffix, objectIdBuf_, sizeof(objectIdBuf_))) {
                 mqttSvc_->formatTopic(mqttSvc_->ctx, e.stateTopicSuffix, stateTopicBuf_, sizeof(stateTopicBuf_));
-                ok = publishBinarySensor(objectIdBuf_, e.name, stateTopicBuf_, e.valueTemplate, e.deviceClass, e.entityCategory, e.icon, &buildCtx);
+                ok = publishBinarySensor(objectIdBuf_, e.name, stateTopicBuf_, e.valueTemplate, e.deviceClass, e.entityCategory, e.icon, e.attributesTemplate, e.includeNameInUniqueId, &buildCtx);
             }
         } else {
             cursor = (uint16_t)(cursor + binarySensorCount_);
@@ -1142,7 +1130,12 @@ bool HAModule::buildEntityMessage_(uint16_t messageId, MqttBuildContext& buildCt
                             const HAButtonEntry& e = buttons_[messageId - cursor];
                             if (buildObjectId(e.objectSuffix, objectIdBuf_, sizeof(objectIdBuf_))) {
                                 mqttSvc_->formatTopic(mqttSvc_->ctx, e.commandTopicSuffix, commandTopicBuf_, sizeof(commandTopicBuf_));
-                                ok = publishButton(objectIdBuf_, e.name, commandTopicBuf_, e.payloadPress, e.entityCategory, e.icon, &buildCtx);
+                                stateTopicBuf_[0] = '\0';
+                                if (e.availabilityTopicSuffix) {
+                                    mqttSvc_->formatTopic(mqttSvc_->ctx, e.availabilityTopicSuffix, stateTopicBuf_, sizeof(stateTopicBuf_));
+                                }
+                                ok = publishButton(objectIdBuf_, e.name, commandTopicBuf_, e.payloadPress,
+                                                   e.entityCategory, e.icon, stateTopicBuf_, e.availabilityTemplate, e.includeNameInUniqueId, &buildCtx);
                             }
                         }
                     }
@@ -1153,6 +1146,16 @@ bool HAModule::buildEntityMessage_(uint16_t messageId, MqttBuildContext& buildCt
 
     if (!ok) return false;
     return true;
+}
+
+bool HAModule::buildRemovalMessage_(uint16_t index, MqttBuildContext& buildCtx)
+{
+    if (index >= removalCount_ || !buildCtx.payload || buildCtx.payloadCapacity == 0) return false;
+    const HADiscoveryRemovalEntry& entry = removals_[index];
+    if (!buildObjectId(entry.objectSuffix, objectIdBuf_, sizeof(objectIdBuf_))) return false;
+    buildCtx.payload[0] = '\0';
+    buildCtx.allowEmptyPayload = true;
+    return publishDiscovery(entry.component, objectIdBuf_, buildCtx);
 }
 
 MqttBuildResult HAModule::buildMessage_(uint16_t messageId, MqttBuildContext& buildCtx)
@@ -1175,8 +1178,11 @@ MqttBuildResult HAModule::buildMessage_(uint16_t messageId, MqttBuildContext& bu
                     (unsigned)messageId,
                     (unsigned)entityCount,
                     (unsigned)messageCount_());
-    if (messageId >= entityCount) return MqttBuildResult::NoLongerNeeded;
-    if (!buildEntityMessage_(messageId, buildCtx)) return MqttBuildResult::PermanentError;
+    if (messageId >= messageCount_()) return MqttBuildResult::NoLongerNeeded;
+    const bool built = messageId < entityCount
+        ? buildEntityMessage_(messageId, buildCtx)
+        : buildRemovalMessage_(messageId - entityCount, buildCtx);
+    if (!built) return MqttBuildResult::PermanentError;
     return MqttBuildResult::Ready;
 }
 

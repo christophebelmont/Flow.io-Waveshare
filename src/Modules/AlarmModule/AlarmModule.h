@@ -123,6 +123,16 @@ private:
     const ActivityLogService* activityLogSvc_ = nullptr;
     const TimeService* timeSvc_ = nullptr;
     bool haEntitiesRegistered_ = false;
+    // HA entries borrow these strings for retained discovery publication.
+    // Allocate only occupied slots in PSRAM; they live with the alarm registry.
+    struct HaAlarmDiscovery {
+        char stateObject[24];
+        char resetObject[24];
+        char stateTopic[32];
+        char resetName[64];
+        char resetPayload[64];
+    };
+    HaAlarmDiscovery* haAlarms_[Limits::Alarm::MaxAlarms]{};
 
     bool enabled_ = true;
     int32_t evalPeriodMsCfg_ = (int32_t)Limits::Alarm::DefaultEvalPeriodMs;

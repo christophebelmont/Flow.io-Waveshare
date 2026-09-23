@@ -29,6 +29,8 @@ struct HABinarySensorEntry {
     const char* deviceClass;
     const char* entityCategory;
     const char* icon;
+    const char* attributesTemplate = nullptr; // Attributes read from the state topic.
+    bool includeNameInUniqueId = true;
 };
 
 /** @brief Static Home Assistant switch discovery registration. */
@@ -83,9 +85,18 @@ struct HAButtonEntry {
     const char* objectSuffix;
     const char* name;
     const char* commandTopicSuffix;
-    const char* payloadPress;
+    const char* payloadPress; // Raw MQTT payload; the discovery serializer escapes it.
     const char* entityCategory;
     const char* icon;
+    const char* availabilityTopicSuffix = nullptr;
+    const char* availabilityTemplate = nullptr;
+    bool includeNameInUniqueId = true;
+};
+
+/** @brief Retained discovery configuration to remove during publication. */
+struct HADiscoveryRemovalEntry {
+    const char* component;
+    const char* objectSuffix;
 };
 
 /** @brief Service used by modules to register static HA discovery entries and request refreshes. */
@@ -98,4 +109,5 @@ struct HAService {
     bool (*addButton)(void* ctx, const HAButtonEntry* entry);
     bool (*requestRefresh)(void* ctx);
     void* ctx;
+    bool (*addDiscoveryRemoval)(void* ctx, const HADiscoveryRemovalEntry* entry);
 };

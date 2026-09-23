@@ -414,7 +414,7 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
                 "pd_refill_ph",
                 "Fill pH Tank",
                 MqttTopics::SuffixCmd,
-                "{\\\"cmd\\\":\\\"pool.refill\\\",\\\"args\\\":{\\\"slot\\\":1}}",
+                "{\"cmd\":\"pool.refill\",\"args\":{\"slot\":1}}",
                 "config",
                 "mdi:beaker-plus-outline"
             };
@@ -426,7 +426,7 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
                 "pd_refill_chl",
                 "Fill Chlorine Tank",
                 MqttTopics::SuffixCmd,
-                "{\\\"cmd\\\":\\\"pool.refill\\\",\\\"args\\\":{\\\"slot\\\":2}}",
+                "{\"cmd\":\"pool.refill\",\"args\":{\"slot\":2}}",
                 "config",
                 "mdi:water-plus"
             };
@@ -438,7 +438,7 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
                 "pd_reset_upt_flt",
                 "Reset Uptime Filtration Pump",
                 MqttTopics::SuffixCmd,
-                "{\\\"cmd\\\":\\\"pooldevice.uptime.reset\\\",\\\"args\\\":{\\\"slot\\\":0}}",
+                "{\"cmd\":\"pooldevice.uptime.reset\",\"args\":{\"slot\":0}}",
                 "diagnostic",
                 "mdi:timer-refresh-outline"
             };
@@ -450,7 +450,7 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
                 "pd_reset_upt_ph",
                 "Reset Uptime pH Pump",
                 MqttTopics::SuffixCmd,
-                "{\\\"cmd\\\":\\\"pooldevice.uptime.reset\\\",\\\"args\\\":{\\\"slot\\\":1}}",
+                "{\"cmd\":\"pooldevice.uptime.reset\",\"args\":{\"slot\":1}}",
                 "diagnostic",
                 "mdi:timer-refresh-outline"
             };
@@ -462,7 +462,7 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
                 "pd_reset_upt_chl",
                 "Reset Uptime Chlorine Pump",
                 MqttTopics::SuffixCmd,
-                "{\\\"cmd\\\":\\\"pooldevice.uptime.reset\\\",\\\"args\\\":{\\\"slot\\\":2}}",
+                "{\"cmd\":\"pooldevice.uptime.reset\",\"args\":{\"slot\":2}}",
                 "diagnostic",
                 "mdi:timer-refresh-outline"
             };
@@ -474,7 +474,7 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
                 "pd_reset_upt_fill",
                 "Reset Uptime Fill Pump",
                 MqttTopics::SuffixCmd,
-                "{\\\"cmd\\\":\\\"pooldevice.uptime.reset\\\",\\\"args\\\":{\\\"slot\\\":4}}",
+                "{\"cmd\":\"pooldevice.uptime.reset\",\"args\":{\"slot\":4}}",
                 "diagnostic",
                 "mdi:timer-refresh-outline"
             };
@@ -486,7 +486,7 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
                 "pd_reset_upt_chl_gen",
                 "Reset Uptime Chlorine Generator",
                 MqttTopics::SuffixCmd,
-                "{\\\"cmd\\\":\\\"pooldevice.uptime.reset\\\",\\\"args\\\":{\\\"slot\\\":5}}",
+                "{\"cmd\":\"pooldevice.uptime.reset\",\"args\":{\"slot\":5}}",
                 "diagnostic",
                 "mdi:timer-refresh-outline"
             };
@@ -497,7 +497,7 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
             "pd_reset_upt_all",
             "Reset Uptime All Pool Devices",
             MqttTopics::SuffixCmd,
-            "{\\\"cmd\\\":\\\"pooldevice.uptime.reset_all\\\"}",
+            "{\"cmd\":\"pooldevice.uptime.reset_all\"}",
             "diagnostic",
             "mdi:timer-refresh-outline"
         };

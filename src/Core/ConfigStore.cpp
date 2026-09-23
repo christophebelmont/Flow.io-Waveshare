@@ -386,6 +386,21 @@ static bool isMaskedKey(const char* key) {
            strcmp(key, "secret") == 0;
 }
 
+// Match snprintf's length/termination contract so callers detect truncation
+// after JSON escaping, including when a string contains a driver JSON object.
+static int writeJsonString(char* out, size_t outLen, const char* value)
+{
+    StaticJsonDocument<0> doc;
+    // A const char pointer is linked, not copied: no JSON pool allocation.
+    doc.set(value ? value : "");
+    const size_t required = measureJson(doc);
+    if (outLen > 0) {
+        const size_t written = serializeJson(doc, out, outLen - 1);
+        out[written] = '\0';
+    }
+    return static_cast<int>(required);
+}
+
 void ConfigStore::toJson(char* out, size_t outLen) const
 {
     if (!out || outLen == 0) return;
@@ -426,7 +441,7 @@ void ConfigStore::toJson(char* out, size_t outLen) const
                 n = snprintf(out + pos, outLen - pos, "%.6f", *(double*)m.valuePtr);
                 break;
             case ConfigType::CharArray:
-                n = snprintf(out + pos, outLen - pos, "\"%s\"", (const char*)m.valuePtr);
+                n = writeJsonString(out + pos, outLen - pos, (const char*)m.valuePtr);
                 break;
             default:
                 n = snprintf(out + pos, outLen - pos, "null");
@@ -507,11 +522,9 @@ bool ConfigStore::toJsonModule(const char* module,
                 n = snprintf(out + pos, outLen - pos, "%.6f", *(double*)m.valuePtr);
                 break;
             case ConfigType::CharArray:
-                if (maskSecrets && isMaskedKey(m.name)) {
-                    n = snprintf(out + pos, outLen - pos, "\"***\"");
-                } else {
-                    n = snprintf(out + pos, outLen - pos, "\"%s\"", (const char*)m.valuePtr);
-                }
+                n = writeJsonString(out + pos, outLen - pos,
+                                    maskSecrets && isMaskedKey(m.name)
+                                        ? "***" : (const char*)m.valuePtr);
                 break;
             default:
                 n = snprintf(out + pos, outLen - pos, "null");

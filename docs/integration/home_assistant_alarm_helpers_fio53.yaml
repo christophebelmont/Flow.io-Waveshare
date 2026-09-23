@@ -4,14 +4,14 @@
 #
 # template: !include docs/integration/home_assistant_alarm_helpers_fio53.yaml
 #
-# Current firmware behavior for Flow.io:
-# - Flow.io auto-discovers `sensor.fio53_alm_pack` for alarm state packing.
-# - Flow.io auto-discovers one global `button.*` reset entity using
-#   the MQTT command path `{"cmd":"alarms.reset_all"}`.
-# - Flow.io auto-discovers one `button.*` per slot `0..7` using
-#   the MQTT command path `{"cmd":"alarms.reset_slot","args":{"slot":N}}`.
-# - The detailed MQTT payload still exists in firmware (`rt/alarms/id<id>`), but the
-#   current HA discovery layer does not expose one state entity per alarm.
+# Legacy compatibility helpers. New firmware auto-discovers one binary_sensor
+# and one reset button per registered AlarmId; no YAML helpers are required.
+# Example: binary_sensor.fio53_alm_1000_active / button.fio53_alm_1000_reset.
+# The prefix follows the HA configuration; entity IDs may be customized in HA.
+# The global alm_reset_all and diagnostic alm_pack identities are preserved.
+# Old alm_reset_slot_0..7 discovery records are removed automatically.
+# After migrating existing cards/automations to the native entities, remove this
+# include manually to avoid displaying both the helpers and the native sensors.
 #
 # This helper file decodes `sensor.fio53_alm_pack`, which is built in
 # `AlarmModule::buildPacked_()` with 5 bits per slot:
@@ -29,10 +29,8 @@
 # - slot 5 -> AlarmId 1005 -> chlorine_pump_max_uptime
 # - slot 6 -> AlarmId 1006 -> pool_water_level_low
 #
-# `PoolPhPumpMaxUptime` and `PoolChlorinePumpMaxUptime` are latched alarms.
-# Their matching HA reset buttons are:
-# - slot 4 -> button.fio53_alm_reset_slot_4
-# - slot 5 -> button.fio53_alm_reset_slot_5
+# Pressure and pump maximum-uptime alarms are latched. Native reset buttons
+# are named by AlarmId (1000, 1001, 1004, 1005), independently of slot order.
 #
 # If alarm registration order changes in firmware, this mapping must be updated.
 

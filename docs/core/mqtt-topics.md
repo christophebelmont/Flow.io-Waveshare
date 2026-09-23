@@ -80,7 +80,7 @@ Publié par `RuntimeProducer` + publishers périodiques:
 - `rt/poollogic/*`
 - `rt/network/state` (périodique)
 - `rt/system/state` (périodique)
-- `rt/alarms/*` (meta/pack/id)
+- `rt/alarms/*` (meta/pack/id, retained et resynchronisés à la connexion MQTT)
 
 ### Config (`cfg/*`) module-owned
 
