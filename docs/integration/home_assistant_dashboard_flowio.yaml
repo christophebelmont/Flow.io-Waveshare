@@ -1,0 +1,1667 @@
+# Flow.io — Dashboard YAML, sans JavaScript spécifique ni template JavaScript.
+# Cartes HACS utilisées : Mushroom 5+, card-mod, mini-graph-card,
+# Modern Circular Gauge récent (templates Jinja dans min/max/segments).
+# Coller le fichier complet dans la configuration brute du dashboard.
+# Les huit vues sont les huit onglets natifs de Home Assistant.
+# Les ancrages YAML mutualisent les styles ; aucun fichier JS Flow.io à charger.
+# Les plages de jauges sont relatives aux consignes : repères visuels uniquement.
+# Si une consigne manque, la jauge est grise et ne présume aucune plage normale.
+# Pour le fond clair et la typographie globale : thème YAML facultatif dans
+# home-assistant/flowio-theme.yaml ; installation dans home-assistant/README.md.
+
+title: Piscine · Flow.io
+views:
+  - title: Piscine
+    path: piscine
+    icon: mdi:pool
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        cards:
+          - type: custom:mushroom-legacy-template-card
+            entity: binary_sensor.fio_alm_any_active
+            primary: |-
+              {% if not has_value(entity) %}Piscine indisponible{% elif is_state(entity, 'on') %}Intervention requise{% elif is_state('switch.fio_pl_modes_winter', 'on') %}Mode hivernage{% else %}Piscine · aucune alarme{% endif %}
+            secondary: |-
+              {% if has_value('switch.fio_pl_modes_auto') %}{{ 'Automatique' if is_state('switch.fio_pl_modes_auto', 'on') else 'Manuel' }}{% else %}Mode indisponible{% endif %} · {% if is_number(states('sensor.fio_pl_flt_start')) and is_number(states('sensor.fio_pl_flt_stop')) %}filtration {{ states('sensor.fio_pl_flt_start') }}h–{{ states('sensor.fio_pl_flt_stop') }}h{% else %}horaires indisponibles{% endif %} · {{ states('select.fio_pl_modes_dis') }}
+            icon: mdi:pool
+            icon_color: |-
+              {% if not has_value(entity) %}grey{% elif is_state(entity, 'on') %}red{% else %}blue{% endif %}
+            multiline_secondary: true
+            tap_action:
+              action: navigate
+              navigation_path: alarmes
+            card_mod:
+              style: |
+                ha-card {
+                  background: #FFFFFF;
+                  color: #1C1C1E;
+                  border: 1px solid #E3E3E8;
+                  border-radius: 22px;
+                  box-shadow: none;
+                  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                  --primary-text-color: #1C1C1E;
+                  --secondary-text-color: #8A8F99;
+                  --paper-item-icon-color: #8A8F99;
+                  --primary-color: #168AFF;
+                  --state-switch-active-color: #168AFF;
+                }
+                ha-card { padding: 8px; --card-primary-font-size: 20px; --card-primary-font-weight: 650; --card-secondary-font-size: 13px; }
+            grid_options:
+              columns: 12
+              rows: auto
+          - type: custom:mushroom-chips-card
+            chips:
+              - type: template
+                entity: sensor.fio_wifi_ip
+                tap_action: &id001
+                  action: more-info
+                icon: mdi:circle-small
+                icon_color: '{{ ''green'' if has_value(''sensor.fio_wifi_ip'') else ''red'' }}'
+                content: '{{ ''En ligne'' if has_value(''sensor.fio_wifi_ip'') else ''Indisponible'' }}'
+              - type: template
+                entity: sensor.fio_wifi_rssi
+                tap_action: *id001
+                icon: mdi:wifi
+                icon_color: blue
+                content: |-
+                  {% if has_value('sensor.fio_wifi_rssi') %}{{ states('sensor.fio_wifi_rssi') }} {{ state_attr('sensor.fio_wifi_rssi', 'unit_of_measurement') or '' }}{% else %}Indisponible{% endif %}
+              - type: template
+                entity: sensor.fio_sys_upt_mn
+                tap_action: *id001
+                icon: mdi:clock-outline
+                icon_color: grey
+                content: |-
+                  {% if has_value('sensor.fio_sys_upt_mn') and is_number(states('sensor.fio_sys_upt_mn')) %}{% set m = states('sensor.fio_sys_upt_mn') | float  %}{{ (m / 1440) | round(1) ~ ' j' if m >= 1440 else (m / 60) | round(1) ~ ' h' if m >= 60 else m | round(0) | int ~ ' min' }}{% else %}Indisponible{% endif %}
+              - type: template
+                entity: binary_sensor.fio_alm_any_active
+                tap_action:
+                  action: navigate
+                  navigation_path: alarmes
+                icon: mdi:shield-check-outline
+                icon_color: |-
+                  {% if not has_value('binary_sensor.fio_alm_any_active') %}grey{% elif is_state('binary_sensor.fio_alm_any_active','on') %}red{% else %}green{% endif %}
+                content: |-
+                  {% if has_value('binary_sensor.fio_alm_any_active') %}{% if is_state('binary_sensor.fio_alm_any_active', 'off') %}Aucune alarme{% else %}{{ states('sensor.fio_alm_active_count') }} alarme(s){% endif %}{% else %}Indisponible{% endif %}
+            card_mod:
+              style: 'ha-card { --chip-background: #F2F2F5; --chip-border-width: 0; --chip-box-shadow: none; --chip-border-radius:
+                18px; --chip-font-weight: 500; }'
+            grid_options:
+              columns: 12
+              rows: auto
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: custom:modern-circular-gauge
+                entity: sensor.fio_io_ph
+                name: pH
+                unit: ''
+                decimals: 1
+                gauge_type: standard
+                min: '{{ (states(''number.fio_pl_ph_setpoint'') | float + -1.5) if is_number(states(''number.fio_pl_ph_setpoint''))
+                  else 0 }}'
+                max: '{{ (states(''number.fio_pl_ph_setpoint'') | float + 1.5) if is_number(states(''number.fio_pl_ph_setpoint''))
+                  else 3.0 }}'
+                needle: true
+                show_icon: false
+                show_header: false
+                state_font_size: 32
+                gauge_background_style:
+                  width: 6
+                  opacity: 0.45
+                gauge_foreground_style:
+                  width: 6
+                segments:
+                  - from: '{{ (states(''number.fio_pl_ph_setpoint'') | float + -1.5) if is_number(states(''number.fio_pl_ph_setpoint''))
+                      else 0.0 }}'
+                    color: '{{ ''#FF453A'' if is_number(states(''number.fio_pl_ph_setpoint'')) else ''#C7C7CC'' }}'
+                  - from: '{{ (states(''number.fio_pl_ph_setpoint'') | float + -0.3) if is_number(states(''number.fio_pl_ph_setpoint''))
+                      else 1.2 }}'
+                    color: '{{ ''#FFB340'' if is_number(states(''number.fio_pl_ph_setpoint'')) else ''#C7C7CC'' }}'
+                  - from: '{{ (states(''number.fio_pl_ph_setpoint'') | float + -0.1) if is_number(states(''number.fio_pl_ph_setpoint''))
+                      else 1.4 }}'
+                    color: '{{ ''#30C85A'' if is_number(states(''number.fio_pl_ph_setpoint'')) else ''#C7C7CC'' }}'
+                  - from: '{{ (states(''number.fio_pl_ph_setpoint'') | float + 0.1) if is_number(states(''number.fio_pl_ph_setpoint''))
+                      else 1.6 }}'
+                    color: '{{ ''#FFB340'' if is_number(states(''number.fio_pl_ph_setpoint'')) else ''#C7C7CC'' }}'
+                  - from: '{{ (states(''number.fio_pl_ph_setpoint'') | float + 0.3) if is_number(states(''number.fio_pl_ph_setpoint''))
+                      else 1.8 }}'
+                    color: '{{ ''#FF453A'' if is_number(states(''number.fio_pl_ph_setpoint'')) else ''#C7C7CC'' }}'
+                tap_action: *id001
+                card_mod: &id002
+                  style: |
+                    ha-card {
+                      background: #FFFFFF;
+                      color: #1C1C1E;
+                      border: 1px solid #E3E3E8;
+                      border-radius: 22px;
+                      box-shadow: none;
+                      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                      --primary-text-color: #1C1C1E;
+                      --secondary-text-color: #8A8F99;
+                      --paper-item-icon-color: #8A8F99;
+                      --primary-color: #168AFF;
+                      --state-switch-active-color: #168AFF;
+                    }
+              - type: custom:modern-circular-gauge
+                entity: sensor.fio_io_orp
+                name: ORP
+                unit: mV
+                decimals: 0
+                gauge_type: standard
+                min: '{{ (states(''number.fio_pl_dis_setpoint'') | float + -300) if is_number(states(''number.fio_pl_dis_setpoint''))
+                  else 0 }}'
+                max: '{{ (states(''number.fio_pl_dis_setpoint'') | float + 300) if is_number(states(''number.fio_pl_dis_setpoint''))
+                  else 600 }}'
+                needle: true
+                show_icon: false
+                show_header: false
+                state_font_size: 32
+                gauge_background_style:
+                  width: 6
+                  opacity: 0.45
+                gauge_foreground_style:
+                  width: 6
+                segments:
+                  - from: '{{ (states(''number.fio_pl_dis_setpoint'') | float + -300) if is_number(states(''number.fio_pl_dis_setpoint''))
+                      else 0 }}'
+                    color: '{{ ''#FF453A'' if is_number(states(''number.fio_pl_dis_setpoint'')) else ''#C7C7CC'' }}'
+                  - from: '{{ (states(''number.fio_pl_dis_setpoint'') | float + -160) if is_number(states(''number.fio_pl_dis_setpoint''))
+                      else 140 }}'
+                    color: '{{ ''#FFB340'' if is_number(states(''number.fio_pl_dis_setpoint'')) else ''#C7C7CC'' }}'
+                  - from: '{{ (states(''number.fio_pl_dis_setpoint'') | float + -100) if is_number(states(''number.fio_pl_dis_setpoint''))
+                      else 200 }}'
+                    color: '{{ ''#30C85A'' if is_number(states(''number.fio_pl_dis_setpoint'')) else ''#C7C7CC'' }}'
+                  - from: '{{ (states(''number.fio_pl_dis_setpoint'') | float + 100) if is_number(states(''number.fio_pl_dis_setpoint''))
+                      else 400 }}'
+                    color: '{{ ''#FFB340'' if is_number(states(''number.fio_pl_dis_setpoint'')) else ''#C7C7CC'' }}'
+                  - from: '{{ (states(''number.fio_pl_dis_setpoint'') | float + 160) if is_number(states(''number.fio_pl_dis_setpoint''))
+                      else 460 }}'
+                    color: '{{ ''#FF453A'' if is_number(states(''number.fio_pl_dis_setpoint'')) else ''#C7C7CC'' }}'
+                tap_action: *id001
+                card_mod: *id002
+            grid_options:
+              columns: 12
+              rows: auto
+          - type: grid
+            columns: 4
+            square: false
+            cards:
+              - type: custom:mushroom-entity-card
+                entity: switch.fio_io_flt_pmp
+                name: Filtr.
+                icon: mdi:pool
+                layout: vertical
+                tap_action:
+                  action: toggle
+                hold_action: *id001
+                card_mod: &id003
+                  style: |
+                    ha-card {
+                      background: #FFFFFF;
+                      color: #1C1C1E;
+                      border: 1px solid #E3E3E8;
+                      border-radius: 22px;
+                      box-shadow: none;
+                      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                      --primary-text-color: #1C1C1E;
+                      --secondary-text-color: #8A8F99;
+                      --paper-item-icon-color: #8A8F99;
+                      --primary-color: #168AFF;
+                      --state-switch-active-color: #168AFF;
+                    }
+                    ha-card { background: transparent; border: none; --card-primary-font-size: 13px; --card-secondary-font-size: 12px; }
+              - type: custom:mushroom-entity-card
+                entity: switch.fio_io_robot
+                name: Robot
+                icon: mdi:robot-vacuum
+                layout: vertical
+                tap_action:
+                  action: toggle
+                hold_action: *id001
+                card_mod: *id003
+              - type: custom:mushroom-entity-card
+                entity: switch.fio_io_lights
+                name: Éclair.
+                icon: mdi:lightbulb-outline
+                layout: vertical
+                tap_action:
+                  action: toggle
+                hold_action: *id001
+                card_mod: *id003
+              - type: custom:mushroom-entity-card
+                entity: switch.fio_io_wat_htr
+                name: Chauff.
+                icon: mdi:radiator
+                layout: vertical
+                tap_action:
+                  action: toggle
+                hold_action: *id001
+                card_mod: *id003
+            grid_options:
+              columns: 12
+              rows: auto
+          - type: entities
+            show_header_toggle: false
+            state_color: true
+            entities:
+              - entity: switch.fio_pl_modes_auto
+                name: Filtration automatique
+                icon: mdi:autorenew
+              - entity: switch.fio_pl_modes_winter
+                name: Hivernage
+                icon: mdi:snowflake
+            card_mod: &id004
+              style: |
+                ha-card {
+                  background: #FFFFFF;
+                  color: #1C1C1E;
+                  border: 1px solid #E3E3E8;
+                  border-radius: 22px;
+                  box-shadow: none;
+                  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                  --primary-text-color: #1C1C1E;
+                  --secondary-text-color: #8A8F99;
+                  --paper-item-icon-color: #8A8F99;
+                  --primary-color: #168AFF;
+                  --state-switch-active-color: #168AFF;
+                }
+                #states { padding: 8px 16px; }
+                #states > div { margin: 0; padding: 12px 0; }
+                #states > div + div { border-top: 1px solid #F0F0F3; }
+                .card-header { font-size: 18px; font-weight: 650; padding-bottom: 4px; }
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: custom:mini-graph-card
+            name: Températures
+            hours_to_show: 24
+            points_per_hour: 2
+            line_width: 2
+            height: 140
+            font_size: 90
+            show:
+              labels: true
+              legend: false
+              fill: fade
+              extrema: false
+            entities:
+              - entity: sensor.fio_io_wat_tmp
+                name: Eau
+                color: '#FF9500'
+                show_state: true
+              - entity: sensor.fio_io_air_tmp
+                name: Air
+                color: '#168AFF'
+                show_state: true
+            card_mod: *id002
+            grid_options:
+              columns: 12
+              rows: auto
+          - type: custom:mini-graph-card
+            name: Chimie
+            hours_to_show: 24
+            points_per_hour: 2
+            line_width: 2
+            height: 140
+            font_size: 90
+            show:
+              labels: true
+              legend: false
+              fill: fade
+              extrema: false
+            entities:
+              - entity: sensor.fio_io_ph
+                name: pH
+                color: '#E7BD30'
+                show_state: true
+              - entity: sensor.fio_io_orp
+                name: ORP
+                color: '#168AFF'
+                show_state: true
+                y_axis: secondary
+            card_mod: *id002
+            grid_options:
+              columns: 12
+              rows: auto
+  - title: Filtration
+    path: filtration
+    icon: mdi:pump
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Modes
+            heading_style: title
+          - type: entities
+            show_header_toggle: false
+            state_color: true
+            entities:
+              - entity: switch.fio_pl_modes_auto
+                name: Régulation automatique
+                icon: mdi:autorenew
+              - entity: switch.fio_pl_modes_winter
+                name: Mode hivernage
+                icon: mdi:snowflake
+            card_mod: *id004
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Fenêtre calculée
+            heading_style: title
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_pl_flt_start
+                primary: Démarrage calculé
+                secondary: |-
+                  {% if has_value('sensor.fio_pl_flt_start') and is_number(states('sensor.fio_pl_flt_start')) %}{{ '%02d:%02d' | format((states('sensor.fio_pl_flt_start') | float * 60) | round | int // 60, (states('sensor.fio_pl_flt_start') | float * 60) | round | int % 60) }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:clock-outline
+                icon_color: green
+                tap_action: *id001
+                card_mod: &id005
+                  style: |
+                    ha-card {
+                      background: #FFFFFF;
+                      color: #1C1C1E;
+                      border: 1px solid #E3E3E8;
+                      border-radius: 22px;
+                      box-shadow: none;
+                      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                      --primary-text-color: #1C1C1E;
+                      --secondary-text-color: #8A8F99;
+                      --paper-item-icon-color: #8A8F99;
+                      --primary-color: #168AFF;
+                      --state-switch-active-color: #168AFF;
+                    }
+                    ha-card {
+                      background: #F2F2F5;
+                      border: none;
+                      border-radius: 16px;
+                      padding: 8px 2px;
+                      --card-primary-font-size: 13px;
+                      --card-primary-color: #8A8F99;
+                      --card-primary-font-weight: 500;
+                      --card-secondary-font-size: 22px;
+                      --card-secondary-font-weight: 650;
+                      --card-secondary-color: #1C1C1E;
+                      --card-secondary-line-height: 1.4;
+                    }
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_pl_flt_stop
+                primary: Arrêt calculé
+                secondary: |-
+                  {% if has_value('sensor.fio_pl_flt_stop') and is_number(states('sensor.fio_pl_flt_stop')) %}{{ '%02d:%02d' | format((states('sensor.fio_pl_flt_stop') | float * 60) | round | int // 60, (states('sensor.fio_pl_flt_stop') | float * 60) | round | int % 60) }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:clock-outline
+                icon_color: green
+                tap_action: *id001
+                card_mod: *id005
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Règles de calcul
+            heading_style: title
+          - type: entities
+            show_header_toggle: false
+            state_color: true
+            entities:
+              - entity: number.fio_pl_wat_temp_sp
+                name: Température de consigne
+                icon: mdi:thermometer
+                type: simple-entity
+                tap_action: *id001
+              - entity: number.fio_pl_flt_start_min
+                name: Démarrage au plus tôt
+                icon: mdi:clock-outline
+                type: simple-entity
+                tap_action: *id001
+              - entity: number.fio_pl_flt_stop_max
+                name: Arrêt au plus tard
+                icon: mdi:clock-outline
+                type: simple-entity
+                tap_action: *id001
+              - entity: button.fio_pl_flt_recalc
+                name: Recalculer la fenêtre
+                icon: mdi:autorenew
+            card_mod: *id004
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Pompe de filtration
+            heading_style: title
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: entities
+                show_header_toggle: false
+                state_color: true
+                entities:
+                  - entity: switch.fio_io_flt_pmp
+                    name: Filtration
+                    icon: mdi:pool
+                card_mod: *id004
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_pd_flt_upt_mn
+                primary: Fonctionnement aujourd’hui
+                secondary: |-
+                  {% if has_value('sensor.fio_pd_flt_upt_mn') and is_number(states('sensor.fio_pd_flt_upt_mn')) %}{% set m = states('sensor.fio_pd_flt_upt_mn') | float  %}{{ (m / 1440) | round(1) ~ ' j' if m >= 1440 else (m / 60) | round(1) ~ ' h' if m >= 60 else m | round(0) | int ~ ' min' }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:timer-outline
+                icon_color: blue
+                tap_action: *id001
+                card_mod: *id005
+              - type: custom:mushroom-legacy-template-card
+                entity: number.fio_pd0_flow
+                primary: Débit
+                secondary: |-
+                  {% if has_value('number.fio_pd0_flow') %}{{ states('number.fio_pd0_flow') }} {{ state_attr('number.fio_pd0_flow', 'unit_of_measurement') or '' }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:water-outline
+                icon_color: grey
+                tap_action: *id001
+                card_mod: *id005
+              - type: custom:mushroom-legacy-template-card
+                entity: number.fio_pd0_max_upt
+                primary: Temps max / jour
+                secondary: |-
+                  {% if has_value('number.fio_pd0_max_upt') %}{{ states('number.fio_pd0_max_upt') }} {{ state_attr('number.fio_pd0_max_upt', 'unit_of_measurement') or '' }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:timer-outline
+                icon_color: grey
+                tap_action: *id001
+                card_mod: *id005
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Températures
+            heading_style: title
+          - type: custom:mini-graph-card
+            name: Eau / Air · 24 h
+            hours_to_show: 24
+            points_per_hour: 2
+            line_width: 2
+            height: 140
+            font_size: 90
+            show:
+              labels: true
+              legend: false
+              fill: fade
+              extrema: false
+            entities:
+              - entity: sensor.fio_io_wat_tmp
+                name: Eau
+                color: '#0A84FF'
+              - entity: sensor.fio_io_air_tmp
+                name: Air
+                color: '#FF9500'
+            card_mod: *id002
+            grid_options:
+              columns: 12
+              rows: auto
+          - type: history-graph
+            title: Eau / consigne · 24 h
+            hours_to_show: 24
+            entities:
+              - entity: sensor.fio_io_wat_tmp
+                name: Eau
+              - entity: number.fio_pl_wat_temp_sp
+                name: Consigne
+            card_mod: *id002
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Informations complémentaires
+            heading_style: title
+          - type: entities
+            show_header_toggle: false
+            state_color: true
+            entities:
+              - entity: number.fio_pl_reg_dly_pid
+                name: Délai avant régulation
+                icon: mdi:timer-outline
+                type: simple-entity
+                tap_action: *id001
+              - entity: sensor.fio_pl_has_rsn
+                name: Raison du chauffage
+                icon: mdi:chip
+            card_mod: *id004
+            grid_options:
+              columns: 12
+              rows: auto
+  - title: pH
+    path: ph
+    icon: mdi:flask-outline
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Mesure & consigne
+            heading_style: title
+          - type: custom:modern-circular-gauge
+            entity: sensor.fio_io_ph
+            name: pH
+            unit: ''
+            decimals: 1
+            gauge_type: standard
+            min: '{{ (states(''number.fio_pl_ph_setpoint'') | float + -1.5) if is_number(states(''number.fio_pl_ph_setpoint''))
+              else 0 }}'
+            max: '{{ (states(''number.fio_pl_ph_setpoint'') | float + 1.5) if is_number(states(''number.fio_pl_ph_setpoint''))
+              else 3.0 }}'
+            needle: true
+            show_icon: false
+            show_header: false
+            state_font_size: 32
+            gauge_background_style:
+              width: 6
+              opacity: 0.45
+            gauge_foreground_style:
+              width: 6
+            segments:
+              - from: '{{ (states(''number.fio_pl_ph_setpoint'') | float + -1.5) if is_number(states(''number.fio_pl_ph_setpoint''))
+                  else 0.0 }}'
+                color: '{{ ''#FF453A'' if is_number(states(''number.fio_pl_ph_setpoint'')) else ''#C7C7CC'' }}'
+              - from: '{{ (states(''number.fio_pl_ph_setpoint'') | float + -0.3) if is_number(states(''number.fio_pl_ph_setpoint''))
+                  else 1.2 }}'
+                color: '{{ ''#FFB340'' if is_number(states(''number.fio_pl_ph_setpoint'')) else ''#C7C7CC'' }}'
+              - from: '{{ (states(''number.fio_pl_ph_setpoint'') | float + -0.1) if is_number(states(''number.fio_pl_ph_setpoint''))
+                  else 1.4 }}'
+                color: '{{ ''#30C85A'' if is_number(states(''number.fio_pl_ph_setpoint'')) else ''#C7C7CC'' }}'
+              - from: '{{ (states(''number.fio_pl_ph_setpoint'') | float + 0.1) if is_number(states(''number.fio_pl_ph_setpoint''))
+                  else 1.6 }}'
+                color: '{{ ''#FFB340'' if is_number(states(''number.fio_pl_ph_setpoint'')) else ''#C7C7CC'' }}'
+              - from: '{{ (states(''number.fio_pl_ph_setpoint'') | float + 0.3) if is_number(states(''number.fio_pl_ph_setpoint''))
+                  else 1.8 }}'
+                color: '{{ ''#FF453A'' if is_number(states(''number.fio_pl_ph_setpoint'')) else ''#C7C7CC'' }}'
+            tap_action: *id001
+            card_mod: *id002
+            grid_options:
+              columns: 12
+              rows: auto
+          - type: entities
+            show_header_toggle: false
+            state_color: true
+            entities:
+              - entity: number.fio_pl_ph_setpoint
+                name: Consigne pH
+                icon: mdi:flask-outline
+                type: simple-entity
+                tap_action: *id001
+              - entity: switch.fio_pl_ph_auto_mode
+                name: Correction automatique
+                icon: mdi:autorenew
+              - entity: switch.fio_pl_ph_dose_plus
+                name: Dosage avec pH+
+                icon: mdi:test-tube
+              - entity: number.fio_pl_ph_window
+                name: Fenêtre PID
+                icon: mdi:clock-outline
+                type: simple-entity
+                tap_action: *id001
+              - entity: number.fio_pd1_max_upt
+                name: Sécurité temps max
+                icon: mdi:timer-outline
+                type: simple-entity
+                tap_action: *id001
+            card_mod: *id004
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Commande manuelle
+            heading_style: title
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: entities
+                show_header_toggle: false
+                state_color: true
+                entities:
+                  - entity: switch.fio_io_ph_pmp
+                    name: Pompe pH
+                    icon: mdi:flask-outline
+                card_mod: *id004
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_pd_ph_pmp_upt
+                primary: Injecté aujourd’hui
+                secondary: |-
+                  {% if has_value('sensor.fio_pd_ph_pmp_upt') and is_number(states('sensor.fio_pd_ph_pmp_upt')) and is_number(states('number.fio_pd1_flow')) %}{{ ((states('sensor.fio_pd_ph_pmp_upt') | float / 3600) * (states('number.fio_pd1_flow') | float) * 1000) | round(0) | int }} mL{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:test-tube
+                icon_color: blue
+                tap_action: *id001
+                card_mod: *id005
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Cuve
+            heading_style: title
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_pd_ph_tnk_rem
+                primary: Niveau restant
+                secondary: |-
+                  {% if has_value('sensor.fio_pd_ph_tnk_rem') %}{{ states('sensor.fio_pd_ph_tnk_rem') }} {{ state_attr('sensor.fio_pd_ph_tnk_rem', 'unit_of_measurement') or '' }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:flask-outline
+                icon_color: blue
+                tap_action: *id001
+                card_mod: *id005
+              - type: custom:mushroom-legacy-template-card
+                entity: number.fio_pd1_flow
+                primary: Débit pompe
+                secondary: |-
+                  {% if has_value('number.fio_pd1_flow') %}{{ states('number.fio_pd1_flow') }} {{ state_attr('number.fio_pd1_flow', 'unit_of_measurement') or '' }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:water-outline
+                icon_color: grey
+                tap_action: *id001
+                card_mod: *id005
+              - type: button
+                entity: button.fio_pd_refill_ph
+                name: Remplir la cuve
+                icon: mdi:flask-outline
+                show_state: false
+                tap_action:
+                  action: perform-action
+                  perform_action: button.press
+                  target:
+                    entity_id: button.fio_pd_refill_ph
+                card_mod: *id002
+            grid_options:
+              columns: 12
+              rows: auto
+          - type: history-graph
+            title: pH · 24 h
+            hours_to_show: 24
+            entities:
+              - entity: sensor.fio_io_ph
+                name: Mesure
+              - entity: number.fio_pl_ph_setpoint
+                name: Consigne
+            card_mod: *id002
+            grid_options:
+              columns: 12
+              rows: auto
+  - title: Désinfection
+    path: desinfection
+    icon: mdi:test-tube
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Mesure & consigne
+            heading_style: title
+          - type: custom:modern-circular-gauge
+            entity: sensor.fio_io_orp
+            name: ORP
+            unit: mV
+            decimals: 0
+            gauge_type: standard
+            min: '{{ (states(''number.fio_pl_dis_setpoint'') | float + -300) if is_number(states(''number.fio_pl_dis_setpoint''))
+              else 0 }}'
+            max: '{{ (states(''number.fio_pl_dis_setpoint'') | float + 300) if is_number(states(''number.fio_pl_dis_setpoint''))
+              else 600 }}'
+            needle: true
+            show_icon: false
+            show_header: false
+            state_font_size: 32
+            gauge_background_style:
+              width: 6
+              opacity: 0.45
+            gauge_foreground_style:
+              width: 6
+            segments:
+              - from: '{{ (states(''number.fio_pl_dis_setpoint'') | float + -300) if is_number(states(''number.fio_pl_dis_setpoint''))
+                  else 0 }}'
+                color: '{{ ''#FF453A'' if is_number(states(''number.fio_pl_dis_setpoint'')) else ''#C7C7CC'' }}'
+              - from: '{{ (states(''number.fio_pl_dis_setpoint'') | float + -160) if is_number(states(''number.fio_pl_dis_setpoint''))
+                  else 140 }}'
+                color: '{{ ''#FFB340'' if is_number(states(''number.fio_pl_dis_setpoint'')) else ''#C7C7CC'' }}'
+              - from: '{{ (states(''number.fio_pl_dis_setpoint'') | float + -100) if is_number(states(''number.fio_pl_dis_setpoint''))
+                  else 200 }}'
+                color: '{{ ''#30C85A'' if is_number(states(''number.fio_pl_dis_setpoint'')) else ''#C7C7CC'' }}'
+              - from: '{{ (states(''number.fio_pl_dis_setpoint'') | float + 100) if is_number(states(''number.fio_pl_dis_setpoint''))
+                  else 400 }}'
+                color: '{{ ''#FFB340'' if is_number(states(''number.fio_pl_dis_setpoint'')) else ''#C7C7CC'' }}'
+              - from: '{{ (states(''number.fio_pl_dis_setpoint'') | float + 160) if is_number(states(''number.fio_pl_dis_setpoint''))
+                  else 460 }}'
+                color: '{{ ''#FF453A'' if is_number(states(''number.fio_pl_dis_setpoint'')) else ''#C7C7CC'' }}'
+            tap_action: *id001
+            card_mod: *id002
+            grid_options:
+              columns: 12
+              rows: auto
+          - type: entities
+            show_header_toggle: false
+            state_color: true
+            entities:
+              - entity: select.fio_pl_modes_dis
+                name: Type de désinfection
+                icon: mdi:flask-outline
+                type: simple-entity
+                tap_action: *id001
+              - entity: switch.fio_pl_dis_auto
+                name: Régulation automatique
+                icon: mdi:autorenew
+              - entity: number.fio_pl_dis_setpoint
+                name: Consigne ORP
+                icon: mdi:lightning-bolt-outline
+                type: simple-entity
+                tap_action: *id001
+              - entity: number.fio_pl_dis_window
+                name: Fenêtre PID
+                icon: mdi:clock-outline
+                type: simple-entity
+                tap_action: *id001
+            card_mod: *id004
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Électrolyse au sel
+            heading_style: title
+          - type: entities
+            show_header_toggle: false
+            state_color: true
+            entities:
+              - entity: select.fio_pl_swg_ctrl
+                name: Mode de commande
+                icon: mdi:lightning-bolt-outline
+                type: simple-entity
+                tap_action: *id001
+              - entity: number.fio_pl_swg_min_temp
+                name: Température minimale
+                icon: mdi:thermometer
+                type: simple-entity
+                tap_action: *id001
+              - entity: number.fio_pl_swg_dly_elec
+                name: Délai après filtration
+                icon: mdi:timer-outline
+                type: simple-entity
+                tap_action: *id001
+            card_mod: *id004
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Commande manuelle
+            heading_style: title
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: entities
+                show_header_toggle: false
+                state_color: true
+                entities:
+                  - entity: switch.fio_io_chl_pmp
+                    name: Pompe chlore
+                    icon: mdi:test-tube
+                card_mod: *id004
+              - type: entities
+                show_header_toggle: false
+                state_color: true
+                entities:
+                  - entity: switch.fio_io_chl_gen
+                    name: Électrolyse
+                    icon: mdi:lightning-bolt-outline
+                card_mod: *id004
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_pd_chl_pmp_upt
+                primary: Injecté aujourd’hui
+                secondary: |-
+                  {% if has_value('sensor.fio_pd_chl_pmp_upt') and is_number(states('sensor.fio_pd_chl_pmp_upt')) and is_number(states('number.fio_pd2_flow')) %}{{ ((states('sensor.fio_pd_chl_pmp_upt') | float / 3600) * (states('number.fio_pd2_flow') | float) * 1000) | round(0) | int }} mL{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:test-tube
+                icon_color: teal
+                tap_action: *id001
+                card_mod: *id005
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_pd_chl_gen_upt
+                primary: Électrolyse aujourd’hui
+                secondary: |-
+                  {% if has_value('sensor.fio_pd_chl_gen_upt') and is_number(states('sensor.fio_pd_chl_gen_upt')) %}{% set m = states('sensor.fio_pd_chl_gen_upt') | float  %}{{ (m / 1440) | round(1) ~ ' j' if m >= 1440 else (m / 60) | round(1) ~ ' h' if m >= 60 else m | round(0) | int ~ ' min' }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:timer-outline
+                icon_color: blue
+                tap_action: *id001
+                card_mod: *id005
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Cuve
+            heading_style: title
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_pd_chl_tnk_rem
+                primary: Niveau restant
+                secondary: |-
+                  {% if has_value('sensor.fio_pd_chl_tnk_rem') %}{{ states('sensor.fio_pd_chl_tnk_rem') }} {{ state_attr('sensor.fio_pd_chl_tnk_rem', 'unit_of_measurement') or '' }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:test-tube
+                icon_color: teal
+                tap_action: *id001
+                card_mod: *id005
+              - type: custom:mushroom-legacy-template-card
+                entity: number.fio_pd2_flow
+                primary: Débit pompe
+                secondary: |-
+                  {% if has_value('number.fio_pd2_flow') %}{{ states('number.fio_pd2_flow') }} {{ state_attr('number.fio_pd2_flow', 'unit_of_measurement') or '' }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:water-outline
+                icon_color: grey
+                tap_action: *id001
+                card_mod: *id005
+              - type: button
+                entity: button.fio_pd_refill_chl
+                name: Remplir la cuve
+                icon: mdi:water-outline
+                show_state: false
+                tap_action:
+                  action: perform-action
+                  perform_action: button.press
+                  target:
+                    entity_id: button.fio_pd_refill_chl
+                card_mod: *id002
+            grid_options:
+              columns: 12
+              rows: auto
+          - type: history-graph
+            title: ORP · 24 h
+            hours_to_show: 24
+            entities:
+              - entity: sensor.fio_io_orp
+                name: Mesure
+              - entity: number.fio_pl_dis_setpoint
+                name: Consigne
+            card_mod: *id002
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Informations complémentaires
+            heading_style: title
+          - type: entities
+            show_header_toggle: false
+            state_color: true
+            entities:
+              - entity: number.fio_pd2_max_upt
+                name: Sécurité temps max / jour
+                icon: mdi:timer-outline
+                type: simple-entity
+                tap_action: *id001
+            card_mod: *id004
+            grid_options:
+              columns: 12
+              rows: auto
+  - title: Oxygène
+    path: oxygene
+    icon: mdi:water-outline
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Protocole
+            heading_style: title
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_pl_o2_state
+                primary: État
+                secondary: |-
+                  {% if has_value('sensor.fio_pl_o2_state') %}{{ states('sensor.fio_pl_o2_state') }} {{ state_attr('sensor.fio_pl_o2_state', 'unit_of_measurement') or '' }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:clock-outline
+                icon_color: cyan
+                tap_action: *id001
+                card_mod: *id005
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_pl_o2_block
+                primary: Raison de blocage
+                secondary: |-
+                  {% if has_value('sensor.fio_pl_o2_block') %}{{ states('sensor.fio_pl_o2_block') }} {{ state_attr('sensor.fio_pl_o2_block', 'unit_of_measurement') or '' }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:bell-outline
+                icon_color: cyan
+                tap_action: *id001
+                card_mod: *id005
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_pl_o2_done
+                primary: Injecté cette semaine
+                secondary: |-
+                  {% if has_value('sensor.fio_pl_o2_done') %}{{ states('sensor.fio_pl_o2_done') }} mL{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:test-tube
+                icon_color: cyan
+                tap_action: *id001
+                card_mod: *id005
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_pl_o2_pending
+                primary: Reste à doser
+                secondary: |-
+                  {% if has_value('sensor.fio_pl_o2_pending') %}{{ states('sensor.fio_pl_o2_pending') }} mL{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:test-tube
+                icon_color: cyan
+                tap_action: *id001
+                card_mod: *id005
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_pl_o2_plan
+                primary: Dose prévue
+                secondary: |-
+                  {% if has_value('sensor.fio_pl_o2_plan') %}{{ states('sensor.fio_pl_o2_plan') }} {{ state_attr('sensor.fio_pl_o2_plan', 'unit_of_measurement') or '' }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:water-outline
+                icon_color: cyan
+                tap_action: *id001
+                card_mod: *id005
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_pl_o2_flow
+                primary: Débit pompe
+                secondary: |-
+                  {% if has_value('sensor.fio_pl_o2_flow') %}{{ states('sensor.fio_pl_o2_flow') }} {{ state_attr('sensor.fio_pl_o2_flow', 'unit_of_measurement') or '' }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:pump
+                icon_color: cyan
+                tap_action: *id001
+                card_mod: *id005
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Réglages
+            heading_style: title
+          - type: entities
+            show_header_toggle: false
+            state_color: true
+            entities:
+              - entity: select.fio_pl_o2_hour
+                name: Heure de dosage principale
+                icon: mdi:clock-outline
+                type: simple-entity
+                tap_action: *id001
+              - entity: switch.fio_pl_o2_temp_comp
+                name: Compensation en température
+                icon: mdi:thermometer
+              - entity: number.fio_pl_o2_vol
+                name: Volume du bassin
+                icon: mdi:pool
+                type: simple-entity
+                tap_action: *id001
+              - entity: number.fio_pl_o2_dose
+                name: Dose hebdo / 10 m³
+                icon: mdi:water-outline
+                type: simple-entity
+                tap_action: *id001
+              - entity: number.fio_pl_o2_split
+                name: Nombre de fractionnements
+                icon: mdi:pump
+                type: simple-entity
+                tap_action: *id001
+              - entity: number.fio_pl_o2_load
+                name: Facteur de charge
+                icon: mdi:pump
+                type: simple-entity
+                tap_action: *id001
+              - entity: number.fio_pl_o2_min_flt
+                name: Filtration minimale requise
+                icon: mdi:timer-outline
+                type: simple-entity
+                tap_action: *id001
+            card_mod: *id004
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Informations complémentaires
+            heading_style: title
+          - type: entities
+            show_header_toggle: false
+            state_color: true
+            entities:
+              - entity: sensor.fio_pl_o2_last_day
+                name: Dernier jour de dose
+                icon: mdi:clock-outline
+            card_mod: *id004
+            grid_options:
+              columns: 12
+              rows: auto
+  - title: Équipements
+    path: equipements
+    icon: mdi:cog-outline
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Actionneurs
+            heading_style: title
+          - type: entities
+            show_header_toggle: false
+            state_color: true
+            entities:
+              - entity: switch.fio_io_flt_pmp
+                name: Filtration
+                icon: mdi:pool
+              - entity: switch.fio_io_ph_pmp
+                name: Pompe pH
+                icon: mdi:flask-outline
+              - entity: switch.fio_io_chl_pmp
+                name: Pompe chlore
+                icon: mdi:test-tube
+              - entity: switch.fio_io_robot
+                name: Robot
+                icon: mdi:robot-vacuum
+              - entity: switch.fio_io_fill_pmp
+                name: Remplissage
+                icon: mdi:water-outline
+              - entity: switch.fio_io_chl_gen
+                name: Électrolyse
+                icon: mdi:lightning-bolt-outline
+              - entity: switch.fio_io_lights
+                name: Éclairage
+                icon: mdi:lightbulb-outline
+              - entity: switch.fio_io_wat_htr
+                name: Chauffage
+                icon: mdi:radiator
+            card_mod: *id004
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Compteurs de fonctionnement
+            heading_style: title
+          - type: entities
+            show_header_toggle: false
+            state_color: true
+            entities:
+              - entity: sensor.fio_pd_flt_upt_mn
+                name: Filtration
+                icon: mdi:timer-outline
+              - entity: sensor.fio_pd_ph_pmp_upt
+                name: Pompe pH
+                icon: mdi:test-tube
+              - entity: sensor.fio_pd_chl_pmp_upt
+                name: Pompe chlore
+                icon: mdi:test-tube
+              - entity: sensor.fio_pd_fill_upt_mn
+                name: Remplissage
+                icon: mdi:water-outline
+              - entity: sensor.fio_pd_chl_gen_upt
+                name: Électrolyse
+                icon: mdi:timer-outline
+            card_mod: *id004
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Chauffage
+            heading_style: title
+          - type: entities
+            show_header_toggle: false
+            state_color: true
+            entities:
+              - entity: switch.fio_pl_heat_auto
+                name: Régulation automatique
+                icon: mdi:radiator
+              - entity: number.fio_pl_heat_setpoint
+                name: Consigne de température
+                icon: mdi:thermometer
+                type: simple-entity
+                tap_action: *id001
+            card_mod: *id004
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Remplissage
+            heading_style: title
+          - type: entities
+            show_header_toggle: false
+            state_color: true
+            entities:
+              - entity: number.fio_pl_refill_min_on
+                name: Durée minimale de marche
+                icon: mdi:timer-outline
+                type: simple-entity
+                tap_action: *id001
+              - entity: number.fio_pd4_max_upt
+                name: Temps max / jour
+                icon: mdi:timer-outline
+                type: simple-entity
+                tap_action: *id001
+            card_mod: *id004
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Électrolyse
+            heading_style: title
+          - type: entities
+            show_header_toggle: false
+            state_color: true
+            entities:
+              - entity: number.fio_pd5_max_upt
+                name: Temps max / jour
+                icon: mdi:timer-outline
+                type: simple-entity
+                tap_action: *id001
+            card_mod: *id004
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Réinitialisation
+            heading_style: title
+          - type: entities
+            show_header_toggle: false
+            state_color: true
+            entities:
+              - entity: button.fio_pd_reset_upt_flt
+                name: Filtration
+                icon: mdi:pool
+              - entity: button.fio_pd_reset_upt_ph
+                name: Pompe pH
+                icon: mdi:flask-outline
+              - entity: button.fio_pd_reset_upt_chl
+                name: Pompe chlore
+                icon: mdi:test-tube
+              - entity: button.fio_pd_reset_upt_fill
+                name: Remplissage
+                icon: mdi:water-outline
+              - entity: button.fio_pd_reset_upt_chl_gen
+                name: Électrolyse
+                icon: mdi:lightning-bolt-outline
+              - entity: button.fio_pd_reset_upt_all
+                name: Tout réinitialiser
+                icon: mdi:autorenew
+            card_mod: *id004
+            grid_options:
+              columns: 12
+              rows: auto
+  - title: Alarmes
+    path: alarmes
+    icon: mdi:bell-outline
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: État global
+            heading_style: title
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: custom:mushroom-legacy-template-card
+                entity: binary_sensor.fio_alm_any_active
+                primary: Alarmes actives
+                secondary: |-
+                  {% if has_value('binary_sensor.fio_alm_any_active') %}{% if is_state('binary_sensor.fio_alm_any_active', 'off') %}Aucune alarme{% else %}{{ states('sensor.fio_alm_active_count') }} alarme(s){% endif %}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:shield-check-outline
+                icon_color: grey
+                tap_action: *id001
+                card_mod: *id005
+              - type: button
+                entity: button.fio_alm_reset_all
+                name: Acquitter / réarmer tout
+                icon: mdi:autorenew
+                show_state: false
+                tap_action:
+                  action: perform-action
+                  perform_action: button.press
+                  target:
+                    entity_id: button.fio_alm_reset_all
+                card_mod: *id002
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Sécurité pression
+            heading_style: title
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_io_psi
+                primary: Pression mesurée
+                secondary: |-
+                  {% if has_value('sensor.fio_io_psi') and is_number(states('sensor.fio_io_psi')) %}{{ states('sensor.fio_io_psi') | float | round(1) }} bar{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:gauge
+                icon_color: |-
+                  {% set p = states('sensor.fio_io_psi') %}{% set lo = states('number.fio_pl_safe_psi_low') %}{% set hi = states('number.fio_pl_safe_psi_high') %}{% if not (is_number(p) and is_number(lo) and is_number(hi)) %}grey{% elif lo | float > hi | float %}grey{% elif p | float < lo | float %}orange{% elif p | float > hi | float %}red{% else %}green{% endif %}
+                tap_action: *id001
+                card_mod: *id005
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Détail des alarmes
+            heading_style: title
+          - type: entities
+            show_header_toggle: false
+            entities:
+              - entity: binary_sensor.fio_alm_1000_active
+                name: Pression basse
+                icon: mdi:gauge
+                card_mod:
+                  style: |-
+                    :host { --card-mod-icon-color: {% if not has_value(config.entity) %}#8A8F99{% elif is_state(config.entity,'off') %}#30C85A{% elif state_attr(config.entity,'resettable') == true %}#FF9500{% else %}#FF453A{% endif %}; }
+              - type: conditional
+                conditions:
+                  - entity: binary_sensor.fio_alm_1000_active
+                    state: 'on'
+                  - entity: button.fio_alm_1000_reset
+                    state_not: unavailable
+                row:
+                  entity: button.fio_alm_1000_reset
+                  name: Acquitter · Pression basse
+                  icon: mdi:restart
+              - entity: binary_sensor.fio_alm_1001_active
+                name: Pression haute
+                icon: mdi:gauge
+                card_mod:
+                  style: |-
+                    :host { --card-mod-icon-color: {% if not has_value(config.entity) %}#8A8F99{% elif is_state(config.entity,'off') %}#30C85A{% elif state_attr(config.entity,'resettable') == true %}#FF9500{% else %}#FF453A{% endif %}; }
+              - type: conditional
+                conditions:
+                  - entity: binary_sensor.fio_alm_1001_active
+                    state: 'on'
+                  - entity: button.fio_alm_1001_reset
+                    state_not: unavailable
+                row:
+                  entity: button.fio_alm_1001_reset
+                  name: Acquitter · Pression haute
+                  icon: mdi:restart
+              - entity: binary_sensor.fio_alm_1002_active
+                name: Cuve pH basse
+                icon: mdi:flask-outline
+                card_mod:
+                  style: |-
+                    :host { --card-mod-icon-color: {% if not has_value(config.entity) %}#8A8F99{% elif is_state(config.entity,'off') %}#30C85A{% elif state_attr(config.entity,'resettable') == true %}#FF9500{% else %}#FF453A{% endif %}; }
+              - entity: binary_sensor.fio_alm_1003_active
+                name: Cuve chlore basse
+                icon: mdi:test-tube
+                card_mod:
+                  style: |-
+                    :host { --card-mod-icon-color: {% if not has_value(config.entity) %}#8A8F99{% elif is_state(config.entity,'off') %}#30C85A{% elif state_attr(config.entity,'resettable') == true %}#FF9500{% else %}#FF453A{% endif %}; }
+              - entity: binary_sensor.fio_alm_1004_active
+                name: Temps max pompe pH
+                icon: mdi:timer-outline
+                card_mod:
+                  style: |-
+                    :host { --card-mod-icon-color: {% if not has_value(config.entity) %}#8A8F99{% elif is_state(config.entity,'off') %}#30C85A{% elif state_attr(config.entity,'resettable') == true %}#FF9500{% else %}#FF453A{% endif %}; }
+              - type: conditional
+                conditions:
+                  - entity: binary_sensor.fio_alm_1004_active
+                    state: 'on'
+                  - entity: button.fio_alm_1004_reset
+                    state_not: unavailable
+                row:
+                  entity: button.fio_alm_1004_reset
+                  name: Acquitter · Temps max pompe pH
+                  icon: mdi:restart
+              - entity: binary_sensor.fio_alm_1005_active
+                name: Temps max pompe chlore
+                icon: mdi:timer-outline
+                card_mod:
+                  style: |-
+                    :host { --card-mod-icon-color: {% if not has_value(config.entity) %}#8A8F99{% elif is_state(config.entity,'off') %}#30C85A{% elif state_attr(config.entity,'resettable') == true %}#FF9500{% else %}#FF453A{% endif %}; }
+              - type: conditional
+                conditions:
+                  - entity: binary_sensor.fio_alm_1005_active
+                    state: 'on'
+                  - entity: button.fio_alm_1005_reset
+                    state_not: unavailable
+                row:
+                  entity: button.fio_alm_1005_reset
+                  name: Acquitter · Temps max pompe chlore
+                  icon: mdi:restart
+              - entity: binary_sensor.fio_alm_1006_active
+                name: Niveau d’eau bas
+                icon: mdi:water-outline
+                card_mod:
+                  style: |-
+                    :host { --card-mod-icon-color: {% if not has_value(config.entity) %}#8A8F99{% elif is_state(config.entity,'off') %}#30C85A{% elif state_attr(config.entity,'resettable') == true %}#FF9500{% else %}#FF453A{% endif %}; }
+            card_mod: *id004
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Seuils d’alerte
+            heading_style: title
+          - type: entities
+            show_header_toggle: false
+            state_color: true
+            entities:
+              - entity: number.fio_pl_safe_psi_low
+                name: Seuil bas
+                icon: mdi:gauge
+                type: simple-entity
+                tap_action: *id001
+              - entity: number.fio_pl_safe_psi_high
+                name: Seuil haut
+                icon: mdi:gauge
+                type: simple-entity
+                tap_action: *id001
+            card_mod: *id004
+            grid_options:
+              columns: 12
+              rows: auto
+  - title: Système
+    path: systeme
+    icon: mdi:chip
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Connectivité
+            heading_style: title
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_wifi_ip
+                primary: Adresse IP
+                secondary: |-
+                  {% if has_value('sensor.fio_wifi_ip') %}{{ states('sensor.fio_wifi_ip') }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:wifi
+                icon_color: blue
+                tap_action: *id001
+                card_mod: *id005
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_wifi_rssi
+                primary: Signal Wi-Fi
+                secondary: |-
+                  {% if has_value('sensor.fio_wifi_rssi') %}{{ states('sensor.fio_wifi_rssi') }} {{ state_attr('sensor.fio_wifi_rssi', 'unit_of_measurement') or '' }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:wifi
+                icon_color: green
+                tap_action: *id001
+                card_mod: *id005
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_wifi_mac
+                primary: Adresse MAC
+                secondary: |-
+                  {% if has_value('sensor.fio_wifi_mac') %}{{ states('sensor.fio_wifi_mac') }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:chip
+                icon_color: grey
+                tap_action: *id001
+                card_mod: *id005
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_supervisor_ip
+                primary: IP superviseur
+                secondary: |-
+                  {% if has_value('sensor.fio_supervisor_ip') %}{{ states('sensor.fio_supervisor_ip') }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:chip
+                icon_color: grey
+                tap_action: *id001
+                card_mod: *id005
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Ressources
+            heading_style: title
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_sys_upt_mn
+                primary: Fonctionnement
+                secondary: |-
+                  {% if has_value('sensor.fio_sys_upt_mn') %}{{ states('sensor.fio_sys_upt_mn') }} {{ state_attr('sensor.fio_sys_upt_mn', 'unit_of_measurement') or '' }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:timer-outline
+                icon_color: blue
+                tap_action: *id001
+                card_mod: *id005
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_sys_hp_free
+                primary: Mémoire libre
+                secondary: |-
+                  {% if has_value('sensor.fio_sys_hp_free') %}{{ states('sensor.fio_sys_hp_free') }} {{ state_attr('sensor.fio_sys_hp_free', 'unit_of_measurement') or '' }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:chip
+                icon_color: grey
+                tap_action: *id001
+                card_mod: *id005
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Entrées
+            heading_style: title
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: custom:mushroom-entity-card
+                entity: binary_sensor.fio_io_pool_lvl
+                name: Niveau bassin
+                icon: mdi:water-outline
+                tap_action: *id001
+                card_mod: *id002
+              - type: custom:mushroom-entity-card
+                entity: binary_sensor.fio_io_ph_lvl
+                name: Niveau cuve pH
+                icon: mdi:flask-outline
+                tap_action: *id001
+                card_mod: *id002
+              - type: custom:mushroom-entity-card
+                entity: binary_sensor.fio_io_chl_lvl
+                name: Niveau cuve chlore
+                icon: mdi:test-tube
+                tap_action: *id001
+                card_mod: *id002
+              - type: custom:mushroom-entity-card
+                entity: binary_sensor.fio_io_pir
+                name: Détection mouvement
+                icon: mdi:robot-vacuum
+                tap_action: *id001
+                card_mod: *id002
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_io_wat_meter
+                primary: Compteur d’eau
+                secondary: |-
+                  {% if has_value('sensor.fio_io_wat_meter') %}{{ states('sensor.fio_io_wat_meter') }} {{ state_attr('sensor.fio_io_wat_meter', 'unit_of_measurement') or '' }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:water-outline
+                icon_color: grey
+                tap_action: *id001
+                card_mod: *id005
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_io_spare
+                primary: Entrée analogique libre
+                secondary: |-
+                  {% if has_value('sensor.fio_io_spare') %}{{ states('sensor.fio_io_spare') }} {{ state_attr('sensor.fio_io_spare', 'unit_of_measurement') or '' }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:chip
+                icon_color: grey
+                tap_action: *id001
+                card_mod: *id005
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Mesures secondaires
+            heading_style: title
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_io_current
+                primary: Courant
+                secondary: |-
+                  {% if has_value('sensor.fio_io_current') %}{{ states('sensor.fio_io_current') }} {{ state_attr('sensor.fio_io_current', 'unit_of_measurement') or '' }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:lightning-bolt-outline
+                icon_color: grey
+                tap_action: *id001
+                card_mod: *id005
+              - type: custom:mushroom-legacy-template-card
+                entity: sensor.fio_io_voltage
+                primary: Tension
+                secondary: |-
+                  {% if has_value('sensor.fio_io_voltage') %}{{ states('sensor.fio_io_voltage') }} {{ state_attr('sensor.fio_io_voltage', 'unit_of_measurement') or '' }}{% else %}Indisponible{% endif %}
+                multiline_secondary: true
+                icon: mdi:lightning-bolt-outline
+                icon_color: grey
+                tap_action: *id001
+                card_mod: *id005
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Diagnostic
+            heading_style: title
+          - type: entities
+            show_header_toggle: false
+            state_color: true
+            entities:
+              - entity: sensor.fio_alm_pack
+                name: Trame d’alarmes
+                icon: mdi:chip
+              - entity: binary_sensor.fio_io_gpio04
+                name: GPIO04
+                icon: mdi:chip
+              - entity: binary_sensor.fio_io_gpio05
+                name: GPIO05
+                icon: mdi:chip
+              - entity: binary_sensor.fio_io_gpio06
+                name: GPIO06
+                icon: mdi:chip
+              - entity: binary_sensor.fio_io_gpio07
+                name: GPIO07
+                icon: mdi:chip
+              - entity: binary_sensor.fio_io_gpio08
+                name: GPIO08
+                icon: mdi:chip
+              - entity: binary_sensor.fio_io_gpio09
+                name: GPIO09
+                icon: mdi:chip
+              - entity: binary_sensor.fio_io_gpio10
+                name: GPIO10
+                icon: mdi:chip
+              - entity: binary_sensor.fio_io_gpio11
+                name: GPIO11
+                icon: mdi:chip
+            card_mod: *id004
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Informations complémentaires
+            heading_style: title
+          - type: entities
+            show_header_toggle: false
+            state_color: true
+            entities:
+              - entity: sensor.fio_sys_hp_min_free
+                name: Mémoire libre mini
+                icon: mdi:chip
+              - entity: sensor.fio_sys_hp_frag
+                name: Fragmentation
+                icon: mdi:chip
+            card_mod: *id004
+            grid_options:
+              columns: 12
+              rows: auto
