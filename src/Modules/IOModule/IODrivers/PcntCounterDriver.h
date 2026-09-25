@@ -32,13 +32,13 @@ public:
 
     bool write(bool) override { return false; }
     bool read(bool& on) const override;
-    bool readCount(int32_t& count) const override;
+    bool readCount(uint64_t& count) const override;
     bool readDebugStats(IODigitalCounterDebugStats& out) const override;
 
 private:
     struct RuntimeState {
-        int32_t pulseCount = 0;
-        int32_t rawPulseCount = 0;
+        uint64_t pulseCount = 0;
+        uint64_t rawPulseCount = 0;
         int16_t lastHardwareCount = 0;
         uint32_t sampleCount = 0;
         uint32_t ignoredDebounceCount = 0;

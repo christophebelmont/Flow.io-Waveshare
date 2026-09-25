@@ -12,6 +12,8 @@
 #include "Core/Services/IPoolHistory.h"
 #include "Core/Services/ITime.h"
 #include "Modules/PoolHistoryModule/PoolHistoryAccumulator.h"
+#include "Modules/PoolHistoryModule/ValueHistory.h"
+#include "Core/Services/IDataStore.h"
 
 #include <freertos/semphr.h>
 
@@ -24,20 +26,22 @@ public:
 
     ModuleId moduleId() const override { return ModuleId::PoolHistory; }
     const char* taskName() const override { return "poolhistory"; }
-    uint8_t dependencyCount() const override { return 5U; }
+    uint8_t dependencyCount() const override { return 6U; }
     ModuleId dependency(uint8_t index) const override {
         if (index == 0U) return ModuleId::LogHub;
         if (index == 1U) return ModuleId::ConfigStore;
         if (index == 2U) return ModuleId::Time;
         if (index == 3U) return ModuleId::PoolDevice;
         if (index == 4U) return ModuleId::PoolLogic;
+        if (index == 5U) return ModuleId::DataStore;
         return ModuleId::Unknown;
     }
     uint8_t taskCount() const override { return 1U; }
     const ModuleTaskSpec* taskSpecs() const override { return singleLoopTaskSpec(); }
     uint16_t taskStackSize() const override { return 4096U; }
     UBaseType_t taskStackCaps() const override {
-        return MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+        return (heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0
+                    ? MALLOC_CAP_SPIRAM : MALLOC_CAP_INTERNAL) | MALLOC_CAP_8BIT;
     }
     UBaseType_t taskPriority() const override { return 1U; }
     BaseType_t taskCore() const override { return 1; }
@@ -94,7 +98,12 @@ private:
     mutable StaticSemaphore_t stateMutexBuffer_{};
     mutable SemaphoreHandle_t stateMutex_ = nullptr;
     Storage* storage_ = nullptr;
-    PoolHistoryService service_{&PoolHistoryModule::serviceGetSnapshot_, this};
+    ValueHistory valueHistory_{};
+    void* valueHistoryMemory_ = nullptr;
+    DataStore* dataStore_ = nullptr;
+    static bool serviceReadValue_(void*, uint16_t, bool, uint8_t, ValueHistoryRecord*);
+    static void observeValue_(void*, ValueId, const ValueMetadata&, const ValueSnapshot&, const ValueSnapshot*);
+    PoolHistoryService service_{&PoolHistoryModule::serviceGetSnapshot_, this, &PoolHistoryModule::serviceReadValue_};
 
     const ConfigStoreService* configService_ = nullptr;
     const DomainStatusService* domainStatusService_ = nullptr;

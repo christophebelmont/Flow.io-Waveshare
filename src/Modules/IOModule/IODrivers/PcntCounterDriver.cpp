@@ -340,7 +340,7 @@ bool PcntCounterDriver::syncCounter_(uint32_t nowMs) const
     return true;
 }
 
-bool PcntCounterDriver::readCount(int32_t& count) const
+bool PcntCounterDriver::readCount(uint64_t& count) const
 {
     (void)syncCounter_(millis());
     portENTER_CRITICAL(&gPcntCounterMux);

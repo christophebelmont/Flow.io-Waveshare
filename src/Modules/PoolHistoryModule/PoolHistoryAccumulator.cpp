@@ -203,8 +203,16 @@ void PoolHistoryAccumulator::addMetricValue_(PoolHistoryMetricState& state,
         if (value < state.minimum) state.minimum = value;
         if (value > state.maximum) state.maximum = value;
     }
+    if (state.lastSampleUtc && observedAtUtc > state.lastSampleUtc) {
+        const uint64_t elapsed = observedAtUtc - state.lastSampleUtc;
+        // Do not bridge gaps or reboot restoration with an assumed observation.
+        if (elapsed <= 15U * 60U) {
+            state.sum += double(state.last) * elapsed;
+            state.weightedSeconds += uint32_t(elapsed);
+        }
+    }
     state.last = value;
-    state.sum += (double)value;
+    state.lastSampleUtc = observedAtUtc;
     ++state.sampleCount;
     noteObservation_(day, observedAtUtc);
 }
@@ -282,7 +290,7 @@ void PoolHistoryAccumulator::fillMetricSummary_(const PoolHistoryMetricState& st
     out.last = state.last;
     out.minimum = state.minimum;
     out.maximum = state.maximum;
-    out.average = (float)(state.sum / (double)state.sampleCount);
+    out.average = state.weightedSeconds ? float(state.sum / state.weightedSeconds) : state.last;
 }
 
 void PoolHistoryAccumulator::fillActivitySummary_(

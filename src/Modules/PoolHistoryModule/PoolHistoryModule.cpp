@@ -17,6 +17,7 @@
 
 #include <Arduino.h>
 #include <esp_heap_caps.h>
+#include <esp_timer.h>
 #include <math.h>
 #include <new>
 #include <time.h>
@@ -63,10 +64,31 @@ constexpr const char* kCompletedDayKeys[POOL_HISTORY_COMPLETE_DAY_COUNT] = {
 
 PoolHistoryModule::~PoolHistoryModule()
 {
+    if (dataStore_) dataStore_->values.setObserver(nullptr, nullptr);
+    if (valueHistoryMemory_) heap_caps_free(valueHistoryMemory_);
     if (!storage_) return;
     storage_->~Storage();
     heap_caps_free(storage_);
     storage_ = nullptr;
+}
+
+bool PoolHistoryModule::serviceReadValue_(void* ctx, uint16_t id, bool daily, uint8_t age, ValueHistoryRecord* out)
+{
+    auto* self = static_cast<PoolHistoryModule*>(ctx);
+    if (!out || !self->lockState_()) return false;
+    const bool ok = self->valueHistory_.read(id, daily, age, *out);
+    self->unlockState_();
+    return ok;
+}
+
+void PoolHistoryModule::observeValue_(void* ctx, ValueId id, const ValueMetadata& metadata,
+                                     const ValueSnapshot& sample, const ValueSnapshot* source)
+{
+    auto* self = static_cast<PoolHistoryModule*>(ctx);
+    // Never acquire the ValueRegistry mutex while holding stateMutex_.
+    if (!self->lockState_(portMAX_DELAY)) return;
+    self->valueHistory_.observe(id, metadata, sample, source);
+    self->unlockState_();
 }
 
 bool PoolHistoryModule::serviceGetSnapshot_(void* ctx,
@@ -128,9 +150,25 @@ void PoolHistoryModule::init(ConfigStore& cfg, ServiceRegistry& services)
     stateMutex_ = xSemaphoreCreateMutexStatic(&stateMutexBuffer_);
     void* storageMemory = heap_caps_malloc(sizeof(Storage),
                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!storageMemory) storageMemory = heap_caps_malloc(sizeof(Storage), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (storageMemory) {
         storage_ = new (storageMemory) Storage{};
     }
+    uint8_t hours = ValueHistory::PsramHours, days = ValueHistory::PsramDays;
+    valueHistoryMemory_ = heap_caps_malloc(ValueHistory::bytes(hours, days), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    const bool valueHistoryPsram = valueHistoryMemory_ != nullptr;
+    if (!valueHistoryMemory_) {
+        hours = ValueHistory::InternalHours; days = ValueHistory::InternalDays;
+        valueHistoryMemory_ = heap_caps_malloc(ValueHistory::bytes(hours, days), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
+    if (valueHistoryMemory_) valueHistory_.initialize(valueHistoryMemory_, hours, days);
+    auto* dataService = services.get<DataStoreService>(ServiceId::DataStore);
+    dataStore_ = dataService ? dataService->store : nullptr;
+    if (dataStore_ && stateMutex_ && valueHistoryMemory_)
+        dataStore_->values.setObserver(&PoolHistoryModule::observeValue_, this);
+    LOGI("Value history bytes=%u psram=%u hours=%u days=%u ready=%u",
+         unsigned(ValueHistory::bytes(hours, days)), unsigned(valueHistoryPsram),
+         unsigned(hours), unsigned(days), unsigned(valueHistoryMemory_ != nullptr));
     configService_ = services.get<ConfigStoreService>(ServiceId::ConfigStore);
     timeService_ = services.get<TimeService>(ServiceId::Time);
     domainStatusService_ = services.get<DomainStatusService>(ServiceId::DomainStatus);
@@ -196,6 +234,9 @@ void PoolHistoryModule::loadPersisted_(ConfigStore& cfg)
             !PoolHistoryPersistence::decode(encoded, actualLength, decoded)) {
             continue;
         }
+        for (auto& metric : decoded.metrics) metric.lastSampleUtc = 0;
+        decoded.daytimeWaterTemperature.lastSampleUtc = 0;
+        decoded.nighttimeWaterTemperature.lastSampleUtc = 0;
         bool duplicate = false;
         for (uint8_t record = 0U; record < storage_->loadedRecordCount; ++record) {
             if (storage_->loadedRecords[record].localDate == decoded.localDate) {
@@ -440,11 +481,13 @@ bool PoolHistoryModule::readFloatSlot_(DomainSlotId slot,
         status.value.type != IO_VAL_FLOAT || !isfinite(status.value.v.f)) {
         return false;
     }
-    if (status.value.tsMs == 0U ||
-        (uint32_t)(nowMs - status.value.tsMs) > maximumAgeMs) {
-        return false;
-    }
-    outValue = status.value.v.f;
+    if (!dataStore_ || status.ioId < IO_ID_AI_BASE || status.ioId >= IO_ID_AI_BASE + 32) return false;
+    ValueSnapshot value{};
+    ValueMetadata metadata{};
+    if (!dataStore_->values.read(ValueIds::Analog + status.ioId - IO_ID_AI_BASE, value, &metadata) ||
+        value.quality != ValueQuality::Valid ||
+        uint32_t(nowMs - uint32_t(value.timestampMs)) > maximumAgeMs) return false;
+    outValue = static_cast<float>(valueAsDouble(metadata.type, value.value));
     return true;
 }
 
@@ -596,6 +639,13 @@ void PoolHistoryModule::loop()
     if (!currentEpoch_(nowEpoch) || !localDayContext_(nowEpoch, day)) {
         vTaskDelay(pdMS_TO_TICKS(kLoopPeriodMs));
         return;
+    }
+
+    if (lockState_()) {
+        const uint64_t monotonicMs = esp_timer_get_time() / 1000ULL;
+        valueHistory_.clock(monotonicMs, nowEpoch * 1000ULL);
+        valueHistory_.tick(monotonicMs);
+        unlockState_();
     }
 
     if (!storage_->initialized) {

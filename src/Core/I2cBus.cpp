@@ -38,6 +38,26 @@ void I2CBus::begin(int sda, int scl, uint32_t frequencyHz)
     lastBeginOk_ = Wire.begin(sda, scl, frequencyHz);
     LOGI("i2c.begin result ok=%s", lastBeginOk_ ? "true" : "false");
     if (!mutex_) mutex_ = xSemaphoreCreateMutex();
+    if (lastBeginOk_) scanAndLog_();
+}
+
+void I2CBus::scanAndLog_()
+{
+    LOGI("i2c.scan start sda=%d scl=%d freq=%lu range=0x%02X..0x%02X",
+         lastBeginSda_,
+         lastBeginScl_,
+         (unsigned long)lastBeginFrequencyHz_,
+         kScanFirstAddress,
+         kScanLastAddress);
+
+    uint8_t found = 0;
+    for (uint8_t addr = kScanFirstAddress; addr <= kScanLastAddress; ++addr) {
+        if (!probe(addr)) continue;
+        ++found;
+        LOGI("i2c.scan addr=0x%02X", addr);
+    }
+
+    LOGI("i2c.scan done found=%u", found);
 }
 
 bool I2CBus::lock(uint32_t timeoutMs)

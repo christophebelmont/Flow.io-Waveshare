@@ -45,7 +45,7 @@ struct IOConfigDescriptorStorage {
         char c0Key[NVS_KEY_CAPACITY]{};
         char precisionKey[NVS_KEY_CAPACITY]{};
         char modeKey[NVS_KEY_CAPACITY]{};
-        char counterTotalKey[NVS_KEY_CAPACITY]{};
+        char counterResetKey[NVS_KEY_CAPACITY]{};
         char nameJson[9]{};
         char activeHighJson[17]{};
         char pullModeJson[15]{};
@@ -61,7 +61,7 @@ struct IOConfigDescriptorStorage {
         ConfigVariable<float, 0> c0Var{};
         ConfigVariable<int32_t, 0> precisionVar{};
         ConfigVariable<uint8_t, 0> modeVar{};
-        ConfigVariable<float, 0> counterTotalVar{};
+        ConfigVariable<uint16_t, 0> counterResetVar{};
     };
 
     struct DigitalOutputSlot {
@@ -133,7 +133,7 @@ struct IOConfigDescriptorStorage {
             snprintf(vars.c0Key, sizeof(vars.c0Key), "io_i%02uc0", (unsigned)slot);
             snprintf(vars.precisionKey, sizeof(vars.precisionKey), "io_i%02up", (unsigned)slot);
             snprintf(vars.modeKey, sizeof(vars.modeKey), "io_i%02umd", (unsigned)slot);
-            snprintf(vars.counterTotalKey, sizeof(vars.counterTotalKey), "io_i%02uct", (unsigned)slot);
+            snprintf(vars.counterResetKey, sizeof(vars.counterResetKey), "io_i%02ucr", (unsigned)slot);
             snprintf(vars.nameJson, sizeof(vars.nameJson), "i%02u_name", (unsigned)slot);
             snprintf(vars.activeHighJson, sizeof(vars.activeHighJson), "i%02u_active_high", (unsigned)slot);
             snprintf(vars.pullModeJson, sizeof(vars.pullModeJson), "i%02u_pull_mode", (unsigned)slot);
@@ -164,8 +164,8 @@ struct IOConfigDescriptorStorage {
                                  ConfigPersistence::Persistent, 0};
             vars.modeVar = {vars.modeKey, "mode", vars.moduleName, ConfigType::UInt8,
                             &digitalInputCfg[slot].mode, ConfigPersistence::Persistent, 0};
-            vars.counterTotalVar = {vars.counterTotalKey, "counter_total", vars.moduleName,
-                                    ConfigType::Float, &digitalInputCfg[slot].counterTotal,
+            vars.counterResetVar = {vars.counterResetKey, "counter_reset", vars.moduleName,
+                                    ConfigType::UInt16, &digitalInputCfg[slot].counterReset,
                                     ConfigPersistence::Persistent, 0};
         }
 

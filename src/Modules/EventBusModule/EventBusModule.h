@@ -29,7 +29,7 @@ public:
     }
     /** @brief Initialize and register EventBus service. */
     void init(ConfigStore& cfg, ServiceRegistry& services) override;
-    /** @brief Emit the startup event once every module finished config loading. */
+    /** @brief Wire startup notifications once every module finished config loading. */
     void onStart(ConfigStore& cfg, ServiceRegistry& services) override;
     /** @brief Dispatch events from the queue. */
     void loop() override;
@@ -40,6 +40,8 @@ public:
     UBaseType_t taskPriority() const override { return 1; }
 
 private:
+    DataStore* dataStore_ = nullptr;
+    bool systemStartedPending_ = true;
     EventBus _bus;
     EventBusService _svc { &_bus };
 

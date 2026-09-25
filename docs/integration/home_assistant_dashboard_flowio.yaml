@@ -55,21 +55,21 @@ views:
             chips:
               - type: template
                 entity: sensor.fio_wifi_ip
-                tap_action: &id001
+                tap_action: &more_info
                   action: more-info
                 icon: mdi:circle-small
                 icon_color: '{{ ''green'' if has_value(''sensor.fio_wifi_ip'') else ''red'' }}'
                 content: '{{ ''En ligne'' if has_value(''sensor.fio_wifi_ip'') else ''Indisponible'' }}'
               - type: template
                 entity: sensor.fio_wifi_rssi
-                tap_action: *id001
+                tap_action: *more_info
                 icon: mdi:wifi
                 icon_color: blue
                 content: |-
                   {% if has_value('sensor.fio_wifi_rssi') %}{{ states('sensor.fio_wifi_rssi') }} {{ state_attr('sensor.fio_wifi_rssi', 'unit_of_measurement') or '' }}{% else %}Indisponible{% endif %}
               - type: template
                 entity: sensor.fio_sys_upt_mn
-                tap_action: *id001
+                tap_action: *more_info
                 icon: mdi:clock-outline
                 icon_color: grey
                 content: |-
@@ -129,8 +129,8 @@ views:
                   - from: '{{ (states(''number.fio_pl_ph_setpoint'') | float + 0.3) if is_number(states(''number.fio_pl_ph_setpoint''))
                       else 1.8 }}'
                     color: '{{ ''#FF453A'' if is_number(states(''number.fio_pl_ph_setpoint'')) else ''#C7C7CC'' }}'
-                tap_action: *id001
-                card_mod: &id002
+                tap_action: *more_info
+                card_mod: &white_card
                   style: |
                     ha-card {
                       background: #FFFFFF;
@@ -180,8 +180,8 @@ views:
                   - from: '{{ (states(''number.fio_pl_dis_setpoint'') | float + 160) if is_number(states(''number.fio_pl_dis_setpoint''))
                       else 460 }}'
                     color: '{{ ''#FF453A'' if is_number(states(''number.fio_pl_dis_setpoint'')) else ''#C7C7CC'' }}'
-                tap_action: *id001
-                card_mod: *id002
+                tap_action: *more_info
+                card_mod: *white_card
             grid_options:
               columns: 12
               rows: auto
@@ -196,8 +196,8 @@ views:
                 layout: vertical
                 tap_action:
                   action: toggle
-                hold_action: *id001
-                card_mod: &id003
+                hold_action: *more_info
+                card_mod: &quick_control
                   style: |
                     ha-card {
                       background: #FFFFFF;
@@ -220,8 +220,8 @@ views:
                 layout: vertical
                 tap_action:
                   action: toggle
-                hold_action: *id001
-                card_mod: *id003
+                hold_action: *more_info
+                card_mod: *quick_control
               - type: custom:mushroom-entity-card
                 entity: switch.fio_io_lights
                 name: Éclair.
@@ -229,8 +229,8 @@ views:
                 layout: vertical
                 tap_action:
                   action: toggle
-                hold_action: *id001
-                card_mod: *id003
+                hold_action: *more_info
+                card_mod: *quick_control
               - type: custom:mushroom-entity-card
                 entity: switch.fio_io_wat_htr
                 name: Chauff.
@@ -238,8 +238,8 @@ views:
                 layout: vertical
                 tap_action:
                   action: toggle
-                hold_action: *id001
-                card_mod: *id003
+                hold_action: *more_info
+                card_mod: *quick_control
             grid_options:
               columns: 12
               rows: auto
@@ -253,7 +253,7 @@ views:
               - entity: switch.fio_pl_modes_winter
                 name: Hivernage
                 icon: mdi:snowflake
-            card_mod: &id004
+            card_mod: &settings_list
               style: |
                 ha-card {
                   background: #FFFFFF;
@@ -298,7 +298,7 @@ views:
                 name: Air
                 color: '#168AFF'
                 show_state: true
-            card_mod: *id002
+            card_mod: *white_card
             grid_options:
               columns: 12
               rows: auto
@@ -324,7 +324,7 @@ views:
                 color: '#168AFF'
                 show_state: true
                 y_axis: secondary
-            card_mod: *id002
+            card_mod: *white_card
             grid_options:
               columns: 12
               rows: auto
@@ -349,7 +349,7 @@ views:
               - entity: switch.fio_pl_modes_winter
                 name: Mode hivernage
                 icon: mdi:snowflake
-            card_mod: *id004
+            card_mod: *settings_list
             grid_options:
               columns: 12
               rows: auto
@@ -370,8 +370,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:clock-outline
                 icon_color: green
-                tap_action: *id001
-                card_mod: &id005
+                tap_action: *more_info
+                card_mod: &measure_tile
                   style: |
                     ha-card {
                       background: #FFFFFF;
@@ -407,8 +407,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:clock-outline
                 icon_color: green
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
             grid_options:
               columns: 12
               rows: auto
@@ -425,21 +425,21 @@ views:
                 name: Température de consigne
                 icon: mdi:thermometer
                 type: simple-entity
-                tap_action: *id001
+                tap_action: *more_info
               - entity: number.fio_pl_flt_start_min
                 name: Démarrage au plus tôt
                 icon: mdi:clock-outline
                 type: simple-entity
-                tap_action: *id001
+                tap_action: *more_info
               - entity: number.fio_pl_flt_stop_max
                 name: Arrêt au plus tard
                 icon: mdi:clock-outline
                 type: simple-entity
-                tap_action: *id001
+                tap_action: *more_info
               - entity: button.fio_pl_flt_recalc
                 name: Recalculer la fenêtre
                 icon: mdi:autorenew
-            card_mod: *id004
+            card_mod: *settings_list
             grid_options:
               columns: 12
               rows: auto
@@ -459,7 +459,7 @@ views:
                   - entity: switch.fio_io_flt_pmp
                     name: Filtration
                     icon: mdi:pool
-                card_mod: *id004
+                card_mod: *settings_list
               - type: custom:mushroom-legacy-template-card
                 entity: sensor.fio_pd_flt_upt_mn
                 primary: Fonctionnement aujourd’hui
@@ -468,8 +468,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:timer-outline
                 icon_color: blue
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
               - type: custom:mushroom-legacy-template-card
                 entity: number.fio_pd0_flow
                 primary: Débit
@@ -478,8 +478,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:water-outline
                 icon_color: grey
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
               - type: custom:mushroom-legacy-template-card
                 entity: number.fio_pd0_max_upt
                 primary: Temps max / jour
@@ -488,8 +488,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:timer-outline
                 icon_color: grey
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
             grid_options:
               columns: 12
               rows: auto
@@ -517,7 +517,7 @@ views:
               - entity: sensor.fio_io_air_tmp
                 name: Air
                 color: '#FF9500'
-            card_mod: *id002
+            card_mod: *white_card
             grid_options:
               columns: 12
               rows: auto
@@ -529,7 +529,7 @@ views:
                 name: Eau
               - entity: number.fio_pl_wat_temp_sp
                 name: Consigne
-            card_mod: *id002
+            card_mod: *white_card
             grid_options:
               columns: 12
               rows: auto
@@ -546,11 +546,11 @@ views:
                 name: Délai avant régulation
                 icon: mdi:timer-outline
                 type: simple-entity
-                tap_action: *id001
+                tap_action: *more_info
               - entity: sensor.fio_pl_has_rsn
                 name: Raison du chauffage
                 icon: mdi:chip
-            card_mod: *id004
+            card_mod: *settings_list
             grid_options:
               columns: 12
               rows: auto
@@ -600,8 +600,8 @@ views:
               - from: '{{ (states(''number.fio_pl_ph_setpoint'') | float + 0.3) if is_number(states(''number.fio_pl_ph_setpoint''))
                   else 1.8 }}'
                 color: '{{ ''#FF453A'' if is_number(states(''number.fio_pl_ph_setpoint'')) else ''#C7C7CC'' }}'
-            tap_action: *id001
-            card_mod: *id002
+            tap_action: *more_info
+            card_mod: *white_card
             grid_options:
               columns: 12
               rows: auto
@@ -613,7 +613,7 @@ views:
                 name: Consigne pH
                 icon: mdi:flask-outline
                 type: simple-entity
-                tap_action: *id001
+                tap_action: *more_info
               - entity: switch.fio_pl_ph_auto_mode
                 name: Correction automatique
                 icon: mdi:autorenew
@@ -624,13 +624,13 @@ views:
                 name: Fenêtre PID
                 icon: mdi:clock-outline
                 type: simple-entity
-                tap_action: *id001
+                tap_action: *more_info
               - entity: number.fio_pd1_max_upt
                 name: Sécurité temps max
                 icon: mdi:timer-outline
                 type: simple-entity
-                tap_action: *id001
-            card_mod: *id004
+                tap_action: *more_info
+            card_mod: *settings_list
             grid_options:
               columns: 12
               rows: auto
@@ -650,7 +650,7 @@ views:
                   - entity: switch.fio_io_ph_pmp
                     name: Pompe pH
                     icon: mdi:flask-outline
-                card_mod: *id004
+                card_mod: *settings_list
               - type: custom:mushroom-legacy-template-card
                 entity: sensor.fio_pd_ph_pmp_upt
                 primary: Injecté aujourd’hui
@@ -659,8 +659,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:test-tube
                 icon_color: blue
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
             grid_options:
               columns: 12
               rows: auto
@@ -681,8 +681,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:flask-outline
                 icon_color: blue
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
               - type: custom:mushroom-legacy-template-card
                 entity: number.fio_pd1_flow
                 primary: Débit pompe
@@ -691,8 +691,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:water-outline
                 icon_color: grey
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
               - type: button
                 entity: button.fio_pd_refill_ph
                 name: Remplir la cuve
@@ -703,7 +703,7 @@ views:
                   perform_action: button.press
                   target:
                     entity_id: button.fio_pd_refill_ph
-                card_mod: *id002
+                card_mod: *white_card
             grid_options:
               columns: 12
               rows: auto
@@ -715,7 +715,7 @@ views:
                 name: Mesure
               - entity: number.fio_pl_ph_setpoint
                 name: Consigne
-            card_mod: *id002
+            card_mod: *white_card
             grid_options:
               columns: 12
               rows: auto
@@ -765,8 +765,8 @@ views:
               - from: '{{ (states(''number.fio_pl_dis_setpoint'') | float + 160) if is_number(states(''number.fio_pl_dis_setpoint''))
                   else 460 }}'
                 color: '{{ ''#FF453A'' if is_number(states(''number.fio_pl_dis_setpoint'')) else ''#C7C7CC'' }}'
-            tap_action: *id001
-            card_mod: *id002
+            tap_action: *more_info
+            card_mod: *white_card
             grid_options:
               columns: 12
               rows: auto
@@ -778,7 +778,7 @@ views:
                 name: Type de désinfection
                 icon: mdi:flask-outline
                 type: simple-entity
-                tap_action: *id001
+                tap_action: *more_info
               - entity: switch.fio_pl_dis_auto
                 name: Régulation automatique
                 icon: mdi:autorenew
@@ -786,13 +786,13 @@ views:
                 name: Consigne ORP
                 icon: mdi:lightning-bolt-outline
                 type: simple-entity
-                tap_action: *id001
+                tap_action: *more_info
               - entity: number.fio_pl_dis_window
                 name: Fenêtre PID
                 icon: mdi:clock-outline
                 type: simple-entity
-                tap_action: *id001
-            card_mod: *id004
+                tap_action: *more_info
+            card_mod: *settings_list
             grid_options:
               columns: 12
               rows: auto
@@ -809,18 +809,18 @@ views:
                 name: Mode de commande
                 icon: mdi:lightning-bolt-outline
                 type: simple-entity
-                tap_action: *id001
+                tap_action: *more_info
               - entity: number.fio_pl_swg_min_temp
                 name: Température minimale
                 icon: mdi:thermometer
                 type: simple-entity
-                tap_action: *id001
+                tap_action: *more_info
               - entity: number.fio_pl_swg_dly_elec
                 name: Délai après filtration
                 icon: mdi:timer-outline
                 type: simple-entity
-                tap_action: *id001
-            card_mod: *id004
+                tap_action: *more_info
+            card_mod: *settings_list
             grid_options:
               columns: 12
               rows: auto
@@ -840,7 +840,7 @@ views:
                   - entity: switch.fio_io_chl_pmp
                     name: Pompe chlore
                     icon: mdi:test-tube
-                card_mod: *id004
+                card_mod: *settings_list
               - type: entities
                 show_header_toggle: false
                 state_color: true
@@ -848,7 +848,7 @@ views:
                   - entity: switch.fio_io_chl_gen
                     name: Électrolyse
                     icon: mdi:lightning-bolt-outline
-                card_mod: *id004
+                card_mod: *settings_list
               - type: custom:mushroom-legacy-template-card
                 entity: sensor.fio_pd_chl_pmp_upt
                 primary: Injecté aujourd’hui
@@ -857,8 +857,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:test-tube
                 icon_color: teal
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
               - type: custom:mushroom-legacy-template-card
                 entity: sensor.fio_pd_chl_gen_upt
                 primary: Électrolyse aujourd’hui
@@ -867,8 +867,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:timer-outline
                 icon_color: blue
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
             grid_options:
               columns: 12
               rows: auto
@@ -889,8 +889,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:test-tube
                 icon_color: teal
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
               - type: custom:mushroom-legacy-template-card
                 entity: number.fio_pd2_flow
                 primary: Débit pompe
@@ -899,8 +899,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:water-outline
                 icon_color: grey
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
               - type: button
                 entity: button.fio_pd_refill_chl
                 name: Remplir la cuve
@@ -911,7 +911,7 @@ views:
                   perform_action: button.press
                   target:
                     entity_id: button.fio_pd_refill_chl
-                card_mod: *id002
+                card_mod: *white_card
             grid_options:
               columns: 12
               rows: auto
@@ -923,7 +923,7 @@ views:
                 name: Mesure
               - entity: number.fio_pl_dis_setpoint
                 name: Consigne
-            card_mod: *id002
+            card_mod: *white_card
             grid_options:
               columns: 12
               rows: auto
@@ -940,8 +940,8 @@ views:
                 name: Sécurité temps max / jour
                 icon: mdi:timer-outline
                 type: simple-entity
-                tap_action: *id001
-            card_mod: *id004
+                tap_action: *more_info
+            card_mod: *settings_list
             grid_options:
               columns: 12
               rows: auto
@@ -968,8 +968,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:clock-outline
                 icon_color: cyan
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
               - type: custom:mushroom-legacy-template-card
                 entity: sensor.fio_pl_o2_block
                 primary: Raison de blocage
@@ -978,8 +978,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:bell-outline
                 icon_color: cyan
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
               - type: custom:mushroom-legacy-template-card
                 entity: sensor.fio_pl_o2_done
                 primary: Injecté cette semaine
@@ -988,8 +988,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:test-tube
                 icon_color: cyan
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
               - type: custom:mushroom-legacy-template-card
                 entity: sensor.fio_pl_o2_pending
                 primary: Reste à doser
@@ -998,8 +998,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:test-tube
                 icon_color: cyan
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
               - type: custom:mushroom-legacy-template-card
                 entity: sensor.fio_pl_o2_plan
                 primary: Dose prévue
@@ -1008,8 +1008,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:water-outline
                 icon_color: cyan
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
               - type: custom:mushroom-legacy-template-card
                 entity: sensor.fio_pl_o2_flow
                 primary: Débit pompe
@@ -1018,8 +1018,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:pump
                 icon_color: cyan
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
             grid_options:
               columns: 12
               rows: auto
@@ -1036,7 +1036,7 @@ views:
                 name: Heure de dosage principale
                 icon: mdi:clock-outline
                 type: simple-entity
-                tap_action: *id001
+                tap_action: *more_info
               - entity: switch.fio_pl_o2_temp_comp
                 name: Compensation en température
                 icon: mdi:thermometer
@@ -1044,28 +1044,28 @@ views:
                 name: Volume du bassin
                 icon: mdi:pool
                 type: simple-entity
-                tap_action: *id001
+                tap_action: *more_info
               - entity: number.fio_pl_o2_dose
                 name: Dose hebdo / 10 m³
                 icon: mdi:water-outline
                 type: simple-entity
-                tap_action: *id001
+                tap_action: *more_info
               - entity: number.fio_pl_o2_split
                 name: Nombre de fractionnements
                 icon: mdi:pump
                 type: simple-entity
-                tap_action: *id001
+                tap_action: *more_info
               - entity: number.fio_pl_o2_load
                 name: Facteur de charge
                 icon: mdi:pump
                 type: simple-entity
-                tap_action: *id001
+                tap_action: *more_info
               - entity: number.fio_pl_o2_min_flt
                 name: Filtration minimale requise
                 icon: mdi:timer-outline
                 type: simple-entity
-                tap_action: *id001
-            card_mod: *id004
+                tap_action: *more_info
+            card_mod: *settings_list
             grid_options:
               columns: 12
               rows: auto
@@ -1081,7 +1081,7 @@ views:
               - entity: sensor.fio_pl_o2_last_day
                 name: Dernier jour de dose
                 icon: mdi:clock-outline
-            card_mod: *id004
+            card_mod: *settings_list
             grid_options:
               columns: 12
               rows: auto
@@ -1124,7 +1124,7 @@ views:
               - entity: switch.fio_io_wat_htr
                 name: Chauffage
                 icon: mdi:radiator
-            card_mod: *id004
+            card_mod: *settings_list
             grid_options:
               columns: 12
               rows: auto
@@ -1152,7 +1152,7 @@ views:
               - entity: sensor.fio_pd_chl_gen_upt
                 name: Électrolyse
                 icon: mdi:timer-outline
-            card_mod: *id004
+            card_mod: *settings_list
             grid_options:
               columns: 12
               rows: auto
@@ -1172,8 +1172,8 @@ views:
                 name: Consigne de température
                 icon: mdi:thermometer
                 type: simple-entity
-                tap_action: *id001
-            card_mod: *id004
+                tap_action: *more_info
+            card_mod: *settings_list
             grid_options:
               columns: 12
               rows: auto
@@ -1190,13 +1190,13 @@ views:
                 name: Durée minimale de marche
                 icon: mdi:timer-outline
                 type: simple-entity
-                tap_action: *id001
+                tap_action: *more_info
               - entity: number.fio_pd4_max_upt
                 name: Temps max / jour
                 icon: mdi:timer-outline
                 type: simple-entity
-                tap_action: *id001
-            card_mod: *id004
+                tap_action: *more_info
+            card_mod: *settings_list
             grid_options:
               columns: 12
               rows: auto
@@ -1213,8 +1213,8 @@ views:
                 name: Temps max / jour
                 icon: mdi:timer-outline
                 type: simple-entity
-                tap_action: *id001
-            card_mod: *id004
+                tap_action: *more_info
+            card_mod: *settings_list
             grid_options:
               columns: 12
               rows: auto
@@ -1245,7 +1245,7 @@ views:
               - entity: button.fio_pd_reset_upt_all
                 name: Tout réinitialiser
                 icon: mdi:autorenew
-            card_mod: *id004
+            card_mod: *settings_list
             grid_options:
               columns: 12
               rows: auto
@@ -1272,8 +1272,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:shield-check-outline
                 icon_color: grey
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
               - type: button
                 entity: button.fio_alm_reset_all
                 name: Acquitter / réarmer tout
@@ -1284,7 +1284,7 @@ views:
                   perform_action: button.press
                   target:
                     entity_id: button.fio_alm_reset_all
-                card_mod: *id002
+                card_mod: *white_card
             grid_options:
               columns: 12
               rows: auto
@@ -1306,8 +1306,8 @@ views:
                 icon: mdi:gauge
                 icon_color: |-
                   {% set p = states('sensor.fio_io_psi') %}{% set lo = states('number.fio_pl_safe_psi_low') %}{% set hi = states('number.fio_pl_safe_psi_high') %}{% if not (is_number(p) and is_number(lo) and is_number(hi)) %}grey{% elif lo | float > hi | float %}grey{% elif p | float < lo | float %}orange{% elif p | float > hi | float %}red{% else %}green{% endif %}
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
             grid_options:
               columns: 12
               rows: auto
@@ -1401,7 +1401,7 @@ views:
                 card_mod:
                   style: |-
                     :host { --card-mod-icon-color: {% if not has_value(config.entity) %}#8A8F99{% elif is_state(config.entity,'off') %}#30C85A{% elif state_attr(config.entity,'resettable') == true %}#FF9500{% else %}#FF453A{% endif %}; }
-            card_mod: *id004
+            card_mod: *settings_list
             grid_options:
               columns: 12
               rows: auto
@@ -1418,13 +1418,13 @@ views:
                 name: Seuil bas
                 icon: mdi:gauge
                 type: simple-entity
-                tap_action: *id001
+                tap_action: *more_info
               - entity: number.fio_pl_safe_psi_high
                 name: Seuil haut
                 icon: mdi:gauge
                 type: simple-entity
-                tap_action: *id001
-            card_mod: *id004
+                tap_action: *more_info
+            card_mod: *settings_list
             grid_options:
               columns: 12
               rows: auto
@@ -1451,8 +1451,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:wifi
                 icon_color: blue
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
               - type: custom:mushroom-legacy-template-card
                 entity: sensor.fio_wifi_rssi
                 primary: Signal Wi-Fi
@@ -1461,8 +1461,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:wifi
                 icon_color: green
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
               - type: custom:mushroom-legacy-template-card
                 entity: sensor.fio_wifi_mac
                 primary: Adresse MAC
@@ -1471,8 +1471,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:chip
                 icon_color: grey
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
               - type: custom:mushroom-legacy-template-card
                 entity: sensor.fio_supervisor_ip
                 primary: IP superviseur
@@ -1481,8 +1481,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:chip
                 icon_color: grey
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
             grid_options:
               columns: 12
               rows: auto
@@ -1503,8 +1503,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:timer-outline
                 icon_color: blue
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
               - type: custom:mushroom-legacy-template-card
                 entity: sensor.fio_sys_hp_free
                 primary: Mémoire libre
@@ -1513,8 +1513,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:chip
                 icon_color: grey
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
             grid_options:
               columns: 12
               rows: auto
@@ -1531,26 +1531,26 @@ views:
                 entity: binary_sensor.fio_io_pool_lvl
                 name: Niveau bassin
                 icon: mdi:water-outline
-                tap_action: *id001
-                card_mod: *id002
+                tap_action: *more_info
+                card_mod: *white_card
               - type: custom:mushroom-entity-card
                 entity: binary_sensor.fio_io_ph_lvl
                 name: Niveau cuve pH
                 icon: mdi:flask-outline
-                tap_action: *id001
-                card_mod: *id002
+                tap_action: *more_info
+                card_mod: *white_card
               - type: custom:mushroom-entity-card
                 entity: binary_sensor.fio_io_chl_lvl
                 name: Niveau cuve chlore
                 icon: mdi:test-tube
-                tap_action: *id001
-                card_mod: *id002
+                tap_action: *more_info
+                card_mod: *white_card
               - type: custom:mushroom-entity-card
                 entity: binary_sensor.fio_io_pir
                 name: Détection mouvement
                 icon: mdi:robot-vacuum
-                tap_action: *id001
-                card_mod: *id002
+                tap_action: *more_info
+                card_mod: *white_card
               - type: custom:mushroom-legacy-template-card
                 entity: sensor.fio_io_wat_meter
                 primary: Compteur d’eau
@@ -1559,8 +1559,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:water-outline
                 icon_color: grey
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
               - type: custom:mushroom-legacy-template-card
                 entity: sensor.fio_io_spare
                 primary: Entrée analogique libre
@@ -1569,8 +1569,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:chip
                 icon_color: grey
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
             grid_options:
               columns: 12
               rows: auto
@@ -1591,8 +1591,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:lightning-bolt-outline
                 icon_color: grey
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
               - type: custom:mushroom-legacy-template-card
                 entity: sensor.fio_io_voltage
                 primary: Tension
@@ -1601,8 +1601,8 @@ views:
                 multiline_secondary: true
                 icon: mdi:lightning-bolt-outline
                 icon_color: grey
-                tap_action: *id001
-                card_mod: *id005
+                tap_action: *more_info
+                card_mod: *measure_tile
             grid_options:
               columns: 12
               rows: auto
@@ -1642,7 +1642,7 @@ views:
               - entity: binary_sensor.fio_io_gpio11
                 name: GPIO11
                 icon: mdi:chip
-            card_mod: *id004
+            card_mod: *settings_list
             grid_options:
               columns: 12
               rows: auto
@@ -1661,7 +1661,7 @@ views:
               - entity: sensor.fio_sys_hp_frag
                 name: Fragmentation
                 icon: mdi:chip
-            card_mod: *id004
+            card_mod: *settings_list
             grid_options:
               columns: 12
               rows: auto

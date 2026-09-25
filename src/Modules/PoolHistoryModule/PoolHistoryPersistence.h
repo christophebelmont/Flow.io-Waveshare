@@ -11,8 +11,8 @@
 
 namespace PoolHistoryPersistence {
 
-/** Fixed version-3 record. Older NVS formats are intentionally unsupported. */
-constexpr size_t EncodedSize = 368U;
+/** Fixed version-4 record. Older NVS formats are intentionally unsupported. */
+constexpr size_t EncodedSize = 476U;
 
 bool encode(const PoolHistoryDayState& state,
             uint8_t* out,

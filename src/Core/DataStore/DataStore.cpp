@@ -14,5 +14,14 @@ void DataStore::publishChanged(DataKey key)
 
 void DataStore::notifyChanged(DataKey key)
 {
-    publishChanged(key);
+    if (!startupChanges_.mark(key)) publishChanged(key);
+}
+
+void DataStore::flushStartupChanges(uint16_t budget)
+{
+    if (!_bus) return;
+    startupChanges_.drain(budget, [this](DataKey key) {
+        const DataChangedPayload payload{key};
+        return _bus->tryPost(EventId::DataChanged, &payload, sizeof(payload), ModuleId::DataStore);
+    });
 }

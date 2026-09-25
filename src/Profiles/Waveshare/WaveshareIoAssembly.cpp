@@ -340,7 +340,7 @@ void syncAnalogSensors(ModuleInstances& modules)
         snprintf(endpointId, sizeof(endpointId), "a%02u", (unsigned)i);
         const char* label = spec.name;
         if (!label || label[0] == '\0') {
-            label = modules.ioModule.endpointLabel(endpointId);
+            label = modules.ioModule.endpointLabel(IO_ID_AI_BASE + i);
         }
         if (!label || label[0] == '\0') {
             label = gDiscoveryHeap->analogFallbackName[i];

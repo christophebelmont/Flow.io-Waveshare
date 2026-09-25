@@ -113,4 +113,6 @@ struct PoolHistorySnapshot {
 struct PoolHistoryService {
     bool (*getSnapshot)(void* ctx, PoolHistorySnapshot* outSnapshot);
     void* ctx;
+    bool (*readValue)(void* ctx, uint16_t id, bool daily, uint8_t age,
+                      struct ValueHistoryRecord* out) = nullptr;
 };

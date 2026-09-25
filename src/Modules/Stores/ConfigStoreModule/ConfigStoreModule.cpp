@@ -146,13 +146,25 @@ bool ConfigStoreModule::eraseKey_(const char* key) {
 }
 
 bool ConfigStoreModule::writeRuntimeBlobAsync_(const char* key, const void* value, size_t len) {
+    return writeRuntimeBlobTracked_(key, value, len, nullptr);
+}
+
+bool ConfigStoreModule::writeRuntimeBlobTracked_(const char* key, const void* value, size_t len,
+                                                PersistenceReceipt* receipt) {
     if (!value || len == 0U || len > kPersistenceBlobMax) return false;
     PersistenceRequest req{};
     req.op = PersistenceOp::WriteBlob;
     req.len = (uint16_t)len;
     if (!copyNvsKey_(req.key, key)) return false;
     memcpy(req.bytes, value, len);
-    return enqueuePersistence_(req);
+    if (receipt) {
+        uint32_t expected = PersistenceReceipt::Idle;
+        if (!receipt->status.compare_exchange_strong(expected, PersistenceReceipt::Pending)) return false;
+    }
+    req.receipt = receipt;
+    if (enqueuePersistence_(req)) return true;
+    if (receipt) receipt->status.store(PersistenceReceipt::Idle);
+    return false;
 }
 
 bool ConfigStoreModule::eraseKeyAsync_(const char* key) {
@@ -191,7 +203,10 @@ bool ConfigStoreModule::enqueuePersistence_(const PersistenceRequest& req) {
 }
 
 void ConfigStoreModule::processPersistence_(const PersistenceRequest& req) {
-    if (!registry) return;
+    if (!registry) {
+        if (req.receipt) req.receipt->status.store(PersistenceReceipt::Failed);
+        return;
+    }
 
     bool ok = false;
     switch (req.op) {
@@ -212,6 +227,7 @@ void ConfigStoreModule::processPersistence_(const PersistenceRequest& req) {
             break;
     }
 
+    if (req.receipt) req.receipt->status.store(ok ? PersistenceReceipt::Succeeded : PersistenceReceipt::Failed);
     if (!ok) {
         LOGW("persistence op failed op=%u key=%s", (unsigned)req.op, req.key);
     }

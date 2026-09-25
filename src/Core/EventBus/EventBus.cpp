@@ -82,6 +82,15 @@ const char* EventBus::subRejectReasonStr_(uint8_t reason)
 }
 
 bool EventBus::post(EventId id, const void* payload, size_t len, ModuleId producer) {
+    return post_(id, payload, len, producer, false);
+}
+
+bool EventBus::tryPost(EventId id, const void* payload, size_t len, ModuleId producer) {
+    return post_(id, payload, len, producer, true);
+}
+
+bool EventBus::post_(EventId id, const void* payload, size_t len, ModuleId producer,
+                     bool retryOnFull) {
     if (_queue == nullptr) {
         portENTER_CRITICAL(&_statsMux);
         ++_postDropTotal;
@@ -113,6 +122,7 @@ bool EventBus::post(EventId id, const void* payload, size_t len, ModuleId produc
 
     /// non-blocking send (0 ticks) to keep real-time constraints
     BaseType_t ok = xQueueSend(_queue, &qe, 0);
+    if (ok != pdTRUE && retryOnFull) return false;
     const UBaseType_t queued = _queue ? uxQueueMessagesWaiting(_queue) : 0U;
     uint32_t dropBurst = 0U;
     uint32_t dropTotal = 0U;

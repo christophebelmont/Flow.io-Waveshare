@@ -7,6 +7,13 @@
 #include <stddef.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <atomic>
+
+/** Stable producer-owned receipt; must outlive a queued request. */
+struct PersistenceReceipt {
+    enum Status : uint32_t { Idle, Pending, Succeeded, Failed };
+    std::atomic<uint32_t> status{Idle};
+};
 
 /** @brief Service interface for config JSON import/export. */
 struct ConfigStoreService {
@@ -27,4 +34,6 @@ struct ConfigStoreService {
                               uint8_t moduleId,
                               uint8_t localBranchId);
     void* ctx;
+    bool (*writeRuntimeBlobTracked)(void* ctx, const char* key, const void* value,
+                                    size_t len, PersistenceReceipt* receipt) = nullptr;
 };

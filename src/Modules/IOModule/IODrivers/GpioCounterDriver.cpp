@@ -69,7 +69,7 @@ bool GpioCounterDriver::read(bool& on) const
     return true;
 }
 
-bool GpioCounterDriver::readCount(int32_t& count) const
+bool GpioCounterDriver::readCount(uint64_t& count) const
 {
     portENTER_CRITICAL(&gGpioCounterMux);
     count = state_ ? state_->pulseCount : 0;
@@ -136,7 +136,7 @@ void IRAM_ATTR GpioCounterDriver::handleInterrupt_()
     }
 
     portENTER_CRITICAL_ISR(&gGpioCounterMux);
-    if (state->pulseCount < INT32_MAX) state->pulseCount = state->pulseCount + 1;
+    if (state->pulseCount < UINT64_MAX) state->pulseCount = state->pulseCount + 1;
     state->lastPulseUs = nowUs;
     portEXIT_CRITICAL_ISR(&gGpioCounterMux);
 }

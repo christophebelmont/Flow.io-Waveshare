@@ -17,7 +17,7 @@ typedef bool (*IOProviderBeginFn)(void* ctx);
 typedef void (*IOProviderTickFn)(void* ctx, uint32_t nowMs);
 typedef bool (*IOProviderReadAnalogFn)(void* ctx, uint8_t channel, IOAnalogSample& out);
 typedef bool (*IOProviderReadDigitalFn)(void* ctx, bool& outOn);
-typedef bool (*IOProviderReadCounterFn)(void* ctx, int32_t& outCount);
+typedef bool (*IOProviderReadCounterFn)(void* ctx, uint64_t& outCount);
 typedef bool (*IOProviderWriteDigitalFn)(void* ctx, bool on);
 typedef bool (*IOProviderReadMaskFn)(void* ctx, uint8_t& outMask);
 typedef bool (*IOProviderWriteMaskFn)(void* ctx, uint8_t mask);
@@ -56,7 +56,7 @@ struct IOCounterProvider {
 
     bool isBound() const { return ctx != nullptr && readFn != nullptr; }
     bool begin() const { return beginFn ? beginFn(ctx) : false; }
-    bool readCount(int32_t& outCount) const { return readFn ? readFn(ctx, outCount) : false; }
+    bool readCount(uint64_t& outCount) const { return readFn ? readFn(ctx, outCount) : false; }
 };
 
 struct IOMaskProvider {
@@ -96,7 +96,7 @@ inline bool ioProviderWriteDigitalFromDriver_(void* ctx, bool on)
     return ctx ? static_cast<IDigitalPinDriver*>(ctx)->write(on) : false;
 }
 
-inline bool ioProviderReadCounterFromDriver_(void* ctx, int32_t& outCount)
+inline bool ioProviderReadCounterFromDriver_(void* ctx, uint64_t& outCount)
 {
     return ctx ? static_cast<IDigitalCounterDriver*>(ctx)->readCount(outCount) : false;
 }

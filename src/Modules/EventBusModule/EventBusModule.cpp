@@ -19,14 +19,19 @@ void EventBusModule::init(ConfigStore&, ServiceRegistry& services) {
     LOGI("EventBusService registered");
 }
 
-void EventBusModule::onStart(ConfigStore&, ServiceRegistry&)
+void EventBusModule::onStart(ConfigStore&, ServiceRegistry& services)
 {
-    /// Broadcast system started after all modules completed config loading and subscriptions.
-    _bus.post(EventId::SystemStarted, nullptr, 0, ModuleId::EventBus);
+    const auto* dataStore = services.get<DataStoreService>(ServiceId::DataStore);
+    dataStore_ = dataStore ? dataStore->store : nullptr;
 }
 
 void EventBusModule::loop() {
     /// Dispatch queued events.
     _bus.dispatch(16);
+    // Never discard startup notification when ordinary events fill the queue.
+    if (systemStartedPending_) {
+        systemStartedPending_ = !_bus.tryPost(EventId::SystemStarted, nullptr, 0, ModuleId::EventBus);
+    }
+    if (!systemStartedPending_ && dataStore_) dataStore_->flushStartupChanges(4);
     vTaskDelay(pdMS_TO_TICKS(5));
 }

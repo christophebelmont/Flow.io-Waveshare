@@ -39,6 +39,7 @@ private:
 
     struct PersistenceRequest {
         PersistenceOp op = PersistenceOp::EraseKey;
+        PersistenceReceipt* receipt = nullptr;
         char key[Limits::MaxNvsKeyLen + 1] = {0};
         uint16_t len = 0;
         uint8_t bytes[Limits::Config::Capacity::RuntimeBlobAsyncMax] = {0};
@@ -70,6 +71,7 @@ private:
     bool writeRuntimeBlob_(const char* key, const void* value, size_t len);
     bool eraseKey_(const char* key);
     bool writeRuntimeBlobAsync_(const char* key, const void* value, size_t len);
+    bool writeRuntimeBlobTracked_(const char* key, const void* value, size_t len, PersistenceReceipt* receipt);
     bool eraseKeyAsync_(const char* key);
     bool persistFloatAsync_(const char* key,
                             float value,
@@ -91,6 +93,7 @@ private:
         ServiceBinding::bind<&ConfigStoreModule::writeRuntimeBlobAsync_>,
         ServiceBinding::bind<&ConfigStoreModule::eraseKeyAsync_>,
         ServiceBinding::bind<&ConfigStoreModule::persistFloatAsync_>,
-        this
+        this,
+        ServiceBinding::bind<&ConfigStoreModule::writeRuntimeBlobTracked_>
     };
 };

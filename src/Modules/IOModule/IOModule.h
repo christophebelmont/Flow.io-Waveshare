@@ -32,6 +32,9 @@
 #include "Modules/IOModule/IOEndpoints/AnalogSensorEndpoint.h"
 #include "Modules/IOModule/IOEndpoints/DigitalActuatorEndpoint.h"
 #include "Modules/IOModule/IOEndpoints/DigitalSensorEndpoint.h"
+#include "Core/Values/PulseRuntime.h"
+#include "ValueConfig.h"
+#include "Core/Values/PulseCheckpoint.h"
 #include "Modules/IOModule/IOEndpoints/RunningMedianAverageFloat.h"
 #include "Modules/IOModule/IOModuleDataModel.h"
 #include "Modules/IOModule/IOModuleTypes.h"
@@ -96,7 +99,7 @@ public:
     bool digitalOutputSlotWritable(uint8_t logicalIdx) const;
     int32_t analogPrecision(uint8_t idx) const;
     uint32_t takeAnalogConfigDirtyMask();
-    const char* endpointLabel(const char* endpointId) const;
+    const char* endpointLabel(IoId id) const;
     bool buildInputSnapshot(char* out, size_t len, uint32_t& maxTsOut) const;
     bool buildOutputSnapshot(char* out, size_t len, uint32_t& maxTsOut) const;
     uint8_t runtimeSnapshotCount() const override;
@@ -110,6 +113,9 @@ public:
 
 private:
     static constexpr uint8_t ROUTE_ANALOG_OUTPUT = 3;
+    static constexpr uint8_t ROUTE_VALUE = 4;
+    ValueId valueRoutes_[ValueIds::DerivedCapacity]{};
+    uint8_t valueRouteCount_ = 0;
     static constexpr uint8_t MaxAnalogOutputs = Limits::Io::MaxAnalogOutputs;
     struct AnalogOutput {
         IoEndpointMeta meta{};
@@ -202,17 +208,18 @@ private:
     bool ensureAnalogPrecisionState_();
     bool ensureConfigDescriptorStorage_();
     bool ensureScalableStorage_();
-    bool ensureDigitalCounterConfigState_();
     bool ensureLastCycleState_();
-    bool endpointIndexFromId_(const char* id, uint8_t& idxOut) const;
     void configureRuntimeAfterConfig_();
     bool digitalLogicalUsed_(uint8_t kind, uint8_t logicalIdx) const;
     bool findDigitalSlotByLogical_(uint8_t kind, uint8_t logicalIdx, uint8_t& slotIdxOut) const;
     bool findDigitalSlotByIoId_(IoId id, uint8_t& slotIdxOut) const;
-    ConfigVariable<float,0>* counterTotalVar_(uint8_t logicalIdx);
-    float* counterConfigTotalState_(uint8_t logicalIdx);
-    void eraseLegacyCounterPersistedTotal_(uint8_t logicalIdx);
-    bool persistCounterTotalIfNeeded_(DigitalSlot& slot, int32_t rawCount, uint32_t nowMs);
+    bool loadPulseCheckpoint_();
+    void checkpointPulses_(uint32_t nowMs);
+    PulseCheckpoint::State pulsePersisted_{}, pulsePending_{};
+    PersistenceReceipt pulseReceipt_{};
+    uint32_t pulseLastAttemptMs_ = 0, pulseCheckpointWrites_ = 0, pulseCheckpointFailures_ = 0;
+    bool pulseStorageReady_ = false, pulseRetry_ = false;
+    ValueConfig* valueConfig_ = nullptr;
     void traceDigitalCounters_(uint32_t nowMs);
     void beginIoCycle_(uint32_t nowMs);
     void markIoCycleChanged_(IoId id);
@@ -321,11 +328,8 @@ private:
         uint32_t pulseDeadlineMs = 0;
         bool lastValid = false;
         bool lastValue = false;
-        float counterScaledTotal = 0.0f;
-        float counterLastPersistedTotal = 0.0f;
-        int32_t counterLastRawCount = 0;
-        int32_t counterLastFlushedRawCount = 0;
-        uint32_t counterLastPersistMs = 0;
+        PulseRuntime pulse{};
+        uint16_t counterResetSeen = 0;
     };
 
     struct RuntimeExpander {
@@ -434,7 +438,6 @@ private:
     uint32_t counterTraceLastMs_ = 0;
     uint32_t analogCalcLogLastMs_[3]{0, 0, 0};
     int32_t* analogPrecisionLast_ = nullptr;
-    float* digitalCounterLastConfigTotals_ = nullptr;
     bool analogPrecisionLastInit_ = false;
     uint32_t analogConfigDirtyMask_ = 0;
     IOConfigDescriptorStorage* configDescriptors_ = nullptr;

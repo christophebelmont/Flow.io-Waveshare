@@ -51,7 +51,7 @@ bool GpioDriver::read(bool& on) const
     return true;
 }
 
-bool GpioDriver::readCount(int32_t& count) const
+bool GpioDriver::readCount(uint64_t& count) const
 {
     (void)count;
     return false;

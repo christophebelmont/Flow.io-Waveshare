@@ -24,12 +24,12 @@ public:
 
     bool write(bool) override { return false; }
     bool read(bool& on) const override;
-    bool readCount(int32_t& count) const override;
+    bool readCount(uint64_t& count) const override;
     bool readDebugStats(IODigitalCounterDebugStats& out) const override;
 
 private:
     struct RuntimeState {
-        volatile int32_t pulseCount = 0;
+        volatile uint64_t pulseCount = 0;
         volatile bool lastLogicalState = false;
         volatile uint32_t lastPulseUs = 0;
         volatile uint32_t irqCallCount = 0;

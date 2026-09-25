@@ -30,7 +30,9 @@ struct PoolHistoryMetricState {
     float last = 0.0f;
     float minimum = 0.0f;
     float maximum = 0.0f;
-    double sum = 0.0;
+    double sum = 0.0; // time-weighted sum, in value-seconds
+    uint32_t weightedSeconds = 0;
+    uint64_t lastSampleUtc = 0;
 };
 
 struct PoolHistoryDayState {

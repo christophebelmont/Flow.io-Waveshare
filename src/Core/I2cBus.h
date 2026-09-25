@@ -20,6 +20,14 @@
  */
 class I2CBus {
 public:
+    /**
+     * 7-bit address range examined by the startup scan. Addresses below
+     * `kScanFirstAddress` and above `kScanLastAddress` are reserved (general
+     * call, CBUS, etc.) and are never real bus devices.
+     */
+    static constexpr uint8_t kScanFirstAddress = 0x08;
+    static constexpr uint8_t kScanLastAddress = 0x77;
+
     void begin(int sda, int scl, uint32_t frequencyHz = 100000U);
     bool beginOk() const { return lastBeginOk_; }
     int beginSda() const { return lastBeginSda_; }
@@ -40,6 +48,9 @@ public:
     TwoWire* wire() { return &Wire; }
 
 private:
+    /** Informative scan run once when the bus starts; logs every responder. */
+    void scanAndLog_();
+
     SemaphoreHandle_t mutex_ = nullptr;
     bool lastBeginOk_ = false;
     int lastBeginSda_ = -1;

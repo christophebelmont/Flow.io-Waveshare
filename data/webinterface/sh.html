@@ -18,6 +18,7 @@
         <button class="menu-item active" data-page="page-dashboard"><span class="ico icon-measures" aria-hidden="true"></span><span class="label" data-i18n="menu.dashboard">Tableau de bord</span></button>
         <button class="menu-item" data-page="page-io-summary"><span class="ico icon-io" aria-hidden="true"></span><span class="label" data-i18n="menu.io">Entrées/Sorties</span></button>
         <button class="menu-item" data-page="page-calibration" data-admin-only hidden><span class="ico icon-calibration" aria-hidden="true"></span><span class="label" data-i18n="menu.calibration">Étalonnage</span></button>
+        <button class="menu-item" data-page="page-history"><span class="ico icon-activity" aria-hidden="true"></span><span class="label" data-i18n="history.title">Historique</span></button>
         <button class="menu-item" data-page="page-activity-log"><span class="ico icon-activity" aria-hidden="true"></span><span class="label" data-i18n="menu.activity">Activité</span></button>
         <button class="menu-item" data-page="page-system" data-admin-only hidden><span class="ico icon-system" aria-hidden="true"></span><span class="label" data-i18n="menu.updates">Mises à Jour</span></button>
         <button class="menu-item" data-page="page-control" data-admin-only hidden><span class="ico icon-flowcfg" aria-hidden="true"></span><span class="label" data-i18n="menu.config">Configuration</span></button>
@@ -157,6 +158,35 @@
         <div class="control-shell io-summary-shell">
           <div id="ioSummaryCards" class="status-grid io-summary-cards" aria-live="polite"></div>
           <div id="ioSummaryTables" class="io-table-stack" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <section id="page-history" class="page" aria-busy="false">
+        <div class="topbar">
+          <h1 class="ui-heading-inline"><span class="ui-msr" aria-hidden="true">monitoring</span><span data-i18n="history.title">Historique</span></h1>
+          <button id="historyRefresh" class="btn-tonal" type="button" data-i18n="history.refresh">Actualiser</button>
+        </div>
+        <p id="historyStatus" role="status" aria-live="polite"></p>
+        <div class="status-card history-card">
+          <h2 data-i18n="history.poolTitle">La piscine sur 8 jours</h2>
+          <p data-i18n="history.poolNote">Aujourd’hui et les sept jours précédents, en dates locales. Sélectionnez un jour pour consulter ses mesures. Le volume d’appoint est estimé à partir du débit configuré.</p>
+          <div id="historyDays" class="history-scroll" tabindex="0" role="region" aria-label="Bilans journaliers" data-i18n-aria-label="history.poolTitle"></div>
+        </div>
+        <div id="historyDayDetail" class="status-card history-card" hidden>
+          <h2 id="historyDayTitle"></h2><p id="historyCoverage"></p>
+          <div id="historyMetrics" class="history-scroll" tabindex="0" role="region" aria-label="Mesures" data-i18n-aria-label="history.measure"></div>
+          <p id="historyNightDelta"></p>
+          <div id="historyPeriods" class="history-scroll" tabindex="0" role="region" aria-label="Durées par période" data-i18n-aria-label="history.periods"></div>
+        </div>
+        <div class="status-card history-card">
+          <h2 data-i18n="history.valuesTitle">Historique des valeurs</h2>
+          <p data-i18n="history.valuesNote">Agrégats en UTC conservés en mémoire depuis le démarrage. Les périodes absentes ne sont pas remplacées par zéro. La période en cours reste partielle.</p>
+          <div class="history-controls">
+            <label><span data-i18n="history.value">Valeur</span><select id="historyValueId"></select></label>
+            <label><span data-i18n="history.period">Période</span><select id="historyValuePeriod"><option value="0" data-i18n="history.hourly">Horaire</option><option value="1" data-i18n="history.daily">Journalière</option></select></label>
+            <button id="historyValueRead" class="btn-tonal" type="button" disabled data-i18n="history.view">Afficher</button>
+          </div>
+          <div id="historyValues" class="history-scroll" tabindex="0" role="region" aria-label="Historique des valeurs" data-i18n-aria-label="history.valuesTitle"></div>
         </div>
       </section>
 

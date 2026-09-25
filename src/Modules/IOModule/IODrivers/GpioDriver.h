@@ -29,7 +29,7 @@ public:
 
     bool write(bool on) override;
     bool read(bool& on) const override;
-    bool readCount(int32_t& count) const override;
+    bool readCount(uint64_t& count) const override;
 
 private:
     const char* driverId_ = nullptr;

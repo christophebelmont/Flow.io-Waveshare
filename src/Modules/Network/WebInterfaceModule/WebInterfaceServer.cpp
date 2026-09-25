@@ -17,6 +17,7 @@
 #include "Core/SystemLimits.h"
 #include "Core/SystemStats.h"
 #include "Core/SpiRamJsonDocument.h"
+#include "HistoryJson.h"
 #include "Domain/Pool/PoolIds.h"
 #include "Domain/Pool/PoolDomain.h"
 #include "Core/Services/IPoolDevice.h"
@@ -7355,6 +7356,105 @@ void WebInterfaceModule::startServer_()
                       "application/json",
                       "{\"ok\":false,\"err\":{\"code\":\"Replaced\",\"where\":\"io.summary\","
                       "\"detail\":\"Use /api/io/topology and /api/io/runtime\"}}");
+    });
+
+    // Bounded, read-only history responses. Large temporary objects stay in PSRAM.
+    auto sendHistory = [](AsyncWebServerRequest* request, const std::shared_ptr<WebJsonBuffer>& body) {
+        if (!body->finish()) {
+            request->send(503, "application/json", "{\"ok\":false,\"err\":{\"code\":\"HistoryCapacity\"}}");
+            return;
+        }
+        auto* response = request->beginResponse("application/json", body->length(),
+            [body](uint8_t* buffer, size_t length, size_t index) { return body->fillAt(buffer, length, index); });
+        if (!response) { sendTinyBusyJson_(request, "history_response"); return; }
+        addNoCacheHeaders_(response);
+        request->send(response);
+    };
+    server_.on("/api/history/pool", HTTP_GET, [this, sendHistory](AsyncWebServerRequest* request) {
+        const auto* history = services_ ? services_->get<PoolHistoryService>(ServiceId::PoolHistory) : nullptr;
+        const auto* store = services_ ? services_->get<DataStoreService>(ServiceId::DataStore) : nullptr;
+        if (!history || !history->getSnapshot) { sendTinyBusyJson_(request, "history_unavailable"); return; }
+        auto* memory = heap_caps_malloc(sizeof(PoolHistorySnapshot), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!memory) { sendTinyBusyJson_(request, "history_memory"); return; }
+        auto* snapshot = new (memory) PoolHistorySnapshot{};
+        const bool ready = history->getSnapshot(history->ctx, snapshot);
+        auto body = std::make_shared<WebJsonBuffer>(24U * 1024U);
+        SpiRamJsonDocument doc(4096);
+        if (!body->valid() || doc.capacity() < 4096) {
+            snapshot->~PoolHistorySnapshot(); heap_caps_free(memory);
+            sendTinyBusyJson_(request, "history_memory"); return;
+        }
+        body->print("{\"ok\":true,\"ready\":"); body->print(ready ? "true" : "false");
+        body->print(",\"days\":[");
+        bool overflow = false;
+        for (uint8_t age = 0; age <= POOL_HISTORY_COMPLETE_DAY_COUNT; ++age) {
+            if (age) body->print(',');
+            doc.clear();
+            HistoryJson::day(doc.to<JsonObject>(), age ? snapshot->completeDays[age - 1] : snapshot->today);
+            overflow |= doc.overflowed();
+            serializeJson(doc, *body);
+        }
+        snapshot->~PoolHistorySnapshot(); heap_caps_free(memory);
+        body->print("],\"values\":[");
+        bool first = true;
+        if (store && store->store) for (ValueId id = 0; id < ValueIds::Capacity; ++id) {
+            ValueSnapshot value{}; ValueMetadata meta{};
+            if (!store->store->values.read(id, value, &meta)) continue;
+            if (!first) body->print(',');
+            first = false;
+            doc.clear(); doc["id"] = id; doc["mode"] = (uint8_t)meta.aggregation;
+            doc["unit"] = (uint8_t)meta.unit; doc["type"] = (uint8_t)meta.type;
+            serializeJson(doc, *body);
+        }
+        body->print("]}");
+        if (overflow) { sendTinyBusyJson_(request, "history_capacity"); return; }
+        sendHistory(request, body);
+    });
+    server_.on("/api/history/value", HTTP_GET, [this, sendHistory](AsyncWebServerRequest* request) {
+        auto readIndex = [request](const char* name, uint16_t limit, uint16_t& value) {
+            if (!request->hasParam(name)) return false;
+            const String& raw = request->getParam(name)->value();
+            if (!raw.length() || raw.length() > 5) return false;
+            uint32_t parsed = 0;
+            for (size_t i = 0; i < raw.length(); ++i) {
+                if (raw[i] < '0' || raw[i] > '9') return false;
+                parsed = parsed * 10U + (raw[i] - '0');
+            }
+            if (parsed >= limit) return false;
+            value = (uint16_t)parsed; return true;
+        };
+        uint16_t id = 0, daily = 0;
+        if (!readIndex("id", ValueIds::Capacity, id) || !readIndex("daily", 2, daily)) {
+            request->send(400, "application/json", "{\"ok\":false,\"err\":{\"code\":\"InvalidIndex\"}}"); return;
+        }
+        const auto* history = services_ ? services_->get<PoolHistoryService>(ServiceId::PoolHistory) : nullptr;
+        const auto* store = services_ ? services_->get<DataStoreService>(ServiceId::DataStore) : nullptr;
+        ValueSnapshot value{}; ValueMetadata meta{};
+        if (!history || !history->readValue || !store || !store->store) {
+            sendTinyBusyJson_(request, "history_unavailable"); return;
+        }
+        if (!store->store->values.read(id, value, &meta)) {
+            request->send(404, "application/json", "{\"ok\":false,\"err\":{\"code\":\"UnknownValue\"}}"); return;
+        }
+        auto body = std::make_shared<WebJsonBuffer>(12U * 1024U);
+        SpiRamJsonDocument doc(768);
+        if (!body->valid() || doc.capacity() < 768) { sendTinyBusyJson_(request, "history_memory"); return; }
+        body->printf("{\"ok\":true,\"id\":%u,\"mode\":%u,\"type\":%u,\"unit\":%u,\"records\":[", id,
+                     (unsigned)meta.aggregation, (unsigned)meta.type, (unsigned)meta.unit);
+        bool first = true, overflow = false;
+        const uint8_t count = daily ? ValueHistory::PsramDays : ValueHistory::PsramHours;
+        for (uint8_t age = 0; age <= count; ++age) {
+            ValueHistoryRecord record{};
+            if (!history->readValue(history->ctx, id, daily != 0, age, &record) || !record.valid) continue;
+            if (!first) body->print(',');
+            first = false; doc.clear();
+            HistoryJson::record(doc.to<JsonObject>(), record, daily != 0);
+            doc["current"] = age == 0;
+            overflow |= doc.overflowed(); serializeJson(doc, *body);
+        }
+        body->print("]}");
+        if (overflow) { sendTinyBusyJson_(request, "history_capacity"); return; }
+        sendHistory(request, body);
     });
 
     server_.on("/api/runtime/alarm_options", HTTP_GET, [this](AsyncWebServerRequest* request) {

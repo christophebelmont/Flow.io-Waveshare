@@ -33,8 +33,8 @@ struct IODigitalCounterDebugStats {
     uint8_t edgeMode = 0;
     bool activeHigh = true;
     bool logicalState = false;
-    int32_t pulseCount = 0;
-    uint32_t irqCalls = 0;
+    uint64_t pulseCount = 0;
+    uint64_t irqCalls = 0;
     uint32_t transitions = 0;
     uint32_t ignoredSameState = 0;
     uint32_t ignoredWrongEdge = 0;
@@ -44,7 +44,7 @@ struct IODigitalCounterDebugStats {
 
 class IDigitalCounterDriver : public IDigitalPinDriver {
 public:
-    virtual bool readCount(int32_t& count) const = 0;
+    virtual bool readCount(uint64_t& count) const = 0;
     virtual bool readDebugStats(IODigitalCounterDebugStats& out) const
     {
         (void)out;

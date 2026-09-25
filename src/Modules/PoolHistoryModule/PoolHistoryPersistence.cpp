@@ -12,7 +12,7 @@ namespace PoolHistoryPersistence {
 namespace {
 
 constexpr uint32_t kMagic = 0x31534850UL;  // "PHS1" remains the format-family magic.
-constexpr uint16_t kVersion = 3U;
+constexpr uint16_t kVersion = 4U;
 constexpr uint16_t kFlagValid = 0x0001U;
 constexpr uint16_t kFlagComplete = 0x0002U;
 constexpr uint16_t kFlagRefillVolumeValid = 0x0004U;
@@ -186,14 +186,14 @@ bool writeMetric_(Writer& writer, const PoolHistoryMetricState& metric)
 {
     return writer.putU32(metric.sampleCount) && writer.putFloat(metric.first) &&
            writer.putFloat(metric.last) && writer.putFloat(metric.minimum) &&
-           writer.putFloat(metric.maximum) && writer.putDouble(metric.sum);
+           writer.putFloat(metric.maximum) && writer.putDouble(metric.sum) && writer.putU32(metric.weightedSeconds) && writer.putU64(metric.lastSampleUtc);
 }
 
 bool readMetric_(Reader& reader, PoolHistoryMetricState& metric)
 {
     return reader.getU32(metric.sampleCount) && reader.getFloat(metric.first) &&
            reader.getFloat(metric.last) && reader.getFloat(metric.minimum) &&
-           reader.getFloat(metric.maximum) && reader.getDouble(metric.sum);
+           reader.getFloat(metric.maximum) && reader.getDouble(metric.sum) && reader.getU32(metric.weightedSeconds) && reader.getU64(metric.lastSampleUtc);
 }
 
 bool writeActivity_(Writer& writer, const PoolHistoryActivityState& activity)

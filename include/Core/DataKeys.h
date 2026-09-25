@@ -63,7 +63,9 @@ constexpr uint8_t PoolDeviceMetricsReservedCount = 8;
 constexpr DataKey PoolDeviceMetricsEndExclusive = PoolDeviceMetricsBase + PoolDeviceMetricsReservedCount;
 
 /** @brief Upper bound for currently reserved keys. */
-constexpr DataKey ReservedMax = PoolDeviceMetricsEndExclusive - 1;
+constexpr DataKey ValueBase = PoolDeviceMetricsEndExclusive;
+constexpr DataKey ValueReservedCount = 112;
+constexpr DataKey ReservedMax = ValueBase + ValueReservedCount - 1;
 
 static_assert(WifiReady < TimeReady, "DataKey ordering invariant broken");
 static_assert(TimeReady < MqttReady, "DataKey ordering invariant broken");

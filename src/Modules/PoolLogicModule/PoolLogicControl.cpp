@@ -279,26 +279,12 @@ void PoolLogicModule::emitAutoModeDisabledByManualActivity_(ActivityRole role,
 bool PoolLogicModule::readPoolDeviceFlowLh_(uint8_t deviceSlot, float& flowLhOut) const
 {
     flowLhOut = 0.0f;
-    if (!cfgStore_ || deviceSlot >= POOL_DEVICE_MAX) return false;
+    if (!poolSvc_ || !poolSvc_->meta || deviceSlot >= POOL_DEVICE_MAX) return false;
 
-    char moduleName[16] = {0};
-    snprintf(moduleName, sizeof(moduleName), "pdm/pd%u", (unsigned)deviceSlot);
+    PoolDeviceSvcMeta meta{};
+    if (poolSvc_->meta(poolSvc_->ctx, deviceSlot, &meta) != POOLDEV_SVC_OK) return false;
 
-    bool truncated = false;
-    if (!cfgStore_->toJsonModule(moduleName,
-                                 o2PoolDeviceJsonBuf_,
-                                 sizeof(o2PoolDeviceJsonBuf_),
-                                 &truncated) ||
-        truncated) {
-        return false;
-    }
-
-    const char* key = strstr(o2PoolDeviceJsonBuf_, "\"flow_l_h\":");
-    if (!key) return false;
-    key += 11;
-    char* end = nullptr;
-    const float flow = strtof(key, &end);
-    if (end == key) return false;
+    const float flow = meta.flowLPerHour;
     if (!std::isfinite(flow) || flow <= 0.0f) return false;
     flowLhOut = flow;
     return true;
@@ -417,8 +403,7 @@ void PoolLogicModule::persistO2Protocol_(uint32_t nowMs, bool force)
     o2LastPersistMs_ = nowMs ? nowMs : 1U;
 }
 
-bool PoolLogicModule::stepO2Protocol_(bool filtrationDesired,
-                                      bool filtrationOn,
+bool PoolLogicModule::stepO2Protocol_(bool filtrationOn,
                                       uint32_t filtrationRunMin,
                                       bool haveWaterTemp,
                                       float waterTemp,
@@ -513,7 +498,7 @@ bool PoolLogicModule::stepO2Protocol_(bool filtrationDesired,
     }
     o2LastFlowLh_ = flowLh;
 
-    const bool filtrationReady = filtrationOn && filtrationDesired && filtrationRunMin >= o2MinFilterRunMin_;
+    const bool filtrationReady = filtrationOn && filtrationRunMin >= o2MinFilterRunMin_;
     if (!filtrationReady) {
         o2LastProgressMs_ = 0;
         setO2ProtocolState_(O2ProtocolPending, O2BlockFiltrationWait, nowMs);
@@ -1572,8 +1557,7 @@ void PoolLogicModule::runControlLoop_(uint32_t nowMs)
 
     bool o2RequestFiltration = false;
     bool o2PumpDesired = false;
-    (void)stepO2Protocol_(filtrationDesired,
-                          filtrationFsm_.on,
+    (void)stepO2Protocol_(filtrationFsm_.on,
                           stateUptimeSec_(filtrationFsm_, nowMs) / 60U,
                           haveWaterTemp,
                           waterTemp,

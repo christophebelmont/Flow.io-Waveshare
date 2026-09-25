@@ -13,6 +13,7 @@
 #include <Preferences.h>
 #include <esp_rom_sys.h>
 #include <esp_heap_caps.h>
+#include <esp_timer.h>
 #include <limits.h>
 #include <new>
 #include <stdlib.h>
@@ -184,7 +185,6 @@ static constexpr uint8_t kCfgBranchIoBmp280 = 30;
 static constexpr uint8_t kCfgBranchIoBme680 = 31;
 static constexpr uint8_t kCfgBranchIoIna226 = 32;
 static constexpr PhysicalPortId kLegacyDisconnectedBindingPort = 65535U;
-static constexpr char kLegacyCounterRuntimeKeyFmt[] = "ioi%02urt";
 
 static constexpr uint8_t analogCfgBranch_(uint8_t idx)
 {
@@ -374,29 +374,6 @@ static_assert((sizeof(kIoCfgRoutes) / sizeof(kIoCfgRoutes[0])) <= MqttConfigRout
               "IOModule config routes exceed MqttConfigRouteProducer capacity");
 }
 
-static bool hasDecimalSuffixLocal(const char* p)
-{
-    if (!p || *p == '\0') return false;
-    while (*p) {
-        if (*p < '0' || *p > '9') return false;
-        ++p;
-    }
-    return true;
-}
-
-static bool isInputEndpointIdLocal(const char* id)
-{
-    if (!id || id[0] == '\0') return false;
-    if ((id[0] == 'a' || id[0] == 'i') && hasDecimalSuffixLocal(id + 1)) return true;
-    return false;
-}
-
-static bool isOutputEndpointIdLocal(const char* id)
-{
-    if (!id || id[0] == '\0') return false;
-    return (id[0] == 'd' || id[0] == 'o') && hasDecimalSuffixLocal(id + 1);
-}
-
 static const char* ioEdgeModeLabelLocal(uint8_t edgeMode)
 {
     switch (edgeMode) {
@@ -549,15 +526,6 @@ bool IOModule::ensureScalableStorage_()
     return ok;
 }
 
-bool IOModule::ensureDigitalCounterConfigState_()
-{
-    if (digitalCounterLastConfigTotals_) return true;
-    digitalCounterLastConfigTotals_ = static_cast<float*>(
-        heap_caps_calloc(MAX_DIGITAL_INPUTS, sizeof(float), MALLOC_CAP_8BIT)
-    );
-    return digitalCounterLastConfigTotals_ != nullptr;
-}
-
 bool IOModule::ensureLastCycleState_()
 {
     if (lastCycle_) return true;
@@ -665,31 +633,6 @@ bool IOModule::findDigitalSlotByIoId_(IoId id, uint8_t& slotIdxOut) const
         return true;
     }
     return false;
-}
-
-ConfigVariable<float,0>* IOModule::counterTotalVar_(uint8_t logicalIdx)
-{
-    if (logicalIdx >= DIGITAL_INPUT_CFG_SLOTS) return nullptr;
-    if (!configDescriptors_ && !ensureConfigDescriptorStorage_()) return nullptr;
-    return &configDescriptors_->digitalInputs[logicalIdx].counterTotalVar;
-}
-
-float* IOModule::counterConfigTotalState_(uint8_t logicalIdx)
-{
-    if (logicalIdx >= MAX_DIGITAL_INPUTS) return nullptr;
-    if (!digitalCounterLastConfigTotals_ && !ensureDigitalCounterConfigState_()) return nullptr;
-    return &digitalCounterLastConfigTotals_[logicalIdx];
-}
-
-void IOModule::eraseLegacyCounterPersistedTotal_(uint8_t logicalIdx)
-{
-    if (logicalIdx >= MAX_DIGITAL_INPUTS) return;
-
-    char key[16];
-    snprintf(key, sizeof(key), kLegacyCounterRuntimeKeyFmt, (unsigned)logicalIdx);
-    if (cfgSvc_ && cfgSvc_->eraseKeyAsync) {
-        (void)cfgSvc_->eraseKeyAsync(cfgSvc_->ctx, key);
-    }
 }
 
 void IOModule::beginIoCycle_(uint32_t nowMs)
@@ -866,29 +809,15 @@ uint32_t IOModule::takeAnalogConfigDirtyMask()
     return mask;
 }
 
-const char* IOModule::endpointLabel(const char* endpointId) const
+const char* IOModule::endpointLabel(IoId id) const
 {
-    for (const auto& output : analogOutputs_) {
-        if (output.write && endpointId && strcmp(output.id, endpointId) == 0) return output.meta.name;
-    }
-    if (!endpointId || endpointId[0] == '\0') return nullptr;
-    if (endpointId[0] == 'a' && hasDecimalSuffixLocal(endpointId + 1)) {
-        uint8_t idx = (uint8_t)atoi(endpointId + 1);
-        if (idx < ANALOG_CFG_SLOTS && analogCfg_[idx].name[0] != '\0') return analogCfg_[idx].name;
-    }
-    if (endpointId[0] == 'i' && hasDecimalSuffixLocal(endpointId + 1)) {
-        uint8_t idx = (uint8_t)atoi(endpointId + 1);
-        uint8_t slotIdx = 0xFF;
-        if (findDigitalSlotByLogical_(DIGITAL_SLOT_INPUT, idx, slotIdx)) {
-            const DigitalSlot& s = digitalSlots_[slotIdx];
-            if (idx < MAX_DIGITAL_INPUTS && digitalInCfg_[idx].name[0] != '\0') return digitalInCfg_[idx].name;
-            if (s.inDef.id[0] != '\0') return s.inDef.id;
-        }
-    }
-    if (endpointId[0] == 'd' && hasDecimalSuffixLocal(endpointId + 1)) {
-        uint8_t idx = (uint8_t)atoi(endpointId + 1);
-        if (idx < DIGITAL_CFG_SLOTS && digitalCfg_[idx].name[0] != '\0') return digitalCfg_[idx].name;
-    }
+    if (id >= IO_ID_AI_BASE && id < IO_ID_AI_BASE + ANALOG_CFG_SLOTS)
+        return analogCfg_[id - IO_ID_AI_BASE].name;
+    if (id >= IO_ID_DI_BASE && id < IO_ID_DI_BASE + DIGITAL_INPUT_CFG_SLOTS)
+        return digitalInCfg_[id - IO_ID_DI_BASE].name;
+    if (id < IO_ID_DO_BASE + DIGITAL_CFG_SLOTS) return digitalCfg_[id - IO_ID_DO_BASE].name;
+    if (id >= IO_ID_AO_BASE && id < IO_ID_AO_BASE + MaxAnalogOutputs)
+        return analogOutputs_[id - IO_ID_AO_BASE].meta.name;
     return nullptr;
 }
 
@@ -975,11 +904,10 @@ bool IOModule::writeRuntimeUiValue(uint8_t valueId, IRuntimeUiWriter& writer) co
 
     if (!dataStore_) return writer.writeUnavailable(runtimeId);
 
-    float value = 0.0f;
-    if (!ioEndpointFloat(*dataStore_, runtimeIndex, value)) {
+    ValueSnapshot value{};
+    if (!dataStore_->values.read(ValueIds::Analog + runtimeIndex, value) || value.quality != ValueQuality::Valid)
         return writer.writeUnavailable(runtimeId);
-    }
-    return writer.writeF32(runtimeId, value);
+    return writer.writeF32(runtimeId, value.value.f);
 }
 
 uint8_t IOModule::runtimeSnapshotCount() const
@@ -994,7 +922,7 @@ uint8_t IOModule::runtimeSnapshotCount() const
     for (uint8_t i = 0; i < MAX_DIGITAL_SLOTS; ++i) {
         if (digitalRuntimeRoutePublished_(i)) ++count;
     }
-    return count;
+    return count + valueRouteCount_;
 }
 
 bool IOModule::runtimeSnapshotRouteFromIndex_(uint8_t snapshotIdx, uint8_t& routeTypeOut, uint8_t& slotIdxOut) const
@@ -1041,6 +969,9 @@ bool IOModule::runtimeSnapshotRouteFromIndex_(uint8_t snapshotIdx, uint8_t& rout
         if (!analogOutputs_[i].write) continue;
         if (seen++ == snapshotIdx) { routeTypeOut = ROUTE_ANALOG_OUTPUT; slotIdxOut = i; return true; }
     }
+    for (uint8_t i = 0; i < valueRouteCount_; ++i) {
+        if (seen++ == snapshotIdx) { routeTypeOut = ROUTE_VALUE; slotIdxOut = i; return true; }
+    }
     return false;
 }
 
@@ -1054,7 +985,7 @@ bool IOModule::buildEndpointSnapshot_(IOEndpoint* ep, char* out, size_t len, uin
     if (!ok) v.valid = false;
 
     const char* id = ep->id();
-    const char* label = endpointLabel(id);
+    const char* label = endpointLabel(ep->numericId);
     int wrote = snprintf(out, len, "{\"id\":\"%s\",\"name\":\"%s\",\"available\":%s,\"value\":",
                          (id && id[0] != '\0') ? id : "",
                          (label && label[0] != '\0') ? label : ((id && id[0] != '\0') ? id : ""),
@@ -1077,6 +1008,23 @@ bool IOModule::buildEndpointSnapshot_(IOEndpoint* ep, char* out, size_t len, uin
     if (wrote < 0 || (size_t)wrote >= (len - used)) return false;
     used += (size_t)wrote;
 
+    if (dataStore_ && ep->numericId >= IO_ID_DI_BASE && ep->numericId < IO_ID_DI_BASE + MAX_DIGITAL_INPUTS) {
+        const uint8_t logical = ep->numericId - IO_ID_DI_BASE;
+        ValueSnapshot count{}, rate{}, converted{};
+        ValueMetadata metadata{};
+        if (dataStore_->values.read(ValueIds::Digital + logical, count, &metadata) && metadata.type == ValueType::UInt64) {
+            dataStore_->values.read(ValueIds::PulseRate + logical, rate);
+            dataStore_->values.read(ValueIds::ConvertedRate + logical, converted);
+            char rateText[32] = "null", convertedText[32] = "null";
+            if (rate.quality == ValueQuality::Valid) snprintf(rateText, sizeof(rateText), "%.9g", double(rate.value.f));
+            if (converted.quality == ValueQuality::Valid) snprintf(convertedText, sizeof(convertedText), "%.17g", converted.value.d);
+            wrote = snprintf(out + used, len - used, ",\"count\":\"%llu\",\"rate\":%s,\"converted_rate\":%s,\"count_id\":%u,\"rate_id\":%u",
+                             (unsigned long long)count.value.u64, rateText, convertedText,
+                             unsigned(ValueIds::Digital + logical), unsigned(ValueIds::PulseRate + logical));
+            if (wrote < 0 || size_t(wrote) >= len - used) return false;
+            used += size_t(wrote);
+        }
+    }
     wrote = snprintf(out + used, len - used, ",\"ts\":%lu}", (unsigned long)millis());
     if (wrote < 0 || (size_t)wrote >= (len - used)) return false;
 
@@ -1095,6 +1043,10 @@ const char* IOModule::runtimeSnapshotSuffix(uint8_t idx) const
     if (!runtimeSnapshotRouteFromIndex_(idx, routeType, slotIdx)) return nullptr;
 
     static char suffix[24];
+    if (routeType == ROUTE_VALUE) {
+        snprintf(suffix, sizeof(suffix), "rt/value/%u", unsigned(valueRoutes_[slotIdx]));
+        return suffix;
+    }
     if (routeType == ROUTE_ANALOG_OUTPUT) {
         snprintf(suffix, sizeof(suffix), "rt/io/output/o%02u", unsigned(slotIdx));
         return suffix;
@@ -1129,7 +1081,6 @@ RuntimeRouteClass IOModule::runtimeSnapshotClass(uint8_t idx) const
 
 bool IOModule::runtimeSnapshotAffectsKey(uint8_t idx, DataKey key) const
 {
-    if (key < DATAKEY_IO_BASE || key >= (DataKey)(DATAKEY_IO_BASE + IO_MAX_ENDPOINTS)) return false;
 
     static constexpr uint8_t ROUTE_ANALOG = 0;
     static constexpr uint8_t ROUTE_DIGITAL_INPUT = 1;
@@ -1139,6 +1090,14 @@ bool IOModule::runtimeSnapshotAffectsKey(uint8_t idx, DataKey key) const
     uint8_t slotIdx = 0xFF;
     if (!runtimeSnapshotRouteFromIndex_(idx, routeType, slotIdx)) return false;
 
+    if (routeType == ROUTE_VALUE) return key == DataKeys::ValueBase + valueRoutes_[slotIdx];
+    if (key >= DataKeys::ValueBase && key <= DataKeys::ReservedMax) {
+        if (routeType != ROUTE_DIGITAL_INPUT) return false;
+        const ValueId valueId = key - DataKeys::ValueBase;
+        const auto logical = digitalSlots_[slotIdx].logicalIdx;
+        return valueId == ValueIds::Digital + logical || valueId == ValueIds::PulseRate + logical ||
+               valueId == ValueIds::Total + logical || valueId == ValueIds::ConvertedRate + logical;
+    }
     IOEndpoint* ep = nullptr;
     if (routeType == ROUTE_ANALOG_OUTPUT) {
         ep = &analogOutputs_[slotIdx].endpoint;
@@ -1152,7 +1111,8 @@ bool IOModule::runtimeSnapshotAffectsKey(uint8_t idx, DataKey key) const
     if (!ep || !ep->id()) return false;
 
     uint8_t endpointIdx = 0;
-    if (!endpointIndexFromId_(ep->id(), endpointIdx)) return false;
+    endpointIdx = ep->runtimeIndex;
+    if (endpointIdx >= IO_MAX_ENDPOINTS) return false;
     return key == (DataKey)(DATAKEY_IO_BASE + endpointIdx);
 }
 
@@ -1165,6 +1125,19 @@ bool IOModule::buildRuntimeSnapshot(uint8_t idx, char* out, size_t len, uint32_t
     uint8_t slotIdx = 0xFF;
     if (!runtimeSnapshotRouteFromIndex_(idx, routeType, slotIdx)) return false;
 
+    if (routeType == ROUTE_VALUE) {
+        ValueSnapshot sample{};
+        ValueMetadata metadata{};
+        const ValueId id = valueRoutes_[slotIdx];
+        if (!dataStore_ || !dataStore_->values.read(id, sample, &metadata)) return false;
+        char number[40] = "null";
+        if (sample.quality == ValueQuality::Valid)
+            snprintf(number, sizeof(number), "%.17g", valueAsDouble(metadata.type, sample.value));
+        const int wrote = snprintf(out, len, "{\"id\":%u,\"value\":%s,\"quality\":%u,\"generation\":%lu}",
+                                   unsigned(id), number, unsigned(sample.quality), (unsigned long)sample.generation);
+        maxTsOut = sample.sequence ? sample.sequence : 1;
+        return wrote >= 0 && size_t(wrote) < len;
+    }
     if (routeType == ROUTE_ANALOG_OUTPUT) return buildEndpointSnapshot_(&analogOutputs_[slotIdx].endpoint, out, len, maxTsOut);
     IOEndpoint* ep = nullptr;
     if (routeType == ROUTE_ANALOG) {
@@ -1193,18 +1166,16 @@ bool IOModule::buildGroupSnapshot_(char* out, size_t len, bool inputGroup, uint3
 
         const char* id = ep->id();
         if (!id || id[0] == '\0') continue;
-        if (inputGroup && !isInputEndpointIdLocal(id)) continue;
-        if (!inputGroup && !isOutputEndpointIdLocal(id)) continue;
-        if (inputGroup && id[0] == 'a' && hasDecimalSuffixLocal(id + 1)) {
-            const uint8_t analogIdx = (uint8_t)atoi(id + 1);
-            if (!analogSlotPublished_(analogIdx)) continue;
-        }
+        const bool sensor = ep->type() == IO_EP_ANALOG_SENSOR || ep->type() == IO_EP_DIGITAL_SENSOR;
+        if (inputGroup != sensor) continue;
+        if (ep->type() == IO_EP_ANALOG_SENSOR &&
+            !analogSlotPublished_(ep->numericId - IO_ID_AI_BASE)) continue;
 
         IOEndpointValue v{};
         bool ok = ep->read(v);
         if (!ok) v.valid = false;
 
-        const char* label = endpointLabel(id);
+        const char* label = endpointLabel(ep->numericId);
         wrote = snprintf(out + used, len - used, "%s\"%s\":{\"name\":\"%s\",\"available\":%s,\"value\":",
                          first ? "" : ",",
                          id,
@@ -1308,6 +1279,7 @@ bool IOModule::tickDigitalInputs_(void* ctx, uint32_t nowMs)
         if (self->digitalSlots_[i].kind != DIGITAL_SLOT_INPUT) continue;
         (void)self->processDigitalInputDefinition_(i, nowMs);
     }
+    self->checkpointPulses_(nowMs);
     self->pollPulseOutputs_(nowMs);
     return true;
 }
@@ -1404,11 +1376,16 @@ void IOModule::invalidateAnalogSlot_(AnalogSlot& slot, uint32_t nowMs)
     if (!slot.lastRoundedValid) return;
 
     slot.endpoint->update(slot.lastRounded, false, nowMs);
+    if (dataStore_) {
+        ValueNumber sample; sample.f = slot.lastRounded;
+        dataStore_->values.write(ValueIds::Analog + (slot.ioId - IO_ID_AI_BASE), sample,
+                                esp_timer_get_time() / 1000ULL, ValueQuality::Invalid);
+    }
     slot.lastRoundedValid = false;
 
     if (dataStore_) {
         uint8_t rtIdx = 0;
-        if (endpointIndexFromId_(slot.def.id, rtIdx)) {
+        if ((rtIdx = slot.endpoint->runtimeIndex) < IO_MAX_ENDPOINTS) {
             (void)setIoEndpointInvalid(*dataStore_, rtIdx, IO_VALUE_FLOAT, nowMs);
         }
     }
@@ -1473,13 +1450,17 @@ bool IOModule::processAnalogDefinition_(uint8_t idx, uint32_t nowMs)
     }
 
     slot.endpoint->update(rounded, true, nowMs);
+    if (dataStore_) {
+        ValueNumber sample; sample.f = rounded;
+        dataStore_->values.write(ValueIds::Analog + idx, sample, esp_timer_get_time() / 1000ULL);
+    }
 
     if (!slot.lastRoundedValid || rounded != slot.lastRounded) {
         slot.lastRounded = rounded;
         slot.lastRoundedValid = true;
         if (dataStore_) {
             uint8_t rtIdx = 0;
-            if (endpointIndexFromId_(slot.def.id, rtIdx)) {
+            if ((rtIdx = slot.endpoint->runtimeIndex) < IO_MAX_ENDPOINTS) {
                 (void)setIoEndpointFloat(*dataStore_, rtIdx, rounded, nowMs);
             }
         }
@@ -1502,77 +1483,40 @@ bool IOModule::processDigitalInputDefinition_(uint8_t slotIdx, uint32_t nowMs)
     DigitalSensorEndpoint* inputEp = static_cast<DigitalSensorEndpoint*>(slot.endpoint);
 
     if (slot.inDef.mode == IO_DIGITAL_INPUT_COUNTER) {
-        if (!slot.provider.isBound()) return false;
-        IDigitalCounterDriver* counterDriver = static_cast<IDigitalCounterDriver*>(slot.provider.ctx);
-        if (!counterDriver) return false;
-
-        const IODigitalInputSlotConfig* cfg = (slot.logicalIdx < MAX_DIGITAL_INPUTS) ? &digitalInCfg_[slot.logicalIdx] : nullptr;
-        const float c0 = cfg ? cfg->c0 : 1.0f;
-        const int32_t precision = sanitizeAnalogPrecision_(cfg ? cfg->precision : 0);
-
-        int32_t rawCount = 0;
-        if (!counterDriver->readCount(rawCount)) {
-            if (slot.lastValid) {
-                const float invalidValue = ioRoundToPrecision(slot.counterScaledTotal, precision);
-                inputEp->updateFloat(invalidValue, false, nowMs);
-                slot.lastValid = false;
-            }
-            return false;
+        if (!slot.provider.isBound() || !pulseStorageReady_ || !dataStore_) return false;
+        auto* driver = static_cast<IDigitalCounterDriver*>(slot.provider.ctx);
+        uint64_t raw = 0;
+        if (!driver || !driver->readCount(raw)) return false;
+        const auto& cfg = digitalInCfg_[slot.logicalIdx];
+        if (slot.counterResetSeen != cfg.counterReset) {
+            slot.pulse.reset(raw, slot.pulse.generation + 1, nowMs);
+            slot.counterResetSeen = cfg.counterReset;
         }
-
-        float* lastConfigTotal = counterConfigTotalState_(slot.logicalIdx);
-        if (cfg && lastConfigTotal && *lastConfigTotal != cfg->counterTotal) {
-            slot.counterScaledTotal = cfg->counterTotal;
-            slot.counterLastPersistedTotal = cfg->counterTotal;
-            *lastConfigTotal = cfg->counterTotal;
-            slot.counterLastRawCount = rawCount;
-            slot.counterLastFlushedRawCount = rawCount;
-            slot.counterLastPersistMs = nowMs;
-        }
-
-        const int32_t delta = rawCount - slot.counterLastRawCount;
-        if (delta > 0) {
-            slot.counterScaledTotal += ((float)delta * c0);
-            slot.counterLastRawCount = rawCount;
-            if (cfgData_.traceEnabled) {
-                const float tracedScaledValue = ioRoundToPrecision(slot.counterScaledTotal, precision);
-                LOGI("Counter pulse i%02u io=%u raw=%ld delta=%ld total=%.3f",
-                     (unsigned)slot.logicalIdx,
-                     (unsigned)slot.ioId,
-                     (long)rawCount,
-                     (long)delta,
-                     (double)tracedScaledValue);
-            }
-        } else if (delta < 0) {
-            if (cfgData_.traceEnabled) {
-                LOGW("Counter raw reset i%02u io=%u raw=%ld prev_raw=%ld",
-                     (unsigned)slot.logicalIdx,
-                     (unsigned)slot.ioId,
-                     (long)rawCount,
-                     (long)slot.counterLastRawCount);
-            }
-            slot.counterLastRawCount = rawCount;
-            slot.counterLastFlushedRawCount = rawCount;
-        }
-        (void)persistCounterTotalIfNeeded_(slot, rawCount, nowMs);
-
-        const float scaledValue = ioRoundToPrecision(slot.counterScaledTotal, precision);
-
-        IOEndpointValue prev{};
-        const bool hasPrev = inputEp->read(prev) && prev.valid && prev.valueType == IO_EP_VALUE_FLOAT;
-        const bool changed = (!slot.lastValid) || (delta != 0) || !hasPrev || (prev.v.f != scaledValue);
+        const bool valid = slot.pulse.sample(raw, nowMs);
+        const ValueId countId = ValueIds::Digital + slot.logicalIdx;
+        const uint64_t stamp = esp_timer_get_time() / 1000ULL;
+        auto& values = dataStore_->values;
+        const bool calibrationValid = isfinite(cfg.c0) && cfg.c0 >= 0;
+        values.setAffine(ValueIds::Total + slot.logicalIdx, cfg.c0, 0);
+        values.setAffine(ValueIds::ConvertedRate + slot.logicalIdx, cfg.c0, 0);
+        ValueNumber count; count.u64 = slot.pulse.count;
+        values.write(countId, count, stamp, valid ? ValueQuality::Valid : ValueQuality::Invalid, slot.pulse.generation);
+        ValueNumber rate; rate.f = slot.pulse.rate;
+        values.write(ValueIds::PulseRate + slot.logicalIdx, rate, stamp,
+                     slot.pulse.rateValid ? ValueQuality::Valid : ValueQuality::Unknown, slot.pulse.generation);
+        ValueSnapshot total{};
+        values.read(ValueIds::Total + slot.logicalIdx, total);
+        const float scaled = ioRoundToPrecision(static_cast<float>(total.value.d), sanitizeAnalogPrecision_(cfg.precision));
+        IOEndpointValue previous{};
+        const bool changed = !inputEp->read(previous) || previous.v.f != scaled || previous.valid != valid;
+        inputEp->updateFloat(scaled, valid && calibrationValid, nowMs);
+        slot.lastValid = valid && calibrationValid;
         if (changed) {
-            inputEp->updateFloat(scaledValue, true, nowMs);
-            slot.lastValid = true;
-            if (dataStore_) {
-                uint8_t rtIdx = 0;
-                if (endpointIndexFromId_(slot.endpointId, rtIdx)) {
-                    (void)setIoEndpointFloat(*dataStore_, rtIdx, scaledValue, nowMs);
-                }
-            }
+            if (slot.lastValid) setIoEndpointFloat(*dataStore_, inputEp->runtimeIndex, scaled, nowMs);
+            else setIoEndpointInvalid(*dataStore_, inputEp->runtimeIndex, IO_VALUE_FLOAT, nowMs);
             markIoCycleChanged_(slot.ioId);
         }
-        return true;
+        return valid;
     }
 
     if (!slot.provider.isBound()) return false;
@@ -1587,6 +1531,10 @@ bool IOModule::processDigitalInputDefinition_(uint8_t slotIdx, uint32_t nowMs)
         return false;
     }
 
+    if (dataStore_) {
+        ValueNumber sample; sample.b = on;
+        dataStore_->values.write(ValueIds::Digital + slot.logicalIdx, sample, esp_timer_get_time() / 1000ULL);
+    }
     const bool changed = (!slot.lastValid) || (slot.lastValue != on);
     if (changed) {
         inputEp->update(on, true, nowMs);
@@ -1594,7 +1542,7 @@ bool IOModule::processDigitalInputDefinition_(uint8_t slotIdx, uint32_t nowMs)
         slot.lastValid = true;
         if (dataStore_) {
             uint8_t rtIdx = 0;
-            if (endpointIndexFromId_(slot.endpointId, rtIdx)) {
+            if ((rtIdx = slot.endpoint->runtimeIndex) < IO_MAX_ENDPOINTS) {
                 (void)setIoEndpointBool(*dataStore_, rtIdx, on, nowMs);
             }
         }
@@ -1624,16 +1572,20 @@ void IOModule::traceDigitalCounters_(uint32_t nowMs)
 
         IODigitalCounterDebugStats stats{};
         if (!counterDriver->readDebugStats(stats)) continue;
-        LOGD("Counter dbg i%02u pin=%u accepted=%ld raw_hw=%lu polls=%lu dropped_db=%lu active_high=%u edge_mode=%u",
+        LOGD("Counter dbg i%02u pin=%u accepted=%llu raw_hw=%llu polls=%lu dropped_db=%lu active_high=%u edge_mode=%u",
              (unsigned)slot.logicalIdx,
              (unsigned)stats.pin,
-             (long)stats.pulseCount,
-             (unsigned long)stats.irqCalls,
+             (unsigned long long)stats.pulseCount,
+             (unsigned long long)stats.irqCalls,
              (unsigned long)stats.transitions,
              (unsigned long)stats.ignoredDebounce,
              (unsigned)stats.activeHigh,
              (unsigned)stats.edgeMode);
-
+        LOGD("Pulse i%02u logical=%llu rate=%.4f checkpoint=%llu writes=%lu failures=%lu values=%u",
+             unsigned(slot.logicalIdx), (unsigned long long)slot.pulse.count, double(slot.pulse.rate),
+             (unsigned long long)pulsePersisted_.count[slot.logicalIdx],
+             (unsigned long)pulseCheckpointWrites_, (unsigned long)pulseCheckpointFailures_,
+             unsigned(dataStore_ ? dataStore_->values.used() : 0));
     }
 }
 
@@ -1656,7 +1608,7 @@ void IOModule::forceAnalogSnapshotPublish_(uint8_t analogIdx, uint32_t nowMs)
     float republished = ioRoundToPrecision(v.v.f, slot.def.precision);
     slot.endpoint->update(republished, true, nowMs);
     if (dataStore_) {
-        (void)setIoEndpointFloat(*dataStore_, analogIdx, republished, nowMs);
+        (void)setIoEndpointFloat(*dataStore_, slot.endpoint->runtimeIndex, republished, nowMs);
     }
 }
 
@@ -2144,7 +2096,7 @@ IoStatus IOModule::ioWriteDigital_(IoId id, uint8_t on, uint32_t tsMs, uint8_t o
 
     if (dataStore_) {
         uint8_t rtIdx = 0;
-        if (endpointIndexFromId_(s.endpointId, rtIdx)) {
+        if ((rtIdx = s.endpoint->runtimeIndex) < IO_MAX_ENDPOINTS) {
             (void)setIoEndpointBool(*dataStore_, rtIdx, in.v.b, in.timestampMs);
         }
     }
@@ -2750,53 +2702,6 @@ bool IOModule::resolveDsBusAddress_(OneWireBus* bus, const char* runtimeKey, uin
     return true;
 }
 
-bool IOModule::persistCounterTotalIfNeeded_(DigitalSlot& slot, int32_t rawCount, uint32_t nowMs)
-{
-    static constexpr int32_t kCounterPersistPulseDelta = 32;
-    static constexpr uint32_t kCounterPersistPeriodMs = 180000U;
-
-    if (slot.kind != DIGITAL_SLOT_INPUT || slot.inDef.mode != IO_DIGITAL_INPUT_COUNTER) return false;
-    if (slot.counterScaledTotal == slot.counterLastPersistedTotal) return false;
-
-    bool shouldPersist = false;
-    if (rawCount >= slot.counterLastFlushedRawCount &&
-        (rawCount - slot.counterLastFlushedRawCount) >= kCounterPersistPulseDelta) {
-        shouldPersist = true;
-    }
-    if (!shouldPersist &&
-        slot.counterLastPersistMs != 0U &&
-        (uint32_t)(nowMs - slot.counterLastPersistMs) >= kCounterPersistPeriodMs) {
-        shouldPersist = true;
-    }
-    if (!shouldPersist) return false;
-
-    ConfigVariable<float,0>* totalVar = counterTotalVar_(slot.logicalIdx);
-    if (!totalVar) return false;
-
-    if (cfgSvc_ && cfgSvc_->persistFloatAsync) {
-        if (!totalVar->value || !totalVar->nvsKey) return false;
-        if (!cfgSvc_->persistFloatAsync(cfgSvc_->ctx,
-                                        totalVar->nvsKey,
-                                        slot.counterScaledTotal,
-                                        totalVar->moduleName,
-                                        totalVar->moduleId,
-                                        totalVar->localBranchId)) {
-            return false;
-        }
-        *(totalVar->value) = slot.counterScaledTotal;
-        totalVar->notify();
-    } else {
-        return false;
-    }
-    if (float* lastConfigTotal = counterConfigTotalState_(slot.logicalIdx)) {
-        *lastConfigTotal = slot.counterScaledTotal;
-    }
-    slot.counterLastPersistedTotal = slot.counterScaledTotal;
-    slot.counterLastFlushedRawCount = rawCount;
-    slot.counterLastPersistMs = nowMs;
-    return true;
-}
-
 bool IOModule::configureRuntime_()
 {
     if (runtimeReady_) return true;
@@ -2806,6 +2711,9 @@ bool IOModule::configureRuntime_()
         return false;
     }
 
+    if (!dataStore_) return false;
+    pulseStorageReady_ = loadPulseCheckpoint_();
+    if (!pulseStorageReady_) LOGE("Pulse checkpoint unavailable or corrupt; counters disabled");
     bool needAnalogSource[IO_SRC_COUNT] = {false};
 
     for (uint8_t i = 0; i < MAX_ANALOG_ENDPOINTS; ++i) {
@@ -2854,9 +2762,10 @@ bool IOModule::configureRuntime_()
             continue;
         }
 
+        if (!dataStore_->values.define(ValueIds::Analog + i, {})) return false;
         analogSlots_[i].endpoint = allocAnalogEndpoint_(analogSlots_[i].def.id);
         if (!analogSlots_[i].endpoint) continue;
-        if (!registry_.add(analogSlots_[i].endpoint)) {
+        if (!registry_.add(analogSlots_[i].endpoint, analogSlots_[i].ioId)) {
             LOGE("I/O registry full while adding analog endpoint id=%s count=%u capacity=%u",
                  analogSlots_[i].def.id,
                  (unsigned)registry_.count(),
@@ -3031,6 +2940,7 @@ bool IOModule::configureRuntime_()
                 continue;
             }
 
+            if (s.inDef.mode == IO_DIGITAL_INPUT_COUNTER && !pulseStorageReady_) continue;
             s.provider = makeDigitalProvider(driver);
             if (!s.provider.begin()) {
                 LOGW("Digital input %s driver begin failed id=%s pin=%u binding_port=%u mode=%u debounce_us=%lu",
@@ -3047,31 +2957,22 @@ bool IOModule::configureRuntime_()
             s.endpoint = allocDigitalSensorEndpoint_(s.endpointId, valueType);
             if (!s.endpoint) continue;
             if (s.inDef.mode == IO_DIGITAL_INPUT_COUNTER) {
-                eraseLegacyCounterPersistedTotal_(s.logicalIdx);
-                int32_t initialRawCount = 0;
-                if (counterDriver) {
-                    (void)counterDriver->readCount(initialRawCount);
-                }
-
-                const IODigitalInputSlotConfig* cfg = (s.logicalIdx < MAX_DIGITAL_INPUTS) ? &digitalInCfg_[s.logicalIdx] : nullptr;
-                const float c0 = cfg ? cfg->c0 : 1.0f;
-                const int32_t precision = sanitizeAnalogPrecision_(cfg ? cfg->precision : 0);
-                const float configTotal = cfg ? cfg->counterTotal : 0.0f;
-
-                if (float* lastConfigTotal = counterConfigTotalState_(s.logicalIdx)) {
-                    *lastConfigTotal = configTotal;
-                }
-                s.counterScaledTotal = configTotal;
-                s.counterScaledTotal += ((float)initialRawCount * c0);
-                s.counterLastPersistedTotal = configTotal;
-                s.counterLastRawCount = initialRawCount;
-                s.counterLastFlushedRawCount = initialRawCount;
-                s.counterLastPersistMs = millis();
-                s.lastValid = false;
-                const float scaledValue = ioRoundToPrecision(s.counterScaledTotal, precision);
-                static_cast<DigitalSensorEndpoint*>(s.endpoint)->updateFloat(scaledValue, true, millis());
+                s.pulse.restore(pulsePersisted_.count[s.logicalIdx], pulsePersisted_.generation[s.logicalIdx], millis());
+                s.counterResetSeen = digitalInCfg_[s.logicalIdx].counterReset;
+                if (s.counterResetSeen != pulsePersisted_.resetToken[s.logicalIdx])
+                    s.pulse.reset(0, s.pulse.generation + 1, millis());
+                const ValueMetadata countMeta{ValueType::UInt64, AggregationMode::Counter, ValueUnit::Pulse};
+                const ValueMetadata rateMeta{ValueType::Float, AggregationMode::Rate, ValueUnit::PulsePerMinute};
+                const double scale = digitalInCfg_[s.logicalIdx].c0;
+                if (!dataStore_->values.define(ValueIds::Digital + s.logicalIdx, countMeta) ||
+                    !dataStore_->values.define(ValueIds::PulseRate + s.logicalIdx, rateMeta) ||
+                    !dataStore_->values.defineAffine(ValueIds::Total + s.logicalIdx, ValueIds::Digital + s.logicalIdx, scale, 0, AggregationMode::Counter) ||
+                    !dataStore_->values.defineAffine(ValueIds::ConvertedRate + s.logicalIdx, ValueIds::PulseRate + s.logicalIdx, scale, 0, AggregationMode::Rate)) return false;
+            } else {
+                ValueMetadata stateMeta{}; stateMeta.type = ValueType::Bool;
+                if (!dataStore_->values.define(ValueIds::Digital + s.logicalIdx, stateMeta)) return false;
             }
-            if (!registry_.add(s.endpoint)) {
+            if (!registry_.add(s.endpoint, s.ioId)) {
                 LOGE("I/O registry full while adding digital input id=%s count=%u capacity=%u",
                      s.endpointId,
                      (unsigned)registry_.count(),
@@ -3195,7 +3096,7 @@ bool IOModule::configureRuntime_()
             &s
         ));
         if (!s.endpoint) continue;
-        if (!registry_.add(s.endpoint)) {
+        if (!registry_.add(s.endpoint, s.ioId)) {
             LOGE("I/O registry full while adding digital output id=%s count=%u capacity=%u",
                  s.endpointId,
                  (unsigned)registry_.count(),
@@ -3219,7 +3120,7 @@ bool IOModule::configureRuntime_()
         static_cast<DigitalActuatorEndpoint*>(s.endpoint)->adoptValue(actualOn, nowMs);
         if (dataStore_) {
             uint8_t rtIdx = 0;
-            if (endpointIndexFromId_(s.endpointId, rtIdx)) {
+            if ((rtIdx = s.endpoint->runtimeIndex) < IO_MAX_ENDPOINTS) {
                 (void)setIoEndpointBool(*dataStore_, rtIdx, actualOn, nowMs);
             }
         }
@@ -3454,7 +3355,15 @@ bool IOModule::configureRuntime_()
     scheduler_.add(dinJob);
 
     for (auto& output : analogOutputs_) {
-        if (output.write && !registry_.add(&output.endpoint)) return false;
+        if (output.write && !registry_.add(&output.endpoint, output.meta.id)) return false;
+    }
+    if (valueConfig_ && !valueConfig_->resolve(dataStore_->values)) {
+        LOGE("Invalid Value definitions: absent source, cycle or invalid transform");
+        return false;
+    }
+    for (ValueId id = ValueIds::Derived; id < ValueIds::Capacity; ++id) {
+        ValueSnapshot value;
+        if (dataStore_->values.read(id, value)) valueRoutes_[valueRouteCount_++] = id;
     }
     runtimeReady_ = true;
     const char* expanderState = "off";
@@ -3722,19 +3631,6 @@ bool IOModule::writeDigitalOut_(void* ctx, bool on)
     return true;
 }
 
-bool IOModule::endpointIndexFromId_(const char* id, uint8_t& idxOut) const
-{
-    if (!id || id[0] == '\0') return false;
-    for (uint8_t i = 0; i < registry_.count(); ++i) {
-        IOEndpoint* ep = registry_.at(i);
-        if (!ep || !ep->id()) continue;
-        if (strcmp(ep->id(), id) != 0) continue;
-        idxOut = i;
-        return true;
-    }
-    return false;
-}
-
 void IOModule::init(ConfigStore& cfg, ServiceRegistry& services)
 {
     constexpr uint8_t kCfgModuleId = (uint8_t)ConfigModuleId::Io;
@@ -3757,6 +3653,9 @@ void IOModule::init(ConfigStore& cfg, ServiceRegistry& services)
         LOGE("service registration failed: %s", toString(ServiceId::ModbusMaster));
     }
 
+    valueConfig_ = allocPsramArray_<ValueConfig>(1);
+    if (!valueConfig_) { LOGE("Value definition allocation failed"); return; }
+    valueConfig_->registerConfig(cfg, kCfgModuleId);
     cfg.registerVar(enabledVar_, kCfgModuleId, kCfgBranchIo);
     cfg.registerVar(i2cSdaVar_, kCfgModuleId, kCfgBranchIoBus);
     cfg.registerVar(i2cSclVar_, kCfgModuleId, kCfgBranchIoBus);
@@ -3814,7 +3713,7 @@ void IOModule::init(ConfigStore& cfg, ServiceRegistry& services)
         cfg.registerVar(vars.c0Var, kCfgModuleId, branch);
         cfg.registerVar(vars.precisionVar, kCfgModuleId, branch);
         cfg.registerVar(vars.modeVar, kCfgModuleId, branch);
-        cfg.registerVar(vars.counterTotalVar, kCfgModuleId, branch);
+        cfg.registerVar(vars.counterResetVar, kCfgModuleId, branch);
     }
 
     for (uint8_t i = 0; i < DIGITAL_CFG_SLOTS; ++i) {
@@ -4037,7 +3936,7 @@ IoStatus IOModule::ioWriteAnalog_(IoId id, float value, uint32_t tsMs, uint8_t o
     next.v.f = value; next.timestampMs = tsMs;
     if (!output.endpoint.write(next)) return IO_ERR_HW;
     uint8_t index = 0;
-    if (dataStore_ && endpointIndexFromId_(output.id, index))
+    if (dataStore_ && (index = output.endpoint.runtimeIndex) < IO_MAX_ENDPOINTS)
         (void)setIoEndpointFloat(*dataStore_, index, value, tsMs);
     markIoCycleChanged_(id);
     return IO_OK;

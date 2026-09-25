@@ -28,8 +28,7 @@ struct IOModuleConfig {
     uint8_t adsExternalAddr = FLOW_WIRDEF_IO_AEAD;
     int32_t adsGain = FLOW_MODDEF_IO_AGAI;
     int32_t adsRate = FLOW_MODDEF_IO_ARAT;
-    bool sht40Enabled =
-        true;
+    bool sht40Enabled = false;
     uint8_t sht40Address = 0x44;
     int32_t sht40PollMs = 2000;
     bool bmp280Enabled =
@@ -191,7 +190,7 @@ struct IODigitalInputSlotConfig {
     uint8_t edgeMode = IO_EDGE_RISING;
     int32_t counterDebounceUs = 0;
     float c0 = 1.0f;
-    float counterTotal = 0.0f;
+    uint16_t counterReset = 0;
     int32_t precision = 0;
 };
 

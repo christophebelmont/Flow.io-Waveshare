@@ -1278,3 +1278,19 @@ body.web-icons-disabled .control-field-apply{font-size:15px;font-weight:800;lett
 .pool-driver-editor label { display: grid; gap: .3rem; font-size: .8rem; }
 .runtime-setpoint { display: grid; gap: .25rem; min-width: 100px; }
 .runtime-setpoint span { font-size: .7rem; opacity: .8; }
+
+/* History tables stay scrollable on narrow screens; missing values remain explicit. */
+.history-card { margin-bottom: 18px; min-width: 0; }
+.history-card h2 { font-size: 1.15rem; margin: 0 0 12px; }
+.history-card p { opacity: .8; line-height: 1.5; }
+.history-scroll { overflow-x: auto; max-width: 100%; }
+.history-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.history-table th, .history-table td { padding: 12px; text-align: right; white-space: nowrap; border-bottom: 1px solid color-mix(in srgb, currentColor 14%, transparent); }
+.history-table th:first-child, .history-table td:first-child { text-align: left; }
+.history-table th { font-size: .85rem; opacity: .8; }
+.history-table button[aria-pressed="true"] { outline: 2px solid currentColor; outline-offset: 2px; }
+.history-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 14px; margin: 18px 0; }
+.history-controls label { display: grid; gap: 8px; max-width: 100%; }
+.history-controls select { max-width: 100%; padding: 10px; border-radius: 8px; background: var(--surface, transparent); color: inherit; border: 1px solid currentColor; }
+#historyStatus { min-height: 1.5em; }
+@media (max-width: 600px) { .history-table th, .history-table td { padding: 10px 8px; } }

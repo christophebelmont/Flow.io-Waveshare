@@ -64,7 +64,7 @@ void test_daily_metrics_filtration_temperature_and_refill_are_aggregated()
     TEST_ASSERT_EQUAL_UINT32(3U, snapshot.today.ph.sampleCount);
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, 7.10f, snapshot.today.ph.minimum);
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, 7.40f, snapshot.today.ph.maximum);
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 7.233333f, snapshot.today.ph.average);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 7.30f, snapshot.today.ph.average);
     TEST_ASSERT_EQUAL_UINT32(60U, snapshot.today.filtration.runningMinutes);
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, snapshot.today.filtration.runningHours);
     TEST_ASSERT_EQUAL_UINT32(60U,
@@ -221,7 +221,7 @@ void test_seven_complete_days_and_pool_characteristics_are_exposed()
     TEST_ASSERT_TRUE(snapshot.currentOperatingConfiguration.heaterAutoMode);
 }
 
-void test_persistence_v3_round_trip_and_checksum_validation()
+void test_persistence_v4_round_trip_and_checksum_validation()
 {
     PoolHistoryAccumulator history{};
     history.alignDay(20260904U, 1788472800ULL, kDatesForSep04);
@@ -268,6 +268,6 @@ int main()
     RUN_TEST(test_restore_places_records_in_expected_calendar_slots_and_marks_missing_days);
     RUN_TEST(test_unknown_refill_flow_invalidates_volume_but_keeps_events);
     RUN_TEST(test_seven_complete_days_and_pool_characteristics_are_exposed);
-    RUN_TEST(test_persistence_v3_round_trip_and_checksum_validation);
+    RUN_TEST(test_persistence_v4_round_trip_and_checksum_validation);
     return UNITY_END();
 }

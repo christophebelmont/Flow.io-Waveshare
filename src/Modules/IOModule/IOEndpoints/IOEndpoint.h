@@ -37,6 +37,8 @@ struct IOEndpointValue {
 
 class IOEndpoint {
 public:
+    uint8_t runtimeIndex = UINT8_MAX;
+    uint16_t numericId = UINT16_MAX;
     virtual ~IOEndpoint() = default;
     virtual const char* id() const = 0;
     virtual IOEndpointType type() const = 0;

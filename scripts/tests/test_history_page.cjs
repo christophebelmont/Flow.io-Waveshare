@@ -1,0 +1,60 @@
+'use strict';
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { chromium } = require('playwright');
+const root = path.resolve(__dirname, '../..');
+const app = fs.readFileSync(path.join(root, 'data/webinterface/app.js'), 'utf8');
+const code = app.slice(app.indexOf('    // History is fetched only'), app.indexOf('    function showPage('));
+const shell = fs.readFileSync(path.join(root, 'data/webinterface/sh.html'), 'utf8');
+const section = shell.slice(shell.indexOf('      <section id="page-history"'), shell.indexOf('      <section id="page-activity-log"'));
+(async () => {
+  const browser = await chromium.launch({ headless: true, executablePath: process.env.FLOWIO_TEST_BROWSER || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 1050 } });
+    await page.setContent('<html lang="fr"><body><main style="padding:24px;max-width:1150px;margin:auto">' + section.replace('class="page"', 'class="page active"') + '</main></body></html>');
+    await page.addStyleTag({ content: fs.readFileSync(path.join(root, 'data/webinterface/app-core.css'), 'utf8') });
+    await page.evaluate(code => {
+      window.tr = (key, fallback) => fallback || key;
+      window.currentWebLocaleTag = () => 'fr-FR';
+      const metric = average => ({ average, min: average == null ? null : average - .2, max: average == null ? null : average + .3, first: average, last: average, samples: 120 });
+      const activity = seconds => ({ seconds, observed_seconds: 36000, periods: [0, 1, 2, 3].map(i => ({ seconds: i === 2 ? seconds : 0, observed_seconds: 9000 })) });
+      window.fixture = { ok: true, ready: true, days: Array.from({length: 8}, (_, i) => ({ valid: i !== 7, complete: i > 0, date: 20260925 - i, from: 1790294400, until: 1790330400, metrics: [metric(25.4 - i * .2), metric(19.2), metric(i === 1 ? null : 7.2), metric(680), metric(25.6), metric(25.1), metric(7.2), metric(700), metric(26)], filtration: activity(i ? 18000 : 7200), heating: activity(0), refill_litres: i ? 25 : 0, refill_events: i ? 1 : 0, night_delta: -.5 })), values: [{ id: 32, mode: 2, type: 3 }, { id: 0, mode: 0, type: 4 }] };
+      window.requests = [];
+      window.responseMode = 0;
+      window.fetchOkJson = async (url) => {
+        requests.push(url);
+        if (responseMode === 1) throw new Error('offline');
+        if (url.includes('/value?')) return { ok: true, mode: 2, type: 3, records: responseMode === 2 ? [] : [{ start_utc: 1790294400, current: true, raw_delta: '18446744073709551615', discontinuities: 1, boundary_uncertain: true }] };
+        return structuredClone(fixture);
+      };
+      const script = document.createElement('script'); script.textContent = code; document.body.appendChild(script);
+    }, code);
+    await page.evaluate(() => loadHistory());
+    assert.equal(await page.locator('#historyDays tbody tr').count(), 8);
+    assert.equal(await page.locator('#historyMetrics tbody tr').count(), 9);
+    assert.equal(await page.locator('#historyDays tbody tr').first().locator('td').nth(5).textContent(), '0 L');
+    await page.locator('#historyDays button').nth(1).click();
+    assert.equal(await page.locator('#historyMetrics tbody tr').nth(2).locator('td').nth(1).textContent(), '—');
+    assert.equal(await page.locator('#historyDays button').last().isDisabled(), true);
+    await page.locator('#historyValueRead').click();
+    await page.waitForFunction(() => document.getElementById('historyStatus').textContent.includes('actualisées'));
+    assert.ok((await page.locator('#historyValues').textContent()).includes('18446744073709551615'));
+    assert.ok((await page.locator('#historyValues').textContent()).includes('Ruptures: 1'));
+    assert.ok((await page.locator('#historyValues').textContent()).includes('incertaine'));
+    await page.evaluate(() => { responseMode = 2; return loadHistory(true); });
+    assert.ok((await page.locator('#historyStatus').textContent()).includes('Aucune période'));
+    await page.evaluate(() => { responseMode = 1; return loadHistory(); });
+    assert.ok((await page.locator('#historyStatus').textContent()).includes('indisponible'));
+    assert.equal(await page.locator('#historyRefresh').isDisabled(), false);
+    await page.evaluate(() => { responseMode = 0; return loadHistory(); });
+    await page.screenshot({ path: '/tmp/flowio-history-desktop.png', fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.screenshot({ path: '/tmp/flowio-history-mobile.png', fullPage: true });
+    const count = await page.evaluate(() => requests.length);
+    await page.waitForTimeout(1100);
+    assert.equal(await page.evaluate(() => requests.length), count, 'No background polling');
+    console.log('History browser: daily/detail tables, missing vs zero, exact uint64, resets, empty/error, responsive layout, no polling OK');
+  } finally { await browser.close(); }
+})().catch(error => { console.error(error); process.exit(1); });

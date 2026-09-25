@@ -26,7 +26,7 @@
  *
  * | Module | Delay (ms) | Rationale |
  * | --- | ---: | --- |
- * | `eventbus` | `0` | Event bus available immediately; publishes `SystemStarted` from `onStart()` once subscriptions are in place |
+ * | `eventbus` | `0` | Event bus available immediately; publishes `SystemStarted` from its dispatch task once subscriptions are in place |
  * | `mqtt` | `1500` | Preserves the historical staged release before MQTT connect attempts |
  * | `poollogic` | `10000` | Preserves the historical delayed control-loop start |
  * | `ha` | `15000` | Preserves the historical delayed Home Assistant discovery startup |

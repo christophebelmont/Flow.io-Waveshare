@@ -13,14 +13,13 @@ constexpr uint8_t IO_REGISTRY_MAX_ENDPOINTS = IO_MAX_ENDPOINTS;
 
 class IORegistry {
 public:
-    bool add(IOEndpoint* endpoint);
-    IOEndpoint* find(const char* id) const;
+    bool add(IOEndpoint* endpoint, uint16_t numericId);
 
     uint8_t count() const { return count_; }
     IOEndpoint* at(uint8_t i) const;
 
-    bool read(const char* id, IOEndpointValue& out) const;
-    bool write(const char* id, const IOEndpointValue& in) const;
+    bool read(uint8_t index, IOEndpointValue& out) const;
+    bool write(uint8_t index, const IOEndpointValue& in) const;
 
 private:
     IOEndpoint* endpoints_[IO_REGISTRY_MAX_ENDPOINTS] = {nullptr};

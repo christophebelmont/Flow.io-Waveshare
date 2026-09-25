@@ -238,7 +238,6 @@ private:
     float o2LastFlowLh_ = 0.0f;
     uint32_t o2LastProgressMs_ = 0;
     uint32_t o2LastPersistMs_ = 0;
-    mutable char o2PoolDeviceJsonBuf_[160] = {0};
 
     // Controlled pool devices
     uint8_t filtrationDeviceSlot_ = PoolIds::DeviceFiltrationPump;
@@ -540,8 +539,7 @@ private:
     float computeO2WeeklyDoseMl_(bool haveWaterTemp, float waterTemp) const;
     void setO2ProtocolState_(uint8_t state, uint8_t blockReason, uint32_t nowMs);
     void persistO2Protocol_(uint32_t nowMs, bool force);
-    bool stepO2Protocol_(bool filtrationDesired,
-                         bool filtrationOn,
+    bool stepO2Protocol_(bool filtrationOn,
                          uint32_t filtrationRunMin,
                          bool haveWaterTemp,
                          float waterTemp,

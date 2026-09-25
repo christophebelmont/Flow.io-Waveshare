@@ -8,6 +8,12 @@
 
 void DataStoreModule::init(ConfigStore&, ServiceRegistry& services)
 {
+    if (!_store.values.begin()) {
+        LOGE("Value storage allocation failed bytes=%u", (unsigned)ValueRegistry::storageBytes());
+    } else {
+        LOGI("Value storage ready bytes=%u memory=%s", (unsigned)ValueRegistry::storageBytes(),
+             _store.values.storageInPsram() ? "psram" : "internal");
+    }
     auto* eb = services.get<EventBusService>(ServiceId::EventBus);
     if (eb && eb->bus) {
         _store.setEventBus(eb->bus);
