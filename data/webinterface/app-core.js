@@ -66,7 +66,7 @@
     return path + '?v=' + encodeURIComponent(version);
   }
 
-  async function supervisorFetch(url, options, policy) {
+  async function busyFetch(url, options, policy) {
     var cfg = policy || {};
     var retries = Number.isFinite(cfg.retries) ? cfg.retries : 4;
     var backoff = Array.isArray(cfg.backoffMs) && cfg.backoffMs.length
@@ -82,7 +82,7 @@
         var retryAfterHeader = response.headers ? response.headers.get('Retry-After') : '';
         var fallback = backoff[Math.min(attempt, backoff.length - 1)] || 1200;
         var waitMs = parseRetryAfterMs(retryAfterHeader, fallback);
-        setBootStatus('Supervisor occupé, nouvelle tentative...');
+        setBootStatus('flow.io occupé, nouvelle tentative...');
         await sleep(waitMs);
       } catch (err) {
         lastError = err;
@@ -192,13 +192,13 @@
   }
 
   async function fetchShellMarkup(url) {
-    var res = await supervisorFetch(url, { cache: 'no-store' }, { retries: 4 });
+    var res = await busyFetch(url, { cache: 'no-store' }, { retries: 4 });
     if (!res.ok) throw new Error('shell');
     return res.text();
   }
 
   async function fetchWebMetaVersion() {
-    var res = await supervisorFetch('/api/web/meta', { cache: 'no-store' }, { retries: 4 });
+    var res = await busyFetch('/api/web/meta', { cache: 'no-store' }, { retries: 4 });
     if (!res.ok) throw new Error('meta');
     var data = await res.json();
     if (!data || data.ok !== true) throw new Error('meta');
@@ -239,7 +239,7 @@
     sleep: sleep,
     assetUrl: assetUrl,
     parseRetryAfterMs: parseRetryAfterMs,
-    supervisorFetch: supervisorFetch,
+    busyFetch: busyFetch,
     loadScriptOnce: loadScriptOnce,
     loadCssOnce: loadCssOnce,
     bootstrap: bootstrap,

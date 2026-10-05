@@ -9,11 +9,18 @@
 #include "Core/DataStore/DataStore.h"
 #include "Core/EventBus/EventPayloads.h"
 #include "Core/DataKeys.h"
+#include "Core/Values/Value.h"
 
 // RUNTIME_PUBLIC
 
 constexpr DataKey DATAKEY_IO_BASE = DataKeys::IoBase;
 static_assert(IO_MAX_ENDPOINTS <= DataKeys::IoReservedCount, "DataKeys::IoReservedCount too small for IO endpoints");
+
+// Runtime UI value ids reserved for IO derived values (ValueIds::Derived + slot).
+// Physical IO measurements use 1..79, derived values occupy the dedicated 80..99 block.
+constexpr uint8_t IO_RUNTIME_UI_DERIVED_BASE = 80;
+static_assert(IO_RUNTIME_UI_DERIVED_BASE + ValueIds::DerivedCapacity <= 100,
+              "IO derived runtime value ids exceed the runtime UI value id stride");
 
 static inline float ioRoundToPrecision(float value, int32_t decimals)
 {

@@ -23,6 +23,7 @@
 #include "Core/Services/IPoolDevice.h"
 #include "Modules/PoolDeviceModule/Drivers/PoolTelemetryJson.h"
 #include "Core/Services/IPoolConfiguration.h"
+#include "Modules/IOModule/IODerivedValueName.h"
 #include "Modules/IOModule/IORuntime.h"
 #include "Modules/PoolDeviceModule/PoolDeviceRuntime.h"
 #include "Modules/Network/MQTTModule/MQTTRuntime.h"
@@ -1374,194 +1375,6 @@ void appendJsonFieldValue_(Print& out, const char* key, JsonVariantConst value)
 
 bool dashboardSlotDegreeCUnit_(const char* unit);
 
-bool sendFlowStatusCompactResponse_(AsyncWebServerRequest* request, const FlowCfgRemoteService* flowCfgSvc)
-{
-    if (!request || !flowCfgSvc || !flowCfgSvc->runtimeStatusDomainJson) return false;
-
-    AsyncResponseStream* response = request->beginResponseStream("application/json");
-    addNoCacheHeaders_(response);
-    response->print("{\"ok\":true");
-
-    char domainBuf[640] = {0};
-    StaticJsonDocument<768> domainDoc;
-    bool anyDomainOk = false;
-    char debugSummary[512] = {0};
-    size_t debugPos = 0;
-
-    auto domainName = [](FlowStatusDomain domain) -> const char* {
-        switch (domain) {
-        case FlowStatusDomain::System: return "system";
-        case FlowStatusDomain::Wifi: return "wifi";
-        case FlowStatusDomain::Mqtt: return "mqtt";
-        case FlowStatusDomain::I2c: return "i2c";
-        case FlowStatusDomain::Pool: return "pool";
-        case FlowStatusDomain::Alarm: return "alarm";
-        default: return "unknown";
-        }
-    };
-
-    auto appendDebug = [&](const char* domain, const char* step, const char* detail) {
-        if (!domain || !step || debugPos >= (sizeof(debugSummary) - 1U)) return;
-        const char* safeDetail = (detail && detail[0] != '\0') ? detail : "";
-        const bool hasDetail = safeDetail[0] != '\0';
-        const int wrote = snprintf(debugSummary + debugPos,
-                                   sizeof(debugSummary) - debugPos,
-                                   "%s%s:%s%s%s",
-                                   debugPos > 0U ? ";" : "",
-                                   domain,
-                                   step,
-                                   hasDetail ? "=" : "",
-                                   hasDetail ? safeDetail : "");
-        if (wrote <= 0) return;
-        const size_t delta = (size_t)wrote;
-        if (delta >= (sizeof(debugSummary) - debugPos)) {
-            debugPos = sizeof(debugSummary) - 1U;
-        } else {
-            debugPos += delta;
-        }
-    };
-
-    auto loadDomain = [&](FlowStatusDomain domain) -> JsonObjectConst {
-        const char* dname = domainName(domain);
-        memset(domainBuf, 0, sizeof(domainBuf));
-        domainDoc.clear();
-        if (!flowCfgSvc->runtimeStatusDomainJson(flowCfgSvc->ctx, domain, domainBuf, sizeof(domainBuf))) {
-            appendDebug(dname, "call_fail", domainBuf[0] ? "payload" : "");
-            LOGW("flow.status domain=%s step=call_fail payload=%s",
-                 dname,
-                 domainBuf[0] ? domainBuf : "<empty>");
-            return JsonObjectConst();
-        }
-        const DeserializationError err = deserializeJson(domainDoc, domainBuf);
-        if (err || !domainDoc.is<JsonObjectConst>()) {
-            appendDebug(dname, "json_fail", err ? err.c_str() : "not_object");
-            LOGW("flow.status domain=%s step=json_fail err=%s payload=%s",
-                 dname,
-                 err ? err.c_str() : "not_object",
-                 domainBuf[0] ? domainBuf : "<empty>");
-            domainDoc.clear();
-            return JsonObjectConst();
-        }
-        JsonObjectConst root = domainDoc.as<JsonObjectConst>();
-        if (!(root["ok"] | false)) {
-            appendDebug(dname, "ok_false", "payload");
-            LOGW("flow.status domain=%s step=ok_false payload=%s",
-                 dname,
-                 domainBuf[0] ? domainBuf : "<empty>");
-            domainDoc.clear();
-            return JsonObjectConst();
-        }
-        appendDebug(dname, "ok", "");
-        anyDomainOk = true;
-        return root;
-    };
-
-    {
-        JsonObjectConst root = loadDomain(FlowStatusDomain::System);
-        if (!root.isNull()) {
-            appendJsonFieldName_(*response, "fw");
-            printJsonEscaped_(*response, root["fw"] | "");
-            appendJsonFieldValue_(*response, "upms", root["upms"]);
-            response->print(",\"heap\":{");
-            JsonObjectConst heapIn = root["heap"];
-            response->print("\"free\":");
-            serializeJson(heapIn["free"], *response);
-            appendJsonFieldValue_(*response, "min_free", heapIn["min_free"]);
-            response->print('}');
-        }
-    }
-
-    {
-        JsonObjectConst root = loadDomain(FlowStatusDomain::Wifi);
-        if (!root.isNull()) {
-            JsonObjectConst wifiIn = root["wifi"];
-            response->print(",\"wifi\":{");
-            response->print("\"rdy\":");
-            serializeJson(wifiIn["rdy"], *response);
-            appendJsonFieldName_(*response, "ip");
-            printJsonEscaped_(*response, wifiIn["ip"] | "");
-            appendJsonFieldName_(*response, "mac");
-            printJsonEscaped_(*response, wifiIn["mac"] | "");
-            appendJsonFieldValue_(*response, "hrss", wifiIn["hrss"]);
-            appendJsonFieldValue_(*response, "rssi", wifiIn["rssi"]);
-            response->print('}');
-        }
-    }
-
-    {
-        JsonObjectConst root = loadDomain(FlowStatusDomain::Mqtt);
-        if (!root.isNull()) {
-            JsonObjectConst mqttIn = root["mqtt"];
-            response->print(",\"mqtt\":{");
-            response->print("\"rdy\":");
-            serializeJson(mqttIn["rdy"], *response);
-            appendJsonFieldName_(*response, "srv");
-            printJsonEscaped_(*response, mqttIn["srv"] | "");
-            appendJsonFieldValue_(*response, "rxdrp", mqttIn["rxdrp"]);
-            appendJsonFieldValue_(*response, "prsf", mqttIn["prsf"]);
-            appendJsonFieldValue_(*response, "hndf", mqttIn["hndf"]);
-            appendJsonFieldValue_(*response, "ovr", mqttIn["ovr"]);
-            response->print('}');
-        }
-    }
-
-    {
-        JsonObjectConst root = loadDomain(FlowStatusDomain::Pool);
-        if (!root.isNull()) {
-            JsonObjectConst poolIn = root["pool"];
-            response->print(",\"pool\":{");
-            response->print("\"has\":");
-            serializeJson(poolIn["has"], *response);
-            appendJsonFieldValue_(*response, "auto", poolIn["auto"]);
-            appendJsonFieldValue_(*response, "wint", poolIn["wint"]);
-            appendJsonFieldValue_(*response, "wat", poolIn["wat"]);
-            appendJsonFieldValue_(*response, "air", poolIn["air"]);
-            appendJsonFieldValue_(*response, "ph", poolIn["ph"]);
-            appendJsonFieldValue_(*response, "orp", poolIn["orp"]);
-            appendJsonFieldValue_(*response, "fil", poolIn["fil"]);
-            appendJsonFieldValue_(*response, "php", poolIn["php"]);
-            appendJsonFieldValue_(*response, "clp", poolIn["clp"]);
-            appendJsonFieldValue_(*response, "rbt", poolIn["rbt"]);
-            response->print('}');
-        }
-    }
-
-    {
-        JsonObjectConst root = loadDomain(FlowStatusDomain::I2c);
-        if (!root.isNull()) {
-            JsonObjectConst i2cIn = root["i2c"];
-            response->print(",\"i2c\":{");
-            response->print("\"lnk\":");
-            serializeJson(i2cIn["lnk"], *response);
-            appendJsonFieldValue_(*response, "seen", i2cIn["seen"]);
-            appendJsonFieldValue_(*response, "req", i2cIn["req"]);
-            appendJsonFieldValue_(*response, "breq", i2cIn["breq"]);
-            appendJsonFieldValue_(*response, "ago", i2cIn["ago"]);
-            response->print('}');
-        }
-    }
-
-    if (!anyDomainOk) {
-        delete response;
-        char errJson[768] = {0};
-        snprintf(errJson,
-                 sizeof(errJson),
-                 "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"flow.status\",\"detail\":\"%s\"}}",
-                 debugSummary[0] ? debugSummary : "no_domain_ok");
-        LOGW("flow.status aggregate failed detail=%s", debugSummary[0] ? debugSummary : "no_domain_ok");
-        // Keep HTTP 200 with structured payload so UI can degrade gracefully
-        // without browser-level network error noise.
-        request->send(200, "application/json", errJson);
-        return false;
-    }
-
-    response->print('}');
-    LOGI("flow.status aggregate ok detail=%s",
-         debugSummary[0] ? debugSummary : "ok");
-    request->send(response);
-    return true;
-}
-
 void fillSpiffsAssetForensicMeta_(SpiffsAssetForensicMeta* out,
                                   const char* servedPath,
                                   uint32_t sizeBytes,
@@ -1762,229 +1575,10 @@ const char* runtimeUiWireTypeName_(RuntimeUiWireType type)
     }
 }
 
-size_t runtimeUiWireEstimate_(const RuntimeUiManifestItem* item)
-{
-    if (!item || !item->type) return 20U;
-    if (strcmp(item->type, "bool") == 0) return 4U;
-    if (strcmp(item->type, "enum") == 0) return 4U;
-    if (strcmp(item->type, "int32") == 0) return 7U;
-    if (strcmp(item->type, "uint32") == 0) return 7U;
-    if (strcmp(item->type, "float") == 0) return 7U;
-    if (strcmp(item->type, "string") == 0) {
-        if (strcmp(item->key, "mqtt.server") == 0) return 72U;
-        return 24U;
-    }
-    return 20U;
-}
-
-uint32_t readLe32_(const uint8_t* in)
-{
-    return (uint32_t)in[0] |
-           ((uint32_t)in[1] << 8) |
-           ((uint32_t)in[2] << 16) |
-           ((uint32_t)in[3] << 24);
-}
-
-bool appendRuntimeUiJsonValues_(JsonArray values, const uint8_t* payload, size_t payloadLen)
-{
-    if (!payload || payloadLen == 0U) return true;
-
-    size_t offset = 0U;
-    const uint8_t count = payload[offset++];
-    for (uint8_t i = 0; i < count; ++i) {
-        if ((offset + 3U) > payloadLen) return false;
-        const RuntimeUiId runtimeId = (RuntimeUiId)((RuntimeUiId)payload[offset] |
-                                                    ((RuntimeUiId)payload[offset + 1U] << 8));
-        offset += 2U;
-        const RuntimeUiWireType wireType = (RuntimeUiWireType)payload[offset++];
-        const RuntimeUiManifestItem* manifestItem = findRuntimeUiManifestItem(runtimeId);
-
-        JsonObject value = values.createNestedObject();
-        value["id"] = runtimeId;
-        if (manifestItem) {
-            value["key"] = manifestItem->key;
-            value["type"] = manifestItem->type;
-            if (manifestItem->unit && manifestItem->unit[0] != '\0') {
-                value["unit"] = manifestItem->unit;
-            }
-        } else {
-            value["type"] = runtimeUiWireTypeName_(wireType);
-        }
-
-        switch (wireType) {
-        case RuntimeUiWireType::NotFound:
-            value["status"] = "not_found";
-            break;
-
-        case RuntimeUiWireType::Unavailable:
-            value["status"] = "unavailable";
-            break;
-
-        case RuntimeUiWireType::Bool:
-            if ((offset + 1U) > payloadLen) return false;
-            value["value"] = (payload[offset++] != 0U);
-            break;
-
-        case RuntimeUiWireType::Int32: {
-            if ((offset + 4U) > payloadLen) return false;
-            int32_t raw = 0;
-            const uint32_t bits = readLe32_(payload + offset);
-            memcpy(&raw, &bits, sizeof(raw));
-            value["value"] = raw;
-            offset += 4U;
-            break;
-        }
-
-        case RuntimeUiWireType::UInt32:
-            if ((offset + 4U) > payloadLen) return false;
-            value["value"] = readLe32_(payload + offset);
-            offset += 4U;
-            break;
-
-        case RuntimeUiWireType::Float32: {
-            if ((offset + 4U) > payloadLen) return false;
-            const uint32_t bits = readLe32_(payload + offset);
-            float raw = 0.0f;
-            memcpy(&raw, &bits, sizeof(raw));
-            value["value"] = raw;
-            offset += 4U;
-            break;
-        }
-
-        case RuntimeUiWireType::Enum:
-            if ((offset + 1U) > payloadLen) return false;
-            value["value"] = payload[offset++];
-            break;
-
-        case RuntimeUiWireType::String: {
-            if ((offset + 1U) > payloadLen) return false;
-            const uint8_t len = payload[offset++];
-            if ((offset + len) > payloadLen) return false;
-            char text[I2cCfgProtocol::MaxPayload + 1U] = {0};
-            memcpy(text, payload + offset, len);
-            text[len] = '\0';
-            value["value"] = text;
-            offset += len;
-            break;
-        }
-
-        default:
-            return false;
-        }
-    }
-
-    return offset == payloadLen;
-}
-
-bool appendRuntimeUiJsonValuesToStream_(Print& out, const uint8_t* payload, size_t payloadLen, bool& firstValue)
-{
-    if (!payload || payloadLen == 0U) return true;
-
-    size_t offset = 0U;
-    const uint8_t count = payload[offset++];
-    for (uint8_t i = 0; i < count; ++i) {
-        if ((offset + 3U) > payloadLen) return false;
-        const RuntimeUiId runtimeId = (RuntimeUiId)((RuntimeUiId)payload[offset] |
-                                                    ((RuntimeUiId)payload[offset + 1U] << 8));
-        offset += 2U;
-        const RuntimeUiWireType wireType = (RuntimeUiWireType)payload[offset++];
-        const RuntimeUiManifestItem* manifestItem = findRuntimeUiManifestItem(runtimeId);
-
-        if (!firstValue) out.print(',');
-        firstValue = false;
-
-        out.print('{');
-        out.print("\"id\":");
-        out.print((unsigned)runtimeId);
-        out.print(",\"key\":");
-        printJsonEscaped_(out, manifestItem ? manifestItem->key : "");
-        out.print(",\"type\":");
-        printJsonEscaped_(out, manifestItem ? manifestItem->type : runtimeUiWireTypeName_(wireType));
-        if (manifestItem && manifestItem->unit && manifestItem->unit[0] != '\0') {
-            out.print(",\"unit\":");
-            printJsonEscaped_(out, manifestItem->unit);
-        }
-
-        switch (wireType) {
-        case RuntimeUiWireType::NotFound:
-            out.print(",\"status\":\"not_found\"}");
-            break;
-
-        case RuntimeUiWireType::Unavailable:
-            out.print(",\"status\":\"unavailable\"}");
-            break;
-
-        case RuntimeUiWireType::Bool:
-            if ((offset + 1U) > payloadLen) return false;
-            out.print(",\"value\":");
-            out.print((payload[offset++] != 0U) ? "true" : "false");
-            out.print('}');
-            break;
-
-        case RuntimeUiWireType::Int32: {
-            if ((offset + 4U) > payloadLen) return false;
-            int32_t raw = 0;
-            const uint32_t bits = readLe32_(payload + offset);
-            memcpy(&raw, &bits, sizeof(raw));
-            out.print(",\"value\":");
-            out.print((int32_t)raw);
-            out.print('}');
-            offset += 4U;
-            break;
-        }
-
-        case RuntimeUiWireType::UInt32:
-            if ((offset + 4U) > payloadLen) return false;
-            out.print(",\"value\":");
-            out.print((unsigned long)readLe32_(payload + offset));
-            out.print('}');
-            offset += 4U;
-            break;
-
-        case RuntimeUiWireType::Float32: {
-            if ((offset + 4U) > payloadLen) return false;
-            const uint32_t bits = readLe32_(payload + offset);
-            float raw = 0.0f;
-            memcpy(&raw, &bits, sizeof(raw));
-            out.print(",\"value\":");
-            out.print(raw, 3);
-            out.print('}');
-            offset += 4U;
-            break;
-        }
-
-        case RuntimeUiWireType::Enum:
-            if ((offset + 1U) > payloadLen) return false;
-            out.print(",\"value\":");
-            out.print((unsigned)payload[offset++]);
-            out.print('}');
-            break;
-
-        case RuntimeUiWireType::String: {
-            if ((offset + 1U) > payloadLen) return false;
-            const uint8_t len = payload[offset++];
-            if ((offset + len) > payloadLen) return false;
-            char text[I2cCfgProtocol::MaxPayload + 1U] = {0};
-            memcpy(text, payload + offset, len);
-            text[len] = '\0';
-            out.print(",\"value\":");
-            printJsonEscaped_(out, text);
-            out.print('}');
-            offset += len;
-            break;
-        }
-
-        default:
-            return false;
-        }
-    }
-
-    return offset == payloadLen;
-}
-
 constexpr size_t kMaxRuntimeHttpIds = 48U;
 
-void printRuntimeValuePrefix_(Print& out, bool& firstValue, RuntimeUiId id, const char* key, const char* type, const char* unit)
+void printRuntimeValuePrefix_(Print& out, bool& firstValue, RuntimeUiId id, const char* key, const char* type, const char* unit,
+                              int8_t precision = VALUE_PRECISION_NONE)
 {
     if (!firstValue) out.print(',');
     firstValue = false;
@@ -1997,6 +1591,10 @@ void printRuntimeValuePrefix_(Print& out, bool& firstValue, RuntimeUiId id, cons
     if (unit && unit[0] != '\0') {
         out.print(",\"unit\":");
         printJsonEscaped_(out, unit);
+    }
+    if (precision >= 0) {
+        out.print(",\"precision\":");
+        out.print((int)precision);
     }
 }
 
@@ -2024,11 +1622,12 @@ void printRuntimeU32_(Print& out, bool& firstValue, RuntimeUiId id, const char* 
     out.print('}');
 }
 
-void printRuntimeF32_(Print& out, bool& firstValue, RuntimeUiId id, const char* key, float value, const char* unit = nullptr)
+void printRuntimeF32_(Print& out, bool& firstValue, RuntimeUiId id, const char* key, float value, const char* unit = nullptr,
+                      int8_t precision = VALUE_PRECISION_NONE)
 {
-    printRuntimeValuePrefix_(out, firstValue, id, key, "float", unit);
+    printRuntimeValuePrefix_(out, firstValue, id, key, "float", unit, precision);
     out.print(",\"value\":");
-    out.print(value, 3);
+    out.print(value, precision >= 0 ? (int)precision : 3);
     out.print('}');
 }
 
@@ -2282,6 +1881,26 @@ bool appendWaveshareLocalRuntimeValue_(Print& out,
         return true;
     }
 
+    if ((ModuleId)runtimeUiModuleId(id) == ModuleId::Io) {
+        const uint8_t valueId = runtimeUiValueId(id);
+        if (valueId >= IO_RUNTIME_UI_DERIVED_BASE &&
+            valueId < IO_RUNTIME_UI_DERIVED_BASE + ValueIds::DerivedCapacity) {
+            ValueSnapshot value{};
+            ValueMetadata metadata{};
+            if (dataStore->values.read(ValueIds::Derived + (valueId - IO_RUNTIME_UI_DERIVED_BASE), value, &metadata) &&
+                value.quality == ValueQuality::Valid) {
+                const RuntimeUiManifestItem* item = findRuntimeUiManifestItem(id);
+                printRuntimeF32_(out, firstValue, id, (item && item->key) ? item->key : "io.value",
+                                 (float)roundToPrecision(value.value.d, metadata.precision),
+                                 metadata.displayUnit[0] != '\0' ? metadata.displayUnit : nullptr,
+                                 metadata.precision);
+            } else {
+                wavesharePrintUnavailableByManifestType_(out, firstValue, id);
+            }
+            return true;
+        }
+    }
+
     switch (id) {
         case 901:
             waveshareEnsureAlarmMasks_(ctx, alarmSvc);
@@ -2398,22 +2017,26 @@ bool appendWaveshareLocalRuntimeValue_(Print& out,
         case 2206: {
             uint8_t runtimeIndex = 4;
             const char* key = "pool.water_temp";
-            const char* unit = "\xC2\xB0""C";
             if (id == 2202) {
                 runtimeIndex = 5;
                 key = "pool.air_temp";
             } else if (id == 2203) {
                 runtimeIndex = 1;
                 key = "pool.ph";
-                unit = nullptr;
             } else if (id == 2204) {
                 runtimeIndex = 0;
                 key = "pool.orp";
-                unit = "mV";
             } else if (id == 2206) {
                 runtimeIndex = 2;
                 key = "pool.psi";
-                unit = "PSI";
+            }
+
+            const char* unit = nullptr;
+            ValueSnapshot source{};
+            ValueMetadata metadata{};
+            if (dataStore->values.read(ValueIds::Analog + runtimeIndex, source, &metadata) &&
+                metadata.displayUnit[0] != '\0') {
+                unit = metadata.displayUnit;
             }
 
             float value = 0.0f;
@@ -2428,12 +2051,12 @@ bool appendWaveshareLocalRuntimeValue_(Print& out,
             const uint8_t runtimeIndex = 20;
             float value = 0.0f;
             if (ioEndpointFloat(*dataStore, runtimeIndex, value)) {
-                printRuntimeF32_(out, firstValue, id, "pool.water_counter", value, "L");
+                printRuntimeF32_(out, firstValue, id, "pool.water_counter", value);
                 return true;
             }
             int32_t counterInt = 0;
             if (ioEndpointInt(*dataStore, runtimeIndex, counterInt)) {
-                printRuntimeF32_(out, firstValue, id, "pool.water_counter", (float)counterInt, "L");
+                printRuntimeF32_(out, firstValue, id, "pool.water_counter", (float)counterInt);
                 return true;
             }
             wavesharePrintUnavailableByManifestType_(out, firstValue, id);
@@ -2796,6 +2419,8 @@ struct WaveshareDashboardRuntimeValue {
     uint32_t u32Value = 0U;
     float f32Value = 0.0f;
     char stringValue[64] = {0};
+    char unit[UnitTextCapacity] = {0};
+    int8_t precision = VALUE_PRECISION_NONE;
 };
 
 constexpr uint8_t kWaveshareDashboardSlotCount = 8U;
@@ -3032,6 +2657,25 @@ bool waveshareReadDashboardIoBackendValue_(const IOServiceV2* ioSvc,
     return false;
 }
 
+bool waveshareReadDashboardDerivedValue_(DataStore* dataStore,
+                                        uint8_t slot,
+                                        WaveshareDashboardRuntimeValue& out)
+{
+    if (!dataStore || slot >= ValueIds::DerivedCapacity) return false;
+    ValueSnapshot value{};
+    ValueMetadata metadata{};
+    if (!dataStore->values.read(ValueIds::Derived + slot, value, &metadata) ||
+        value.quality != ValueQuality::Valid) {
+        return false;
+    }
+    out.available = true;
+    out.wireType = RuntimeUiWireType::Float32;
+    out.f32Value = (float)value.value.d;
+    out.precision = metadata.precision;
+    snprintf(out.unit, sizeof(out.unit), "%s", metadata.displayUnit);
+    return true;
+}
+
 bool waveshareReadDashboardPoolSensorDataStore_(DataStore* dataStore,
                                                uint8_t valueId,
                                                WaveshareDashboardRuntimeValue& out)
@@ -3154,6 +2798,12 @@ bool waveshareReadDashboardRuntimeValue_(DataStore* dataStore,
             return true;
 
         case ModuleId::Io:
+            if (valueId >= IO_RUNTIME_UI_DERIVED_BASE &&
+                valueId < IO_RUNTIME_UI_DERIVED_BASE + ValueIds::DerivedCapacity) {
+                return waveshareReadDashboardDerivedValue_(dataStore,
+                                                           valueId - IO_RUNTIME_UI_DERIVED_BASE,
+                                                           out);
+            }
             if (valueId >= 1U && valueId <= 6U) {
                 IoId ioId = ioIdFromSlot(analogInputSlot(4));
                 if (valueId == 2U) ioId = ioIdFromSlot(analogInputSlot(5));
@@ -3161,8 +2811,17 @@ bool waveshareReadDashboardRuntimeValue_(DataStore* dataStore,
                 else if (valueId == 4U) ioId = ioIdFromSlot(analogInputSlot(0));
                 else if (valueId == 5U) ioId = ioIdFromSlot(digitalInputSlot(PoolInputSlots::WaterMeter));
                 else if (valueId == 6U) ioId = ioIdFromSlot(analogInputSlot(2));
-                return waveshareReadDashboardIoValue_(ioSvc, ioId, out) ||
-                       waveshareReadDashboardPoolSensorDataStore_(dataStore, valueId, out);
+                const bool ok = waveshareReadDashboardIoValue_(ioSvc, ioId, out) ||
+                                waveshareReadDashboardPoolSensorDataStore_(dataStore, valueId, out);
+                if (dataStore && ioId >= IO_ID_AI_BASE &&
+                    ioId < (IoId)(IO_ID_AI_BASE + Limits::Io::MaxAnalogEndpoints)) {
+                    ValueSnapshot source{};
+                    ValueMetadata metadata{};
+                    if (dataStore->values.read(ValueIds::Analog + (uint8_t)(ioId - IO_ID_AI_BASE), source, &metadata)) {
+                        snprintf(out.unit, sizeof(out.unit), "%s", metadata.displayUnit);
+                    }
+                }
+                return ok;
             }
             if (valueId == 7U) return waveshareReadDashboardIoBackendValue_(ioSvc, IO_BACKEND_BMP280, 0U, out);
             if (valueId == 8U) return waveshareReadDashboardIoBackendValue_(ioSvc, IO_BACKEND_BME680, 0U, out);
@@ -3234,13 +2893,11 @@ void waveshareTrimDashboardSlotFloat_(char* text)
     if (strcmp(text, "-0") == 0) snprintf(text, 4, "0");
 }
 
-uint8_t waveshareDashboardSlotDecimals_(RuntimeUiId id, RuntimeUiWireType type)
+uint8_t waveshareDashboardSlotDecimals_(RuntimeUiId id, RuntimeUiWireType type, const char* unit)
 {
     if (type != RuntimeUiWireType::Float32) return 0U;
     if (id == makeRuntimeUiId(ModuleId::Io, 3)) return 2U;
     if (id == makeRuntimeUiId(ModuleId::Io, 6)) return 2U;
-    const RuntimeUiManifestItem* item = findRuntimeUiManifestItem(id);
-    const char* unit = (item && item->unit) ? item->unit : "";
     if (unit && strcmp(unit, "mV") == 0) return 0U;
     return 1U;
 }
@@ -3260,7 +2917,7 @@ void waveshareFormatDashboardRuntimeValue_(RuntimeUiId id,
     }
 
     const RuntimeUiManifestItem* item = findRuntimeUiManifestItem(id);
-    const char* unit = (item && item->unit) ? item->unit : "";
+    const char* unit = (value.unit[0] != '\0') ? value.unit : ((item && item->unit) ? item->unit : "");
     if (unit && unit[0] != '\0') {
         snprintf(unitOut, unitOutLen, "%s", dashboardSlotDegreeCUnit_(unit) ? "\xC2\xB0""C" : unit);
     }
@@ -3278,10 +2935,15 @@ void waveshareFormatDashboardRuntimeValue_(RuntimeUiId id,
             snprintf(valueOut, valueOutLen, "%lu", (unsigned long)value.u32Value);
             return;
         case RuntimeUiWireType::Float32: {
-            const uint8_t decimals = waveshareDashboardSlotDecimals_(id, value.wireType);
+            // Calculated values carry their own display precision; keep it verbatim
+            // so the dashboard matches the published Home Assistant value.
+            const bool derivedPrecision = value.precision >= 0;
+            const uint8_t decimals = derivedPrecision
+                ? (uint8_t)value.precision
+                : waveshareDashboardSlotDecimals_(id, value.wireType, unit);
             if (decimals > 0U) {
                 snprintf(valueOut, valueOutLen, "%.*f", (int)decimals, (double)value.f32Value);
-                waveshareTrimDashboardSlotFloat_(valueOut);
+                if (!derivedPrecision) waveshareTrimDashboardSlotFloat_(valueOut);
             } else {
                 snprintf(valueOut, valueOutLen, "%ld", lroundf(value.f32Value));
             }
@@ -4028,6 +3690,17 @@ void sendWaveshareDashboardSlotsResponse_(AsyncResponseStream& response,
 
         char label[32] = {0};
         snprintf(label, sizeof(label), "%s", slot.label);
+        if (label[0] == '\0') {
+            const uint8_t valueId = runtimeUiValueId(slot.runtimeUiId);
+            if ((ModuleId)runtimeUiModuleId(slot.runtimeUiId) == ModuleId::Io &&
+                valueId >= IO_RUNTIME_UI_DERIVED_BASE &&
+                valueId < IO_RUNTIME_UI_DERIVED_BASE + ValueIds::DerivedCapacity) {
+                (void)ioReadDerivedValueName(cfgStore,
+                                             (uint8_t)(valueId - IO_RUNTIME_UI_DERIVED_BASE),
+                                             label,
+                                             sizeof(label));
+            }
+        }
         if (label[0] == '\0') waveshareDashboardFallbackLabel_(slot.runtimeUiId, label, sizeof(label));
 
         WaveshareDashboardRuntimeValue runtimeValue{};
@@ -4162,78 +3835,6 @@ bool parseRuntimeUiIdsCsv_(const char* raw, RuntimeUiId* idsOut, size_t capacity
     }
 
     return flushCurrent() && countOut > 0U;
-}
-
-void sendRuntimeUiValuesResponse_(AsyncWebServerRequest* request,
-                                  const FlowCfgRemoteService* flowCfgSvc,
-                                  const RuntimeUiId* ids,
-                                  size_t idCount)
-{
-    if (!request || !flowCfgSvc || !flowCfgSvc->runtimeUiValues) {
-        if (request) {
-            request->send(503, "application/json",
-                          "{\"ok\":false,\"err\":{\"code\":\"NotReady\",\"where\":\"runtime.values\"}}");
-        }
-        return;
-    }
-    if (flowCfgSvc->isReady && !flowCfgSvc->isReady(flowCfgSvc->ctx)) {
-        request->send(503, "application/json",
-                      "{\"ok\":false,\"err\":{\"code\":\"NotReady\",\"where\":\"runtime.values.link\"}}");
-        return;
-    }
-    if (!ids || idCount == 0U) {
-        request->send(400, "application/json",
-                      "{\"ok\":false,\"err\":{\"code\":\"BadRequest\",\"where\":\"runtime.values.ids\"}}");
-        return;
-    }
-
-    AsyncResponseStream* response = request->beginResponseStream("application/json");
-    addNoCacheHeaders_(response);
-    response->print("{\"ok\":true,\"values\":[");
-    bool firstValue = true;
-
-    size_t start = 0U;
-    while (start < idCount) {
-        size_t batchCount = 0U;
-        size_t batchBudget = 1U;  // record count byte
-        while ((start + batchCount) < idCount) {
-            const RuntimeUiManifestItem* item = findRuntimeUiManifestItem(ids[start + batchCount]);
-            const bool isString = item && item->type && strcmp(item->type, "string") == 0;
-            const size_t estimate = runtimeUiWireEstimate_(item);
-
-            if (batchCount > 0U && (isString || (batchBudget + estimate) > I2cCfgProtocol::MaxPayload)) {
-                break;
-            }
-            batchBudget += estimate;
-            ++batchCount;
-            if (isString) break;
-        }
-        if (batchCount == 0U) batchCount = 1U;
-
-        uint8_t payload[I2cCfgProtocol::MaxPayload] = {0};
-        size_t written = 0U;
-        if (!flowCfgSvc->runtimeUiValues(flowCfgSvc->ctx,
-                                         ids + start,
-                                         (uint8_t)batchCount,
-                                         payload,
-                                         sizeof(payload),
-                                         &written)) {
-            delete response;
-            request->send(502, "application/json",
-                          "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"runtime.values.fetch\"}}");
-            return;
-        }
-        if (!appendRuntimeUiJsonValuesToStream_(*response, payload, written, firstValue)) {
-            delete response;
-            request->send(502, "application/json",
-                          "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"runtime.values.decode\"}}");
-            return;
-        }
-        start += batchCount;
-    }
-
-    response->print("]}");
-    request->send(response);
 }
 
 bool dashboardSlotDegreeCUnit_(const char* unit)
@@ -4833,7 +4434,6 @@ WebInterfaceModule::WebInterfaceModule(const BoardSpec& board)
 WebInterfaceModule::~WebInterfaceModule()
 {
     freeLocalLogQueue_();
-    freeRuntimeValuesBodyScratch_();
     if (ioResponseSnapshot_) heap_caps_free(ioResponseSnapshot_);
 }
 
@@ -4971,42 +4571,6 @@ void WebInterfaceModule::sendIoResponseCache_(AsyncWebServerRequest* request, bo
     request->send(response);
 }
 
-
-void WebInterfaceModule::initRuntimeValuesBodyScratch_()
-{
-    if (runtimeValuesBodyScratch_) return;
-    void* ptr = nullptr;
-    bool allocatedInPsram = false;
-    if (psramFound()) {
-        ptr = heap_caps_malloc(kRuntimeValuesBodyMax + 1U, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        allocatedInPsram = (ptr != nullptr);
-    }
-    if (!ptr) {
-        ptr = heap_caps_malloc(kRuntimeValuesBodyMax + 1U, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    }
-    if (!ptr) {
-        LOGW("Web runtime body scratch unavailable size=%u", (unsigned)kRuntimeValuesBodyMax);
-        return;
-    }
-    runtimeValuesBodyScratch_ = static_cast<char*>(ptr);
-    runtimeValuesBodyScratch_[0] = '\0';
-    runtimeValuesBodyScratchOwned_ = true;
-    runtimeValuesBodyScratchInPsram_ = allocatedInPsram;
-    LOGI("Web runtime body scratch allocated size=%u memory=%s free_psram=%luKB",
-         (unsigned)kRuntimeValuesBodyMax,
-         runtimeValuesBodyScratchInPsram_ ? "psram" : "internal",
-         (unsigned long)(ESP.getFreePsram() / 1024U));
-}
-
-void WebInterfaceModule::freeRuntimeValuesBodyScratch_()
-{
-    if (runtimeValuesBodyScratchOwned_ && runtimeValuesBodyScratch_) {
-        heap_caps_free(runtimeValuesBodyScratch_);
-    }
-    runtimeValuesBodyScratch_ = nullptr;
-    runtimeValuesBodyScratchInPsram_ = false;
-    runtimeValuesBodyScratchOwned_ = false;
-}
 
 bool WebInterfaceModule::initLocalLogQueue_()
 {
@@ -5368,7 +4932,6 @@ bool WebInterfaceModule::resolveRequestActor_(AsyncWebServerRequest* request, Ac
 void WebInterfaceModule::init(ConfigStore& cfg, ServiceRegistry& services)
 {
     cfgStore_ = &cfg;
-    initRuntimeValuesBodyScratch_();
 
     services_ = &services;
     logHub_ = services.get<LogHubService>(ServiceId::LogHub);
@@ -5382,7 +4945,6 @@ void WebInterfaceModule::init(ConfigStore& cfg, ServiceRegistry& services)
     wifiSvc_ = services.get<WifiService>(ServiceId::Wifi);
     cmdSvc_ = services.get<CommandService>(ServiceId::Command);
     hmiSvc_ = services.get<HmiService>(ServiceId::Hmi);
-    flowCfgSvc_ = services.get<FlowCfgRemoteService>(ServiceId::FlowCfg);
     netAccessSvc_ = services.get<NetworkAccessService>(ServiceId::NetworkAccess);
     ioSvc_ = services.get<IOServiceV2>(ServiceId::Io);
     const DataStoreService* dsSvc = services.get<DataStoreService>(ServiceId::DataStore);
@@ -6292,7 +5854,6 @@ void WebInterfaceModule::startServer_()
         if (nextionVersionDetected) {
             doc["nextion_display_version"] = nextionDisplayVersion;
         }
-        doc["local_runtime"] = true;
         doc["runtime_events"] = runtimeEventsAvailable_ && !provisioningOnly_;
         doc["unify_status_card_icons"] = (FLOW_WEB_UNIFY_STATUS_CARD_ICONS != 0);
         SystemStatsSnapshot snap{};
@@ -6924,95 +6485,11 @@ void WebInterfaceModule::startServer_()
             netAccessSvc_->notifyWifiConfigChanged(netAccessSvc_->ctx);
         }
 
-        bool flowSyncAttempted = false;
-        bool flowSyncOk = false;
-        char flowSyncErr[96] = {0};
-        if (!flowCfgSvc_ && services_) {
-            flowCfgSvc_ = services_->get<FlowCfgRemoteService>(ServiceId::FlowCfg);
-        }
-        if (flowCfgSvc_ && flowCfgSvc_->applyPatchJson) {
-            flowSyncAttempted = true;
-
-            StaticJsonDocument<320> flowPatchDoc;
-            JsonObject flowRoot = flowPatchDoc.to<JsonObject>();
-            JsonObject flowWifi = flowRoot.createNestedObject("wifi");
-            flowWifi["enabled"] = enabled;
-            flowWifi["ssid"] = ssid;
-            flowWifi["pass"] = pass;
-
-            char flowPatchJson[320] = {0};
-            const size_t flowPatchLen = serializeJson(flowPatchDoc, flowPatchJson, sizeof(flowPatchJson));
-            if (flowPatchLen > 0 && flowPatchLen < sizeof(flowPatchJson)) {
-                char flowAck[Limits::Mqtt::Buffers::Ack] = {0};
-                flowSyncOk = flowCfgSvc_->applyPatchJson(flowCfgSvc_->ctx, flowPatchJson, flowAck, sizeof(flowAck));
-                if (!flowSyncOk) {
-                    snprintf(flowSyncErr, sizeof(flowSyncErr), "flowcfg.apply failed");
-                }
-            } else {
-                snprintf(flowSyncErr, sizeof(flowSyncErr), "flowcfg.patch serialize failed");
-            }
-        }
-
-        if (flowSyncAttempted && flowSyncOk) {
-            LOGI("WiFi config synced to flow.io");
-        } else if (flowSyncAttempted) {
-            LOGW("WiFi config sync to flow.io skipped/failed attempted=%d err=%s",
-                 (int)flowSyncAttempted,
-                 flowSyncErr[0] ? flowSyncErr : "none");
-        }
-
-        bool flowRebootAttempted = false;
-        bool flowRebootOk = false;
-        char flowRebootErr[96] = {0};
-        if (wasApProvisioning && flowSyncAttempted && flowSyncOk) {
-            flowRebootAttempted = true;
-            if (!cmdSvc_ && services_) {
-                cmdSvc_ = services_->get<CommandService>(ServiceId::Command);
-            }
-            if (cmdSvc_ && cmdSvc_->execute) {
-                char rebootReply[220] = {0};
-                flowRebootOk = cmdSvc_->execute(cmdSvc_->ctx,
-                                                "flow.system.reboot",
-                                                "{}",
-                                                nullptr,
-                                                systemActor(),
-                                                rebootReply,
-                                                sizeof(rebootReply));
-                if (!flowRebootOk) {
-                    snprintf(flowRebootErr, sizeof(flowRebootErr), "flow.system.reboot failed");
-                }
-            } else {
-                snprintf(flowRebootErr, sizeof(flowRebootErr), "command service unavailable");
-            }
-        }
-
-        if (flowRebootAttempted && flowRebootOk) {
-            LOGI("flow.io reboot requested after AP WiFi provisioning");
-        } else if (flowRebootAttempted) {
-            LOGW("flow.io reboot request failed err=%s", flowRebootErr[0] ? flowRebootErr : "unknown");
-        }
-
         if (wasApProvisioning) {
             scheduleReboot_(request, 1200U, "prov.done.wifi");
             return;
         }
 
-        char out[384] = {0};
-        const int n = snprintf(out,
-                               sizeof(out),
-                               "{\"ok\":true,"
-                               "\"flowio_sync\":{\"attempted\":%s,\"ok\":%s,\"err\":\"%s\"},"
-                               "\"flowio_reboot\":{\"attempted\":%s,\"ok\":%s,\"err\":\"%s\"}}",
-                               flowSyncAttempted ? "true" : "false",
-                               flowSyncOk ? "true" : "false",
-                               flowSyncErr,
-                               flowRebootAttempted ? "true" : "false",
-                               flowRebootOk ? "true" : "false",
-                               flowRebootErr);
-        if (n <= 0 || (size_t)n >= sizeof(out)) {
-            request->send(200, "application/json", "{\"ok\":true}");
-            return;
-        }
         const bool provisioningConfigured =
             provisioningOnly_ &&
             provisioningDisableAfterConfigured_ &&
@@ -7022,7 +6499,7 @@ void WebInterfaceModule::startServer_()
             return;
         }
 
-        request->send(200, "application/json", out);
+        request->send(200, "application/json", "{\"ok\":true}");
     });
 
     server_.on("/api/mqtt/config", HTTP_POST, [this](AsyncWebServerRequest* request) {
@@ -7637,9 +7114,6 @@ void WebInterfaceModule::startServer_()
                                  kHttpLatencyFlowCfgInfoMs,
                                  kHttpLatencyFlowCfgWarnMs);
         LOGD("runtime.call route=/api/runtime/values method=GET");
-        if (!flowCfgSvc_ && services_) {
-            flowCfgSvc_ = services_->get<FlowCfgRemoteService>(ServiceId::FlowCfg);
-        }
         if (!request->hasParam("ids")) {
             request->send(400, "application/json",
                           "{\"ok\":false,\"err\":{\"code\":\"BadRequest\",\"where\":\"runtime.values.ids\"}}");
@@ -7663,101 +7137,6 @@ void WebInterfaceModule::startServer_()
             sendWaveshareLocalRuntimeValuesResponse_(request, dataStore_, cfgStore_, alarmSvc, poolCfgSvc, ids, idCount);
         }
     });
-
-    server_.on(
-        "/api/runtime/values",
-        HTTP_POST,
-        [this](AsyncWebServerRequest* request) {
-            HttpLatencyScope latency(request,
-                                     "/api/runtime/values",
-                                     kHttpLatencyFlowCfgInfoMs,
-                                     kHttpLatencyFlowCfgWarnMs);
-            LOGD("runtime.call route=/api/runtime/values method=POST");
-            if (request->_tempObject == reinterpret_cast<void*>(1)) {
-                request->_tempObject = nullptr;
-                return;
-            }
-            if (!flowCfgSvc_ && services_) {
-                flowCfgSvc_ = services_->get<FlowCfgRemoteService>(ServiceId::FlowCfg);
-            }
-            if (!request->_tempObject || request->_tempObject != runtimeValuesBodyScratch_) {
-                request->send(400, "application/json",
-                              "{\"ok\":false,\"err\":{\"code\":\"BadRequest\",\"where\":\"runtime.values.body\"}}");
-                return;
-            }
-
-            char* body = static_cast<char*>(request->_tempObject);
-            request->_tempObject = nullptr;
-
-            StaticJsonDocument<kRuntimeValuesJsonDocCapacity> reqDoc;
-            const DeserializationError reqErr = deserializeJson(reqDoc, body);
-            releaseRuntimeValuesBodyScratch_();
-            if (reqErr) {
-                request->send(400, "application/json",
-                              "{\"ok\":false,\"err\":{\"code\":\"BadRequest\",\"where\":\"runtime.values.json\"}}");
-                return;
-            }
-
-            JsonArrayConst idsIn = reqDoc["ids"].as<JsonArrayConst>();
-            if (idsIn.isNull()) {
-                request->send(400, "application/json",
-                              "{\"ok\":false,\"err\":{\"code\":\"BadRequest\",\"where\":\"runtime.values.ids\"}}");
-                return;
-            }
-
-            RuntimeUiId ids[kMaxRuntimeHttpIds] = {};
-            size_t idCount = 0U;
-            for (JsonVariantConst item : idsIn) {
-                if (!item.is<uint32_t>()) continue;
-                if (idCount >= kMaxRuntimeHttpIds) break;
-                const uint32_t raw = item.as<uint32_t>();
-                if (raw == 0U || raw > 65535U) continue;
-                ids[idCount++] = (RuntimeUiId)raw;
-            }
-            if (idCount == 0U) {
-                request->send(400, "application/json",
-                              "{\"ok\":false,\"err\":{\"code\":\"BadRequest\",\"where\":\"runtime.values.ids\"}}");
-                return;
-            }
-            LOGD("runtime.call route=/api/runtime/values method=POST ids=%u", (unsigned)idCount);
-
-            {
-                const AlarmService* alarmSvc = services_ ? services_->get<AlarmService>(ServiceId::Alarm) : nullptr;
-                const PoolConfigurationService* poolCfgSvc = services_ ? services_->get<PoolConfigurationService>(ServiceId::PoolConfiguration) : nullptr;
-                sendWaveshareLocalRuntimeValuesResponse_(request, dataStore_, cfgStore_, alarmSvc, poolCfgSvc, ids, idCount);
-            }
-        },
-        nullptr,
-        [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
-            if (index == 0U) {
-                if (total == 0U || total > kRuntimeValuesBodyMax) {
-                    request->_tempObject = reinterpret_cast<void*>(1);
-                    request->send(413, "application/json",
-                                  "{\"ok\":false,\"err\":{\"code\":\"ArgsTooLarge\",\"where\":\"runtime.values.body\"}}");
-                    return;
-                }
-                if (!acquireRuntimeValuesBodyScratch_()) {
-                    request->_tempObject = reinterpret_cast<void*>(1);
-                    request->send(503, "application/json",
-                                  "{\"ok\":false,\"err\":{\"code\":\"Busy\",\"where\":\"runtime.values.body\"}}");
-                    return;
-                }
-                if (!runtimeValuesBodyScratch_) {
-                    request->_tempObject = reinterpret_cast<void*>(1);
-                    request->send(500, "application/json",
-                                  "{\"ok\":false,\"err\":{\"code\":\"NoMemory\",\"where\":\"runtime.values.body\"}}");
-                    return;
-                }
-                request->_tempObject = runtimeValuesBodyScratch_;
-            }
-
-            if (request->_tempObject == reinterpret_cast<void*>(1)) return;
-            char* body = static_cast<char*>(request->_tempObject);
-            if (!body) return;
-            memcpy(body + index, data, len);
-            if ((index + len) < total) return;
-            body[total] = '\0';
-        });
 
     server_.on("/api/flowcfg/modules", HTTP_GET, [this](AsyncWebServerRequest* request) {
         HttpLatencyScope latency(request,
@@ -8043,58 +7422,6 @@ void WebInterfaceModule::startServer_()
                           (reply[0] != '\0')
                               ? reply
                               : "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"fw.nextion.reboot\"}}");
-            return;
-        }
-        request->send(200, "application/json", (reply[0] != '\0') ? reply : "{\"ok\":true}");
-    });
-
-    server_.on("/api/flow/system/reboot", HTTP_POST, [this](AsyncWebServerRequest* request) {
-        HttpLatencyScope latency(request, "/api/flow/system/reboot");
-        if (!cmdSvc_ && services_) {
-            cmdSvc_ = services_->get<CommandService>(ServiceId::Command);
-        }
-        if (!cmdSvc_ || !cmdSvc_->execute) {
-            request->send(503, "application/json",
-                          "{\"ok\":false,\"err\":{\"code\":\"NotReady\",\"where\":\"flow.system.reboot\"}}");
-            return;
-        }
-
-        char reply[220] = {0};
-        Actor actor{};
-        resolveRequestActor_(request, actor);
-        const bool ok = cmdSvc_->execute(cmdSvc_->ctx, "flow.system.reboot", "{}", nullptr, actor, reply, sizeof(reply));
-        if (!ok) {
-            request->send(500,
-                          "application/json",
-                          (reply[0] != '\0')
-                              ? reply
-                              : "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"flow.system.reboot\"}}");
-            return;
-        }
-        request->send(200, "application/json", (reply[0] != '\0') ? reply : "{\"ok\":true}");
-    });
-
-    server_.on("/api/flow/system/factory-reset", HTTP_POST, [this](AsyncWebServerRequest* request) {
-        HttpLatencyScope latency(request, "/api/flow/system/factory-reset");
-        if (!cmdSvc_ && services_) {
-            cmdSvc_ = services_->get<CommandService>(ServiceId::Command);
-        }
-        if (!cmdSvc_ || !cmdSvc_->execute) {
-            request->send(503, "application/json",
-                          "{\"ok\":false,\"err\":{\"code\":\"NotReady\",\"where\":\"flow.system.factory_reset\"}}");
-            return;
-        }
-
-        char reply[220] = {0};
-        Actor actor{};
-        resolveRequestActor_(request, actor);
-        const bool ok = cmdSvc_->execute(cmdSvc_->ctx, "flow.system.factory_reset", "{}", nullptr, actor, reply, sizeof(reply));
-        if (!ok) {
-            request->send(500,
-                          "application/json",
-                          (reply[0] != '\0')
-                              ? reply
-                              : "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"flow.system.factory_reset\"}}");
             return;
         }
         request->send(200, "application/json", (reply[0] != '\0') ? reply : "{\"ok\":true}");

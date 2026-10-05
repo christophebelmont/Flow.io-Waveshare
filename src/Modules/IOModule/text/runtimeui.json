@@ -207,6 +207,61 @@
       "order": 140,
       "label_t": "runtimeui.io.v14.label",
       "group_t": "runtimeui.io.v14.group"
+    },
+    {
+      "valueId": 80,
+      "key": "io.value_v00",
+      "type": "float",
+      "domain": "sondes",
+      "display": "value",
+      "decimals": 1,
+      "order": 200,
+      "label_t": "runtimeui.io.value_v00.label",
+      "group_t": "runtimeui.io.value_v00.group"
+    },
+    {
+      "valueId": 81,
+      "key": "io.value_v01",
+      "type": "float",
+      "domain": "sondes",
+      "display": "value",
+      "decimals": 1,
+      "order": 201,
+      "label_t": "runtimeui.io.value_v01.label",
+      "group_t": "runtimeui.io.value_v01.group"
+    },
+    {
+      "valueId": 82,
+      "key": "io.value_v02",
+      "type": "float",
+      "domain": "sondes",
+      "display": "value",
+      "decimals": 1,
+      "order": 202,
+      "label_t": "runtimeui.io.value_v02.label",
+      "group_t": "runtimeui.io.value_v02.group"
+    },
+    {
+      "valueId": 83,
+      "key": "io.value_v03",
+      "type": "float",
+      "domain": "sondes",
+      "display": "value",
+      "decimals": 1,
+      "order": 203,
+      "label_t": "runtimeui.io.value_v03.label",
+      "group_t": "runtimeui.io.value_v03.group"
+    },
+    {
+      "valueId": 84,
+      "key": "io.value_v04",
+      "type": "float",
+      "domain": "sondes",
+      "display": "value",
+      "decimals": 1,
+      "order": 204,
+      "label_t": "runtimeui.io.value_v04.label",
+      "group_t": "runtimeui.io.value_v04.group"
     }
   ]
 }

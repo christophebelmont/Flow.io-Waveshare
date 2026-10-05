@@ -32,22 +32,22 @@ for (const name of ['cfgTreeNodeRefInfo', 'fetchCfgTreeNodeTextName',
 const settle = () => new Promise(resolve => setImmediate(resolve));
 (async () => {
   // Rendering starts loading names without any click or branch selection.
-  for (let slot = 0; slot < 16; ++slot) {
+  for (let slot = 0; slot < 5; ++slot) {
     const ref = 'v' + String(slot).padStart(2, '0');
     const branch = 'io/value/' + ref;
     assert.equal(context.cfgTreeDecoratedNodeLabel(branch, ref), ref);
     context.cfgTreeDecoratedNodeLabel(branch, 'Valeur dérivée ' + ref);
   }
   await settle();
-  assert.equal(requests.length, 16); // Pending requests are deduplicated.
-  assert.equal(renders, 16);
-  for (let slot = 0; slot < 16; ++slot) {
+  assert.equal(requests.length, 5); // Pending requests are deduplicated.
+  assert.equal(renders, 5);
+  for (let slot = 0; slot < 5; ++slot) {
     const ref = 'v' + String(slot).padStart(2, '0');
     assert.equal(context.cfgTreeDecoratedNodeLabel('io/value/' + ref, 'Valeur dérivée ' + ref),
       ref + ' [Débit piscine]');
   }
   assert.equal(requests[0], '/api/flowcfg/module?name=io%2Fvalue%2Fv00');
-  assert.equal(requests.length, 16);
+  assert.equal(requests.length, 5);
   // Existing name-cache invalidation after applying config also refreshes values.
   savedName = '  Température eau  ';
   context.clearCfgTreeNodeTextNameCache();

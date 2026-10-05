@@ -659,23 +659,38 @@ bool PoolLogicModule::readDeviceActualOn_(uint8_t deviceSlot, bool& onOut) const
     return true;
 }
 
+PoolLogicModule::DeviceControlInfo PoolLogicModule::readDeviceControlInfo_(uint8_t deviceSlot) const
+{
+    // The full service metadata includes presentation and override information.
+    // Release that large snapshot before entering the synchronous driver/I2C chain.
+    PoolDeviceSvcMeta metadata{};
+    DeviceControlInfo info{};
+    if (!poolSvc_ || !poolSvc_->meta ||
+        poolSvc_->meta(poolSvc_->ctx, deviceSlot, &metadata) != POOLDEV_SVC_OK) return info;
+    info.available = true;
+    info.guidedOn = metadata.guidedOn;
+    info.forced = metadata.control.mode != ActuatorControlMode::Guided;
+    info.enabled = metadata.enabled != 0;
+    info.unit = metadata.capabilities.unit;
+    info.guidedSetpoint = metadata.guidedTarget.setpoint;
+    info.blockReason = metadata.blockReason;
+    info.ioId = metadata.ioId;
+    return info;
+}
+
 bool PoolLogicModule::writeDeviceDesired_(uint8_t deviceSlot, bool on)
 {
     if (!poolSvc_ || !poolSvc_->setRunning) return false;
-    PoolDeviceSvcMeta metadata{};
     const bool syncTemperature = on && deviceSlot == heaterDeviceSlot_ && autoMode_ && heaterAutoMode_ &&
-        poolSvc_->meta && poolSvc_->meta(poolSvc_->ctx, deviceSlot, &metadata) == POOLDEV_SVC_OK &&
-        metadata.capabilities.unit == PoolSetpointUnit::Celsius;
+        readDeviceControlInfo_(deviceSlot).unit == PoolSetpointUnit::Celsius;
     PoolDeviceSvcStatus st;
     if (syncTemperature) {
         st = poolSvc_->setRunningAtSetpoint ?
             poolSvc_->setRunningAtSetpoint(poolSvc_->ctx, deviceSlot, 1U, heaterSetpoint_) : POOLDEV_SVC_ERR_NOT_READY;
     } else st = poolSvc_->setRunning(poolSvc_->ctx, deviceSlot, on ? 1U : 0U);
     if (st != POOLDEV_SVC_OK) {
-        PoolDeviceSvcMeta meta{};
-        const bool haveMeta = poolSvc_->meta &&
-                              (poolSvc_->meta(poolSvc_->ctx, deviceSlot, &meta) == POOLDEV_SVC_OK);
-        if (haveMeta) {
+        const auto meta = readDeviceControlInfo_(deviceSlot);
+        if (meta.available) {
             LOGW("pooldev.setRunning failed slot=%u desired=%u st=%u(%s) block=%u(%s) enabled=%u io=%u",
                  (unsigned)deviceSlot,
                  on ? 1u : 0u,
@@ -926,14 +941,12 @@ void PoolLogicModule::applyDeviceControl_(uint8_t deviceSlot,
     const bool desiredChanged = (desired != fsm.lastDesired);
     // When the actual state does not follow the requested state, retry at a
     // bounded cadence instead of spamming the downstream pool-device service.
-    PoolDeviceSvcMeta meta{};
-    const bool haveMeta = poolSvc_ && poolSvc_->meta &&
-        poolSvc_->meta(poolSvc_->ctx, deviceSlot, &meta) == POOLDEV_SVC_OK;
-    const bool guidedMismatch = haveMeta && meta.guidedOn != desired;
-    const bool forced = haveMeta && meta.control.mode != ActuatorControlMode::Guided;
-    const bool temperatureMismatch = haveMeta && !forced && desired && deviceSlot == heaterDeviceSlot_ &&
-        autoMode_ && heaterAutoMode_ && meta.capabilities.unit == PoolSetpointUnit::Celsius &&
-        meta.guidedTarget.setpoint != heaterSetpoint_ && uint32_t(nowMs - fsm.lastCmdMs) >= 5000U;
+    const auto info = readDeviceControlInfo_(deviceSlot);
+    const bool guidedMismatch = info.available && info.guidedOn != desired;
+    const bool forced = info.available && info.forced;
+    const bool temperatureMismatch = info.available && !forced && desired && deviceSlot == heaterDeviceSlot_ &&
+        autoMode_ && heaterAutoMode_ && info.unit == PoolSetpointUnit::Celsius &&
+        info.guidedSetpoint != heaterSetpoint_ && uint32_t(nowMs - fsm.lastCmdMs) >= 5000U;
     const bool needRetry = !forced && fsm.known && fsm.on != desired && (uint32_t)(nowMs - fsm.lastCmdMs) >= 5000U;
 
     if (desiredChanged || guidedMismatch || needRetry || temperatureMismatch) {

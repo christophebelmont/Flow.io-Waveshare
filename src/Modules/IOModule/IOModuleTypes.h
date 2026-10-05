@@ -152,6 +152,7 @@ struct IOAnalogDefinition {
     float c0 = 1.0f;
     float c1 = 0.0f;
     int32_t precision = 1;
+    const char* unit = nullptr;
     IOAnalogValueCallback onValueChanged = nullptr;
     void* onValueCtx = nullptr;
 };
@@ -162,6 +163,7 @@ struct IOAnalogSlotConfig {
     float c0 = 1.0f;
     float c1 = 0.0f;
     int32_t precision = 1;
+    char unit[8] = {0};
 };
 
 struct IODigitalOutputDefinition {

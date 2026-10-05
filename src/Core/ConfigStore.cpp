@@ -782,7 +782,7 @@ bool ConfigStore::applyJson(const char* json)
             break;
         }
         case ConfigType::Double: {
-            double v = *(double*)m.valuePtr;
+            double v = ConfigDoubleAccess::read(*static_cast<double*>(m.valuePtr));
             if (valueVar.is<double>() || valueVar.is<float>() || valueVar.is<int32_t>() || valueVar.is<uint32_t>()) {
                 v = valueVar.as<double>();
             } else if (valueVar.is<const char*>()) {
@@ -792,7 +792,8 @@ bool ConfigStore::applyJson(const char* json)
             } else {
                 break;
             }
-            if (*(double*)m.valuePtr != v) { *(double*)m.valuePtr = v; changed = true; }
+            double previous;
+            changed = ConfigDoubleAccess::replace(*static_cast<double*>(m.valuePtr), v, previous);
             break;
         }
         case ConfigType::CharArray: {
@@ -812,22 +813,18 @@ bool ConfigStore::applyJson(const char* json)
         }
         }
 
-        if (changed) {
+        if (changed && m.persistence == ConfigPersistence::Persistent) m.persistencePending = true;
+        if (changed || m.persistencePending) {
             Log::debug(LOG_MODULE_ID, "applyJson: changed %s.%s", m.module ? m.module : "-",
                        m.name ? m.name : "-");
             /// Save to NVS if needed
-            if (m.persistence == ConfigPersistence::Persistent && m.nvsKey && _prefs) {
-                switch (m.type) {
-                case ConfigType::Int32:     putInt_(m.nvsKey, *(int32_t*)m.valuePtr); break;
-                case ConfigType::UInt16:    putUShort_(m.nvsKey, *(uint16_t*)m.valuePtr); break;
-                case ConfigType::UInt8:     putUChar_(m.nvsKey, *(uint8_t*)m.valuePtr); break;
-                case ConfigType::Bool:      putBool_(m.nvsKey, *(bool*)m.valuePtr); break;
-                case ConfigType::Float:     putFloat_(m.nvsKey, *(float*)m.valuePtr); break;
-                case ConfigType::Double:    putBytes_(m.nvsKey, m.valuePtr, sizeof(double)); break;
-                case ConfigType::CharArray: putString_(m.nvsKey, (char*)m.valuePtr); break;
-                }
+            if (m.persistence == ConfigPersistence::Persistent && !writePersistent(m)) {
+                Log::error(LOG_MODULE_ID, "applyJson: persistence failed for %s.%s; RAM changed but not saved",
+                           m.module ? m.module : "-", m.name ? m.name : "-");
+                return false;
             }
 
+            m.persistencePending = false;
             /// Notify listeners + EventBus
             if (m.nvsKey) {
                 notifyChanged(m.nvsKey, m.module, m.moduleId, m.localBranchId);

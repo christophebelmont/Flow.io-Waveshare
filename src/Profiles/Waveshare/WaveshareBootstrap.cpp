@@ -285,17 +285,6 @@ void setupProfile(AppContext& ctx)
 
     requireSetup(ctx.moduleManager.initAll(ctx.registry, ctx.services), "init modules");
     postInit(ctx, modules);
-    nvs_stats_t nvsStats{};
-    const esp_err_t nvsResult = nvs_get_stats(nullptr, &nvsStats);
-    Board::SerialMap::logSerial().printf(
-        "[waveshare] boot memory pool_devices=%u internal_free=%lu internal_largest=%lu psram_free=%lu "
-        "nvs_status=%ld nvs_used=%u nvs_available=%u nvs_total=%u\r\n",
-        unsigned(Limits::Io::MaxPoolDevices),
-        (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
-        (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
-        (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
-        (long)nvsResult, unsigned(nvsStats.used_entries), unsigned(nvsStats.available_entries),
-        unsigned(nvsStats.total_entries));
 }
 
 void loopProfile(AppContext&)

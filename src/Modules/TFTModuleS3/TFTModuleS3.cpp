@@ -25,9 +25,11 @@
 #include "Core/Generated/RuntimeUiAlarmText_Generated.h"
 #include "Core/Generated/RuntimeUiManifest_Generated.h"
 #include "Core/Services/IAlarm.h"
+#include "Core/Services/IIO.h"
 #include "Core/SystemLimits.h"
 #include "Core/SystemStats.h"
 #include "Domain/Pool/PoolIds.h"
+#include "Modules/IOModule/IODerivedValueName.h"
 #include "Modules/IOModule/IORuntime.h"
 #include "Modules/Network/MQTTModule/MQTTRuntime.h"
 #include "Modules/Network/WifiModule/WifiRuntime.h"
@@ -1357,6 +1359,10 @@ bool TFTModuleS3::readRuntimeValue_(RuntimeUiId runtimeId, RuntimeValue& out) co
         }
 
         case ModuleId::Io:
+            if (valueId >= IO_RUNTIME_UI_DERIVED_BASE &&
+                valueId < IO_RUNTIME_UI_DERIVED_BASE + ValueIds::DerivedCapacity) {
+                return readIoDerivedValue_(valueId - IO_RUNTIME_UI_DERIVED_BASE, out);
+            }
             switch (valueId) {
                 case 1: return readIoValue_(ioIdFromSlot(analogInputSlot(4)), out);
                 case 2: return readIoValue_(ioIdFromSlot(analogInputSlot(5)), out);
@@ -1548,18 +1554,80 @@ bool TFTModuleS3::readIoBackendValue_(uint8_t backend, uint8_t channel, RuntimeV
     return false;
 }
 
-const char* TFTModuleS3::runtimeUnit_(RuntimeUiId runtimeId) const
+bool TFTModuleS3::readIoDerivedValue_(uint8_t slot, RuntimeValue& out) const
 {
-    const RuntimeUiManifestItem* item = findRuntimeUiManifestItem(runtimeId);
-    return (item && item->unit) ? item->unit : "";
+    if (!dsSvc_ || !dsSvc_->store || slot >= ValueIds::DerivedCapacity) return false;
+    ValueSnapshot value{};
+    if (!dsSvc_->store->values.read(ValueIds::Derived + slot, value) ||
+        value.quality != ValueQuality::Valid) {
+        return false;
+    }
+    out.available = true;
+    out.wireType = RuntimeUiWireType::Float32;
+    out.f32Value = (float)value.value.d;
+    return true;
 }
 
-uint8_t TFTModuleS3::runtimeDecimals_(RuntimeUiId runtimeId, RuntimeUiWireType wireType) const
+bool TFTModuleS3::readRuntimeUnit_(RuntimeUiId runtimeId, char* out, size_t outLen) const
+{
+    if (out && outLen > 0U) out[0] = '\0';
+    if (!out || outLen == 0U) return false;
+
+    const DataStore* ds = dsSvc_ ? dsSvc_->store : nullptr;
+    if (ds && (ModuleId)runtimeUiModuleId(runtimeId) == ModuleId::Io) {
+        const uint8_t valueId = runtimeUiValueId(runtimeId);
+        ValueId value = VALUE_INVALID;
+        if (valueId >= IO_RUNTIME_UI_DERIVED_BASE &&
+            valueId < IO_RUNTIME_UI_DERIVED_BASE + ValueIds::DerivedCapacity) {
+            value = ValueIds::Derived + (valueId - IO_RUNTIME_UI_DERIVED_BASE);
+        } else if (valueId >= 1U && valueId <= 6U && valueId != 5U) {
+            IoId ioId = ioIdFromSlot(analogInputSlot(4));
+            if (valueId == 2U) ioId = ioIdFromSlot(analogInputSlot(5));
+            else if (valueId == 3U) ioId = ioIdFromSlot(analogInputSlot(1));
+            else if (valueId == 4U) ioId = ioIdFromSlot(analogInputSlot(0));
+            else if (valueId == 6U) ioId = ioIdFromSlot(analogInputSlot(2));
+            if (ioId >= IO_ID_AI_BASE && ioId < (IoId)(IO_ID_AI_BASE + Limits::Io::MaxAnalogEndpoints)) {
+                value = ValueIds::Analog + (uint8_t)(ioId - IO_ID_AI_BASE);
+            }
+        }
+        if (value != VALUE_INVALID) {
+            ValueSnapshot snapshot{};
+            ValueMetadata metadata{};
+            if (ds->values.read(value, snapshot, &metadata) && metadata.displayUnit[0] != '\0') {
+                snprintf(out, outLen, "%s", metadata.displayUnit);
+                return true;
+            }
+        }
+    }
+
+    const RuntimeUiManifestItem* item = findRuntimeUiManifestItem(runtimeId);
+    if (item && item->unit && item->unit[0] != '\0') {
+        snprintf(out, outLen, "%s", item->unit);
+        return true;
+    }
+    return false;
+}
+
+bool TFTModuleS3::readRuntimePrecision_(RuntimeUiId runtimeId, int8_t& out) const
+{
+    out = VALUE_PRECISION_NONE;
+    const DataStore* ds = dsSvc_ ? dsSvc_->store : nullptr;
+    if (!ds || (ModuleId)runtimeUiModuleId(runtimeId) != ModuleId::Io) return false;
+    const uint8_t valueId = runtimeUiValueId(runtimeId);
+    if (valueId < IO_RUNTIME_UI_DERIVED_BASE ||
+        valueId >= IO_RUNTIME_UI_DERIVED_BASE + ValueIds::DerivedCapacity) return false;
+    ValueSnapshot snapshot{};
+    ValueMetadata metadata{};
+    if (!ds->values.read(ValueIds::Derived + (valueId - IO_RUNTIME_UI_DERIVED_BASE), snapshot, &metadata)) return false;
+    out = metadata.precision;
+    return out >= 0;
+}
+
+uint8_t TFTModuleS3::runtimeDecimals_(RuntimeUiId runtimeId, RuntimeUiWireType wireType, const char* unit) const
 {
     if (wireType != RuntimeUiWireType::Float32) return 0U;
     if (runtimeId == makeRuntimeUiId(ModuleId::Io, 3)) return 2U;
     if (runtimeId == makeRuntimeUiId(ModuleId::Io, 6)) return 2U;
-    const char* unit = runtimeUnit_(runtimeId);
     if (unit && strcmp(unit, "mV") == 0) return 0U;
     return 1U;
 }
@@ -1575,6 +1643,9 @@ void TFTModuleS3::formatRuntimeValue_(RuntimeUiId runtimeId,
     if (unitOut && unitOutLen > 0U) unitOut[0] = '\0';
     if (!valueOut || valueOutLen == 0U || !value.available) return;
 
+    char unit[UnitTextCapacity] = {0};
+    readRuntimeUnit_(runtimeId, unit, sizeof(unit));
+
     switch (value.wireType) {
         case RuntimeUiWireType::Bool:
             snprintf(valueOut, valueOutLen, "%s", value.boolValue ? "ON" : "OFF");
@@ -1587,7 +1658,9 @@ void TFTModuleS3::formatRuntimeValue_(RuntimeUiId runtimeId,
             snprintf(valueOut, valueOutLen, "%lu", (unsigned long)value.u32Value);
             break;
         case RuntimeUiWireType::Float32: {
-            const uint8_t decimals = runtimeDecimals_(runtimeId, value.wireType);
+            uint8_t decimals = runtimeDecimals_(runtimeId, value.wireType, unit);
+            int8_t derivedPrecision = VALUE_PRECISION_NONE;
+            if (readRuntimePrecision_(runtimeId, derivedPrecision)) decimals = (uint8_t)derivedPrecision;
             if (decimals > 0U) {
                 snprintf(valueOut, valueOutLen, "%.*f", (int)decimals, (double)value.f32Value);
                 trimTrailingZeros_(valueOut);
@@ -1605,8 +1678,7 @@ void TFTModuleS3::formatRuntimeValue_(RuntimeUiId runtimeId,
             return;
     }
 
-    const char* unit = runtimeUnit_(runtimeId);
-    if (unitOut && unitOutLen > 0U && unit && unit[0] != '\0') {
+    if (unitOut && unitOutLen > 0U && unit[0] != '\0') {
         snprintf(unitOut, unitOutLen, "%s", unit);
     }
 }
@@ -1619,6 +1691,14 @@ void TFTModuleS3::slotLabel_(uint8_t slot, char* out, size_t outLen) const
     const DashboardSlotConfig& cfg = uiStorage_->dashboardCfg[slot];
     if (cfg.label[0] != '\0') {
         snprintf(out, outLen, "%s", cfg.label);
+        return;
+    }
+
+    const uint8_t valueId = runtimeUiValueId(cfg.runtimeUiId);
+    if ((ModuleId)runtimeUiModuleId(cfg.runtimeUiId) == ModuleId::Io &&
+        valueId >= IO_RUNTIME_UI_DERIVED_BASE &&
+        valueId < IO_RUNTIME_UI_DERIVED_BASE + ValueIds::DerivedCapacity &&
+        ioReadDerivedValueName(cfgStore_, (uint8_t)(valueId - IO_RUNTIME_UI_DERIVED_BASE), out, outLen)) {
         return;
     }
 

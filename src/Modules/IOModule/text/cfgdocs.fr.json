@@ -2385,21 +2385,6 @@
       "help_t": "cfgdocs.io.value.v00.aggregation.help",
       "enum_set": "flowio_aggregation_mode"
     },
-    "io/value/v00/offset": {
-      "type": "Double",
-      "label_t": "cfgdocs.io.value.v00.offset.label",
-      "help_t": "cfgdocs.io.value.v00.offset.help"
-    },
-    "io/value/v00/scale": {
-      "type": "Double",
-      "label_t": "cfgdocs.io.value.v00.scale.label",
-      "help_t": "cfgdocs.io.value.v00.scale.help"
-    },
-    "io/value/v00/source": {
-      "type": "UInt16",
-      "label_t": "cfgdocs.io.value.v00.source.label",
-      "help_t": "cfgdocs.io.value.v00.source.help"
-    },
     "io/value/v00/enabled": {
       "type": "Bool",
       "label_t": "cfgdocs.io.value.v00.enabled.label",
@@ -2409,6 +2394,202 @@
       "type": "CharArray",
       "label_t": "cfgdocs.io.value.v00.name.label",
       "help_t": "cfgdocs.io.value.v00.name.help"
+    },
+    "io/value/v00/expr": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.value.v00.expr.label",
+      "help_t": "cfgdocs.io.value.v00.expr.help"
+    },
+    "io/value/v00/k0": {
+      "type": "Double",
+      "label_t": "cfgdocs.io.value.v00.k0.label",
+      "help_t": "cfgdocs.io.value.v00.k0.help"
+    },
+    "io/value/v00/k1": {
+      "type": "Double",
+      "label_t": "cfgdocs.io.value.v00.k1.label",
+      "help_t": "cfgdocs.io.value.v00.k1.help"
+    },
+    "io/value/v00/k2": {
+      "type": "Double",
+      "label_t": "cfgdocs.io.value.v00.k2.label",
+      "help_t": "cfgdocs.io.value.v00.k2.help"
+    },
+    "io/value/v00/k3": {
+      "type": "Double",
+      "label_t": "cfgdocs.io.value.v00.k3.label",
+      "help_t": "cfgdocs.io.value.v00.k3.help"
+    },
+    "io/input/a00/a00_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a01/a01_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a02/a02_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a03/a03_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a04/a04_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a05/a05_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a06/a06_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a07/a07_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a08/a08_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a09/a09_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a10/a10_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a11/a11_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a12/a12_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a13/a13_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a14/a14_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a15/a15_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a16/a16_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a17/a17_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a18/a18_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a19/a19_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a20/a20_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a21/a21_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a22/a22_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a23/a23_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a24/a24_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a25/a25_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a26/a26_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a27/a27_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a28/a28_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a29/a29_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a30/a30_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/input/a31/a31_unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.input.unit.label",
+      "help_t": "cfgdocs.io.input.unit.help"
+    },
+    "io/value/v00/unit": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.io.value.v00.unit.label",
+      "help_t": "cfgdocs.io.value.v00.unit.help"
+    },
+    "io/value/v00/precision": {
+      "type": "Int32",
+      "label_t": "cfgdocs.io.value.v00.precision.label",
+      "help_t": "cfgdocs.io.value.v00.precision.help",
+      "unit": "digits"
     }
   }
 }

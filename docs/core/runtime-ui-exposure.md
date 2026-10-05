@@ -380,7 +380,7 @@ L'interface web utilise le contrat de service runtime pour lire des listes d'IDs
 
 Chemin actuel:
 
-1. le client web appelle `POST /api/runtime/values`
+1. le client web appelle `GET /api/runtime/values`
 2. le backend découpe la demande en lots bornés
 3. le firmware résout chaque `runtimeId` dans `RuntimeUiRegistry`
 4. la réponse compacte est convertie en JSON homogène pour le navigateur

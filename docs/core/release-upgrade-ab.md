@@ -9,14 +9,16 @@ label associé; aucun état NVS indépendant ne choisit le filesystem.
 
 | Partition | Offset | Taille | Rôle |
 |---|---:|---:|---|
-| `app0` | `0x010000` | `0x640000` (6,25 Mio) | application slot A |
-| `app1` | `0x650000` | `0x640000` (6,25 Mio) | application slot B |
+| `nvs` | `0x009000` | `0x20000` (128 Kio) | paramètres persistants |
+| `otadata` | `0x029000` | `0x2000` (8 Kio) | sélection OTA |
+| `app0` | `0x030000` | `0x630000` (6,1875 Mio) | application slot A |
+| `app1` | `0x660000` | `0x630000` (6,1875 Mio) | application slot B |
 | `spiffs0` | `0xc90000` | `0x180000` (1,5 Mio) | assets slot A |
 | `spiffs1` | `0xe10000` | `0x180000` (1,5 Mio) | assets slot B |
 | `runtime` | `0xf90000` | `0x60000` (384 Kio) | journal mutable partagé |
 
-Le firmware 2.0.1 compilé occupe environ 2,19 Mo, soit 33,4 % d’un slot
-applicatif. L’image SPIFFS a une taille fixe de 1,5 Mio. Le journal d’activité
+Chaque slot applicatif dispose de 6,1875 Mio, avec une marge confortable pour le
+firmware actuel. L’image SPIFFS a une taille fixe de 1,5 Mio. Le journal d’activité
 est séparé des releases afin qu’une mise à jour ne l’efface pas.
 
 Seul `spiffs0` utilise le sous-type CSV reconnu par la cible PlatformIO
@@ -61,3 +63,32 @@ upgrade firmware seul, le SPIFFS courant est recopié vers le slot inactif avant
 l’écriture de l’application, ce qui garantit au minimum un slot Web exploitable.
 L’upgrade SPIFFS historique conserve son comportement en place sur le slot actif;
 le package ZIP local est le chemin transactionnel garantissant le couple complet.
+
+## Réinstallation sans conservation des réglages (NVS 128 Kio)
+
+La NVS passe de 20 à 128 Kio. Les deux applications restent de taille égale ;
+les emplacements des systèmes de fichiers et du coredump sont conservés.
+L’image d’initialisation OTA `boot_app0.bin` doit être écrite à `0x29000` :
+`board_upload.arduino.boot_app0` fixe cet emplacement dans PlatformIO. L’ancienne
+adresse Arduino par défaut `0xe000` se trouve désormais dans la NVS et ne doit
+plus être utilisée pour cette image. PlatformIO déduit l’adresse applicative
+`0x30000` de la table.
+
+Pour une installation neuve explicitement choisie sans conservation des données,
+connecter la carte en USB puis exécuter, depuis la racine du projet :
+
+```sh
+pio run -e Flowio-waveshare-esp32-s3 -t erase
+pio run -e Flowio-waveshare-esp32-s3 -t upload
+pio run -e Flowio-waveshare-esp32-s3 -t uploadfs
+```
+
+L’effacement complet supprime réglages, identifiants réseau, compteurs, historiques
+et journaux locaux. Reconfigurer le réseau et MQTT après l’installation.
+Si plusieurs cartes sont branchées, ajouter `--upload-port PORT` à chaque commande.
+Installer les deux images avant de vérifier le démarrage ; la validation de release
+requiert les fichiers web. Le ZIP OTA seul ne met pas à jour la table de partitions.
+
+Au redémarrage, vérifier la connexion réseau, l’état MQTT et la sauvegarde d’un
+réglage après un second reboot. Le journal d’occupation NVS doit refléter la nouvelle
+partition et ne plus montrer d’échec d’écriture `0x1105`.

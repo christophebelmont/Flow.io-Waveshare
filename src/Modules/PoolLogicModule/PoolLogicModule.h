@@ -510,6 +510,17 @@ private:
     static AlarmCondState condChlorinePumpMaxUptimeStatic_(void* ctx, uint32_t nowMs);
     AlarmCondState condPumpMaxUptime_(uint8_t deviceSlot) const;
     bool readDeviceActualOn_(uint8_t deviceSlot, bool& onOut) const;
+    struct DeviceControlInfo {
+        bool available = false;
+        bool guidedOn = false;
+        bool forced = false;
+        bool enabled = false;
+        PoolSetpointUnit unit{};
+        float guidedSetpoint = 0;
+        uint8_t blockReason = 0;
+        IoId ioId = IO_ID_INVALID;
+    };
+    DeviceControlInfo readDeviceControlInfo_(uint8_t deviceSlot) const;
     bool writeDeviceDesired_(uint8_t deviceSlot, bool on);
     bool setPoolDeviceWritesEnabled_(bool enabled);
     void syncDeviceState_(uint8_t deviceSlot, DeviceFsm& fsm, uint32_t nowMs, bool& turnedOnOut, bool& turnedOffOut);

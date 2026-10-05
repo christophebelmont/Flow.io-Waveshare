@@ -6,6 +6,9 @@ import zipfile
 from pathlib import Path
 
 
+ROOT = Path(__file__).resolve().parents[2]
+
+
 class _DummyEnv:
     def AddPostAction(self, *args, **kwargs):
         pass
@@ -15,6 +18,11 @@ class _DummyEnv:
 
     def AlwaysBuild(self, *args, **kwargs):
         pass
+
+    def GetProjectOption(self, name):
+        if name == "board_build.partitions":
+            return str(ROOT / "partition_waveshare_ota_16mb.csv")
+        raise KeyError(name)
 
     def subst(self, value):
         return "Flowio-waveshare-esp32-s3" if value == "$PIOENV" else value
@@ -57,13 +65,17 @@ class NextionArtifactFilenameTests(unittest.TestCase):
 
 
 class ReleasePackageTests(unittest.TestCase):
+    def test_filesystem_size_comes_from_partition_table(self):
+        self.assertEqual(0x180000, MODULE["_expected_filesystem_size"]())
+
     def test_package_contains_streamable_complete_release(self):
+        expected_filesystem_size = MODULE["_expected_filesystem_size"]()
         with tempfile.TemporaryDirectory() as temp_dir:
             output = Path(temp_dir)
             firmware = output / "flowios3-2.0.1.bin"
             filesystem = output / "flowios3-spiffs-2.0.1.bin"
             firmware.write_bytes(b"firmware-image")
-            filesystem.write_bytes(b"\xff" * 0x180000)
+            filesystem.write_bytes(b"\xff" * expected_filesystem_size)
 
             function = MODULE["_write_release_package"]
             original_binary_dir = function.__globals__["_binary_dir"]
@@ -87,7 +99,27 @@ class ReleasePackageTests(unittest.TestCase):
                 manifest = json.loads(archive.read("manifest.json"))
                 self.assertEqual("WaveshareESP32S3", manifest["hardware"])
                 self.assertEqual(len(firmware.read_bytes()), manifest["firmware"]["size"])
-                self.assertEqual(0x180000, manifest["filesystem"]["size"])
+                self.assertEqual(expected_filesystem_size, manifest["filesystem"]["size"])
+
+    def test_wrong_filesystem_size_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir)
+            (output / "flowios3-2.0.1.bin").write_bytes(b"firmware-image")
+            (output / "flowios3-spiffs-2.0.1.bin").write_bytes(b"\xff" * 16)
+
+            function = MODULE["_write_release_package"]
+            original_binary_dir = function.__globals__["_binary_dir"]
+            original_project_dir = function.__globals__["_project_dir"]
+            function.__globals__["_binary_dir"] = lambda: output
+            function.__globals__["_project_dir"] = lambda: output
+            try:
+                with self.assertRaises(RuntimeError):
+                    function("2.0.1")
+            finally:
+                function.__globals__["_binary_dir"] = original_binary_dir
+                function.__globals__["_project_dir"] = original_project_dir
+
+            self.assertFalse((output / "flowio-2.0.1.zip").exists())
 
 if __name__ == "__main__":
     unittest.main()

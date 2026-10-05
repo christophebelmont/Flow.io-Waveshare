@@ -82,4 +82,6 @@ struct ConfigMeta {
     uint16_t size;
     uint8_t moduleId = 0; // 0 = unknown
     uint8_t localBranchId = 0; // 0 = unknown
+    // Retry failed JSON persistence even when the requested value matches RAM.
+    bool persistencePending = false;
 };

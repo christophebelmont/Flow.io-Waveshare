@@ -63,6 +63,7 @@
     const remoteMenuIconLigatures = {
       'icon-measures': 'water_damage',
       'icon-io': 'lan',
+      'icon-derived': 'functions',
       'icon-calibration': 'science',
       'icon-terminal': 'list_alt',
       'icon-activity': 'history',
@@ -72,25 +73,24 @@
       'icon-users': 'manage_accounts'
     };
     const infoRefreshActiveMs = 10000;
-    const infoSupervisorRefreshMs = 1000;
+    const infoLocalRefreshMs = 1000;
     const infoFlowRefreshActiveMs = 10000;
     const infoFlowRefreshIdleMs = 10000;
     const cfgI18nDebugEnabled = false;
     const flowStatusDebugEnabled = true;
     let webAssetVersion = '';
     let loadedWebAssetVersion = '';
-    let supervisorFirmwareVersion = '-';
+    let localFirmwareVersion = '-';
     let nextionDisplayVersion = '';
     let nextionDisplayDetected = false;
     let nextionDisplayModel = '';
     let nextionDisplayCompatibility = '';
-    let supervisorUptimeMs = 0;
-    let supervisorHeap = {};
-    let webProfileName = 'Supervisor';
+    let localUptimeMs = 0;
+    let localHeap = {};
+    let webProfileName = 'flow.io';
     let webDeviceName = 'flowio';
     let infoLastMac = '-';
-    let webProfileKey = 'supervisor';
-    let webLocalRuntime = false;
+    let webProfileKey = 'flowio';
     let webRuntimeEventsAvailable = false;
     let hideMenuSvg = false;
     let disableWebIcons = false;
@@ -114,7 +114,7 @@
     let deviceReachabilityMisses = 0;
     let deviceReachabilityReachable = false;
     const pendingSystemActionCountdowns = new Map();
-    let activeColorPickerPopover = null;
+    let activeAnchoredPopover = null;
     let webUiLocale = 'fr';
     let webUiLocaleProbeInFlight = false;
     let webUiLocaleProbePromise = null;
@@ -268,6 +268,7 @@
           syncMenuIconFallbacks();
           renderInfoPanel();
           refreshPoolMeasuresView();
+          renderDerivedValuesIfLoaded();
           if (getActivePageId() === 'page-dashboard' && poolConfigLoadedOnce) {
             loadPoolConfig(true).catch(() => {});
           }
@@ -286,6 +287,7 @@
       syncMenuIconFallbacks();
       renderInfoPanel();
       refreshPoolMeasuresView();
+      renderDerivedValuesIfLoaded();
       refreshCfgDocLocaleRuntime(true).catch(() => {});
 
       ensureWebUiLocaleBundle(normalized, false).then((loaded) => {
@@ -494,10 +496,6 @@
 
     function syncRenderedCheckFallbacks() {
       const checkText = iconCheckText();
-      document.querySelectorAll('.step-ic.done').forEach((node) => {
-        if (!node) return;
-        node.textContent = checkText;
-      });
       document.querySelectorAll('.status-flag-check.is-true').forEach((node) => {
         if (!node) return;
         node.textContent = checkText;
@@ -526,7 +524,7 @@
       unifyStatusCardIcons = !!unified;
     }
 
-    function resolveSupervisorFirmwareVersion() {
+    function resolveLocalFirmwareVersion() {
       return '-';
     }
 
@@ -539,17 +537,11 @@
       }
       const rawDeviceName = String(data.devicename || data.deviceName || '').trim();
       webDeviceName = rawDeviceName || 'flowio';
-      webLocalRuntime = data.local_runtime === true;
       webRuntimeEventsAvailable = data.runtime_events === true;
       if (getActivePageId() === 'page-dashboard' && !document.hidden) dashboardLiveUpdates.start();
       ensureRuntimeDomainState();
       runtimeManifestDomainCache = null;
       runtimeManifestDomainLoadPromise = null;
-      if (webLocalRuntime) {
-        logSourceMeta.supervisor.label = 'flow.io';
-      } else {
-        logSourceMeta.supervisor.label = 'Supervisor';
-      }
       applyLogSourceUi();
       applyProfileUiText();
       renderMeasureDomainTabs();
@@ -576,11 +568,6 @@
 
     function isFlowIOProfile() {
       return String(webProfileKey || '').trim().toLowerCase() === 'flowio';
-    }
-
-    function isSupervisorProfile() {
-      const key = String(webProfileKey || '').trim().toLowerCase();
-      return key === 'supervisor' || key.indexOf('supervisor') === 0;
     }
 
     function createRuntimeDomainState() {
@@ -636,32 +623,17 @@
       setBrandWordmark('Flow');
       if (rebootDeviceTargetSelect) {
         const labelsByTarget = {
-          supervisor: 'Supervisor',
-          flow_soft: 'flow.io soft',
-          flow_hard: 'flow.io hard',
+          local: 'flow.io',
           nextion: 'Nextion',
           factory_reset: 'Init Usine'
         };
-        const blockValues = isWaveshareProfile()
-          ? new Set(['supervisor', 'flow_hard'])
-          : new Set();
-        const hiddenValues = isWaveshareProfile()
-          ? new Set(['supervisor', 'flow_hard'])
-          : new Set();
         Array.from(rebootDeviceTargetSelect.options || []).forEach((option) => {
           if (!option) return;
           if (Object.prototype.hasOwnProperty.call(labelsByTarget, option.value)) {
             option.text = labelsByTarget[option.value];
           }
-          option.disabled = blockValues.has(option.value);
-          option.hidden = hiddenValues.has(option.value);
         });
-        if (blockValues.has(rebootDeviceTargetSelect.value)) {
-          const fallbackOption = Array.from(rebootDeviceTargetSelect.options || [])
-            .find((option) => option && !option.disabled && !option.hidden);
-          rebootDeviceTargetSelect.value = fallbackOption ? fallbackOption.value : 'supervisor';
-        }
-        factoryResetCapabilityBlocked = blockValues.has('factory_reset');
+        factoryResetCapabilityBlocked = false;
         syncFactoryResetAction();
       }
     }
@@ -682,7 +654,7 @@
       webAssetVersion = getStorageValue(localStorage, flowWebAssetVersionStorageKey);
     }
 
-    supervisorFirmwareVersion = resolveSupervisorFirmwareVersion();
+    localFirmwareVersion = resolveLocalFirmwareVersion();
     try {
       const initialMeta = window.__FLOW_WEB_META__;
       if (initialMeta && typeof initialMeta === 'object') {
@@ -693,7 +665,6 @@
         }
         const rawDeviceName = String(initialMeta.devicename || initialMeta.deviceName || '').trim();
         webDeviceName = rawDeviceName || 'flowio';
-        webLocalRuntime = initialMeta.local_runtime === true;
         webRuntimeEventsAvailable = initialMeta.runtime_events === true;
         networkMode = normalizeNetworkMode(initialMeta.network_mode);
         networkTransport = normalizeNetworkTransport(initialMeta.network_transport || initialMeta.transport);
@@ -711,8 +682,8 @@
       let res;
       if (typeof fetchImpl === 'function') {
         res = await fetchImpl(url, options);
-      } else if (window.FlowWebCore && typeof window.FlowWebCore.supervisorFetch === 'function') {
-        res = await window.FlowWebCore.supervisorFetch(url, options, { retries: 4 });
+      } else if (window.FlowWebCore && typeof window.FlowWebCore.busyFetch === 'function') {
+        res = await window.FlowWebCore.busyFetch(url, options, { retries: 4 });
       } else {
         res = await fetch(url, options);
       }
@@ -1064,7 +1035,7 @@
         if (typeof data.firmware_version === 'string') {
           const trimmed = data.firmware_version.trim();
           if (trimmed) {
-            supervisorFirmwareVersion = trimmed;
+            localFirmwareVersion = trimmed;
           }
         }
         const rawNextionVersion = String(data.nextion_display_version || '').trim();
@@ -1072,8 +1043,8 @@
         nextionDisplayDetected = data.nextion_display_detected === true;
         nextionDisplayModel = String(data.nextion_display_model || '').trim();
         nextionDisplayCompatibility = String(data.nextion_display_compatibility || '').trim();
-        supervisorUptimeMs = Number(data.upms) || 0;
-        supervisorHeap = (data.heap && typeof data.heap === 'object') ? data.heap : {};
+        localUptimeMs = Number(data.upms) || 0;
+        localHeap = (data.heap && typeof data.heap === 'object') ? data.heap : {};
         renderUpgradeCatalog();
         refreshAppHeader(getActivePageId());
         if (isPageActive('page-status')) {
@@ -1345,7 +1316,7 @@
       const largest = Number(heap && heap.largest) || 0;
       const frag = Number(heap && heap.frag) || 0;
 
-      // Supervisor nominal profile (ESP32 sans PSRAM):
+      // Local nominal profile (ESP32 sans PSRAM):
       // - state is derived from current free/largest/frag only
       // - min_free is informational and intentionally excluded from pressure state
       // - each level requires all criteria to avoid false positives near nominal baseline
@@ -1632,7 +1603,7 @@
       if (time) {
         syncHeaderTimeSourceFromSystemDomain();
       }
-      const fullFirmware = systemDomain ? fmtFlowStatusVal(systemDomain.fw) : (supervisorFirmwareVersion || '-');
+      const fullFirmware = systemDomain ? fmtFlowStatusVal(systemDomain.fw) : (localFirmwareVersion || '-');
       const firmwareParts = splitInfoFirmwareVersion(fullFirmware);
       const currentMac = wifiDomain ? normalizeInfoMac(wifi.mac) : '-';
       if (currentMac !== '-') infoLastMac = currentMac;
@@ -1643,7 +1614,7 @@
         [tr('info.row.deviceName', 'Nom de l’appareil'), deviceName],
         [tr('info.row.firmwareVersion', 'Version firmware'), firmwareParts.version],
         [tr('info.row.buildVersion', 'Version build'), firmwareParts.build],
-        [tr('info.row.uptime', 'Uptime'), systemDomain ? formatInfoUptime(systemDomain.upms) : formatInfoUptime(supervisorUptimeMs)],
+        [tr('info.row.uptime', 'Uptime'), systemDomain ? formatInfoUptime(systemDomain.upms) : formatInfoUptime(localUptimeMs)],
         [tr('info.row.ip', 'Adresse IP'), wifiDomain ? normalizeIpValue(wifi.ip) : '-'],
         [tr('info.row.mac', 'Adresse MAC'), mac],
         [tr('info.row.networkType', 'Type réseau'), wifiDomain ? formatInfoNetworkType(infoNetworkType) : '-'],
@@ -1733,7 +1704,7 @@
       renderInfoPanel();
     }
 
-    async function pollInfoSupervisorTick() {
+    async function pollInfoLocalTick() {
       if (!isInfoPageVisible()) {
         stopInfoPolling();
         return;
@@ -1748,12 +1719,12 @@
     function startInfoPolling() {
       if (!isInfoPageVisible()) return;
       infoRuntimePoller.start();
-      infoSupervisorPoller.start();
+      infoLocalPoller.start();
     }
 
     function stopInfoPolling() {
       infoRuntimePoller.stop();
-      infoSupervisorPoller.stop();
+      infoLocalPoller.stop();
     }
 
     let flowRemoteFetchQueue = Promise.resolve();
@@ -1981,6 +1952,9 @@
       } else {
         stopIoSummaryTimer();
       }
+      if (pageId === 'page-derived-values') {
+        schedulePageTask(pageId, pageToken, deferredHeavyMs, () => onDerivedValuesPageShown());
+      }
       if (pageId === 'page-calibration') {
         schedulePageTask(pageId,
                          pageToken,
@@ -2110,10 +2084,11 @@
     const upgradeProgressBar = document.getElementById('upgradeProgressBar');
     const upgradePct = document.getElementById('upgradePct');
     const upgradeJourneyLabel = document.getElementById('upgradeJourneyLabel');
+    const upgradeProgressHint = document.getElementById('upgradeProgressHint');
+    const upgradePhaseIcon = document.getElementById('upgradePhaseIcon');
     const upgradeSteps = document.getElementById('upgradeSteps');
     const upgradeFooterStatus = document.getElementById('upgradeFooterStatus');
     const upgradeProgressPanel = document.getElementById('upgradeProgressPanel');
-    const upStatusChip = document.getElementById('upStatusChip');
 
     const wifiEnabled = document.getElementById('wifiEnabled');
     const wifiSsid = document.getElementById('wifiSsid');
@@ -2204,7 +2179,6 @@
     let flowCfgPoolDeviceOptions = null;
     let flowCfgPoolDeviceOptionsTs = 0;
     const flowCfgPoolDeviceOptionsTtlMs = 20000;
-    let activeDependencyMaskPopover = null;
     let flowCfgChildrenCache = {};
     let flowCfgPath = [];
     let flowCfgExpandedNodes = new Set();
@@ -2238,6 +2212,7 @@
     let cfgTreeNodeTextNames = {};
     let cfgTreeNodeTextNamePending = new Set();
     const poolLogicDeviceIoOutputNames = {};
+    const ioDerivedValueInfo = {};
     const ioOutputPdmLabels = Object.freeze({
       0: 'Filtration',
       1: 'Pompe pH',
@@ -2476,20 +2451,20 @@
     const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
     const logSocketPath = '/wslog';
     const logSourceMeta = {
-      supervisor: { cmd: 'src:supervisor', label: 'Supervisor', statusBusy: 'occupé (1 terminal max)' },
+      local: { cmd: 'src:local', label: 'flow.io', statusBusy: 'occupé (1 terminal max)' },
       flowio: { cmd: 'src:flowio', label: 'flow.io', statusBusy: 'occupé (1 terminal max)' }
     };
-    let logSource = 'supervisor';
+    let logSource = 'local';
     let logSocket = null;
     let upgradeUiStatusMuted = false;
     const upgradeStatusPoller = createTimeoutRunner(() => pollUpgradeStatusTick());
     const infoRuntimePoller = createIntervalRunner(() => pollInfoRuntimeTick(), infoRefreshActiveMs);
-    const infoSupervisorPoller = createIntervalRunner(() => pollInfoSupervisorTick(), infoSupervisorRefreshMs);
+    const infoLocalPoller = createIntervalRunner(() => pollInfoLocalTick(), infoLocalRefreshMs);
     const upgradeReconnectStageTimer = createTimeoutRunner(() => enterUpgradeReconnectPhase());
     const upgradeReconnectMonitor = createIntervalRunner(() => probeUpgradeReconnect(), 1500);
     const dashboardLiveUpdates = createDashboardLiveUpdates({
       isActive: () => getActivePageId() === 'page-dashboard' && !document.hidden,
-      canStream: () => webLocalRuntime && webRuntimeEventsAvailable && typeof EventSource === 'function',
+      canStream: () => webRuntimeEventsAvailable && typeof EventSource === 'function',
       openSource: () => new EventSource('/api/runtime/events'),
       invalidate: () => invalidatePoolDashboardSlots(),
       refresh: (domains) => refreshDashboardLiveDomains(domains)
@@ -2505,17 +2480,17 @@
     const wifiScanPoller = createTimeoutRunner(() => refreshWifiScanStatus(false));
 
     function activeLogSourceMeta() {
-      return logSourceMeta[logSource] || logSourceMeta.supervisor;
+      return logSourceMeta[logSource] || logSourceMeta.local;
     }
 
     function applyLogSourceUi() {
-      const localOnly = webLocalRuntime === true;
+      const localOnly = true;
       if (logSourceSelect) {
         logSourceSelect.hidden = localOnly;
         logSourceSelect.disabled = localOnly;
       }
-      if (localOnly && logSource !== 'supervisor') {
-        setLogSource('supervisor');
+      if (localOnly && logSource !== 'local') {
+        setLogSource('local');
       } else if (logSourceSelect && logSourceSelect.value !== logSource) {
         logSourceSelect.value = logSource;
       }
@@ -2964,10 +2939,10 @@
 
     function setLogSource(source) {
       let normalized = String(source || '').trim().toLowerCase();
-      if (webLocalRuntime && normalized === 'flowio') {
-        normalized = 'supervisor';
+      if (normalized === 'flowio') {
+        normalized = 'local';
       }
-      logSource = Object.prototype.hasOwnProperty.call(logSourceMeta, normalized) ? normalized : 'supervisor';
+      logSource = Object.prototype.hasOwnProperty.call(logSourceMeta, normalized) ? normalized : 'local';
       if (logSourceSelect && logSourceSelect.value !== logSource) {
         logSourceSelect.value = logSource;
       }
@@ -3012,7 +2987,7 @@
       if (autoScrollEnabled && term) term.scrollTop = term.scrollHeight;
     });
     if (logSourceSelect) {
-      logSourceSelect.value = 'supervisor';
+      logSourceSelect.value = 'local';
       logSourceSelect.addEventListener('change', () => {
         setLogSource(logSourceSelect.value);
       });
@@ -3069,7 +3044,7 @@
     });
     applyLogSourceUi();
     refreshAutoscrollUi();
-    logSource = 'supervisor';
+    logSource = 'local';
     setWsStatusText(tr('terminal.inactive', 'inactif'));
     if (flowCfgApplyBtn) flowCfgApplyBtn.disabled = true;
 
@@ -3150,6 +3125,31 @@
       return -1;
     }
 
+    function upgradePhaseTitle(session) {
+      const phase = String(session && session.phase ? session.phase : 'idle');
+      if (phase === 'target') return tr('updates.title.target', 'Préparation de la mise à jour');
+      if (phase === 'download') return tr('updates.title.download', 'Téléchargement de la mise à jour');
+      if (phase === 'flash') return tr('updates.title.flash', 'Mise à jour du firmware');
+      if (phase === 'reboot') return tr('updates.title.reboot', 'Redémarrage de l’appareil');
+      if (phase === 'reconnect') return tr('updates.title.reconnect', 'Reconnexion de l’appareil');
+      if (phase === 'done') return tr('updates.title.done', 'Mise à jour terminée');
+      if (phase === 'error') return tr('updates.title.error', 'Échec de la mise à jour');
+      return tr('updates.progress', 'Statut de l’upgrade');
+    }
+
+    function upgradeProgressHintText(session, targetLabel) {
+      const phase = String(session && session.phase ? session.phase : 'idle');
+      if (phase === 'flash') return tr('updates.hint.flash', 'Ne coupez pas l’alimentation.');
+      if (phase === 'reconnect') return tr('updates.hint.reconnect', 'Cette page se rafraîchit automatiquement.');
+      const index = upgradePhaseIndex(phase);
+      if (index < 0) return '';
+      const total = upgradeStepDefinitions(session && session.target).length;
+      const counter = tr('updates.stepCounter', 'Étape {current} sur {total}')
+        .replace('{current}', String(Math.min(index + 1, total)))
+        .replace('{total}', String(total));
+      return targetLabel ? counter + ' · ' + targetLabel : counter;
+    }
+
     function upgradePhasePercent(session) {
       const phase = String(session && session.phase ? session.phase : 'idle');
       const progress = Math.max(0, Math.min(100, Number(session && session.backendProgress) || 0));
@@ -3218,59 +3218,32 @@
       upgradeSteps.innerHTML = '';
       defs.forEach((step) => {
         const state = upgradeStepState(step.id, session);
-        const row = document.createElement('div');
-        row.className = 'step-row';
-
-        const icon = document.createElement('span');
-        icon.className = 'step-ic ' + state;
+        const dot = document.createElement('span');
+        dot.className = 'upd-step ' + state;
+        dot.setAttribute('role', 'listitem');
+        dot.setAttribute('title', step.label);
+        dot.setAttribute('aria-label', step.label + ' — ' + upgradeStepStatusLabel(step.id, state, session));
         if (state === 'active') {
           const activeDot = document.createElement('span');
-          activeDot.className = 'step-active-dot';
+          activeDot.className = 'upd-step-active-dot';
           activeDot.setAttribute('aria-hidden', 'true');
-          icon.appendChild(activeDot);
-        } else if (state === 'done') {
-          const doneIcon = document.createElement('span');
-          doneIcon.className = 'ui-msr';
-          doneIcon.setAttribute('aria-hidden', 'true');
-          doneIcon.textContent = 'check';
-          icon.appendChild(doneIcon);
-        } else if (state === 'error') {
-          const errIcon = document.createElement('span');
-          errIcon.className = 'ui-msr';
-          errIcon.setAttribute('aria-hidden', 'true');
-          errIcon.textContent = 'close';
-          icon.appendChild(errIcon);
-        } else {
-          const pendingIcon = document.createElement('span');
-          pendingIcon.className = 'ui-msr';
-          pendingIcon.setAttribute('aria-hidden', 'true');
-          pendingIcon.textContent = 'radio_button_unchecked';
-          icon.appendChild(pendingIcon);
+          dot.appendChild(activeDot);
+        } else if (state === 'done' || state === 'error') {
+          const glyph = document.createElement('span');
+          glyph.className = 'upd-step-check' + (disableWebIcons ? '' : ' ui-msr');
+          glyph.setAttribute('aria-hidden', 'true');
+          glyph.textContent = disableWebIcons
+            ? (state === 'done' ? iconCheckText() : '!')
+            : (state === 'done' ? 'check' : 'close');
+          dot.appendChild(glyph);
         }
-        row.appendChild(icon);
-
-        const meta = document.createElement('span');
-        meta.className = 'step-meta';
-
-        const label = document.createElement('span');
-        label.className = 'step-lbl ' + state;
-        label.textContent = step.label;
-        meta.appendChild(label);
-
-        const sub = document.createElement('span');
-        sub.className = 'step-sub ' + state;
-        sub.textContent = upgradeStepStatusLabel(step.id, state, session);
-        meta.appendChild(sub);
-
-        row.appendChild(meta);
-
-        upgradeSteps.appendChild(row);
+        upgradeSteps.appendChild(dot);
       });
     }
 
     function isUpgradeUiCancelable(session) {
       const phase = String(session && session.phase ? session.phase : 'idle');
-      return !!(session && (session.awaitingReconnect || phase === 'target' || phase === 'download' || phase === 'flash' || phase === 'reboot' || phase === 'reconnect'));
+      return !!(session && (session.awaitingReconnect || phase === 'target' || phase === 'download' || phase === 'flash' || phase === 'reboot' || phase === 'reconnect' || phase === 'error'));
     }
 
     function syncUpgradeCancelButton(session) {
@@ -3278,6 +3251,12 @@
       const canCancel = isUpgradeUiCancelable(session);
       cancelUpgradeUiBtn.hidden = !canCancel;
       cancelUpgradeUiBtn.disabled = !canCancel;
+      const phase = String(session && session.phase ? session.phase : 'idle');
+      const label = phase === 'error'
+        ? tr('updates.dismiss', 'Fermer')
+        : tr('updates.cancel', 'Annuler');
+      cancelUpgradeUiBtn.setAttribute('aria-label', label);
+      cancelUpgradeUiBtn.setAttribute('title', label);
     }
 
     function renderUpgradeJourney(session) {
@@ -3285,38 +3264,29 @@
       const phase = String(safeSession.phase || 'idle');
       const detail = String(safeSession.detail || '');
       const targetLabel = upgradeTargetLabel(safeSession.target);
+      const phaseTitle = upgradePhaseTitle(safeSession);
       if (upgradeProgressPanel) {
         const progressVisible = phase === 'target' || phase === 'download' || phase === 'flash'
-          || phase === 'reboot' || phase === 'reconnect';
+          || phase === 'reboot' || phase === 'reconnect' || phase === 'error';
         upgradeProgressPanel.hidden = !progressVisible;
+        upgradeProgressPanel.classList.toggle('is-error', phase === 'error');
       }
-      const stateLabel = phase === 'idle'
-        ? tr('updates.phase.idle', 'Prêt')
-        : phase === 'target'
-          ? tr('updates.phase.target', 'Cible sélectionnée')
-          : phase === 'download'
-            ? tr('updates.phase.download', 'Téléchargement')
-            : phase === 'flash'
-              ? tr('updates.phase.flash', 'Mise à jour')
-              : phase === 'reboot'
-                ? tr('updates.phase.reboot', 'Redémarrage')
-                : phase === 'reconnect'
-                  ? tr('updates.phase.reconnect', 'Attente de Reconnection')
-                  : phase === 'done'
-                    ? tr('updates.phase.done', 'Mise à jour terminée')
-                    : tr('updates.phase.error', 'Erreur');
-
       if (upgradeJourneyLabel) {
-        upgradeJourneyLabel.textContent = safeSession.target
-          ? (tr('updates.progress', 'Statut de l’upgrade') + ' · ' + targetLabel)
-          : tr('updates.progress', 'Statut de l’upgrade');
+        upgradeJourneyLabel.textContent = phaseTitle;
+      }
+      if (upgradeProgressHint) {
+        const hint = upgradeProgressHintText(safeSession, targetLabel);
+        upgradeProgressHint.textContent = hint;
+        upgradeProgressHint.hidden = !hint;
+      }
+      if (upgradePhaseIcon) {
+        const glyph = upgradePhaseIcon.querySelector('.ui-msr');
+        if (glyph) glyph.textContent = phase === 'error' ? 'error' : 'sync';
+        upgradePhaseIcon.classList.toggle('is-error', phase === 'error');
       }
       setUpgradeProgress(upgradePhasePercent(safeSession));
-      setUpgradeMessage(detail || (phase === 'idle' ? tr('updates.none', 'Aucune opération en cours.') : stateLabel));
+      setUpgradeMessage(detail || (phase === 'idle' ? tr('updates.none', 'Aucune opération en cours.') : phaseTitle));
       renderUpgradeSteps(safeSession);
-      if (upStatusChip) {
-        upStatusChip.textContent = stateLabel;
-      }
       syncUpgradeCancelButton(safeSession);
     }
 
@@ -3777,11 +3747,6 @@
     function manifestCategoryVisibleForProfile(category) {
       const key = String(category || '').trim().toLowerCase();
       if (!key) return false;
-      if (isSupervisorProfile()) {
-        return key === 'flowios3' || key === 'esp32s3' || key === 'waveshare'
-          || key === 'spiffs' || key === 'flowios3-spiffs' || key === 'esp32s3-spiffs' || key === 'waveshare-spiffs'
-          || key === 'nextion';
-      }
       if (isWaveshareProfile()) {
         return key === 'flowios3' || key === 'esp32s3' || key === 'waveshare'
           || key === 'spiffs' || key === 'flowios3-spiffs' || key === 'esp32s3-spiffs' || key === 'waveshare-spiffs'
@@ -4009,9 +3974,9 @@
       if (key === 'nextion') {
         return splitUpgradeVersionStamp(formatDetectedNextionVersion(nextionDisplayVersion), '');
       }
-      const supervisor = String(supervisorFirmwareVersion || '').trim();
+      const localFw = String(localFirmwareVersion || '').trim();
       const flow = String(window.__flowIoFirmwareVersion || '').trim();
-      const firmware = supervisor && supervisor !== '-' ? supervisor : flow;
+      const firmware = localFw && localFw !== '-' ? localFw : flow;
       return splitUpgradeVersionStamp(firmware && firmware !== '-' ? firmware : '-', '');
     }
 
@@ -4238,15 +4203,13 @@
     }
 
     function confirmRebootLaunch(selectedAction) {
-      const action = String(selectedAction || 'supervisor');
+      const action = String(selectedAction || 'local');
       const messages = {
-        supervisor: tr('updates.confirmRebootSupervisor', 'Confirmer le redémarrage du Supervisor ?'),
-        flow_soft: tr('updates.confirmRebootFlowSoft', 'Confirmer le redémarrage logiciel de flow.io ?'),
-        flow_hard: tr('updates.confirmRebootFlowHard', 'Confirmer le redémarrage matériel de flow.io ?'),
+        local: tr('updates.confirmRebootLocal', 'Confirmer le redémarrage de flow.io ?'),
         nextion: tr('updates.confirmRebootNextion', 'Confirmer le redémarrage de Nextion ?'),
         factory_reset: tr('updates.confirmFactoryReset', 'Confirmer l\'initialisation usine de flow.io ? Cette action efface la configuration distante.')
       };
-      return confirm(messages[action] || messages.supervisor);
+      return confirm(messages[action] || messages.local);
     }
 
     function populateUpgradeManifestSelections(data) {
@@ -4948,7 +4911,6 @@
       const iconText = {
         wifi: 'wifi',
         ethernet: 'settings_ethernet',
-        supervisor: 'SUP',
         system: 'SYS',
         mqtt: 'MQ',
         pool: 'PL',
@@ -5316,12 +5278,12 @@
       const heapFree = ('free' in heap) ? heap.free : null;
       const heapMin = ('min_free' in heap) ? heap.min_free : null;
       const systemReady = firmware !== '-' || uptimeMs > 0 || heapFree !== null;
-      const supervisorHeapFree = ('free' in supervisorHeap) ? supervisorHeap.free : null;
-      const supervisorHeapMin = ('min_free' in supervisorHeap) ? supervisorHeap.min_free : null;
-      const supervisorReady =
-        supervisorFirmwareVersion !== '-' ||
-        supervisorUptimeMs > 0 ||
-        supervisorHeapFree !== null;
+      const localHeapFree = ('free' in localHeap) ? localHeap.free : null;
+      const localHeapMin = ('min_free' in localHeap) ? localHeap.min_free : null;
+      const localReady =
+        localFirmwareVersion !== '-' ||
+        localUptimeMs > 0 ||
+        localHeapFree !== null;
       const poolMetricRows = [
         [
           'Temperature eau',
@@ -5476,15 +5438,15 @@
         extras: poolStateGrid ? [poolStateGrid] : []
       });
       appendFlowStatusCard({
-        title: 'Superviseur',
+        title: 'flow.io',
         icon: 'system',
-        ok: supervisorReady,
-        iconLabel: supervisorReady ? 'Superviseur disponible' : 'Superviseur indisponible',
+        ok: localReady,
+        iconLabel: localReady ? 'flow.io disponible' : 'flow.io indisponible',
         rows: [
-          ['Firmware', supervisorFirmwareVersion],
-          ['Uptime', createFlowLiveValue('uptime', supervisorUptimeMs, Date.now())],
-          ['Heap libre', fmtFlowBytes(supervisorHeapFree)],
-          ['Heap min', fmtFlowBytes(supervisorHeapMin)]
+          ['Firmware', localFirmwareVersion],
+          ['Uptime', createFlowLiveValue('uptime', localUptimeMs, Date.now())],
+          ['Heap libre', fmtFlowBytes(localHeapFree)],
+          ['Heap min', fmtFlowBytes(localHeapMin)]
         ]
       });
       appendFlowStatusCard({
@@ -6657,7 +6619,10 @@
       const display = runtimeMeasureDisplayKind(entry);
       const type = String(entry.type || runtimeValue.type || '');
       const unit = entry.unit ? String(entry.unit) : '';
-      const decimals = Number.isFinite(Number(entry.decimals)) ? Number(entry.decimals) : null;
+      const responsePrecision = Number.isFinite(Number(runtimeValue.precision)) ? Number(runtimeValue.precision) : null;
+      const decimals = responsePrecision !== null
+        ? responsePrecision
+        : (Number.isFinite(Number(entry.decimals)) ? Number(entry.decimals) : null);
       const rawValue = runtimeValue.value;
 
       if (display === 'time' && Number.isFinite(Number(rawValue))) {
@@ -11197,11 +11162,804 @@
       return out;
     }
 
+    function isTftSensorRuntimeUiDoc(doc) {
+      return !!doc && String(doc.enum_set || '').trim() === 'tft_s3_dashboard_runtime_ui';
+    }
+
+    function derivedSlotFromEnumOption(opt) {
+      if (!opt || typeof opt !== 'object') return -1;
+      const slot = Number.parseInt(opt.derived_slot, 10);
+      return Number.isFinite(slot) ? slot : -1;
+    }
+
+    function dynamicTftRuntimeUiOptions(enumOptions) {
+      if (!Array.isArray(enumOptions)) return enumOptions;
+      const out = [];
+      enumOptions.forEach((opt) => {
+        const slot = derivedSlotFromEnumOption(opt);
+        if (slot < 0) {
+          out.push(opt);
+          return;
+        }
+        const info = ioDerivedValueInfo[slot];
+        if (!info) {
+          out.push(opt);
+          return;
+        }
+        if (info.enabled !== true) return;
+        const fallback = (typeof opt.label === 'string' && opt.label.length > 0)
+          ? opt.label
+          : ('V' + String(slot).padStart(2, '0'));
+        out.push(Object.assign({}, opt, { label: (info.name || fallback) + ' [' + opt.value + ']' }));
+      });
+      return out;
+    }
+
+    async function loadIoDerivedValueInfo(derivedSlots) {
+      const pending = [];
+      derivedSlots.forEach((slot) => {
+        if (!Number.isFinite(slot) || slot < 0) return;
+        const moduleName = 'io/value/v' + String(slot).padStart(2, '0');
+        pending.push((async () => {
+          try {
+            const { res, data: payload } = await fetchJsonResponse(
+              '/api/flowcfg/module?name=' + encodeURIComponent(moduleName),
+              { cache: 'no-store' }
+            );
+            if (!res.ok || !payload || payload.ok !== true || !payload.data || typeof payload.data !== 'object') return;
+            const name = typeof payload.data.name === 'string' ? payload.data.name.trim() : '';
+            ioDerivedValueInfo[slot] = { enabled: payload.data.enabled === true, name: name };
+          } catch (err) {
+          }
+        })());
+      });
+      await Promise.all(pending);
+    }
+
+    // ---------- Derived values page ----------
+    const derivedValueSlotCount = 5;
+    const derivedValueAnalogMax = 20;
+    const derivedValueDigitalMax = 12;
+    const derivedValueCoefficientKeys = ['k0', 'k1', 'k2'];
+    const derivedValueSnapshotKeys = ['enabled', 'name', 'unit', 'precision', 'expr', 'aggregation', 'k0', 'k1', 'k2'];
+    let derivedValuesState = null;
+    let derivedCounterInputs = [];
+    const derivedEntityNames = {};
+    let derivedIntroExpanded = false;
+
+    function derivedValueModuleName(slot) {
+      return 'io/value/v' + String(slot).padStart(2, '0');
+    }
+
+    function derivedValueNormalizeNumber(value) {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : 0;
+    }
+
+    function derivedValueEntryFromData(slot, data) {
+      const source = data && typeof data === 'object' ? data : {};
+      const aggregation = Number(source.aggregation);
+      return {
+        slot: slot,
+        enabled: source.enabled === true,
+        name: typeof source.name === 'string' ? source.name : '',
+        unit: typeof source.unit === 'string' ? source.unit : '',
+        precision: Number.isInteger(Number(source.precision)) ? Number(source.precision) : 1,
+        expr: typeof source.expr === 'string' && source.expr.length > 0 ? source.expr : '0',
+        aggregation: Number.isInteger(aggregation) && aggregation >= 0 && aggregation <= 2 ? aggregation : 0,
+        k0: derivedValueNormalizeNumber(source.k0),
+        k1: derivedValueNormalizeNumber(source.k1),
+        k2: derivedValueNormalizeNumber(source.k2),
+        original: null,
+        elements: null
+      };
+    }
+
+    function derivedValueSnapshot(entry) {
+      return {
+        enabled: entry.enabled === true,
+        name: String(entry.name || ''),
+        unit: String(entry.unit || ''),
+        precision: Number.isInteger(Number(entry.precision)) ? Number(entry.precision) : 1,
+        expr: String(entry.expr || '0'),
+        aggregation: Number(entry.aggregation) || 0,
+        k0: derivedValueNormalizeNumber(entry.k0),
+        k1: derivedValueNormalizeNumber(entry.k1),
+        k2: derivedValueNormalizeNumber(entry.k2)
+      };
+    }
+
+    function derivedValueChangedKeys(entry) {
+      if (!entry || !entry.original) return [];
+      const current = derivedValueSnapshot(entry);
+      return derivedValueSnapshotKeys.filter((key) => current[key] !== entry.original[key]);
+    }
+
+    function derivedValueAggregationOptions() {
+      return [
+        { value: 0, label: tr('derived.agg.gauge', 'Jauge') },
+        { value: 1, label: tr('derived.agg.rate', 'Taux') },
+        { value: 2, label: tr('derived.agg.counter', 'Compteur') }
+      ];
+    }
+
+    function derivedValuesSetStatus(message, tone) {
+      const status = document.getElementById('derivedValuesStatus');
+      if (!status) return;
+      status.textContent = String(message || '');
+      status.classList.remove('is-ok', 'is-error', 'is-busy');
+      if (tone === 'ok') status.classList.add('is-ok');
+      else if (tone === 'error') status.classList.add('is-error');
+      else if (tone === 'busy') status.classList.add('is-busy');
+    }
+
+    function derivedValueInsertText(input, text) {
+      if (!input || typeof text !== 'string') return;
+      const value = input.value || '';
+      const start = typeof input.selectionStart === 'number' ? input.selectionStart : value.length;
+      const end = typeof input.selectionEnd === 'number' ? input.selectionEnd : value.length;
+      input.value = value.slice(0, start) + text + value.slice(end);
+      const caret = start + text.length;
+      input.focus();
+      if (typeof input.setSelectionRange === 'function') input.setSelectionRange(caret, caret);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    // A token shows the canonical reference (inserted in the formula) and, when
+    // known, the entity name as a permanent caption underneath. No hover needed,
+    // so it works identically on desktop and touch devices.
+    function derivedValueAppendTokenContent(token, reference, name) {
+      const refEl = document.createElement('span');
+      refEl.className = 'derived-token-ref';
+      refEl.textContent = reference;
+      token.appendChild(refEl);
+      const label = String(name || '').trim();
+      if (label) {
+        token.classList.add('has-name');
+        const nameEl = document.createElement('span');
+        nameEl.className = 'derived-token-name';
+        nameEl.textContent = label;
+        token.appendChild(nameEl);
+      }
+    }
+
+    function derivedValueCreateToken(text, kind, onInsert, name) {
+      const token = document.createElement('button');
+      token.type = 'button';
+      token.className = 'derived-token' + (kind ? ' is-' + kind : '');
+      derivedValueAppendTokenContent(token, text, name);
+      token.addEventListener('click', onInsert);
+      return token;
+    }
+
+    function derivedValueBuildAssist(input) {
+      const assist = document.createElement('div');
+      assist.className = 'derived-assist';
+      assist.hidden = true;
+
+      const title = document.createElement('div');
+      title.className = 'derived-assist-title';
+      title.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0-3 11v3h6v-3a6 6 0 0 0-3-11Z"/><path d="M10 21h4"/></svg>';
+      const titleText = document.createElement('span');
+      titleText.textContent = tr('derived.assist.title', 'Assistance — cliquez un élément pour l’insérer');
+      title.appendChild(titleText);
+      assist.appendChild(title);
+
+      const addGroup = (label, tokens) => {
+        const group = document.createElement('div');
+        group.className = 'derived-assist-group';
+        const groupLabel = document.createElement('div');
+        groupLabel.className = 'g-label';
+        groupLabel.textContent = label;
+        const wrap = document.createElement('div');
+        wrap.className = 'derived-tokens';
+        tokens.forEach((token) => wrap.appendChild(token));
+        group.appendChild(groupLabel);
+        group.appendChild(wrap);
+        assist.appendChild(group);
+      };
+
+      const insert = (text) => derivedValueInsertText(input, text);
+
+      const analogTokens = [];
+      for (let index = 0; index <= derivedValueAnalogMax; ++index) {
+        const ref = 'a' + String(index).padStart(2, '0');
+        analogTokens.push(derivedValueCreateToken(ref, '', () => insert(ref), derivedEntityNames[ref]));
+      }
+      addGroup(tr('derived.assist.analog', 'Entrées analogiques'), analogTokens);
+
+      const counterGroup = document.createElement('div');
+      counterGroup.className = 'derived-assist-group';
+      const counterLabel = document.createElement('div');
+      counterLabel.className = 'g-label';
+      counterLabel.textContent = tr('derived.assist.counters', 'Compteurs d’impulsions');
+      const counterCol = document.createElement('div');
+      counterCol.className = 'derived-counter-col';
+      if (derivedCounterInputs.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'derived-counter-hint';
+        empty.textContent = tr('derived.assist.noCounter', 'Aucun compteur d’impulsions configuré.');
+        counterCol.appendChild(empty);
+      } else {
+        const counterGrid = document.createElement('div');
+        counterGrid.className = 'derived-counter-grid';
+        derivedCounterInputs.forEach((index) => {
+          const ref = 'i' + String(index).padStart(2, '0');
+          const token = document.createElement('button');
+          token.type = 'button';
+          token.className = 'derived-token';
+          derivedValueAppendTokenContent(token, ref, derivedEntityNames[ref]);
+          token.setAttribute('aria-haspopup', 'dialog');
+          token.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (isAnchoredPopoverOpenFor(token)) {
+              closeAnchoredPopover();
+              return;
+            }
+            const members = ['count', 'rate', 'total', 'flow'].map((member) => ref + '.' + member);
+            openCounterMemberPopover(token, members, (member) => insert(member));
+          });
+          counterGrid.appendChild(token);
+        });
+        counterCol.appendChild(counterGrid);
+        const counterHint = document.createElement('div');
+        counterHint.className = 'derived-counter-hint';
+        counterHint.textContent = tr('derived.assist.counterHint', 'Cliquez un compteur pour choisir .count, .rate, .total ou .flow.');
+        counterCol.appendChild(counterHint);
+      }
+      counterGroup.appendChild(counterLabel);
+      counterGroup.appendChild(counterCol);
+      assist.appendChild(counterGroup);
+
+      const derivedTokens = [];
+      for (let slot = 0; slot < derivedValueSlotCount; ++slot) {
+        const ref = 'v' + String(slot).padStart(2, '0');
+        derivedTokens.push(derivedValueCreateToken(ref, '', () => insert(ref), derivedEntityNames[ref]));
+      }
+      addGroup(tr('derived.assist.derived', 'Valeurs calculées'), derivedTokens);
+
+      addGroup(tr('derived.assist.params', 'Coefficients'),
+        derivedValueCoefficientKeys.map((key) => derivedValueCreateToken(key, '', () => insert(key))));
+      addGroup(tr('derived.assist.operators', 'Opérateurs'),
+        ['+', '-', '*', '/', '(', ')'].map((op) => derivedValueCreateToken(op, 'op', () => insert(op))));
+      addGroup(tr('derived.assist.functions', 'Fonctions'),
+        ['min', 'max', 'abs', 'clamp'].map((fn) => derivedValueCreateToken(fn, 'fn', () => insert(fn + '('))));
+
+      const help = document.createElement('div');
+      help.className = 'derived-assist-help';
+      help.appendChild(document.createTextNode(tr('derived.assist.help1', 'Combinez plusieurs mesures avec + − × ÷ et des parenthèses. Une référence pointe vers une mesure live : ')));
+      ['aNN', 'iNN.count', 'iNN.rate', 'iNN.total', 'iNN.flow', 'vNN'].forEach((code) => {
+        const codeNode = document.createElement('code');
+        codeNode.textContent = code;
+        help.appendChild(codeNode);
+        help.appendChild(document.createTextNode(' '));
+      });
+      help.appendChild(document.createTextNode(tr('derived.assist.help2', 'Fonctions : min, max, abs, clamp(x, min, max). Utilisez k0, k1, k2 pour les réglages fins : la formule reste inchangée quand un coefficient change.')));
+
+      const examples = document.createElement('div');
+      examples.className = 'derived-examples';
+      ['i01.flow - i02.flow', '100 * i02.total / i01.total', 'clamp(a01 - a02, 0, 50)', 'i01.total * k0 + k1'].forEach((expression) => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'derived-example';
+        chip.textContent = expression;
+        chip.addEventListener('click', () => {
+          input.value = expression;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.focus();
+        });
+        examples.appendChild(chip);
+      });
+      help.appendChild(examples);
+      assist.appendChild(help);
+      return assist;
+    }
+
+    function derivedValueBuildCard(entry) {
+      const card = document.createElement('article');
+      card.className = 'derived-card';
+      card.dataset.slot = String(entry.slot);
+
+      const head = document.createElement('div');
+      head.className = 'derived-card-head';
+
+      const switchLabel = document.createElement('label');
+      switchLabel.className = 'md3-switch md3-switch-compact';
+      const switchInput = document.createElement('input');
+      switchInput.type = 'checkbox';
+      switchInput.checked = entry.enabled;
+      switchInput.setAttribute('aria-label', tr('derived.toggle', 'Activer la valeur dérivée'));
+      const switchTrack = document.createElement('span');
+      switchTrack.className = 'md3-track';
+      const switchThumb = document.createElement('span');
+      switchThumb.className = 'md3-thumb';
+      switchLabel.appendChild(switchInput);
+      switchLabel.appendChild(switchTrack);
+      switchLabel.appendChild(switchThumb);
+
+      const idWrap = document.createElement('div');
+      idWrap.className = 'derived-card-id' + (entry.enabled ? ' is-on' : '');
+      const idValue = document.createElement('span');
+      idValue.textContent = 'V' + String(entry.slot).padStart(2, '0');
+      const idState = document.createElement('span');
+      idState.className = 'state';
+      idState.textContent = entry.enabled ? tr('derived.state.on', 'Activée') : tr('derived.state.off', 'Désactivée');
+      idWrap.appendChild(idValue);
+      idWrap.appendChild(idState);
+
+      const nameWrap = document.createElement('div');
+      nameWrap.className = 'derived-card-name';
+      const nameInput = document.createElement('input');
+      nameInput.type = 'text';
+      nameInput.maxLength = 63;
+      nameInput.value = entry.name;
+      nameInput.placeholder = tr('derived.name.placeholder', 'Nom facultatif (capteur Home Assistant)');
+      nameInput.setAttribute('aria-label', tr('derived.name.label', 'Nom de la valeur dérivée'));
+      nameWrap.appendChild(nameInput);
+
+      const unitWrap = document.createElement('div');
+      unitWrap.className = 'derived-card-unit';
+      const unitLabel = document.createElement('span');
+      unitLabel.className = 'derived-mini-label';
+      unitLabel.textContent = tr('derived.unit', 'Unité');
+      const unitInput = document.createElement('input');
+      unitInput.type = 'text';
+      unitInput.maxLength = 7;
+      unitInput.value = entry.unit;
+      unitInput.placeholder = tr('derived.unit.placeholder', '°C, L…');
+      unitInput.setAttribute('aria-label', tr('derived.unit', 'Unité'));
+      unitWrap.appendChild(unitLabel);
+      unitWrap.appendChild(unitInput);
+
+      const precisionWrap = document.createElement('div');
+      precisionWrap.className = 'derived-card-unit';
+      const precisionLabel = document.createElement('span');
+      precisionLabel.className = 'derived-mini-label';
+      precisionLabel.textContent = tr('derived.precision', 'Précision');
+      const precisionInput = document.createElement('input');
+      precisionInput.type = 'number';
+      precisionInput.min = '0';
+      precisionInput.max = '6';
+      precisionInput.step = '1';
+      precisionInput.value = String(entry.precision);
+      precisionInput.setAttribute('aria-label', tr('derived.precision', 'Précision'));
+      precisionWrap.appendChild(precisionLabel);
+      precisionWrap.appendChild(precisionInput);
+
+      const aggWrap = document.createElement('div');
+      aggWrap.className = 'derived-card-agg';
+      const aggLabel = document.createElement('span');
+      aggLabel.className = 'derived-mini-label';
+      aggLabel.textContent = tr('derived.aggregation', 'Agrégation');
+      const aggSelect = document.createElement('select');
+      aggSelect.setAttribute('aria-label', tr('derived.aggregation', 'Agrégation'));
+      derivedValueAggregationOptions().forEach((option) => {
+        const opt = document.createElement('option');
+        opt.value = String(option.value);
+        opt.textContent = option.label;
+        aggSelect.appendChild(opt);
+      });
+      aggSelect.value = String(entry.aggregation);
+      aggWrap.appendChild(aggLabel);
+      aggWrap.appendChild(aggSelect);
+
+      head.appendChild(switchLabel);
+      head.appendChild(idWrap);
+      head.appendChild(nameWrap);
+      head.appendChild(unitWrap);
+      head.appendChild(precisionWrap);
+      head.appendChild(aggWrap);
+
+      const body = document.createElement('div');
+      body.className = 'derived-card-body';
+
+      const fieldLabel = document.createElement('div');
+      fieldLabel.className = 'derived-field-label';
+      const fieldTitle = document.createElement('span');
+      fieldTitle.textContent = tr('derived.formula', 'Formule');
+      const fieldHint = document.createElement('span');
+      fieldHint.className = 'hint';
+      fieldHint.textContent = tr('derived.formula.hint', 'Résultat = expression évaluée à chaque mise à jour');
+      fieldLabel.appendChild(fieldTitle);
+      fieldLabel.appendChild(fieldHint);
+
+      const formulaRow = document.createElement('div');
+      formulaRow.className = 'derived-formula-row';
+      const formulaBox = document.createElement('div');
+      formulaBox.className = 'derived-formula';
+      const formulaInput = document.createElement('input');
+      formulaInput.type = 'text';
+      formulaInput.maxLength = 191;
+      formulaInput.value = entry.expr;
+      formulaInput.spellcheck = false;
+      formulaInput.autocomplete = 'off';
+      formulaInput.setAttribute('aria-label', tr('derived.formula', 'Formule'));
+      formulaBox.appendChild(formulaInput);
+      const insertBtn = document.createElement('button');
+      insertBtn.type = 'button';
+      insertBtn.className = 'derived-insert-btn';
+      insertBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+      const insertLabel = document.createElement('span');
+      insertLabel.textContent = tr('derived.insert', 'Insérer');
+      insertBtn.appendChild(insertLabel);
+      formulaRow.appendChild(formulaBox);
+      formulaRow.appendChild(insertBtn);
+
+      const assist = derivedValueBuildAssist(formulaInput);
+      assist.hidden = entry.slot !== 0;
+
+      const krow = document.createElement('div');
+      krow.className = 'derived-krow';
+      const coefficientInputs = [];
+      derivedValueCoefficientKeys.forEach((key) => {
+        const field = document.createElement('div');
+        field.className = 'derived-kfield';
+        const label = document.createElement('label');
+        label.textContent = tr('derived.coefficient', 'Coefficient') + ' ' + key;
+        const box = document.createElement('div');
+        box.className = 'derived-kbox';
+        const badge = document.createElement('span');
+        badge.className = 'kk';
+        badge.textContent = key;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.inputMode = 'decimal';
+        input.value = String(entry[key]);
+        input.setAttribute('aria-label', label.textContent);
+        box.appendChild(badge);
+        box.appendChild(input);
+        field.appendChild(label);
+        field.appendChild(box);
+        krow.appendChild(field);
+        coefficientInputs.push({ key: key, input: input });
+      });
+
+      const effectWrap = document.createElement('div');
+      effectWrap.className = 'derived-effect';
+      const effectBadge = document.createElement('span');
+      effectBadge.className = 'derived-effect-badge';
+      effectWrap.appendChild(effectBadge);
+      krow.appendChild(effectWrap);
+
+      body.appendChild(fieldLabel);
+      body.appendChild(formulaRow);
+      body.appendChild(assist);
+      body.appendChild(krow);
+      card.appendChild(head);
+      card.appendChild(body);
+
+      const syncIdState = () => {
+        idWrap.classList.toggle('is-on', entry.enabled === true);
+        idState.textContent = entry.enabled ? tr('derived.state.on', 'Activée') : tr('derived.state.off', 'Désactivée');
+        head.classList.toggle('is-off', entry.enabled !== true);
+        // A disabled value keeps only its header line; every field below is hidden.
+        body.hidden = entry.enabled !== true;
+      };
+      const clearFormulaError = () => {
+        formulaBox.classList.remove('is-error');
+        fieldHint.classList.remove('is-error');
+        fieldHint.textContent = tr('derived.formula.hint', 'Résultat = expression évaluée à chaque mise à jour');
+      };
+
+      switchInput.addEventListener('change', () => {
+        entry.enabled = switchInput.checked;
+        syncIdState();
+        derivedValuesRefreshDirtyState();
+      });
+      nameInput.addEventListener('input', () => {
+        entry.name = nameInput.value;
+        derivedValuesRefreshDirtyState();
+      });
+      unitInput.addEventListener('input', () => {
+        entry.unit = unitInput.value;
+        derivedValuesRefreshDirtyState();
+      });
+      precisionInput.addEventListener('input', () => {
+        entry.precision = Number(precisionInput.value) || 0;
+        derivedValuesRefreshDirtyState();
+      });
+      aggSelect.addEventListener('change', () => {
+        entry.aggregation = Number(aggSelect.value) || 0;
+        derivedValuesRefreshDirtyState();
+      });
+      formulaInput.addEventListener('input', () => {
+        entry.expr = formulaInput.value;
+        clearFormulaError();
+        if (!entry.expr.trim()) {
+          formulaBox.classList.add('is-error');
+          fieldHint.classList.add('is-error');
+          fieldHint.textContent = tr('derived.formula.empty', 'Expression requise');
+        }
+        derivedValuesRefreshDirtyState();
+      });
+      insertBtn.addEventListener('click', () => {
+        assist.hidden = !assist.hidden;
+        if (!assist.hidden) formulaInput.focus();
+      });
+      coefficientInputs.forEach((item) => {
+        item.input.addEventListener('input', () => {
+          entry[item.key] = derivedValueNormalizeNumber(item.input.value);
+          derivedValuesRefreshDirtyState();
+        });
+      });
+
+      entry.elements = {
+        card: card,
+        head: head,
+        idWrap: idWrap,
+        nameInput: nameInput,
+        aggSelect: aggSelect,
+        formulaInput: formulaInput,
+        formulaBox: formulaBox,
+        assist: assist,
+        effectBadge: effectBadge
+      };
+      syncIdState();
+      return card;
+    }
+
+    function derivedValuesRefreshDirtyState() {
+      if (!derivedValuesState) return;
+      let dirty = false;
+      derivedValuesState.entries.forEach((entry) => {
+        if (!entry || !entry.elements) return;
+        const keys = derivedValueChangedKeys(entry);
+        if (keys.length > 0) dirty = true;
+        const badge = entry.elements.effectBadge;
+        if (!badge) return;
+        badge.classList.remove('is-restart', 'is-live');
+        if (keys.some((key) => key !== 'k0' && key !== 'k1' && key !== 'k2')) {
+          badge.textContent = tr('derived.effect.restart', 'Redémarrage requis');
+          badge.classList.add('is-restart');
+        } else if (keys.length > 0) {
+          badge.textContent = tr('derived.effect.live', 'Coefficients : effet immédiat');
+          badge.classList.add('is-live');
+        } else {
+          badge.textContent = tr('derived.effect.saved', 'À jour');
+        }
+      });
+      if (dirty) derivedValuesSetStatus(tr('derived.dirty', 'Modifications non enregistrées.'), 'busy');
+    }
+
+    function derivedIntroNode(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (typeof text === 'string' && text.length) node.textContent = text;
+      return node;
+    }
+
+    function renderDerivedIntro() {
+      const host = document.getElementById('derivedIntro');
+      if (!host) return;
+      host.textContent = '';
+
+      // Always-visible description of the page and what a calculated value is.
+      host.appendChild(derivedIntroNode('p', 'derived-intro-lead',
+        tr('derived.intro.desc', 'Cette page définit jusqu’à 5 valeurs calculées à partir de vos mesures. Une valeur calculée est une mesure produite par une formule combinant vos autres mesures (entrées analogiques, compteurs d’impulsions, autres valeurs calculées) ; elle se comporte comme une mesure à part entière : nom, unité, précision, historique et publication MQTT / Home Assistant.')));
+
+      // Foldable details.
+      const toggle = derivedIntroNode('button', 'derived-intro-toggle');
+      toggle.type = 'button';
+      toggle.setAttribute('aria-expanded', derivedIntroExpanded ? 'true' : 'false');
+      const chevron = derivedIntroNode('span', 'derived-intro-chevron' + (derivedIntroExpanded ? ' is-open' : ''));
+      chevron.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+      const toggleLabel = derivedIntroNode('span', 'derived-intro-toggle-label',
+        tr(derivedIntroExpanded ? 'derived.intro.less' : 'derived.intro.more',
+           derivedIntroExpanded ? 'Moins d’infos' : 'Plus d’infos'));
+      toggle.appendChild(chevron);
+      toggle.appendChild(toggleLabel);
+      host.appendChild(toggle);
+
+      const details = derivedIntroNode('div', 'derived-intro-details');
+      details.hidden = !derivedIntroExpanded;
+      details.appendChild(derivedIntroNode('p', 'derived-intro-sub', tr('derived.intro.effects', 'Effet des réglages')));
+      const effects = derivedIntroNode('ul', 'derived-intro-list');
+      [
+        tr('derived.intro.effectRestart', 'Activation, nom, unité, précision, agrégation et formule : au redémarrage.'),
+        tr('derived.intro.effectLive', 'Coefficients k0, k1, k2 : immédiat.'),
+        tr('derived.intro.effectDiscovery', 'Annonce MQTT Discovery : au redémarrage, uniquement pour les valeurs activées.')
+      ].forEach((text) => effects.appendChild(derivedIntroNode('li', null, text)));
+      details.appendChild(effects);
+
+      const agg = derivedIntroNode('p', 'derived-intro-sub');
+      agg.appendChild(derivedIntroNode('strong', null, tr('derived.intro.aggregation', 'Agrégation')));
+      agg.appendChild(derivedIntroNode('span', 'soft', ' ' + tr('derived.intro.aggregationText', '— comment la valeur est enregistrée dans l’historique.')));
+      details.appendChild(agg);
+      const aggList = derivedIntroNode('ul', 'derived-intro-list');
+      [
+        tr('derived.intro.aggGaugeRate', 'Jauge / Taux : moyenne pondérée dans le temps (température, pH, débit).'),
+        tr('derived.intro.aggCounter', 'Compteur : somme des variations, remises à zéro ignorées (volume, énergie).')
+      ].forEach((text) => aggList.appendChild(derivedIntroNode('li', null, text)));
+      details.appendChild(aggList);
+      host.appendChild(details);
+
+      toggle.addEventListener('click', () => {
+        derivedIntroExpanded = !derivedIntroExpanded;
+        details.hidden = !derivedIntroExpanded;
+        toggle.setAttribute('aria-expanded', derivedIntroExpanded ? 'true' : 'false');
+        chevron.classList.toggle('is-open', derivedIntroExpanded);
+        toggleLabel.textContent = tr(derivedIntroExpanded ? 'derived.intro.less' : 'derived.intro.more',
+                                     derivedIntroExpanded ? 'Moins d’infos' : 'Plus d’infos');
+      });
+    }
+
+    function renderDerivedValues() {
+      renderDerivedIntro();
+      const list = document.getElementById('derivedValuesList');
+      if (!list) return;
+      list.textContent = '';
+      if (!derivedValuesState || !Array.isArray(derivedValuesState.entries)) return;
+      derivedValuesState.entries.forEach((entry) => {
+        if (entry) list.appendChild(derivedValueBuildCard(entry));
+      });
+      derivedValuesRefreshDirtyState();
+    }
+
+    function renderDerivedValuesIfLoaded() {
+      if (derivedValuesState) renderDerivedValues();
+    }
+
+    // Pulse-counter inputs are the only digital inputs usable in a formula; a
+    // state-mode input has no .count/.rate/.total/.flow reference.
+    async function loadDerivedCounterInputs() {
+      const found = [];
+      const pending = [];
+      for (let index = 0; index <= derivedValueDigitalMax; ++index) {
+        const moduleName = 'io/input/i' + String(index).padStart(2, '0');
+        pending.push((async () => {
+          try {
+            const response = await fetchJsonResponse(
+              '/api/flowcfg/module?name=' + encodeURIComponent(moduleName),
+              { cache: 'no-store' }
+            );
+            if (response.res.ok && response.data && response.data.ok === true && response.data.data) {
+              const data = response.data.data;
+              if (Number(data.mode) === 1) { // IO_DIGITAL_INPUT_COUNTER
+                found.push(index);
+                const name = typeof data.name === 'string' ? data.name.trim() : '';
+                if (name) derivedEntityNames['i' + String(index).padStart(2, '0')] = name;
+              }
+            }
+          } catch (err) {
+          }
+        })());
+      }
+      await Promise.all(pending);
+      found.sort((a, b) => a - b);
+      derivedCounterInputs = found;
+    }
+
+    // Display names used by the assistance tooltips. Calculated values and pulse
+    // counters come from their config modules; analog inputs come from the IO
+    // topology, where bound slots expose `config_name`.
+    async function loadDerivedEntityNames() {
+      if (derivedValuesState && Array.isArray(derivedValuesState.entries)) {
+        derivedValuesState.entries.forEach((entry) => {
+          if (!entry) return;
+          const name = String(entry.name || '').trim();
+          if (name) derivedEntityNames['v' + String(entry.slot).padStart(2, '0')] = name;
+        });
+      }
+      try {
+        const topology = await fetchIoTopology(false);
+        const slots = Array.isArray(topology && topology.io_slots) ? topology.io_slots : [];
+        slots.forEach((row) => {
+          if (!row || String(row.io_slot || '') !== 'analog_in') return;
+          const index = Number(row.io_slot_index);
+          const name = String(row.config_name || '').trim();
+          if (Number.isFinite(index) && name) {
+            derivedEntityNames['a' + String(index).padStart(2, '0')] = name;
+          }
+        });
+      } catch (err) {
+      }
+    }
+
+    async function loadDerivedValues(force) {
+      if (derivedValuesState && !force) return;
+      const reloadBtn = document.getElementById('derivedValuesReload');
+      const applyBtn = document.getElementById('derivedValuesApply');
+      if (reloadBtn) reloadBtn.disabled = true;
+      if (applyBtn) applyBtn.disabled = true;
+      derivedValuesSetStatus(tr('derived.loading', 'Chargement des valeurs calculées…'), 'busy');
+
+      const entries = new Array(derivedValueSlotCount);
+      const pending = [];
+      for (let slot = 0; slot < derivedValueSlotCount; ++slot) {
+        pending.push((async () => {
+          let data = {};
+          try {
+            const response = await fetchJsonResponse(
+              '/api/flowcfg/module?name=' + encodeURIComponent(derivedValueModuleName(slot)),
+              { cache: 'no-store' }
+            );
+            if (response.res.ok && response.data && response.data.ok === true && response.data.data) {
+              data = response.data.data;
+            }
+          } catch (err) {
+          }
+          entries[slot] = derivedValueEntryFromData(slot, data);
+        })());
+      }
+      await Promise.all([Promise.all(pending), loadDerivedCounterInputs()]);
+      entries.forEach((entry) => { if (entry) entry.original = derivedValueSnapshot(entry); });
+      derivedValuesState = { entries: entries };
+      await loadDerivedEntityNames();
+      renderDerivedValues();
+      if (reloadBtn) reloadBtn.disabled = false;
+      if (applyBtn) applyBtn.disabled = false;
+      derivedValuesSetStatus(tr('derived.loaded', 'Configuration chargée.'), 'ok');
+    }
+
+    function onDerivedValuesPageShown() {
+      renderDerivedIntro();
+      if (!derivedValuesState) loadDerivedValues(false).catch(() => {});
+    }
+
+    async function applyDerivedValues() {
+      if (!derivedValuesState) return;
+      const reloadBtn = document.getElementById('derivedValuesReload');
+      const applyBtn = document.getElementById('derivedValuesApply');
+
+      const patch = {};
+      derivedValuesState.entries.forEach((entry) => {
+        if (!entry) return;
+        const current = derivedValueSnapshot(entry);
+        const delta = {};
+        derivedValueSnapshotKeys.forEach((key) => {
+          if (current[key] !== entry.original[key]) delta[key] = current[key];
+        });
+        if (Object.keys(delta).length > 0) patch[derivedValueModuleName(entry.slot)] = delta;
+      });
+
+      if (Object.keys(patch).length === 0) {
+        derivedValuesSetStatus(tr('derived.noChange', 'Aucune modification à appliquer.'), 'ok');
+        return;
+      }
+
+      if (reloadBtn) reloadBtn.disabled = true;
+      if (applyBtn) applyBtn.disabled = true;
+      derivedValuesSetStatus(tr('derived.applying', 'Application en cours…'), 'busy');
+      try {
+        const response = await fetchJsonResponse(
+          '/api/flowcfg/apply',
+          createFormPostOptions({ patch: JSON.stringify(patch) })
+        );
+        if (!response.res.ok || !response.data || response.data.ok !== true) {
+          throw new Error(extractApiErrorMessage(response.data, tr('derived.applyFailed', 'Application échouée.')));
+        }
+        derivedValuesState.entries.forEach((entry) => { if (entry) entry.original = derivedValueSnapshot(entry); });
+        derivedValuesRefreshDirtyState();
+        derivedValuesSetStatus(tr('derived.applied', 'Enregistré. Activation, nom, agrégation et formule prennent effet au redémarrage ; les coefficients k0, k1, k2 sont appliqués immédiatement. L’annonce MQTT Discovery sera publiée au redémarrage pour les valeurs activées.'), 'ok');
+      } catch (err) {
+        derivedValuesSetStatus(tr('derived.applyFailed', 'Application échouée : {err}').replace('{err}', String(err)), 'error');
+      } finally {
+        if (reloadBtn) reloadBtn.disabled = false;
+        if (applyBtn) applyBtn.disabled = false;
+      }
+    }
+
+    async function loadTftSensorDerivedValueInfo(moduleName) {
+      const doc = configDocFor(moduleName, 'runtime_ui_id', []);
+      if (!isTftSensorRuntimeUiDoc(doc) || !Array.isArray(doc._enumOptions)) return;
+      const slots = [];
+      doc._enumOptions.forEach((opt) => {
+        const slot = derivedSlotFromEnumOption(opt);
+        if (slot >= 0 && !slots.includes(slot)) slots.push(slot);
+      });
+      if (slots.length === 0) return;
+      await loadIoDerivedValueInfo(slots);
+    }
+
     function configEnumOptionsForField(moduleName, key, doc) {
       const options = (doc && Array.isArray(doc._enumOptions)) ? doc._enumOptions : null;
       if (!options) return null;
       if (isWaveshareProfile() && isPoolLogicDeviceSlotField(moduleName, key, doc)) {
         return dynamicPoolLogicDeviceSlotOptions(options);
+      }
+      if (isTftSensorRuntimeUiDoc(doc)) {
+        return dynamicTftRuntimeUiOptions(options);
       }
       return options;
     }
@@ -11233,10 +11991,10 @@
       await Promise.all(jobs);
     }
 
-    function closeColorPickerPopover() {
-      if (!activeColorPickerPopover) return;
-      const state = activeColorPickerPopover;
-      activeColorPickerPopover = null;
+    function closeAnchoredPopover() {
+      if (!activeAnchoredPopover) return;
+      const state = activeAnchoredPopover;
+      activeAnchoredPopover = null;
       if (state.outsideHandler) {
         document.removeEventListener('mousedown', state.outsideHandler, true);
       }
@@ -11250,6 +12008,61 @@
       if (state.popover && state.popover.parentNode) {
         state.popover.parentNode.removeChild(state.popover);
       }
+      if (typeof state.onClose === 'function') {
+        state.onClose(state.trigger);
+      }
+    }
+
+    function positionAnchoredPopover(popover, anchorEl, options) {
+      if (!popover || !anchorEl) return;
+      const opts = options || {};
+      const alignLeft = opts.align === 'left';
+      const offset = Number.isFinite(opts.offset) ? opts.offset : 10;
+      const anchorRect = anchorEl.getBoundingClientRect();
+      const popRect = popover.getBoundingClientRect();
+      const margin = 12;
+      let left = alignLeft ? anchorRect.left : anchorRect.left + (anchorRect.width / 2) - (popRect.width / 2);
+      let top = anchorRect.bottom + offset;
+      left = Math.max(margin, Math.min(left, window.innerWidth - popRect.width - margin));
+      if (top + popRect.height > window.innerHeight - margin) {
+        top = Math.max(margin, anchorRect.top - popRect.height - offset);
+      }
+      popover.style.left = Math.round(left) + 'px';
+      popover.style.top = Math.round(top) + 'px';
+    }
+
+    function openAnchoredPopover(trigger, popover, options) {
+      if (!trigger || !popover) return;
+      const opts = options || {};
+      closeAnchoredPopover();
+      document.body.appendChild(popover);
+      if (typeof opts.onOpen === 'function') opts.onOpen(trigger);
+      positionAnchoredPopover(popover, trigger, opts);
+
+      const outsideHandler = (event) => {
+        const target = event && event.target;
+        if (popover.contains(target) || trigger.contains(target)) return;
+        closeAnchoredPopover();
+      };
+      const keyHandler = (event) => {
+        if (event && event.key === 'Escape') {
+          closeAnchoredPopover();
+        }
+      };
+      const repositionHandler = () => {
+        if (!activeAnchoredPopover || activeAnchoredPopover.popover !== popover) return;
+        positionAnchoredPopover(popover, trigger, opts);
+      };
+
+      document.addEventListener('mousedown', outsideHandler, true);
+      document.addEventListener('keydown', keyHandler, true);
+      window.addEventListener('resize', repositionHandler, true);
+      window.addEventListener('scroll', repositionHandler, true);
+      activeAnchoredPopover = { popover, trigger, outsideHandler, keyHandler, repositionHandler, onClose: opts.onClose };
+    }
+
+    function isAnchoredPopoverOpenFor(trigger) {
+      return !!activeAnchoredPopover && activeAnchoredPopover.trigger === trigger;
     }
 
     function enumOptionColor(enumOptions, value) {
@@ -11263,21 +12076,6 @@
       return '';
     }
 
-    function positionColorPickerPopover(popover, anchorEl) {
-      if (!popover || !anchorEl) return;
-      const anchorRect = anchorEl.getBoundingClientRect();
-      const popRect = popover.getBoundingClientRect();
-      const margin = 12;
-      let left = anchorRect.left + (anchorRect.width / 2) - (popRect.width / 2);
-      let top = anchorRect.bottom + 10;
-      left = Math.max(margin, Math.min(left, window.innerWidth - popRect.width - margin));
-      if (top + popRect.height > window.innerHeight - margin) {
-        top = Math.max(margin, anchorRect.top - popRect.height - 10);
-      }
-      popover.style.left = Math.round(left) + 'px';
-      popover.style.top = Math.round(top) + 'px';
-    }
-
     function updateColorTriggerVisual(trigger, enumOptions, value) {
       if (!trigger) return;
       const color = enumOptionColor(enumOptions, value) || '#FFFFFF';
@@ -11289,8 +12087,7 @@
 
     function openColorPickerPopover(trigger, inputEl, enumOptions) {
       if (!trigger || !inputEl || !Array.isArray(enumOptions) || !enumOptions.length) return;
-      closeColorPickerPopover();
-
+      const currentValue = String(inputEl.value ?? '');
       const popover = document.createElement('div');
       popover.className = 'color-picker-popover';
       popover.setAttribute('role', 'dialog');
@@ -11298,7 +12095,6 @@
 
       const grid = document.createElement('div');
       grid.className = 'color-picker-grid';
-      const currentValue = String(inputEl.value ?? '');
       enumOptions.forEach((opt) => {
         if (!opt || typeof opt !== 'object') return;
         const color = (typeof opt.color === 'string') ? opt.color.trim() : '';
@@ -11318,34 +12114,35 @@
           updateColorTriggerVisual(trigger, enumOptions, inputEl.value);
           inputEl.dispatchEvent(new Event('input', { bubbles: true }));
           inputEl.dispatchEvent(new Event('change', { bubbles: true }));
-          closeColorPickerPopover();
+          closeAnchoredPopover();
         });
         grid.appendChild(swatch);
       });
       popover.appendChild(grid);
-      document.body.appendChild(popover);
-      positionColorPickerPopover(popover, trigger);
+      openAnchoredPopover(trigger, popover);
+    }
 
-      const outsideHandler = (event) => {
-        const target = event && event.target;
-        if (popover.contains(target) || trigger.contains(target)) return;
-        closeColorPickerPopover();
-      };
-      const keyHandler = (event) => {
-        if (event && event.key === 'Escape') {
-          closeColorPickerPopover();
-        }
-      };
-      const repositionHandler = () => {
-        if (!activeColorPickerPopover || activeColorPickerPopover.popover !== popover) return;
-        positionColorPickerPopover(popover, trigger);
-      };
-
-      document.addEventListener('mousedown', outsideHandler, true);
-      document.addEventListener('keydown', keyHandler, true);
-      window.addEventListener('resize', repositionHandler, true);
-      window.addEventListener('scroll', repositionHandler, true);
-      activeColorPickerPopover = { popover, trigger, outsideHandler, keyHandler, repositionHandler };
+    function openCounterMemberPopover(trigger, members, onPick) {
+      if (!trigger || !Array.isArray(members) || !members.length || typeof onPick !== 'function') return;
+      const popover = document.createElement('div');
+      popover.className = 'color-picker-popover counter-member-popover';
+      popover.setAttribute('role', 'dialog');
+      popover.setAttribute('aria-modal', 'false');
+      const list = document.createElement('div');
+      list.className = 'counter-member-list';
+      members.forEach((member) => {
+        const option = document.createElement('button');
+        option.type = 'button';
+        option.className = 'counter-member-option';
+        option.textContent = member;
+        option.addEventListener('click', () => {
+          onPick(member);
+          closeAnchoredPopover();
+        });
+        list.appendChild(option);
+      });
+      popover.appendChild(list);
+      openAnchoredPopover(trigger, popover);
     }
 
     function createColorPickerControl(doc, key, value, enumOptions) {
@@ -11366,8 +12163,8 @@
       trigger.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
-        if (activeColorPickerPopover && activeColorPickerPopover.trigger === trigger) {
-          closeColorPickerPopover();
+        if (isAnchoredPopoverOpenFor(trigger)) {
+          closeAnchoredPopover();
           return;
         }
         openColorPickerPopover(trigger, input, enumOptions);
@@ -11424,70 +12221,14 @@
       trigger.setAttribute('aria-label', tr('config.dependsMask.aria', 'Dépendances : ') + summary.text);
     }
 
-    function closeDependencyMaskPopover() {
-      if (!activeDependencyMaskPopover) return;
-      const state = activeDependencyMaskPopover;
-      activeDependencyMaskPopover = null;
-      if (state.outsideHandler) {
-        document.removeEventListener('mousedown', state.outsideHandler, true);
-      }
-      if (state.keyHandler) {
-        document.removeEventListener('keydown', state.keyHandler, true);
-      }
-      if (state.repositionHandler) {
-        window.removeEventListener('resize', state.repositionHandler, true);
-        window.removeEventListener('scroll', state.repositionHandler, true);
-      }
-      if (state.popover && state.popover.parentNode) {
-        state.popover.parentNode.removeChild(state.popover);
-      }
-      if (state.trigger) {
-        state.trigger.setAttribute('aria-expanded', 'false');
-      }
-    }
-
-    function positionDependencyMaskPopover(popover, anchorEl) {
-      if (!popover || !anchorEl) return;
-      const anchorRect = anchorEl.getBoundingClientRect();
-      const popRect = popover.getBoundingClientRect();
-      const margin = 12;
-      let left = anchorRect.left;
-      let top = anchorRect.bottom + 8;
-      left = Math.max(margin, Math.min(left, window.innerWidth - popRect.width - margin));
-      if (top + popRect.height > window.innerHeight - margin) {
-        top = Math.max(margin, anchorRect.top - popRect.height - 8);
-      }
-      popover.style.left = Math.round(left) + 'px';
-      popover.style.top = Math.round(top) + 'px';
-    }
-
     function openDependencyMaskPopover(trigger, popover) {
       if (!trigger || !popover) return;
-      closeDependencyMaskPopover();
-      document.body.appendChild(popover);
-      trigger.setAttribute('aria-expanded', 'true');
-      positionDependencyMaskPopover(popover, trigger);
-
-      const outsideHandler = (event) => {
-        const target = event && event.target;
-        if (popover.contains(target) || trigger.contains(target)) return;
-        closeDependencyMaskPopover();
-      };
-      const keyHandler = (event) => {
-        if (event && event.key === 'Escape') {
-          closeDependencyMaskPopover();
-        }
-      };
-      const repositionHandler = () => {
-        if (!activeDependencyMaskPopover || activeDependencyMaskPopover.popover !== popover) return;
-        positionDependencyMaskPopover(popover, trigger);
-      };
-
-      document.addEventListener('mousedown', outsideHandler, true);
-      document.addEventListener('keydown', keyHandler, true);
-      window.addEventListener('resize', repositionHandler, true);
-      window.addEventListener('scroll', repositionHandler, true);
-      activeDependencyMaskPopover = { popover, trigger, outsideHandler, keyHandler, repositionHandler };
+      openAnchoredPopover(trigger, popover, {
+        align: 'left',
+        offset: 8,
+        onOpen: (node) => node.setAttribute('aria-expanded', 'true'),
+        onClose: (node) => node.setAttribute('aria-expanded', 'false')
+      });
     }
 
     function buildDependencyMaskEditor(doc, key, value, moduleName) {
@@ -11554,8 +12295,8 @@
       trigger.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
-        if (activeDependencyMaskPopover && activeDependencyMaskPopover.trigger === trigger) {
-          closeDependencyMaskPopover();
+        if (isAnchoredPopoverOpenFor(trigger)) {
+          closeAnchoredPopover();
           return;
         }
         openDependencyMaskPopover(trigger, popover);
@@ -11922,7 +12663,7 @@
       const page = document.getElementById('page-control');
       if (!page) return;
       if (locked) {
-        closeDependencyMaskPopover();
+        closeAnchoredPopover();
       }
       const nodes = page.querySelectorAll('.cfg-tree button,.control-fields input,.control-fields select,.control-fields textarea,.dependency-mask-trigger,.control-field-apply,#flowCfgApply,#flowCfgRefresh');
       nodes.forEach((node) => {
@@ -12156,8 +12897,7 @@
       const opts = options || {};
       const appendMode = !!opts.append;
       if (!appendMode) {
-        closeColorPickerPopover();
-        closeDependencyMaskPopover();
+        closeAnchoredPopover();
         containerEl.innerHTML = '';
       }
       const data = (dataObj && typeof dataObj === 'object') ? dataObj : {};
@@ -12597,6 +13337,9 @@
           throw new Error('lecture module impossible');
         }
         await ensureCfgDocsForModule(m);
+        if (m.startsWith('tft/s3/sensors/slot')) {
+          await loadTftSensorDerivedValueInfo(m);
+        }
         const pdmModule = flowCfgPdmModuleForIoOutput(m, data.data);
         if (pdmModule) {
           await ensureCfgDocsForModule(pdmModule);
@@ -13104,7 +13847,7 @@
           version: flowCfgBackupVersion,
           created_at_utc: createdAt.toISOString(),
           meta: {
-            firmware: supervisorFirmwareVersion || '-',
+            firmware: localFirmwareVersion || '-',
             profile: webProfileName || ''
           },
           store: {
@@ -13294,29 +14037,17 @@
     }
 
     async function callSystemAction(target, action) {
-      const flowLocalProfile = isWaveshareProfile();
       let endpoint = '/api/system/reboot';
-      if (target === 'flow' && action === 'reboot') {
-        endpoint = flowLocalProfile ? '/api/system/reboot' : '/api/flow/system/reboot';
-      }
-      else if (target === 'flow' && action === 'hardware_reboot') endpoint = '/api/flow/system/hardware-reboot';
+      if (target === 'flow' && action === 'factory_reset') endpoint = '/api/system/factory-reset';
       else if (target === 'nextion' && action === 'reboot') endpoint = '/api/system/nextion/reboot';
-      else if (target === 'flow' && action === 'factory_reset') endpoint = flowLocalProfile ? '/api/system/factory-reset' : '/api/flow/system/factory-reset';
-      else if (target === 'supervisor' && action === 'factory_reset') endpoint = '/api/system/factory-reset';
-      const flowUsesRemote = target === 'flow' && !flowLocalProfile;
-      await fetchOkJson(endpoint, { method: 'POST' }, 'échec action', flowUsesRemote ? fetchFlowRemoteQueued : fetch);
+      else if (target === 'local' && action === 'factory_reset') endpoint = '/api/system/factory-reset';
+      await fetchOkJson(endpoint, { method: 'POST' }, 'échec action', fetch);
       if (target === 'flow' && action === 'factory_reset') {
         if (systemStatusText) systemStatusText.textContent = 'Reset flow.io en cours';
-      } else if (target === 'flow' && action === 'hardware_reboot') {
-        if (systemStatusText) systemStatusText.textContent = 'Reset matériel flow.io';
-      } else if (target === 'flow' && action === 'reboot') {
-        if (systemStatusText) systemStatusText.textContent = 'Redémarrage flow.io';
       } else if (target === 'nextion' && action === 'reboot') {
         if (systemStatusText) systemStatusText.textContent = 'Redémarrage Nextion';
-      } else if (target === 'supervisor' && action === 'factory_reset') {
-        if (systemStatusText) systemStatusText.textContent = 'Reset superviseur en cours';
       } else {
-        if (systemStatusText) systemStatusText.textContent = 'Redémarrage superviseur';
+        if (systemStatusText) systemStatusText.textContent = 'Redémarrage flow.io';
       }
     }
 
@@ -13493,23 +14224,13 @@
     function initSystemBindings() {
       bindClickAction(rebootDeviceActionBtn, () => {
         if (!rebootDeviceTargetSelect || !rebootDeviceActionBtn) return;
-        const selected = String(rebootDeviceTargetSelect.value || 'supervisor');
+        const selected = String(rebootDeviceTargetSelect.value || 'local');
         if (!confirmRebootLaunch(selected)) return;
         const actionMap = {
-          supervisor: {
-            countdown: 'Reboot Supervisor',
-            failure: 'Reboot Supervisor échoué',
-            runner: () => callSystemAction('supervisor', 'reboot')
-          },
-          flow_soft: {
+          local: {
             countdown: 'Reboot flow.io',
             failure: 'Reboot flow.io échoué',
-            runner: () => callSystemAction('flow', 'reboot')
-          },
-          flow_hard: {
-            countdown: 'Reset matériel flow.io',
-            failure: 'Reset matériel flow.io échoué',
-            runner: () => callSystemAction('flow', 'hardware_reboot')
+            runner: () => callSystemAction('local', 'reboot')
           },
           nextion: {
             countdown: 'Reboot Nextion',
@@ -13522,7 +14243,7 @@
             runner: () => callSystemAction('flow', 'factory_reset')
           }
         };
-        const chosen = actionMap[selected] || actionMap.supervisor;
+        const chosen = actionMap[selected] || actionMap.local;
         startDelayedSystemAction(
           rebootDeviceActionBtn,
           chosen.countdown,
@@ -13967,6 +14688,11 @@
       }
     }
 
+    function initDerivedValuesBindings() {
+      bindClickAction(document.getElementById('derivedValuesReload'), () => loadDerivedValues(true));
+      bindClickAction(document.getElementById('derivedValuesApply'), () => applyDerivedValues());
+    }
+
     function initUsersBindings() {
       bindClickAction(document.getElementById('usersAddBtn'), () => openUserForm('', 'operator'));
       bindClickAction(document.getElementById('userCancelBtn'), closeUserForm);
@@ -13985,6 +14711,7 @@
     initSystemBindings();
     initConfigBindings();
     initGlobalUiBindings();
+    initDerivedValuesBindings();
     initUsersBindings();
     initSessionRefresh();
     const authReady = initAuth().catch(() => {});

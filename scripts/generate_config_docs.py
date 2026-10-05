@@ -17,7 +17,7 @@ WAVESHARE_DIGITAL_INPUT_LAST_SLOT = 12
 WAVESHARE_DIGITAL_OUTPUT_LAST_SLOT = 15
 
 # End-inclusive derived-value slot index. Keep aligned with ValueIds::DerivedCapacity.
-VALUE_DERIVED_LAST_SLOT = 15
+VALUE_DERIVED_LAST_SLOT = 4
 
 try:
     Import("env")  # type: ignore
@@ -644,7 +644,7 @@ def main() -> None:
     cfgmods_docs, cfgmods_meta, cfgmods_files = _load_text_docs(src_root, stem="cfgmods", locale=locale)
     i18n, i18n_files = _load_text_translations(src_root, locale=locale)
 
-    # Derived values are a core capability: every profile exposes the same 16 slots.
+    # Derived values are a core capability: every profile exposes the same bounded slot set.
     _expand_value_slot_docs(cfgdocs_docs, VALUE_DERIVED_LAST_SLOT)
     _expand_value_slot_translations(i18n, VALUE_DERIVED_LAST_SLOT)
 

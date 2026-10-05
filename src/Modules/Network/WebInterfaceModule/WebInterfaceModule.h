@@ -104,10 +104,6 @@ private:
     void flushLine_(bool force);
     void logWsFlowPressure_(const char* reason);
     void logWsLogPressure_(const char* reason);
-    bool acquireRuntimeValuesBodyScratch_();
-    void releaseRuntimeValuesBodyScratch_();
-    void initRuntimeValuesBodyScratch_();
-    void freeRuntimeValuesBodyScratch_();
 
     // Log formatting and local sink plumbing
     void flushLocalLogQueue_();
@@ -182,7 +178,6 @@ private:
     const WifiService* wifiSvc_ = nullptr;
     const CommandService* cmdSvc_ = nullptr;
     const HmiService* hmiSvc_ = nullptr;
-    const FlowCfgRemoteService* flowCfgSvc_ = nullptr;
     const NetworkAccessService* netAccessSvc_ = nullptr;
     const IOServiceV2* ioSvc_ = nullptr;
     DataStore* dataStore_ = nullptr;
@@ -209,8 +204,6 @@ private:
 
     static constexpr UBaseType_t kLocalLogQueueLen = 128;
     static_assert(kLocalLogQueueLen == 128, "flow.io wslog queue must keep 128 lines");
-    static constexpr size_t kRuntimeValuesBodyMax = 4096U;
-    static constexpr size_t kRuntimeValuesJsonDocCapacity = 4096U;
     QueueHandle_t localLogQueue_ = nullptr;
     StaticQueue_t* localLogQueueControl_ = nullptr;
     uint8_t* localLogQueueStorage_ = nullptr;
@@ -220,11 +213,6 @@ private:
 
     char lineBuf_[kLineBufferSize] = {0};
     size_t lineLen_ = 0;
-    char* runtimeValuesBodyScratch_ = nullptr;
-    bool runtimeValuesBodyScratchInPsram_ = false;
-    bool runtimeValuesBodyScratchOwned_ = false;
-    portMUX_TYPE runtimeValuesBodyMux_ = portMUX_INITIALIZER_UNLOCKED;
-    volatile bool runtimeValuesBodyBusy_ = false;
     uint32_t wsFlowConnectCount_ = 0;
     uint32_t wsFlowDisconnectCount_ = 0;
     uint32_t wsFlowSentCount_ = 0;
@@ -242,7 +230,7 @@ private:
     uint32_t wsLogLastPressureLogMs_ = 0;
     uint32_t wsLogPendingSummaryDrops_ = 0;
     mutable portMUX_TYPE wsSourceMux_ = portMUX_INITIALIZER_UNLOCKED;
-    uint8_t wsSource_ = 0; // 0=supervisor local logs, 1=flow serial logs
+    uint8_t wsSource_ = 0; // 0=local logs, 1=flow serial logs
     mutable portMUX_TYPE healthMux_ = portMUX_INITIALIZER_UNLOCKED;
     WebInterfaceHealth health_{};
 

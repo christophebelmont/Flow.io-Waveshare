@@ -28,6 +28,7 @@
 #include "Core/NvsKeys.h"
 #include "Core/Log.h"
 #include "Core/SystemLimits.h"
+#include "Core/ConfigDoubleAccess.h"
 #include "Core/Services/IEventBus.h"
 #include "Core/EventBus/EventBus.h"
 #include "Core/EventBus/EventPayloads.h"
@@ -211,12 +212,15 @@ bool ConfigStore::set(ConfigVariable<T, H>& var, const T& value)
     if (!var.value) return false;
 
     bool changed = false;
-    const T oldValue = *(var.value);
+    T oldValue{};
+    if constexpr (!std::is_same<T, double>::value) oldValue = *(var.value);
 
     // Comparaison selon type
     if constexpr (std::is_same<T, char>::value) {
         // cas char array géré ailleurs (normalement ConfigVariable<char,...>)
         changed = true;
+    } else if constexpr (std::is_same<T, double>::value) {
+        changed = ConfigDoubleAccess::replace(*var.value, value, oldValue);
     } else {
         if (*(var.value) != value) {
             *(var.value) = value;
@@ -239,7 +243,8 @@ bool ConfigStore::set(ConfigVariable<T, H>& var, const T& value)
         default: persisted = false; break;
         }
         if (!persisted) {
-            *(var.value) = oldValue;
+            if constexpr (std::is_same<T, double>::value) ConfigDoubleAccess::write(*var.value, oldValue);
+            else *(var.value) = oldValue;
             return false;
         }
     }

@@ -1,4 +1,5 @@
 from datetime import datetime
+import csv
 import hashlib
 import json
 from pathlib import Path
@@ -117,6 +118,33 @@ def _sha256(path):
     return digest.hexdigest()
 
 
+def _partition_table_path():
+    try:
+        option = env.GetProjectOption("board_build.partitions")
+    except Exception:
+        return None
+    if not option:
+        return None
+    path = Path(option)
+    return path if path.is_absolute() else _project_dir() / path
+
+
+def _expected_filesystem_size():
+    """Size of the SPIFFS release slot, read from the project partition table."""
+    path = _partition_table_path()
+    if path is None or not path.is_file():
+        raise RuntimeError(
+            "partition table not found; set board_build.partitions in platformio.ini"
+        )
+    for row in csv.reader(path.read_text().splitlines()):
+        if not row or row[0].lstrip().startswith("#"):
+            continue
+        _, kind, subtype, _, size = [field.strip() for field in row[:5]]
+        if kind == "data" and subtype == "spiffs":
+            return int(size, 0)
+    raise RuntimeError(f"no SPIFFS release slot defined in {path}")
+
+
 def _write_release_package(version):
     """Create the browser-upload package once both images for a version exist."""
     out_dir = _binary_dir()
@@ -124,16 +152,15 @@ def _write_release_package(version):
     filesystem = out_dir / f"flowios3-spiffs-{version}.bin"
     if not firmware.is_file() or not filesystem.is_file():
         return
-    expected_filesystem_size = 0x180000
+    expected_filesystem_size = _expected_filesystem_size()
     if filesystem.stat().st_size != expected_filesystem_size:
         package = out_dir / f"flowio-{version}.zip"
         if package.exists():
             package.unlink()
-        print(
-            "[export_binaries] release package skipped: "
-            f"spiffs image size {filesystem.stat().st_size} != {expected_filesystem_size}"
+        raise RuntimeError(
+            "[export_binaries] spiffs image size "
+            f"{filesystem.stat().st_size} != partition slot {expected_filesystem_size}"
         )
-        return
 
     manifest = {
         "format": 1,

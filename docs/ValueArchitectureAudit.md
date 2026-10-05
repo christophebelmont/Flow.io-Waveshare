@@ -169,7 +169,7 @@ fallback interne dimensionné explicitement, évite les allocations répétées.
 ## 6. Persistance et fréquence d'écriture
 
 Les blobs dits runtime passent par Preferences::putBytes : ils vont en NVS, pas dans
-la partition personnalisée `runtime`. La partition NVS configurée fait 0x5000 = 20 Kio.
+la partition personnalisée `runtime`. La partition NVS configurée fait 0x20000 = 128 Kio.
 NVS inclut le wear leveling ; cela ne garantit pas une endurance calculable sans connaître
 le composant flash, l'occupation et toutes les autres écritures.
 
@@ -192,7 +192,7 @@ timestamps pulse, min/max actifs, sommes intermédiaires, origine historique ni 
 dérivé recalculable. La sauvegarde périodique de `counter_total` float doit disparaître.
 
 Le stockage des archives horaires complètes ne peut pas être ajouté aveuglément dans
-20 Kio partagés. Dimensionner d'abord la rétention et mesurer l'occupation ; conserver
+128 Kio partagés. Dimensionner d'abord la rétention et mesurer l'occupation ; conserver
 en RAM les fenêtres volatiles et les archives journalières compactes existantes tant que
 le budget durable n'est pas établi. Ne pas changer la table de partitions implicitement.
 

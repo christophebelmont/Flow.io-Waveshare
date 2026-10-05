@@ -41,7 +41,6 @@ struct FlowIoAnalogHaSpec {
     const char* objectSuffix = nullptr;
     const char* name = nullptr;
     const char* icon = nullptr;
-    const char* unit = nullptr;
 };
 
 struct FlowIoDigitalHaSpec {
@@ -49,42 +48,41 @@ struct FlowIoDigitalHaSpec {
     const char* objectSuffix = nullptr;
     const char* name = nullptr;
     const char* icon = nullptr;
-    const char* unit = nullptr;
 };
 
 constexpr FlowIoAnalogHaSpec kAnalogHaSpecs[kFlowIoAnalogHaSlots] = {
-    {"io_orp", "ORP", "mdi:flash", "mV"},
-    {"io_ph", "pH", "mdi:ph", ""},
-    {"io_psi", "PSI", "mdi:gauge", "PSI"},
-    {"io_spare", "Spare", "mdi:sine-wave", nullptr},
-    {"io_wat_tmp", "Water Temperature", "mdi:water-thermometer", "\xC2\xB0""C"},
-    {"io_air_tmp", "Air Temperature", "mdi:thermometer", "\xC2\xB0""C"},
-    {"io_current", "Current", "mdi:current-dc", "mA"},
-    {"io_voltage", "Voltage", "mdi:flash", "V"},
-    {nullptr, nullptr, "mdi:sine-wave", nullptr},
-    {nullptr, nullptr, "mdi:sine-wave", nullptr},
-    {nullptr, nullptr, "mdi:sine-wave", nullptr},
-    {nullptr, nullptr, "mdi:sine-wave", nullptr},
-    {nullptr, nullptr, "mdi:sine-wave", nullptr},
-    {nullptr, nullptr, "mdi:sine-wave", nullptr},
-    {nullptr, nullptr, "mdi:sine-wave", nullptr},
-    {nullptr, nullptr, "mdi:sine-wave", nullptr},
+    {"io_orp", "ORP", "mdi:flash"},
+    {"io_ph", "pH", "mdi:ph"},
+    {"io_psi", "PSI", "mdi:gauge"},
+    {"io_spare", "Spare", "mdi:sine-wave"},
+    {"io_wat_tmp", "Water Temperature", "mdi:water-thermometer"},
+    {"io_air_tmp", "Air Temperature", "mdi:thermometer"},
+    {"io_current", "Current", "mdi:current-dc"},
+    {"io_voltage", "Voltage", "mdi:flash"},
+    {nullptr, nullptr, "mdi:sine-wave"},
+    {nullptr, nullptr, "mdi:sine-wave"},
+    {nullptr, nullptr, "mdi:sine-wave"},
+    {nullptr, nullptr, "mdi:sine-wave"},
+    {nullptr, nullptr, "mdi:sine-wave"},
+    {nullptr, nullptr, "mdi:sine-wave"},
+    {nullptr, nullptr, "mdi:sine-wave"},
+    {nullptr, nullptr, "mdi:sine-wave"},
 };
 
 constexpr FlowIoDigitalHaSpec kDigitalHaSpecs[] = {
-    {PoolInputSlots::FactoryReset, "io_factory_reset", "Factory Reset", "mdi:restart-alert", nullptr},
-    {PoolInputSlots::WaterMeter, "io_wat_meter", "Water Meter", "mdi:water-sync", "L"},
-    {PoolInputSlots::PoolLevel, "io_pool_lvl", "Pool Level", "mdi:waves-arrow-up", nullptr},
-    {PoolInputSlots::ChlorineLevel, "io_chl_lvl", "Chlorine Level", "mdi:test-tube", nullptr},
-    {PoolInputSlots::PhLevel, "io_ph_lvl", "pH Level", "mdi:flask-outline", nullptr},
-    {PoolInputSlots::FlowMeter, "io_flow_meter", "Flow Meter", "mdi:waves-arrow-right", nullptr},
-    {PoolInputSlots::Spare, "io_gpio10", "GPIO10", "mdi:electric-switch", nullptr},
-    {PoolInputSlots::Pir, "io_pir", "PIR", "mdi:motion-sensor", nullptr},
-    {8, "io_mcp_gpa0", "MCP GPA0", "mdi:electric-switch", nullptr},
-    {9, "io_mcp_gpa1", "MCP GPA1", "mdi:electric-switch", nullptr},
-    {10, "io_mcp_gpa2", "MCP GPA2", "mdi:electric-switch", nullptr},
-    {11, "io_mcp_gpa3", "MCP GPA3", "mdi:electric-switch", nullptr},
-    {12, "io_mcp_gpa4", "MCP GPA4", "mdi:electric-switch", nullptr},
+    {PoolInputSlots::FactoryReset, "io_factory_reset", "Factory Reset", "mdi:restart-alert"},
+    {PoolInputSlots::WaterMeter, "io_wat_meter", "Water Meter", "mdi:water-sync"},
+    {PoolInputSlots::PoolLevel, "io_pool_lvl", "Pool Level", "mdi:waves-arrow-up"},
+    {PoolInputSlots::ChlorineLevel, "io_chl_lvl", "Chlorine Level", "mdi:test-tube"},
+    {PoolInputSlots::PhLevel, "io_ph_lvl", "pH Level", "mdi:flask-outline"},
+    {PoolInputSlots::FlowMeter, "io_flow_meter", "Flow Meter", "mdi:waves-arrow-right"},
+    {PoolInputSlots::Spare, "io_gpio10", "GPIO10", "mdi:electric-switch"},
+    {PoolInputSlots::Pir, "io_pir", "PIR", "mdi:motion-sensor"},
+    {8, "io_mcp_gpa0", "MCP GPA0", "mdi:electric-switch"},
+    {9, "io_mcp_gpa1", "MCP GPA1", "mdi:electric-switch"},
+    {10, "io_mcp_gpa2", "MCP GPA2", "mdi:electric-switch"},
+    {11, "io_mcp_gpa3", "MCP GPA3", "mdi:electric-switch"},
+    {12, "io_mcp_gpa4", "MCP GPA4", "mdi:electric-switch"},
 };
 
 struct FlowIoDiscoveryHeap {
@@ -92,10 +90,25 @@ struct FlowIoDiscoveryHeap {
     char analogFallbackName[kFlowIoAnalogHaSlots][24]{};
     char analogValueTpl[kFlowIoAnalogHaSlots][128]{};
     char analogStateSuffix[kFlowIoAnalogHaSlots][24]{};
+    char analogUnit[kFlowIoAnalogHaSlots][UnitTextCapacity]{};
     char digitalStateSuffix[sizeof(kDigitalHaSpecs) / sizeof(kDigitalHaSpecs[0])][24]{};
+    char derivedUnit[ValueIds::DerivedCapacity][UnitTextCapacity]{};
     PoolRoleHaDiscovery::Storage poolRoles{};
     DerivedValueHaDiscovery::Storage derivedValues{};
 };
+
+// Display unit lives with the value's metadata; the registry is the single source.
+void readValueDisplayUnit(const ModuleInstances& modules, ValueId id, char* out, size_t outLen)
+{
+    if (!out || outLen == 0U) return;
+    out[0] = '\0';
+    if (!modules.ioDataStore) return;
+    ValueSnapshot snapshot;
+    ValueMetadata metadata;
+    if (modules.ioDataStore->values.read(id, snapshot, &metadata)) {
+        snprintf(out, outLen, "%s", metadata.displayUnit);
+    }
+}
 
 FlowIoDiscoveryHeap* gDiscoveryHeap = nullptr;
 bool gDiscoveryHeapReleaseWaitLogged = false;
@@ -255,6 +268,7 @@ void applyAnalogDefaultsForDomainSlot(DomainSlotId domainSlot, IOAnalogDefinitio
     def.c0 = spec->c0;
     def.c1 = spec->c1;
     def.precision = spec->precision;
+    def.unit = spec->unit;
 }
 
 void applyDigitalDefaultsForDomainSlot(DomainSlotId domainSlot, IODigitalInputDefinition& def)
@@ -360,6 +374,8 @@ void syncAnalogSensors(ModuleInstances& modules)
         if (!label || label[0] == '\0') {
             label = gDiscoveryHeap->analogFallbackName[i];
         }
+        readValueDisplayUnit(modules, ValueIds::Analog + i,
+                             gDiscoveryHeap->analogUnit[i], sizeof(gDiscoveryHeap->analogUnit[i]));
         const HASensorEntry entry{
             "io",
             gDiscoveryHeap->analogObjectSuffix[i],
@@ -368,7 +384,7 @@ void syncAnalogSensors(ModuleInstances& modules)
             gDiscoveryHeap->analogValueTpl[i],
             nullptr,
             spec.icon,
-            spec.unit,
+            gDiscoveryHeap->analogUnit[i][0] != '\0' ? gDiscoveryHeap->analogUnit[i] : nullptr,
             false,
             kAvailabilityTpl
         };
@@ -382,8 +398,6 @@ void syncDigitalInputBinarySensors(ModuleInstances& modules)
     if (!reportDiscoveryResult(ensureDiscoveryHeap(), "discovery heap")) return;
     static constexpr const char* kBoolTpl = "{{ 'True' if value_json.value else 'False' }}";
     static constexpr const char* kAvailabilityTpl = "{{ 'online' if value_json.available else 'offline' }}";
-    static constexpr const char* kNumericTpl =
-        "{% if value_json.value is number %}{{ value_json.value | float }}{% else %}unavailable{% endif %}";
 
     for (uint8_t i = 0; i < (uint8_t)(sizeof(kDigitalHaSpecs) / sizeof(kDigitalHaSpecs[0])); ++i) {
         const FlowIoDigitalHaSpec& spec = kDigitalHaSpecs[i];
@@ -396,19 +410,12 @@ void syncDigitalInputBinarySensors(ModuleInstances& modules)
             (unsigned)spec.logicalIdx
         );
         if (modules.ioModule.digitalInputValueType(spec.logicalIdx) != IO_VAL_BOOL) {
-            const HASensorEntry entry{
-                "io",
-                spec.objectSuffix,
-                spec.name,
-                gDiscoveryHeap->digitalStateSuffix[i],
-                kNumericTpl,
-                nullptr,
-                spec.icon,
-                spec.unit,
-                false,
-                kAvailabilityTpl
-            };
-            reportDiscoveryResult(modules.haService->addSensor(modules.haService->ctx, &entry), entry.objectSuffix);
+            // Counter-mode inputs stay local (web only): drop any previous HA entity.
+            if (modules.haService->addDiscoveryRemoval) {
+                const HADiscoveryRemovalEntry removal{"sensor", spec.objectSuffix};
+                reportDiscoveryResult(modules.haService->addDiscoveryRemoval(modules.haService->ctx, &removal),
+                                      spec.objectSuffix);
+            }
             continue;
         }
 
@@ -619,18 +626,14 @@ void registerIoHomeAssistant(AppContext& ctx, ModuleInstances& modules)
             PoolRoleHaDiscovery::registerEntries(*modules.haService, gDiscoveryHeap->poolRoles),
             "pool role entities");
     }
-    Board::SerialMap::logSerial().printf(
-        "[waveshare] HA boot roles filtration=pd%u ph=pd%u disinfection=pd%u robot=pd%u "
-        "fill=pd%u swg=pd%u heater=pd%u discovery_bytes=%u\r\n",
-        unsigned(assignments.filtration), unsigned(assignments.phPump),
-        unsigned(assignments.disinfectionPump), unsigned(assignments.robot),
-        unsigned(assignments.filling), unsigned(assignments.chlorineGenerator),
-        unsigned(assignments.heater), unsigned(sizeof(FlowIoDiscoveryHeap)));
 
     for (uint8_t slot = 0; slot < ValueIds::DerivedCapacity; ++slot) {
+        readValueDisplayUnit(modules, ValueIds::Derived + slot,
+                             gDiscoveryHeap->derivedUnit[slot], sizeof(gDiscoveryHeap->derivedUnit[slot]));
         reportDiscoveryResult(DerivedValueHaDiscovery::registerEntry(
             *modules.haService, gDiscoveryHeap->derivedValues, slot,
-            modules.ioModule.derivedValuePublished(slot), modules.ioModule.derivedValueName(slot)),
+            modules.ioModule.derivedValuePublished(slot), modules.ioModule.derivedValueName(slot),
+            gDiscoveryHeap->derivedUnit[slot][0] != '\0' ? gDiscoveryHeap->derivedUnit[slot] : nullptr),
             gDiscoveryHeap->derivedValues.slots[slot].objectSuffix);
     }
     syncAnalogSensors(modules);

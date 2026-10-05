@@ -147,7 +147,7 @@ void WebInterfaceModule::onWsLogEvent_(AsyncWebSocket*,
             const bool flowSource = (wsActiveSource_() == 1U);
             client->text(flowSource
                 ? "[webinterface] logs connectes source=flowio"
-                : "[webinterface] logs connectes source=supervisor");
+                : "[webinterface] logs connectes source=local");
 #if FLOW_ENABLE_BOOT_LOG_CAPTURE
             if (!bootLogCapture_) {
                 bootLogCapture_ = bootLogCaptureService();
@@ -201,9 +201,9 @@ void WebInterfaceModule::onWsLogEvent_(AsyncWebSocket*,
             } else {
                 if (client) client->text("[webinterface] source=flowio indisponible");
             }
-        } else if (strcmp(cmd, "src:supervisor") == 0) {
+        } else if (strcmp(cmd, "src:local") == 0) {
             setWsActiveSource_(0U);
-            if (client) client->text("[webinterface] source=supervisor");
+            if (client) client->text("[webinterface] source=local");
         } else if (strcmp(cmd, "bootlog:dump") == 0) {
             dumpBootLogCapture_(client);
         } else if (client) {
@@ -222,25 +222,6 @@ void WebInterfaceModule::onWsLogEvent_(AsyncWebSocket*,
                                 forensicStartHeap);
     }
 #endif
-}
-
-bool WebInterfaceModule::acquireRuntimeValuesBodyScratch_()
-{
-    bool acquired = false;
-    portENTER_CRITICAL(&runtimeValuesBodyMux_);
-    if (!runtimeValuesBodyBusy_) {
-        runtimeValuesBodyBusy_ = true;
-        acquired = true;
-    }
-    portEXIT_CRITICAL(&runtimeValuesBodyMux_);
-    return acquired;
-}
-
-void WebInterfaceModule::releaseRuntimeValuesBodyScratch_()
-{
-    portENTER_CRITICAL(&runtimeValuesBodyMux_);
-    runtimeValuesBodyBusy_ = false;
-    portEXIT_CRITICAL(&runtimeValuesBodyMux_);
 }
 
 void WebInterfaceModule::flushLine_(bool force)

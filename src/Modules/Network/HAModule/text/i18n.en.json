@@ -3,8 +3,8 @@
   "translations": {
     "cfgdocs.ha.device_id.help": "Identifiant exposé a Home Assistant for cet appareil.",
     "cfgdocs.ha.device_id.label": "Identifiant appareil HA",
-    "cfgdocs.ha.entity_prefix.help": "Prefix applied to Home Assistant object_id: <prefix>_<entity>. If empty, only the entity name is used.",
-    "cfgdocs.ha.entity_prefix.label": "Home Assistant entity prefix",
+    "cfgdocs.ha.entity_prefix.help": "Préfixe appliqué aux object_id Home Assistant: <prefix>_<entité>. Si vide, seul the nom de entité est utilisé.",
+    "cfgdocs.ha.entity_prefix.label": "Préfixe of entités Home Assistant",
     "cfgdocs.ha.disc_prefix.help": "Préfixe MQTT utilisé fors topics Home Assistant Discovery.",
     "cfgdocs.ha.disc_prefix.label": "Préfixe Discovery",
     "cfgdocs.ha.enabled.help": "Enable or disable auto-decouverte Home Assistant.",

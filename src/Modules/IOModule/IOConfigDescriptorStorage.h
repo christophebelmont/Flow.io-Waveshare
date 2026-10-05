@@ -23,16 +23,19 @@ struct IOConfigDescriptorStorage {
         char c0Key[NVS_KEY_CAPACITY]{};
         char c1Key[NVS_KEY_CAPACITY]{};
         char precisionKey[NVS_KEY_CAPACITY]{};
+        char unitKey[NVS_KEY_CAPACITY]{};
         char nameJson[9]{};
         char c0Json[8]{};
         char c1Json[8]{};
         char precisionJson[10]{};
+        char unitJson[12]{};
         char moduleName[13]{};
         ConfigVariable<char, 0> nameVar{};
         ConfigVariable<PhysicalPortId, 0> bindingVar{};
         ConfigVariable<float, 0> c0Var{};
         ConfigVariable<float, 0> c1Var{};
         ConfigVariable<int32_t, 0> precisionVar{};
+        ConfigVariable<char, 0> unitVar{};
     };
 
     struct DigitalInputSlot {
@@ -102,10 +105,12 @@ struct IOConfigDescriptorStorage {
             snprintf(vars.c0Key, sizeof(vars.c0Key), "io_a%02u0", (unsigned)slot);
             snprintf(vars.c1Key, sizeof(vars.c1Key), "io_a%02u1", (unsigned)slot);
             snprintf(vars.precisionKey, sizeof(vars.precisionKey), "io_a%02up", (unsigned)slot);
+            snprintf(vars.unitKey, sizeof(vars.unitKey), "io_a%02uun", (unsigned)slot);
             snprintf(vars.nameJson, sizeof(vars.nameJson), "a%02u_name", (unsigned)slot);
             snprintf(vars.c0Json, sizeof(vars.c0Json), "a%02u_c0", (unsigned)slot);
             snprintf(vars.c1Json, sizeof(vars.c1Json), "a%02u_c1", (unsigned)slot);
             snprintf(vars.precisionJson, sizeof(vars.precisionJson), "a%02u_prec", (unsigned)slot);
+            snprintf(vars.unitJson, sizeof(vars.unitJson), "a%02u_unit", (unsigned)slot);
             snprintf(vars.moduleName, sizeof(vars.moduleName), "io/input/a%02u", (unsigned)slot);
 
             vars.nameVar = {vars.nameKey, vars.nameJson, vars.moduleName, ConfigType::CharArray,
@@ -120,6 +125,9 @@ struct IOConfigDescriptorStorage {
             vars.precisionVar = {vars.precisionKey, vars.precisionJson, vars.moduleName,
                                  ConfigType::Int32, &analogCfg[slot].precision,
                                  ConfigPersistence::Persistent, 0};
+            vars.unitVar = {vars.unitKey, vars.unitJson, vars.moduleName, ConfigType::CharArray,
+                            analogCfg[slot].unit, ConfigPersistence::Persistent,
+                            sizeof(analogCfg[slot].unit)};
         }
 
         for (uint8_t slot = 0; slot < Limits::Io::DigitalInputConfigSlots; ++slot) {

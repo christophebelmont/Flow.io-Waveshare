@@ -33,36 +33,87 @@ bool ValueRegistry::define(ValueId id, const ValueMetadata& metadata) {
     ++used_;
     return true;
 }
+bool ValueRegistry::defineProgram_(ValueId id, const ValueExpression::Program& program,
+                                   const double* parameters, const ValueMetadata& metadata) {
+    if (!storage_ || id >= ValueIds::Capacity || storage_->slots[id].used ||
+        !parameters || transformCount_ == ProgramCapacity || !ValueExpression::validate(program) ||
+        metadata.aggregation > AggregationMode::Counter) return false;
+    for (uint8_t i = 0; i < ValueExpression::ParamCount; ++i)
+        if (!isfinite(parameters[i])) return false;
+    // Registration is topological: every dependency must already exist.
+    for (uint8_t i = 0; i < program.dependencyCount; ++i)
+        if (!storage_->slots[program.dependencies[i]].used) return false;
+    auto& slot = storage_->slots[id];
+    slot.metadata = metadata; slot.used = true; slot.program = transformCount_;
+    auto& transform = storage_->programs[transformCount_];
+    transform.program = program;
+    for (uint8_t i = 0; i < ValueExpression::ParamCount; ++i) transform.parameters[i] = parameters[i];
+    storage_->transforms[transformCount_++] = id;
+    ++used_;
+    uint64_t timestamp = 0;
+    for (uint8_t i = 0; i < program.dependencyCount; ++i)
+        if (storage_->slots[program.dependencies[i]].runtime.timestampMs > timestamp)
+            timestamp = storage_->slots[program.dependencies[i]].runtime.timestampMs;
+    propagate_(VALUE_INVALID, timestamp, id);
+    return true;
+}
+bool ValueRegistry::defineProgram(ValueId id, const ValueExpression::Program& program,
+                                  const double* parameters, AggregationMode mode,
+                                  const char* displayUnit, int8_t precision) {
+    Lock lock(mutex_);
+    ValueMetadata metadata{ValueType::Double, mode};
+    setValueUnit(metadata.displayUnit, displayUnit);
+    metadata.precision = precision;
+    return defineProgram_(id, program, parameters, metadata);
+}
 bool ValueRegistry::defineAffine(ValueId id, ValueId source, double scale, double offset,
                                  AggregationMode mode) {
     Lock lock(mutex_);
-    // Sources must already exist: registration order is the topological order.
-    if (!storage_ || id >= ValueIds::Capacity || source >= ValueIds::Capacity || storage_->slots[id].used ||
-        !storage_->slots[source].used || !isfinite(scale) || !isfinite(offset) ||
-        (mode == AggregationMode::Counter && scale < 0.0)) return false;
-    storage_->slots[id].metadata = {ValueType::Double, mode, ValueUnit::Unspecified, source, scale, offset};
-    storage_->slots[id].used = true;
-    storage_->transforms[transformCount_++] = id;
-    ++used_;
-    return true;
+    if (mode == AggregationMode::Counter && scale < 0) return false;
+    const double parameters[ValueExpression::ParamCount] = {scale, offset, 0, 0};
+    return defineProgram_(id, ValueExpression::affine(source), parameters,
+        {ValueType::Double, mode, ValueUnit::Unspecified, source, scale, offset});
+}
+bool ValueRegistry::setParameters_(ValueId id, const double* parameters, uint64_t timestampMs) {
+    if (!storage_ || id >= ValueIds::Capacity || !storage_->slots[id].used ||
+        storage_->slots[id].program == UINT8_MAX || !parameters) return false;
+    auto& slot = storage_->slots[id];
+    auto& transform = storage_->programs[slot.program];
+    bool valid = true, same = true;
+    for (uint8_t i = 0; i < ValueExpression::ParamCount; ++i) {
+        valid &= isfinite(parameters[i]);
+        same &= parameters[i] == transform.parameters[i] ||
+            (isnan(parameters[i]) && isnan(transform.parameters[i]));
+    }
+    if (slot.metadata.source != VALUE_INVALID && slot.metadata.aggregation == AggregationMode::Counter)
+        valid &= parameters[0] >= 0;
+    if (same && valid == transform.valid) {
+        // Constant-only programs have no producer to refresh history coverage.
+        constexpr uint64_t ConstantObservationMs = 1000;
+        if (!transform.program.dependencyCount && timestampMs >= slot.runtime.timestampMs &&
+            timestampMs - slot.runtime.timestampMs >= ConstantObservationMs)
+            propagate_(VALUE_INVALID, timestampMs, id);
+        return valid;
+    }
+    transform.valid = valid;
+    for (uint8_t i = 0; i < ValueExpression::ParamCount; ++i) transform.parameters[i] = parameters[i];
+    if (slot.metadata.source != VALUE_INVALID) {
+        slot.metadata.scale = parameters[0]; slot.metadata.offset = parameters[1];
+    }
+    ++slot.runtime.generation;
+    slot.runtime.quality = ValueQuality::Unknown;
+    propagate_(VALUE_INVALID, timestampMs, id);
+    return valid;
+}
+bool ValueRegistry::setParameters(ValueId id, const double* parameters, uint64_t timestampMs) {
+    Lock lock(mutex_);
+    return setParameters_(id, parameters, timestampMs);
 }
 bool ValueRegistry::setAffine(ValueId id, double scale, double offset) {
     Lock lock(mutex_);
-    if (!storage_ || id >= ValueIds::Capacity || !storage_->slots[id].used || storage_->slots[id].metadata.source == VALUE_INVALID) return false;
-    auto& slot = storage_->slots[id];
-    const bool valid = isfinite(scale) && isfinite(offset) &&
-        (slot.metadata.aggregation != AggregationMode::Counter || scale >= 0);
-    if (!valid) {
-        if (slot.transformValid) ++slot.runtime.generation;
-        slot.transformValid = false;
-        return false;
-    }
-    if (slot.transformValid && slot.metadata.scale == scale && slot.metadata.offset == offset) return true;
-    slot.transformValid = true;
-    slot.metadata.scale = scale; slot.metadata.offset = offset;
-    ++slot.runtime.generation;
-    slot.runtime.quality = ValueQuality::Unknown;
-    return true;
+    if (!storage_ || id >= ValueIds::Capacity || storage_->slots[id].metadata.source == VALUE_INVALID) return false;
+    const double parameters[ValueExpression::ParamCount] = {scale, offset, 0, 0};
+    return setParameters_(id, parameters, storage_->slots[id].runtime.timestampMs);
 }
 bool ValueRegistry::read(ValueId id, ValueSnapshot& out, ValueMetadata* metadata) const {
     Lock lock(mutex_);
@@ -83,7 +134,7 @@ bool ValueRegistry::write(ValueId id, ValueNumber value, uint64_t timestampMs,
                           ValueQuality quality, uint32_t generation) {
     Lock lock(mutex_);
     if (!storage_ || id >= ValueIds::Capacity || !storage_->slots[id].used ||
-        storage_->slots[id].metadata.source != VALUE_INVALID) return false;
+        storage_->slots[id].program != UINT8_MAX) return false;
     auto& slot = storage_->slots[id];
     if (timestampMs < slot.runtime.timestampMs) return false;
     if (!isfinite(valueAsDouble(slot.metadata.type, value))) quality = ValueQuality::Invalid;
@@ -91,33 +142,77 @@ bool ValueRegistry::write(ValueId id, ValueNumber value, uint64_t timestampMs,
         quality != slot.runtime.quality || generation != slot.runtime.generation || !slot.runtime.sequence;
     slot.runtime = {value, timestampMs, slot.runtime.sequence + 1, generation, quality};
     notify_(id);
+    propagate_(id, timestampMs);
+    if (notification_ && rootChanged) notification_(notificationContext_, id, slot.runtime.sequence);
+    return true;
+}
+void ValueRegistry::propagate_(ValueId changedId, uint64_t timestampMs, ValueId force) {
     bool changed[ValueIds::Capacity]{};
-    changed[id] = true;
+    if (changedId != VALUE_INVALID) changed[changedId] = true;
     for (uint16_t i = 0; i < transformCount_; ++i) {
-        auto derivedId = storage_->transforms[i];
+        const auto derivedId = storage_->transforms[i];
         auto& target = storage_->slots[derivedId];
-        auto& source = storage_->slots[target.metadata.source];
-        if (!changed[target.metadata.source]) continue;
-        ValueNumber result;
-        result.d = valueAsDouble(source.metadata.type, source.runtime.value) * target.metadata.scale + target.metadata.offset;
+        auto& transform = storage_->programs[target.program];
+        const auto& program = transform.program;
+        bool evaluate = derivedId == force;
+        for (uint8_t d = 0; d < program.dependencyCount; ++d) evaluate |= changed[program.dependencies[d]];
+        if (!evaluate) continue;
         const auto old = target.runtime;
-        // A source reset and a calibration change are separate discontinuities.
-        if (source.runtime.generation != storage_->sourceGenerations[derivedId]) {
-            ++target.runtime.generation;
-            storage_->sourceGenerations[derivedId] = source.runtime.generation;
+        bool continuous = old.quality == ValueQuality::Valid;
+        bool discontinuity = false;
+        ValueQuality quality = transform.valid ? ValueQuality::Valid : ValueQuality::Invalid;
+        ValueExpression::Number inputs[ValueExpression::MaxDependencies];
+        for (uint8_t d = 0; d < program.dependencyCount; ++d) {
+            const auto& source = storage_->slots[program.dependencies[d]];
+            const auto& now = source.runtime;
+            const auto& previous = transform.previous[d];
+            discontinuity |= now.generation != previous.generation;
+            continuous &= previous.quality == ValueQuality::Valid && now.quality == ValueQuality::Valid &&
+                now.generation == previous.generation;
+            if (now.quality == ValueQuality::Invalid) quality = ValueQuality::Invalid;
+            else if (now.quality == ValueQuality::Unknown && quality == ValueQuality::Valid) quality = ValueQuality::Unknown;
+            auto& input = inputs[d];
+            input.current = valueAsDouble(source.metadata.type, now.value);
+            input.previous = valueAsDouble(source.metadata.type, previous.value);
+            if (now.sequence == previous.sequence) input.delta = 0;
+            else if (source.metadata.type == ValueType::UInt64) {
+                // Subtract integers before conversion, including a possible decreasing gauge.
+                input.delta = now.value.u64 >= previous.value.u64
+                    ? static_cast<double>(now.value.u64 - previous.value.u64)
+                    : -static_cast<double>(previous.value.u64 - now.value.u64);
+                if (source.metadata.aggregation == AggregationMode::Counter && now.value.u64 < previous.value.u64)
+                    discontinuity = true;
+            } else if (source.program != UINT8_MAX && now.deltaValid) input.delta = now.delta;
+            else input.delta = input.current - input.previous;
+            transform.previous[d] = now;
         }
-        target.runtime.value = result;
-        target.runtime.timestampMs = timestampMs;
-        target.runtime.quality = target.transformValid && isfinite(result.d) ? source.runtime.quality : ValueQuality::Invalid;
+        ValueExpression::Number result;
+        const bool validResult = ValueExpression::evaluate(program, transform.parameters, inputs, result);
+        if (!validResult && quality == ValueQuality::Valid) quality = ValueQuality::Invalid;
+        if (continuous && validResult && target.metadata.aggregation == AggregationMode::Counter) {
+            if (!isfinite(result.delta)) quality = ValueQuality::Invalid;
+            else if (result.delta < 0) discontinuity = true;
+        }
+        if (discontinuity) ++target.runtime.generation;
+        target.runtime.value.d = validResult ? result.current : NAN;
+        target.runtime.timestampMs = timestampMs > old.timestampMs ? timestampMs : old.timestampMs;
+        target.runtime.quality = quality;
+        target.runtime.delta = result.delta;
+        target.runtime.deltaValid = continuous && !discontinuity && quality == ValueQuality::Valid && isfinite(result.delta);
         ++target.runtime.sequence;
         changed[derivedId] = true;
         notify_(derivedId);
-        if (notification_ && (!valueEqual(target.metadata.type, old.value, target.runtime.value) ||
-            old.quality != target.runtime.quality || old.generation != target.runtime.generation || !old.sequence))
+        // Change announcement honours the value precision: a new double that rounds to the
+        // same displayed value is not announced. The stored value keeps full precision.
+        const double oldQuantized = roundToPrecision(valueAsDouble(target.metadata.type, old.value),
+                                                     target.metadata.precision);
+        const double newQuantized = roundToPrecision(valueAsDouble(target.metadata.type, target.runtime.value),
+                                                     target.metadata.precision);
+        if (notification_ && (oldQuantized != newQuantized ||
+            old.quality != target.runtime.quality || old.generation != target.runtime.generation ||
+            derivedId == force || !old.sequence))
             notification_(notificationContext_, derivedId, target.runtime.sequence);
     }
-    if (notification_ && rootChanged) notification_(notificationContext_, id, slot.runtime.sequence);
-    return true;
 }
 void ValueRegistry::setObserver(Observer callback, void* context) {
     Lock lock(mutex_); observer_ = callback; observerContext_ = context;

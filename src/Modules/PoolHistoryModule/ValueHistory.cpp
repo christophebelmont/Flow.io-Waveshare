@@ -90,10 +90,12 @@ void ValueHistory::observe(ValueId id, const ValueMetadata& metadata, const Valu
     const bool valid = sample.quality == ValueQuality::Valid;
     const bool continuous = valid && s.previous.quality == ValueQuality::Valid &&
         s.previous.generation == sample.generation;
-    // Direct affine counters preserve the integer subtraction before scaling.
+    // Computed deltas preserve precision through arbitrary expression chains.
+    // Raw snapshots also retain the pulse-domain totals for direct conversions.
     const bool raw = metadata.type == ValueType::UInt64 || source != nullptr;
     // Caller supplies UInt64 source only for this optimization (see module adapter).
-    const uint64_t rawValue = source ? source->value.u64 : sample.value.u64;
+    const uint64_t rawValue = source ? source->value.u64 :
+        (metadata.type == ValueType::UInt64 ? sample.value.u64 : 0);
     const double current = valueAsDouble(metadata.type, sample.value);
     if (metadata.aggregation == AggregationMode::Counter && valid) {
         auto& record = s.hour;
@@ -105,8 +107,12 @@ void ValueHistory::observe(ValueId id, const ValueMetadata& metadata, const Valu
         record.end = current; record.rawEnd = rawValue;
         if (continuous) {
             const double previous = valueAsDouble(s.metadata.type, s.previous.value);
-            if ((raw && rawValue >= s.previousRaw) || (!raw && current >= previous)) {
-                if (raw) {
+            if ((sample.deltaValid && sample.delta >= 0) ||
+                (!sample.deltaValid && ((raw && rawValue >= s.previousRaw) || (!raw && current >= previous)))) {
+                if (sample.deltaValid) {
+                    record.delta += sample.delta;
+                    if (raw && rawValue >= s.previousRaw) record.rawDelta += rawValue - s.previousRaw;
+                } else if (raw) {
                     const uint64_t delta = rawValue - s.previousRaw;
                     record.rawDelta += delta;
                     record.delta += static_cast<double>(delta) * (source ? metadata.scale : 1.0);

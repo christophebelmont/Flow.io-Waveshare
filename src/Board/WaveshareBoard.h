@@ -8,7 +8,7 @@
  * This file is the hardware description for the Waveshare ESP32-S3 based
  * Waveshare target. It is intentionally kept as a single, editable map of the
  * board: serial ports, I2C buses, 1-Wire probes, IO points, TFT wiring,
- * supervisor inputs, MQTT/Home Assistant sizing, and Ethernet wiring.
+ * local inputs, MQTT/Home Assistant sizing, and Ethernet wiring.
  *
  * When adapting the firmware to a modified board, change the values here
  * first. The rest of the application consumes this profile through BoardSpec.
@@ -381,7 +381,7 @@ inline constexpr St7789DisplaySpec kWaveshareESP32S3Display{
 };
 
 /*
- * Local supervisor input pins.
+ * Local input pins.
  *
  * Field order:
  *   pirPin, pirDebounceMs, pirActiveHigh, factoryResetPin,

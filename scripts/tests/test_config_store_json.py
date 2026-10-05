@@ -80,7 +80,99 @@ int main() {
 '''
 
 
+APPLY_PREAMBLE = r"""
+#include <ArduinoJson.h>
+#include "Core/ConfigTypes.h"
+#include "Core/ConfigDoubleAccess.h"
+#include "Core/Values/ValueExpression.h"
+#include <cassert>
+#include <cstring>
+#include <cstdlib>
+using SpiRamJsonDocument = DynamicJsonDocument;
+#define LOG_MODULE_ID 0
+namespace Log {
+    template<typename... T> void debug(T...) {}
+    template<typename... T> void warn(T...) {}
+    template<typename... T> void error(T...) {}
+}
+enum class TrackedBufferId { ConfigApplyJsonDoc };
+namespace BufferUsageTracker { template<typename... T> void note(T...) {} }
+static void reportApplyJsonDocPeak_(size_t, size_t) {}
+class ConfigStore {
+public:
+    ConfigMeta* _meta;
+    uint16_t _metaCount;
+    bool persistenceWorks = false;
+    unsigned writes = 0, notifications = 0;
+    bool applyJson(const char*);
+    bool writePersistent(const ConfigMeta&) { ++writes; return persistenceWorks; }
+    void notifyChanged(const char*, const char*, uint8_t, uint8_t) { ++notifications; }
+};
+"""
+
+APPLY_PROGRAM = r"""
+int main() {
+    bool enabled = false;
+    char expr[192] = "0";
+    double parameter = 0;
+    ConfigMeta meta[3]{};
+    const char* names[] = {"enabled", "expr", "k1"};
+    void* pointers[] = {&enabled, expr, &parameter};
+    const ConfigType types[] = {ConfigType::Bool, ConfigType::CharArray, ConfigType::Double};
+    for (unsigned i = 0; i < 3; ++i) {
+        meta[i].module = "io/value/v00"; meta[i].name = names[i];
+        meta[i].nvsKey = names[i]; meta[i].valuePtr = pointers[i];
+        meta[i].type = types[i]; meta[i].persistence = ConfigPersistence::Persistent;
+    }
+    meta[1].size = sizeof(expr);
+    meta[1].validateText = [](const char* text) {
+        ValueExpression::Program program;
+        return ValueExpression::compile(text,program);
+    };
+    ConfigStore store{meta,3};
+    const char* activation = R"({"io/value/v00":{"enabled":true}})";
+    assert(!store.applyJson(activation));
+    assert(enabled && meta[0].persistencePending && store.writes == 1 && store.notifications == 0);
+    assert(!store.applyJson(activation)); // Same RAM value must retry the failed commit.
+    assert(store.writes == 2);
+    store.persistenceWorks = true;
+    assert(store.applyJson(activation));
+    assert(!meta[0].persistencePending && store.writes == 3 && store.notifications == 1);
+    assert(store.applyJson(activation)); // Confirmed unchanged values cause no extra writes.
+    assert(store.writes == 3 && store.notifications == 1);
+    assert(!store.applyJson(R"({"io/value/v00":{"expr":"i01*k1","k1":2}})"));
+    assert(parameter == 0 && !strcmp(expr,"0") && store.writes == 3);
+    assert(store.applyJson(R"({"io/value/v00":{"expr":"i01.count*k1","k1":2}})"));
+    assert(parameter == 2 && !strcmp(expr,"i01.count*k1") && store.writes == 5);
+    store.persistenceWorks = false;
+    const char* expression = R"({"io/value/v00":{"expr":"42"}})";
+    assert(!store.applyJson(expression)); assert(meta[1].persistencePending);
+    store.persistenceWorks = true;
+    assert(store.applyJson(expression)); assert(!meta[1].persistencePending);
+    assert(!strcmp(expr,"42"));
+}
+"""
+
+
 class ConfigStoreJsonTest(unittest.TestCase):
+    def test_apply_validation_and_persistence_failure(self):
+        source = (ROOT / "src/Core/ConfigStore.cpp").read_text()
+        start = source.index("bool ConfigStore::applyJson(")
+        with tempfile.TemporaryDirectory(prefix="flow-config-apply-") as directory:
+            work = Path(directory)
+            cpp = work / "main.cpp"
+            cpp.write_text(APPLY_PREAMBLE + source[start:] + APPLY_PROGRAM)
+            binary = work / "test"
+            subprocess.run([
+                "c++", "-std=c++17", "-Wall", "-Wextra", "-Werror", "-pthread",
+                "-fsanitize=address,undefined",
+                "-I", str(ROOT / "test/host/value_stubs"),
+                "-I", str(ROOT / "src"), "-I", str(ARDUINO_JSON),
+                "-I", str(ROOT / "include"), str(cpp),
+                str(ROOT / "src/Core/Values/ValueExpression.cpp"), "-o", str(binary),
+            ], check=True)
+            subprocess.run([str(binary)], check=True)
+
     def test_exports(self):
         source = (ROOT / "src/Core/ConfigStore.cpp").read_text()
         # Exercise the actual methods without NVS/FreeRTOS dependencies.

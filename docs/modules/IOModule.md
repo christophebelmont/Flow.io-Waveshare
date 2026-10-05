@@ -42,7 +42,7 @@ Le profil Waveshare lui associe en plus:
 
 - core: `1`
 - task: `io`
-- stack: `2560`
+- stack: `4096` octets (inclut la marge pour le formatage flottant des traces analogiques)
 - boucle: `10 ms`
 
 Jobs planifiés en interne:
@@ -403,7 +403,7 @@ Le module expose également la réservation des sorties, `writeAnalog`, les endp
 
 Voir [Pilotage des équipements](PoolActuators.md) pour les descripteurs, les fonctions constructeur, la distinction commande/observation et les limites matérielles.
 
-### Valeurs dérivées et Home Assistant
+### Valeurs calculées et Home Assistant
 
 Les 16 emplacements `io/value/v00` à `io/value/v15` disposent d'un booléen
 persistant `enabled`. Il vaut `false` par défaut pour tous les emplacements.

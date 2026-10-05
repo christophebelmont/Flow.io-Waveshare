@@ -164,18 +164,19 @@ struct AnalogRoleDefault {
     float c0; // Coefficient multiplicateur de calibration.
     float c1; // Offset de calibration.
     int32_t precision; // Precision d'affichage (nb de decimales).
+    const char* unit; // Unite affichee (vide = aucune).
 };
 
 inline constexpr AnalogRoleDefault kAnalogRoleDefaults[] = {
-    // {domainSlot, bindingPort, c0, c1, precision}
-    {PoolIds::SensorOrp, PortAdsInternal0, FLOW_WIRDEF_IO_A00, FLOW_WIRDEF_IO_A01, FLOW_WIRDEF_IO_A0P},
-    {PoolIds::SensorPh, PortAdsInternal1, FLOW_WIRDEF_IO_A10, FLOW_WIRDEF_IO_A11, FLOW_WIRDEF_IO_A1P},
-    {PoolIds::SensorPsi, PortAdsInternal2, FLOW_WIRDEF_IO_A20, FLOW_WIRDEF_IO_A21, FLOW_WIRDEF_IO_A2P},
-    {PoolIds::SensorSpareAnalog, PortAdsInternal3, FLOW_WIRDEF_IO_A30, FLOW_WIRDEF_IO_A31, FLOW_WIRDEF_IO_A3P},
-    {PoolIds::SensorWaterTemp, PortOneWireWater, FLOW_WIRDEF_IO_A40, FLOW_WIRDEF_IO_A41, FLOW_WIRDEF_IO_A4P},
-    {PoolIds::SensorAirTemp, PortOneWireAir, FLOW_WIRDEF_IO_A50, FLOW_WIRDEF_IO_A51, FLOW_WIRDEF_IO_A5P},
-    {PoolIds::SensorCurrent, PortIna226CurrentMa, 1.0f, 0.0f, 2},
-    {PoolIds::SensorVoltage, PortIna226BusV, 1.0f, 0.0f, 2},
+    // {domainSlot, bindingPort, c0, c1, precision, unit}
+    {PoolIds::SensorOrp, PortAdsInternal0, FLOW_WIRDEF_IO_A00, FLOW_WIRDEF_IO_A01, FLOW_WIRDEF_IO_A0P, "mV"},
+    {PoolIds::SensorPh, PortAdsInternal1, FLOW_WIRDEF_IO_A10, FLOW_WIRDEF_IO_A11, FLOW_WIRDEF_IO_A1P, ""},
+    {PoolIds::SensorPsi, PortAdsInternal2, FLOW_WIRDEF_IO_A20, FLOW_WIRDEF_IO_A21, FLOW_WIRDEF_IO_A2P, "PSI"},
+    {PoolIds::SensorSpareAnalog, PortAdsInternal3, FLOW_WIRDEF_IO_A30, FLOW_WIRDEF_IO_A31, FLOW_WIRDEF_IO_A3P, ""},
+    {PoolIds::SensorWaterTemp, PortOneWireWater, FLOW_WIRDEF_IO_A40, FLOW_WIRDEF_IO_A41, FLOW_WIRDEF_IO_A4P, "\xC2\xB0""C"},
+    {PoolIds::SensorAirTemp, PortOneWireAir, FLOW_WIRDEF_IO_A50, FLOW_WIRDEF_IO_A51, FLOW_WIRDEF_IO_A5P, "\xC2\xB0""C"},
+    {PoolIds::SensorCurrent, PortIna226CurrentMa, 1.0f, 0.0f, 2, "mA"},
+    {PoolIds::SensorVoltage, PortIna226BusV, 1.0f, 0.0f, 2, "V"},
 };
 
 struct DigitalInputRoleDefault {

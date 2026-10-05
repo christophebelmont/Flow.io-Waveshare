@@ -3,7 +3,7 @@
 #include <vector>
 #include <string>
 
-enum class ConfigType { Bool, UInt16, Double, UInt8, CharArray };
+enum class ConfigType { Bool, UInt16, Double, UInt8, CharArray, Int32, Float };
 enum class ConfigPersistence { Persistent };
 template<typename T, int> struct ConfigVariable {
     const char* key{};
@@ -13,6 +13,7 @@ template<typename T, int> struct ConfigVariable {
     T* value{};
     ConfigPersistence persistence{};
     int flags{};
+    bool (*validateText)(const char*) = nullptr;
 };
 struct ConfigStore {
     struct Entry { std::string key, name, path; ConfigType type; uint8_t branch; };

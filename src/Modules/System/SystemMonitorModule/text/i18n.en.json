@@ -9,7 +9,7 @@
     "cfgdocs.sysmon.web_watchdog_boot_grace_ms.label": "Watchdog Web grace boot (ms)",
     "cfgdocs.sysmon.web_watchdog_check_period_ms.help": "Interval between two vérifications of server web.",
     "cfgdocs.sysmon.web_watchdog_check_period_ms.label": "Watchdog Web période check (ms)",
-    "cfgdocs.sysmon.web_watchdog_enabled.help": "Enable of server web supervisor.",
+    "cfgdocs.sysmon.web_watchdog_enabled.help": "Enable the flow.io web server watchdog.",
     "cfgdocs.sysmon.web_watchdog_enabled.label": "Watchdog Web enabled",
     "cfgdocs.sysmon.web_watchdog_max_failures.help": "Nombre of consecutive failures avant action watchdog.",
     "cfgdocs.sysmon.web_watchdog_max_failures.label": "Watchdog Web max failures",

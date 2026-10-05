@@ -70,7 +70,7 @@ private:
     static constexpr uint8_t MAX_HA_SELECTS = Limits::Ha::Capacity::MaxSelects;
     static constexpr uint16_t MAX_HA_ENTITIES =
         MAX_HA_SENSORS + MAX_HA_BINARY_SENSORS + MAX_HA_SWITCHES + MAX_HA_NUMBERS + MAX_HA_BUTTONS + MAX_HA_SELECTS;
-    static constexpr uint16_t MAX_HA_REMOVALS = 40; // Existing cleanup plus 16 derived-value slots.
+    static constexpr uint16_t MAX_HA_REMOVALS = 40; // Cleanup capacity also covers retained entities from previous firmware.
     static constexpr uint16_t MAX_HA_MESSAGES = MAX_HA_ENTITIES + MAX_HA_REMOVALS;
     static constexpr uint16_t HA_PENDING_WORDS = (MAX_HA_MESSAGES + 31U) / 32U;
 

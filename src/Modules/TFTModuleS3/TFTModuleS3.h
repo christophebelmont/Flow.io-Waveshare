@@ -170,8 +170,10 @@ private:
     bool readIoValue_(IoId ioId, RuntimeValue& out) const;
     bool readIoBackendValue_(uint8_t backend, uint8_t channel, char* out, size_t outLen) const;
     bool readIoBackendValue_(uint8_t backend, uint8_t channel, RuntimeValue& out) const;
-    const char* runtimeUnit_(RuntimeUiId runtimeId) const;
-    uint8_t runtimeDecimals_(RuntimeUiId runtimeId, RuntimeUiWireType wireType) const;
+    bool readIoDerivedValue_(uint8_t slot, RuntimeValue& out) const;
+    bool readRuntimeUnit_(RuntimeUiId runtimeId, char* out, size_t outLen) const;
+    bool readRuntimePrecision_(RuntimeUiId runtimeId, int8_t& out) const;
+    uint8_t runtimeDecimals_(RuntimeUiId runtimeId, RuntimeUiWireType wireType, const char* unit) const;
     void formatRuntimeValue_(RuntimeUiId runtimeId, const RuntimeValue& value, char* valueOut, size_t valueOutLen, char* unitOut, size_t unitOutLen) const;
     void slotLabel_(uint8_t slot, char* out, size_t outLen) const;
     uint16_t dashboardColor_(uint8_t colorId, uint8_t slot) const;
