@@ -26,10 +26,9 @@ const context = vm.createContext({
     } };
   }
 });
-vm.runInContext(source.slice(source.indexOf('    function createRequestLimiter('),
-  source.indexOf('    function extractApiErrorMessage(')), context);
-vm.runInContext(source.slice(source.indexOf('    async function loadPoolLogicDeviceSlotLabels('),
-  source.indexOf('    function closeColorPickerPopover(')), context);
+const { loadFunctions } = require('./app_function_test_support.cjs');
+loadFunctions(source, context, ['createRequestLimiter']);
+loadFunctions(source, context, ['fetchJsonResponse', 'loadPoolLogicDeviceSlotLabels']);
 (async () => {
   const reads = [0, 1, 2].map(i => context.fetchJsonResponse('read' + i));
   await turn();

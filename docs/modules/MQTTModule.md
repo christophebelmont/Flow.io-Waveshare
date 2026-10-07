@@ -211,3 +211,95 @@ Exemple:
 ## Synchronisation différée des configurations
 
 `MqttConfigRouteProducer` conserve les demandes de publication dans une boîte fixe de 96 routes, avec priorité maximale par route et protection des accès concurrents. Les callbacks de configuration et `requestFullSync` enregistrent uniquement les demandes. La tâche MQTT vérifie sa disponibilité, déclenche une synchronisation à la reconnexion, puis traite au plus deux nouvelles demandes par producteur et par passage. Les refus de la file MQTT utilisent le mécanisme existant de réessai. Le producteur n’a plus d’abonnement `DataChanged` pour déclencher la synchronisation complète depuis l’EventBus.
+
+## Diagnostic de saturation cohérent
+
+Le diagnostic TX prend un `QueueSnapshot` sous `jobsMux_`, le verrou qui protège
+les transitions des jobs, les anneaux et les compteurs d'admission. Les logs sont
+émis après déverrouillage. Les lignes `queue at=<millis>` d'un rapport proviennent
+du même snapshot ; elles sont séparées pour respecter les 160 caractères de
+LogHub. Le rapport périodique est émis toutes les cinq secondes au niveau INFO.
+
+Invariants :
+
+- `free + used = MaxJobs` (192 sur Waveshare).
+- `used = queued + processing + waiting`.
+- `queued = live(high) + live(normal) + live(low)` ; chaque job `Queued` a
+  exactement une référence valide dans sa file effective.
+- Pour chaque file : `physical = live + stale`.
+- `admitted - released = used` (arithmétique des compteurs uint32).
+
+`WaitingForQueue` est un état occupé hors file, utilisé pour le backoff et la
+réadmission. `Processing` conserve le slot pendant la construction et l'appel
+transport. Une promotion de priorité invalide l'ancienne référence par son jeton,
+sans la retirer immédiatement de l'ancien anneau. Ainsi, **195 entrées physiques
+pour 192 slots est possible sans fuite**, indépendamment de toute incohérence de
+lecture. Les maxima historiques `max/boot` sont indépendants : leur somme n'est
+pas une occupation instantanée.
+
+Mesures :
+
+- `oldest_ms` : âge maximal des slots occupés, sans remise à zéro lors d'une
+  coalescence, promotion ou reprise après échec.
+- `enqueue_mHz` : nouvelles admissions par seconde multipliées par 1000, mesurées
+  entre deux rapports. Les coalescences sont comptées séparément.
+- `dequeue_mHz` : passages en `Processing` par seconde multipliés par 1000,
+  **reprises incluses** ; ce n'est pas le débit de livraison au broker.
+- `mean_slot_ms` : résidence moyenne des slots libérés depuis le démarrage,
+  y compris les abandons après erreur définitive. Les slots encore occupés ne
+  participent pas à cette moyenne.
+- `queue rejects` : rejets d'admission pour saturation, par producteur, type
+  diagnostique et priorité ; `delta` depuis le rapport précédent, `total` depuis
+  le boot. Inclut `SilentRejectLog` et les rejets masqués par la limitation des
+  logs détaillés. Les demandes refusées avant admission (transport déconnecté,
+  priorité invalide, stockage absent) ne font pas partie de ces compteurs.
+
+La table statique `MqttDiagnostics::Sources` associe des identifiants et des
+intervalles numériques à des noms. Aucune comparaison de topic ou recherche de
+chaîne n'intervient. `type` est un identifiant diagnostique local au producteur ;
+`msg` reste l'identifiant existant transmis au builder. Les producteurs futurs
+doivent être ajoutés à la table ; à défaut leurs rejets apparaissent dans
+`unregistered`, et leur identifiant brut reste présent dans les logs détaillés.
+
+`producer=4` correspond à `runtime.snapshot` (`type=1`). Son `msg=28` est l'index
+28 du registre construit depuis les providers ; sa signification dépend des
+routes actives et de leur ordre d'enregistrement. À chaque connexion, les lignes
+`route producer=4 type=1 msg=... snapshot=... class=... suffix=...` rendent la
+correspondance exacte visible, sans deviner une entité à partir d'un numéro.
+
+### Sémantique actuelle de publication
+
+Le slot est libéré après un retour non négatif de
+`esp_mqtt_client_publish()`, sauf si une nouvelle demande impose une réémission.
+Le callback `onMessagePublished` signifie donc **acceptation par le client MQTT**,
+et non confirmation par le broker. Les messages QoS 1 restent éventuellement
+dans l'outbox ESP-MQTT après libération du slot Flow.IO ; cette occupation n'est
+pas incluse dans `used`.
+
+Les snapshots runtime et la discovery HA utilisent QoS 0 ; le statut online
+utilise QoS 1. Les ACK ont le QoS fourni par leur appelant. Les payloads sont
+construits à l'émission dans le buffer central, pas stockés dans chaque job.
+
+### Étapes suivantes : cadence, coalescence et réserve
+
+Ce changement instrumente le comportement existant. Les priorités suivantes
+restent à implémenter et à valider à partir des mesures :
+
+1. Ordonnanceur global de démarrage : actuellement le runtime enfile toutes ses
+   routes à la connexion ; les producteurs de configuration ont chacun leur
+   propre quota (deux demandes par tick, plus une reprise), et HA avance une
+   publication à la fois. Aucun quota global ni barrière entre ces phases n'existe.
+2. Classification explicite des états remplaçables et événements conservés : la
+   déduplication actuelle s'applique à toute clé `(producerId, messageId)`.
+   Introduire `messageTypeId/entityId` exige un contrat commun aux producteurs ;
+   les alarmes actuelles publient des états, pas un historique des transitions.
+   Les ACK utilisent un stockage circulaire qui peut réutiliser une entrée encore
+   occupée : une réserve de jobs ne suffirait pas à garantir leur conservation.
+3. Réserve critique et équité : dimensionner la réserve avec la charge critique
+   réelle, puis protéger l'admission dans le gestionnaire, sans filtrage de topic.
+
+Validation sur cible restant à faire : trois boots (dont un avec réseau retardé
+30 s), indisponibilité MQTT de cinq minutes, et saturation artificielle du pool
+général. Capturer les snapshots, les compteurs de rejet, les correspondances de
+routes et la fin de discovery ; aucun résultat de ces essais matériels n'est
+présumé par les tests hôte.

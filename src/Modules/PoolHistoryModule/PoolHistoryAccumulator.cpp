@@ -1,3 +1,5 @@
+#include <new>
+#include <type_traits>
 /**
  * @file PoolHistoryAccumulator.cpp
  * @brief Deterministic daily pool history aggregation.
@@ -75,20 +77,27 @@ uint32_t PoolHistorySamplingGate::maximumEligibleSampleAgeMs(
 
 void PoolHistoryAccumulator::reset()
 {
-    today_ = PoolHistoryDayState{};
+    resetDay_(today_);
     for (uint8_t i = 0U; i < POOL_HISTORY_COMPLETE_DAY_COUNT; ++i) {
-        completedDays_[i] = PoolHistoryDayState{};
+        resetDay_(completedDays_[i]);
     }
 }
 
-PoolHistoryDayState PoolHistoryAccumulator::makeDay_(uint32_t localDate,
-                                                      uint64_t dayStartUtc)
+void PoolHistoryAccumulator::resetDay_(PoolHistoryDayState& day)
 {
-    PoolHistoryDayState day{};
+    // Construct in place: assignment from {} can create a whole day on the stack.
+    static_assert(std::is_trivially_destructible<PoolHistoryDayState>::value,
+                  "In-place reset requires a trivially destructible day");
+    new (&day) PoolHistoryDayState{};
+}
+
+void PoolHistoryAccumulator::makeDay_(PoolHistoryDayState& day,
+                                      uint32_t localDate, uint64_t dayStartUtc)
+{
+    resetDay_(day);
     day.valid = true;
     day.localDate = localDate;
     day.dayStartUtc = dayStartUtc;
-    return day;
 }
 
 void PoolHistoryAccumulator::restoreForDate(uint32_t currentDate,
@@ -104,7 +113,7 @@ void PoolHistoryAccumulator::restoreForDate(uint32_t currentDate,
         today_.complete = false;
         today_.dayStartUtc = currentDayStartUtc;
     } else {
-        today_ = makeDay_(currentDate, currentDayStartUtc);
+        makeDay_(today_, currentDate, currentDayStartUtc);
     }
 
     for (uint8_t i = 0U; i < POOL_HISTORY_COMPLETE_DAY_COUNT; ++i) {
@@ -132,34 +141,34 @@ PoolHistoryDayTransition PoolHistoryAccumulator::alignDay(
     const uint32_t expectedCompleteDates[POOL_HISTORY_COMPLETE_DAY_COUNT])
 {
     if (!today_.valid) {
-        today_ = makeDay_(currentDate, currentDayStartUtc);
+        makeDay_(today_, currentDate, currentDayStartUtc);
         return PoolHistoryDayTransition::Initialized;
     }
     if (today_.localDate == currentDate) return PoolHistoryDayTransition::None;
 
     const bool isImmediateSuccessor = today_.localDate == expectedCompleteDates[0];
-    const PoolHistoryDayState closedToday = today_;
+    const PoolHistoryDayState& closedToday = today_;
     if (currentDate > closedToday.localDate) {
         // Moving backwards avoids a second seven-day array: on a forward date
         // transition every retained source is at a lower index than its target.
         for (int8_t i = (int8_t)POOL_HISTORY_COMPLETE_DAY_COUNT - 1; i >= 0; --i) {
             const uint32_t expectedDate = expectedCompleteDates[(uint8_t)i];
-            PoolHistoryDayState selected{};
-            if (closedToday.valid && closedToday.localDate == expectedDate) {
-                selected = closedToday;
-                selected.complete = true;
-            } else if (const PoolHistoryDayState* existing = findCompletedDate_(expectedDate)) {
-                selected = *existing;
-                selected.complete = true;
+            auto& destination = completedDays_[(uint8_t)i];
+            const PoolHistoryDayState* source = closedToday.localDate == expectedDate
+                ? &closedToday : findCompletedDate_(expectedDate);
+            if (source) {
+                destination = *source;
+                destination.complete = true;
+            } else {
+                resetDay_(destination);
             }
-            completedDays_[(uint8_t)i] = selected;
         }
     } else {
         for (uint8_t i = 0U; i < POOL_HISTORY_COMPLETE_DAY_COUNT; ++i) {
-            completedDays_[i] = PoolHistoryDayState{};
+            resetDay_(completedDays_[i]);
         }
     }
-    today_ = makeDay_(currentDate, currentDayStartUtc);
+    makeDay_(today_, currentDate, currentDayStartUtc);
     return isImmediateSuccessor
         ? PoolHistoryDayTransition::AdvancedOneDay
         : PoolHistoryDayTransition::Realigned;

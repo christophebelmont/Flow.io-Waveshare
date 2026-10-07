@@ -20,8 +20,9 @@ valeurs calculées qui en dérivent le sont.
 L’activation, l’expression et le mode d’agrégation prennent effet au redémarrage.
 Les paramètres sont appliqués à chaud par la tâche IO, sans recompiler le programme.
 Leur copie et les écritures ConfigStore utilisent un mutex commun pour éviter les
-lectures partielles de doubles 64 bits sur la cible 32 bits ; aucun verrou n’est
-conservé pendant une opération NVS ou un calcul de valeur.
+lectures partielles de doubles 64 bits sur la cible 32 bits ; ce verrou de copie n’est pas
+conservé pendant une opération NVS ou un calcul de valeur. Un verrou distinct
+sérialise la validation et l’application des modifications de configuration.
 Les valeurs par défaut sont : désactivé, expression `0`, Gauge, paramètres `[1, 0, 0, 0]`.
 Ce format utilise ses propres clés NVS ; il ne migre pas les anciennes définitions affines.
 La limite actuelle à cinq emplacements ne supprime pas les clés déjà enregistrées
@@ -56,10 +57,21 @@ i01.total * k0 + k1
 ```
 
 Le hook `validateText` compile le texte proposé avant son enregistrement par
-ConfigStore. Un texte invalide est refusé. Au démarrage, chaque expression activée
-est compilée une fois ; l’ensemble du graphe est validé avant son installation.
-Une source absente/désactivée, un cycle, un mode invalide ou un paramètre non fini
-fait échouer la configuration IO.
+ConfigStore. Un texte invalide est refusé. Le graphe candidat complet est ensuite
+validé avant toute mutation RAM/NVS, y compris lors de changements des sources IO.
+Les sources absentes/désactivées, les cycles, les types incompatibles, les modes
+invalides, les précisions hors de 0 à 6 et les paramètres non finis sont refusés.
+Les références `.count` exigent une source `UInt64`, jamais un état booléen.
+Au démarrage, le même constructeur de plan compile et ordonne les expressions
+avant leur installation. Une ancienne configuration invalide désactive le graphe
+calculé avec une erreur journalisée sans bloquer l’acquisition des IO physiques.
+
+Les adaptateurs MQTT, web et TFT utilisent un formateur numérique borné commun,
+sans conversion en `float`. La notation scientifique évite les troncatures pour
+les grandes valeurs ; les qualités invalides sont publiées avec `value: null`.
+Le protocole binaire Runtime UI transporte les résultats en `Float64` (code 8,
+huit octets little-endian). L’éditeur expose les quatre coefficients et refuse
+les saisies invalides sans les remplacer par zéro.
 
 ## Exécution et limites
 
@@ -70,12 +82,12 @@ fait échouer la configuration IO.
   les 5 expressions et jusqu’à 32 conversions physiques. Les conversions affines
   utilisent cinq instructions du même évaluateur : chargement, paramètre,
   multiplication, paramètre, addition.
-- Le tri topologique utilise un espace temporaire au boot, libéré après résolution.
+- Le tri topologique utilise un espace temporaire à la validation et au boot, libéré après résolution.
 - Aucun texte, allocation ni recherche symbolique dans la propagation numérique.
 - Les observations constantes sans dépendance sont renouvelées une fois par seconde
   pour alimenter la couverture de l’historique, sans recompilation.
 
-Le registre complet mesure 58 480 octets dans les tests hôtes ; les tailles exactes
+Le registre complet mesure 60 096 octets dans les tests hôtes ; les tailles exactes
 dépendent de l’ABI et sont exposées par `ValueRegistry::storageBytes()`.
 Le repli en RAM interne et les erreurs d’allocation suivent la politique du registre.
 
@@ -106,6 +118,7 @@ produisent une qualité invalide. Une source inconnue/invalide empêche une sort
 python3 scripts/tests/test_values.py
 python3 scripts/tests/test_generate_config_docs.py
 node scripts/tests/test_derived_value_tree.cjs
+node scripts/tests/test_derived_value_editor.cjs
 ```
 
 Les tests hôtes exécutent le code de production avec ASan et UBSan. Ils couvrent

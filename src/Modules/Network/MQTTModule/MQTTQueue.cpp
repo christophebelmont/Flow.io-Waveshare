@@ -174,6 +174,10 @@ void MQTTModule::releaseJob_(uint8_t slotIdx)
     Job& job = txStorage_->jobs[slotIdx];
     // Obsolete references can outlive a slot's occupant. Preserve its generation
     // across reuse so they cannot become valid for the next message in this slot.
+    if (job.state != JobState::Free) {
+        ++txStorage_->counters.released;
+        txStorage_->counters.residenceMs += (uint32_t)(millis() - job.admittedMs);
+    }
     const uint16_t token = job.queueToken;
     job = Job{};
     job.queueToken = token;
@@ -196,60 +200,79 @@ void MQTTModule::retryPendingJobsNoLock_(uint32_t nowMs)
     }
 }
 
-void MQTTModule::snapshotQueueStatsNoLock_(uint16_t& jobsUsed,
-                                           uint16_t& highCount,
-                                           uint16_t& normalCount,
-                                           uint16_t& lowCount,
-                                           JobStateCounts* states) const
+void MQTTModule::snapshotQueueStatsNoLock_(QueueSnapshot& snapshot, uint32_t nowMs) const
 {
-    jobsUsed = 0U;
-    if (states) *states = JobStateCounts{};
-    for (uint8_t i = 0; i < MaxJobs; ++i) {
-        const JobState state = txStorage_->jobs[i].state;
-        if (state != JobState::Free) ++jobsUsed;
-        if (states) {
-            switch (state) {
-                case JobState::Queued: ++states->queued; break;
-                case JobState::Processing: ++states->processing; break;
-                case JobState::WaitingForQueue: ++states->waiting; break;
-                case JobState::Free: break;
+    snapshot = QueueSnapshot{};
+    snapshot.atMs = nowMs;
+    snapshot.counters = txStorage_->counters;
+    uint16_t references[MaxJobs]{};
+    auto inspect = [&](const auto& ring, uint8_t priority) {
+        const size_t capacity = sizeof(ring.items) / sizeof(ring.items[0]);
+        snapshot.physical[priority] = ring.count;
+        for (uint16_t n = 0; n < ring.count; ++n) {
+            const JobQueueItem& item = ring.items[(ring.head + n) % capacity];
+            if (item.slot < MaxJobs) {
+                const Job& job = txStorage_->jobs[item.slot];
+                if (job.state == JobState::Queued && job.queueToken == item.token && job.queuedPrio == priority) {
+                    ++snapshot.live[priority];
+                    ++references[item.slot];
+                    continue;
+                }
             }
+            ++snapshot.stale[priority];
+        }
+    };
+    inspect(txStorage_->lowQ, 0);
+    inspect(txStorage_->normalQ, 1);
+    inspect(txStorage_->highQ, 2);
+    for (uint16_t i = 0; i < MaxJobs; ++i) {
+        const Job& job = txStorage_->jobs[i];
+        if (references[i] != (job.state == JobState::Queued ? 1U : 0U)) snapshot.invariant = false;
+        if (job.state == JobState::Free) {
+            ++snapshot.free;
+            continue;
+        }
+        ++snapshot.used;
+        const uint32_t age = nowMs - job.admittedMs;
+        if (age > snapshot.oldestMs) snapshot.oldestMs = age;
+        switch (job.state) {
+            case JobState::Queued: ++snapshot.states.queued; break;
+            case JobState::Processing: ++snapshot.states.processing; break;
+            case JobState::WaitingForQueue: ++snapshot.states.waiting; break;
+            case JobState::Free: break;
         }
     }
-    highCount = txStorage_->highQ.count;
-    normalCount = txStorage_->normalQ.count;
-    lowCount = txStorage_->lowQ.count;
+    snapshot.invariant = snapshot.invariant &&
+        snapshot.free + snapshot.used == MaxJobs &&
+        snapshot.used == snapshot.states.queued + snapshot.states.processing + snapshot.states.waiting &&
+        snapshot.states.queued == snapshot.live[0] + snapshot.live[1] + snapshot.live[2] &&
+        (uint32_t)(snapshot.counters.admitted - snapshot.counters.released) == snapshot.used;
 }
 
-void MQTTModule::logEnqueueIssue_(uint8_t producerId,
-                                   uint16_t messageId,
-                                   uint8_t priority,
-                                   const char* reason,
-                                   uint16_t jobsUsed,
-                                   uint16_t highCount,
-                                   uint16_t normalCount,
-                                   uint16_t lowCount,
-                                   bool accepted)
+void MQTTModule::logQueueSnapshot_(const QueueSnapshot& snapshot) const
 {
-    const uint32_t nowMs = millis();
-    static constexpr uint32_t kMinLogIntervalMs = 1000U;
-    if ((uint32_t)(nowMs - lastEnqueueIssueLogMs_) < kMinLogIntervalMs) return;
-    lastEnqueueIssueLogMs_ = nowMs;
+    // LogHub caps each message at 160 bytes. The timestamp joins these lines
+    // to one immutable snapshot even if another task logs between them.
+    LOGI("queue at=%lu used=%u free=%u queued=%u processing=%u waiting=%u invariant=%u",
+         (unsigned long)snapshot.atMs, (unsigned)snapshot.used, (unsigned)snapshot.free,
+         (unsigned)snapshot.states.queued, (unsigned)snapshot.states.processing,
+         (unsigned)snapshot.states.waiting, (unsigned)snapshot.invariant);
+    LOGI("queue at=%lu h/n/l physical=%u/%u/%u live=%u/%u/%u stale=%u/%u/%u oldest_ms=%lu",
+         (unsigned long)snapshot.atMs,
+         (unsigned)snapshot.physical[2], (unsigned)snapshot.physical[1], (unsigned)snapshot.physical[0],
+         (unsigned)snapshot.live[2], (unsigned)snapshot.live[1], (unsigned)snapshot.live[0],
+         (unsigned)snapshot.stale[2], (unsigned)snapshot.stale[1], (unsigned)snapshot.stale[0],
+         (unsigned long)snapshot.oldestMs);
+}
 
-    LOGW("enqueue %s reason=%s producer=%u msg=%u prio=%u jobs=%u/%u q(h=%u/%u,n=%u/%u,l=%u/%u)",
-         accepted ? "deferred" : "reject",
-         reason ? reason : "unknown",
-         (unsigned)producerId,
-         (unsigned)messageId,
-         (unsigned)priority,
-         (unsigned)jobsUsed,
-         (unsigned)MaxJobs,
-         (unsigned)highCount,
-         (unsigned)HighQueueCap,
-         (unsigned)normalCount,
-         (unsigned)NormalQueueCap,
-         (unsigned)lowCount,
-         (unsigned)LowQueueCap);
+void MQTTModule::logEnqueueIssue_(uint8_t producerId, uint16_t messageId, uint8_t priority,
+                                 const char* reason, const QueueSnapshot& snapshot, bool accepted)
+{
+    const auto& source = MqttDiagnostics::Sources[MqttDiagnostics::sourceIndex(producerId, messageId)];
+    LOGW("enqueue %s reason=%s producer=%u msg=%u type=%u source=%s prio=%u at=%lu",
+         accepted ? "deferred" : "reject", reason, (unsigned)producerId, (unsigned)messageId,
+         (unsigned)source.messageTypeId, source.name, (unsigned)priority, (unsigned long)snapshot.atMs);
+    logQueueSnapshot_(snapshot);
 }
 
 bool MQTTModule::enqueueJob_(uint8_t producerId, uint16_t messageId, uint8_t priority, uint8_t flags)
@@ -257,11 +280,14 @@ bool MQTTModule::enqueueJob_(uint8_t producerId, uint16_t messageId, uint8_t pri
     bool accepted = false;
     const char* issue = nullptr;
     const bool silent = (flags & (uint8_t)MqttEnqueueFlags::SilentRejectLog) != 0U;
-    uint16_t jobsUsed = 0U, highCount = 0U, normalCount = 0U, lowCount = 0U;
+    QueueSnapshot snapshot{};
+    bool report = false;
     portENTER_CRITICAL(&jobsMux_);
+    const uint32_t nowMs = millis();
 
     int16_t idx = findJobSlot_(producerId, messageId);
     if (idx >= 0) {
+        ++txStorage_->counters.coalesced;
         Job& job = txStorage_->jobs[(uint8_t)idx];
         job.flags |= flags;
         if (priority > job.priority) job.priority = priority;
@@ -282,6 +308,7 @@ bool MQTTModule::enqueueJob_(uint8_t producerId, uint16_t messageId, uint8_t pri
             issue = "slot_full";
         } else {
             Job& job = txStorage_->jobs[(uint8_t)idx];
+            job.admittedMs = nowMs;
             job.state = JobState::WaitingForQueue;
             job.producerId = producerId;
             job.messageId = messageId;
@@ -289,23 +316,30 @@ bool MQTTModule::enqueueJob_(uint8_t producerId, uint16_t messageId, uint8_t pri
             job.flags = flags;
             accepted = queueSlot_((uint8_t)idx, job.priority);
             if (!accepted) {
+                // Admission failed: this slot never became an occupied job.
+                job.state = JobState::Free;
                 releaseJob_((uint8_t)idx);
                 issue = "queue_full";
+            } else {
+                ++txStorage_->counters.admitted;
             }
         }
     }
-    if (issue && !silent) snapshotQueueStatsNoLock_(jobsUsed, highCount, normalCount, lowCount);
-    portEXIT_CRITICAL(&jobsMux_);
-    if (issue && !silent) {
-        logEnqueueIssue_(producerId, messageId, priority, issue,
-                         jobsUsed, highCount, normalCount, lowCount, accepted);
+    if (!accepted) ++txStorage_->counters.rejected[MqttDiagnostics::sourceIndex(producerId, messageId)][priority];
+    // Rate limiting and the snapshot use the same lock as every job transition.
+    if (issue && !silent && (lastEnqueueIssueLogMs_ == 0U || (uint32_t)(nowMs - lastEnqueueIssueLogMs_) >= 1000U)) {
+        lastEnqueueIssueLogMs_ = nowMs;
+        snapshotQueueStatsNoLock_(snapshot, nowMs);
+        report = true;
     }
+    portEXIT_CRITICAL(&jobsMux_);
+    if (report) logEnqueueIssue_(producerId, messageId, priority, issue, snapshot, accepted);
     return accepted;
 }
 
 bool MQTTModule::enqueue(uint8_t producerId, uint16_t messageId, MqttPublishPriority priority, uint8_t flags)
 {
-    if (!txStorage_ || producerId == 0U) return false;
+    if (!txStorage_ || producerId == 0U || (uint8_t)priority > (uint8_t)MqttPublishPriority::High) return false;
     if (state_ != MQTTState::Connected) return false;
     return enqueueJob_(producerId, messageId, (uint8_t)priority, flags);
 }
@@ -332,6 +366,7 @@ bool MQTTModule::dequeueNextJob_(uint32_t nowMs, uint8_t& slotIdx)
                 continue;
             }
             job.state = JobState::Processing;
+            ++txStorage_->counters.dequeued;
             slotIdx = item.slot;
             // Offer the newly freed capacity to retained work before producers
             // can fill it again, preserving round-robin admission progress.
@@ -514,15 +549,15 @@ void MQTTModule::processJobs_(uint32_t nowMs)
 
 void MQTTModule::updateAndReportQueueOccupancy_(uint32_t nowMs)
 {
-    uint16_t jobsUsed = 0U;
-    uint16_t highCount = 0U;
-    uint16_t normalCount = 0U;
-    uint16_t lowCount = 0U;
-
-    JobStateCounts states{};
+    QueueSnapshot snapshot{};
     portENTER_CRITICAL(&jobsMux_);
-    snapshotQueueStatsNoLock_(jobsUsed, highCount, normalCount, lowCount, &states);
+    nowMs = millis();
+    snapshotQueueStatsNoLock_(snapshot, nowMs);
     portEXIT_CRITICAL(&jobsMux_);
+    const uint16_t jobsUsed = snapshot.used;
+    const uint16_t highCount = snapshot.physical[2];
+    const uint16_t normalCount = snapshot.physical[1];
+    const uint16_t lowCount = snapshot.physical[0];
 
     if (jobsUsed > occMaxJobs_) occMaxJobs_ = jobsUsed;
     if (highCount > occMaxHigh_) occMaxHigh_ = highCount;
@@ -535,11 +570,7 @@ void MQTTModule::updateAndReportQueueOccupancy_(uint32_t nowMs)
                              "occ",
                              nullptr);
 
-    if (occLastReportMs_ == 0U) {
-        occLastReportMs_ = nowMs;
-        return;
-    }
-    if ((uint32_t)(nowMs - occLastReportMs_) < 5000U) return;
+    if (occLastReportMs_ != 0U && (uint32_t)(nowMs - occLastReportMs_) < 5000U) return;
 
     LOGD("queue occ max/boot jobs=%u/%u qh=%u/%u qn=%u/%u ql=%u/%u",
          (unsigned)occMaxJobs_,
@@ -551,8 +582,28 @@ void MQTTModule::updateAndReportQueueOccupancy_(uint32_t nowMs)
          (unsigned)occMaxLow_,
          (unsigned)LowQueueCap);
 
-    LOGD("queue state jobs=%u queued=%u processing=%u waiting=%u",
-         (unsigned)jobsUsed, (unsigned)states.queued,
-         (unsigned)states.processing, (unsigned)states.waiting);
+    const uint32_t interval = nowMs - occLastReportMs_;
+    const uint32_t elapsed = interval == 0U ? 1U : interval;
+    const auto& counters = snapshot.counters;
+    logQueueSnapshot_(snapshot);
+    LOGI("queue at=%lu enqueue_mHz=%lu dequeue_mHz=%lu released=%lu mean_slot_ms=%lu coalesced=%lu",
+         (unsigned long)snapshot.atMs,
+         (unsigned long)((uint64_t)(counters.admitted - lastReportedCounters_.admitted) * 1000000U / elapsed),
+         (unsigned long)((uint64_t)(counters.dequeued - lastReportedCounters_.dequeued) * 1000000U / elapsed),
+         (unsigned long)counters.released,
+         (unsigned long)(counters.released ? counters.residenceMs / counters.released : 0U),
+         (unsigned long)counters.coalesced);
+    for (size_t i = 0; i < MqttDiagnostics::SourceCount; ++i) {
+        for (uint8_t priority = 0; priority < 3; ++priority) {
+            const uint32_t total = counters.rejected[i][priority];
+            const uint32_t delta = total - lastReportedCounters_.rejected[i][priority];
+            if (delta == 0U) continue;
+            const auto& source = MqttDiagnostics::Sources[i];
+            LOGW("queue rejects at=%lu producer=%u type=%u source=%s prio=%u delta=%lu total=%lu",
+                 (unsigned long)snapshot.atMs, (unsigned)source.producerId, (unsigned)source.messageTypeId,
+                 source.name, (unsigned)priority, (unsigned long)delta, (unsigned long)total);
+        }
+    }
+    lastReportedCounters_ = counters;
     occLastReportMs_ = nowMs;
 }

@@ -3,6 +3,7 @@
  * @brief Implementation file.
  */
 
+#include "Core/Values/ValueFormat.h"
 #include "IOModule.h"
 #include "IOConfigDescriptorStorage.h"
 #include "Core/SpiRamJsonDocument.h"
@@ -879,7 +880,7 @@ bool IOModule::writeRuntimeUiValue(uint8_t valueId, IRuntimeUiWriter& writer) co
             value.quality != ValueQuality::Valid) {
             return writer.writeUnavailable(runtimeId);
         }
-        return writer.writeF32(runtimeId, (float)value.value.d);
+        return writer.writeF64(runtimeId, value.value.d);
     }
 
     switch (valueId) {
@@ -1171,19 +1172,8 @@ bool IOModule::buildRuntimeSnapshot(uint8_t idx, char* out, size_t len, uint32_t
         ValueMetadata metadata{};
         const ValueId id = valueRoutes_[slotIdx];
         if (!dataStore_ || !dataStore_->values.read(id, sample, &metadata)) return false;
-        char number[40] = "null";
-        if (sample.quality == ValueQuality::Valid) {
-            const double raw = valueAsDouble(metadata.type, sample.value);
-            if (metadata.precision >= 0)
-                snprintf(number, sizeof(number), "%.*f", (int)metadata.precision,
-                         roundToPrecision(raw, metadata.precision));
-            else
-                snprintf(number, sizeof(number), "%.17g", raw);
-        }
-        const int wrote = snprintf(out, len, "{\"id\":%u,\"value\":%s,\"quality\":%u,\"generation\":%lu}",
-                                   unsigned(id), number, unsigned(sample.quality), (unsigned long)sample.generation);
         maxTsOut = sample.sequence ? sample.sequence : 1;
-        return wrote >= 0 && size_t(wrote) < len;
+        return formatValueSnapshot(out, len, id, sample, metadata);
     }
     if (routeType == ROUTE_ANALOG_OUTPUT) return buildEndpointSnapshot_(&analogOutputs_[slotIdx].endpoint, out, len, maxTsOut);
     IOEndpoint* ep = nullptr;
@@ -3354,8 +3344,9 @@ bool IOModule::configureRuntime_()
         if (output.write && !registry_.add(&output.endpoint, output.meta.id)) return false;
     }
     if (valueConfig_ && !valueConfig_->resolve(dataStore_->values)) {
-        LOGE("Invalid Value definitions: absent source, cycle or invalid transform");
-        return false;
+        // A corrupt/obsolete saved graph must not stop physical acquisition.
+        // The complete graph is rejected; no per-expression fallback is installed.
+        LOGE("Derived values unavailable: invalid graph or source; physical IO remains active");
     }
     for (ValueId id = ValueIds::Derived; id < ValueIds::Capacity; ++id) {
         ValueSnapshot value;
@@ -3654,6 +3645,12 @@ void IOModule::init(ConfigStore& cfg, ServiceRegistry& services)
     valueConfig_ = allocPsramArray_<ValueConfig>(1);
     if (!valueConfig_) { LOGE("Value definition allocation failed"); return; }
     valueConfig_->registerConfig(cfg, kCfgModuleId);
+    if (!cfg.registerValidator([](void* context, const ConfigCandidate& candidate) {
+            return static_cast<IOModule*>(context)->validateValueConfig_(candidate);
+        }, this)) {
+        LOGE("Value configuration validator registration failed");
+        return;
+    }
     cfg.registerVar(enabledVar_, kCfgModuleId, kCfgBranchIo);
     cfg.registerVar(i2cSdaVar_, kCfgModuleId, kCfgBranchIoBus);
     cfg.registerVar(i2cSclVar_, kCfgModuleId, kCfgBranchIoBus);

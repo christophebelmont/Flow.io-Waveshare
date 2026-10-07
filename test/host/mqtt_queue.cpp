@@ -1,5 +1,6 @@
 // Built by scripts/tests/test_mqtt_queue.py with the production types/methods.
 #include "Core/Services/IMqtt.h"
+#include "Modules/Network/MQTTModule/MqttDiagnostics.h"
 #include <cassert>
 #include <cstdio>
 #include <cstring>
@@ -10,18 +11,29 @@
 static uint32_t clockMs = 10000;
 static int lockDepth = 0;
 static std::vector<std::string> warnings;
+static std::vector<std::string> info;
 uint32_t millis() { return clockMs; }
 #define portENTER_CRITICAL(mux) do { (void)(mux); assert(lockDepth++ == 0); } while (0)
 #define portEXIT_CRITICAL(mux) do { (void)(mux); assert(--lockDepth == 0); } while (0)
 template<class... Args> void captureWarning(const char* format, Args... args) {
     assert(lockDepth == 0);
     char text[512];
-    snprintf(text, sizeof(text), format, args...);
+    const int size = snprintf(text, sizeof(text), format, args...);
+    assert(size >= 0 && size < 160);
     warnings.emplace_back(text);
 }
 #define LOGW(...) captureWarning(__VA_ARGS__)
+template<class... Args> void captureInfo(const char* format, Args... args) {
+    assert(lockDepth == 0);
+    char text[160];
+    const int size = snprintf(text, sizeof(text), format, args...);
+    assert(size >= 0 && size < (int)sizeof(text));
+    info.emplace_back(text);
+}
+#define LOGD(...) captureInfo(__VA_ARGS__)
+#define LOGI(...) captureInfo(__VA_ARGS__)
 namespace Limits { namespace Mqtt { namespace Timing { constexpr uint32_t PublishDispatchIntervalMs = 100; } } }
-enum class TrackedBufferId { MqttPayloadBuf };
+enum class TrackedBufferId { MqttPayloadBuf, MqttJobsAndQueues };
 struct BufferUsageTracker { template<class... Args> static void note(Args...) {} };
 enum class MQTTState { Connected, ErrorWait };
 
@@ -34,6 +46,7 @@ public:
     static constexpr uint8_t ProcessBudgetPerTick = 1;
     struct TxStorage {
         Job jobs[MaxJobs]{};
+        QueueCounters counters{};
         JobRing<HighQueueCap> highQ;
         JobRing<NormalQueueCap> normalQ;
         JobRing<LowQueueCap> lowQ;
@@ -44,6 +57,9 @@ public:
     MQTTState state_ = MQTTState::Connected;
     int jobsMux_ = 0;
     uint8_t queueRetryCursor_[3]{};
+    uint32_t occLastReportMs_ = 0;
+    QueueCounters lastReportedCounters_{};
+    uint16_t occMaxJobs_ = 0, occMaxHigh_ = 0, occMaxNormal_ = 0, occMaxLow_ = 0;
     uint32_t lastEnqueueIssueLogMs_ = 0, lastPublishDispatchMs_ = 0;
     std::function<MqttBuildResult(uint16_t)> duringBuild;
     bool publishOk = true;
@@ -83,9 +99,13 @@ public:
         clockMs += advance; processJobs_(clockMs); check();
     }
     void check() {
-        uint16_t used, h, n, l; JobStateCounts states;
-        snapshotQueueStatsNoLock_(used, h, n, l, &states);
-        assert(used == states.queued + states.processing + states.waiting);
+        QueueSnapshot snapshot;
+        snapshotQueueStatsNoLock_(snapshot, clockMs);
+        assert(snapshot.invariant);
+        assert(snapshot.free + snapshot.used == MaxJobs);
+        assert(snapshot.used == snapshot.states.queued + snapshot.states.processing + snapshot.states.waiting);
+        assert(snapshot.states.queued == snapshot.live[0] + snapshot.live[1] + snapshot.live[2]);
+        assert(snapshot.counters.admitted - snapshot.counters.released == snapshot.used);
         unsigned references[MaxJobs]{};
         auto inspect = [&](const auto& ring, unsigned cap, uint8_t prio) {
             for (unsigned i = 0; i < ring.count; ++i) {
@@ -218,7 +238,56 @@ static void staleSlotReuse() {
     m.tick(); assert(m.dropped.size() == 1 && m.findJobSlot_(4, 4) < 0);
 }
 
+static void diagnostics() {
+    MQTTModule m;
+    assert(m.add(28, MqttPublishPriority::Low));
+    clockMs += 125;
+    assert(m.add(28));
+    MQTTModule::QueueSnapshot snapshot;
+    m.snapshotQueueStatsNoLock_(snapshot, clockMs);
+    assert(snapshot.invariant && snapshot.used == 1 && snapshot.free == 7);
+    assert(snapshot.physical[0] == 1 && snapshot.stale[0] == 1 && snapshot.live[2] == 1);
+    assert(snapshot.oldestMs == 125 && snapshot.counters.coalesced == 1);
+    const auto token = m.job(28).queueToken;
+    ++m.job(28).queueToken;
+    m.snapshotQueueStatsNoLock_(snapshot, clockMs);
+    assert(!snapshot.invariant); // A queued slot with no live ring reference.
+    m.job(28).queueToken = token;
+    assert(m.add(29));
+    const auto source = MqttDiagnostics::sourceIndex(4, 28);
+    assert(!m.enqueue(4, 30, MqttPublishPriority::High, (uint8_t)MqttEnqueueFlags::SilentRejectLog));
+    assert(!m.enqueue(4, 31, MqttPublishPriority::High, 0));
+    m.snapshotQueueStatsNoLock_(snapshot, clockMs);
+    assert(snapshot.counters.rejected[source][2] == 2);
+    warnings.clear();
+    m.updateAndReportQueueOccupancy_(clockMs);
+    assert(warnings.size() == 1);
+    assert(warnings[0].find("source=runtime.snapshot prio=2 delta=2 total=2") != std::string::npos);
+    const auto warningCount = warnings.size();
+    clockMs += 5000;
+    m.updateAndReportQueueOccupancy_(clockMs);
+    assert(warnings.size() == warningCount); // No repeated rejection delta.
+    assert(snapshot.counters.admitted == 2 && snapshot.counters.released == 0);
+    assert(!m.enqueue(4, 32, (MqttPublishPriority)3, 0));
+    m.duringBuild = [&](uint16_t) {
+        m.snapshotQueueStatsNoLock_(snapshot, clockMs);
+        assert(snapshot.invariant && snapshot.states.processing == 1);
+        return MqttBuildResult::Ready;
+    };
+    m.tick();
+    assert(m.storage.counters.dequeued == 1 && m.storage.counters.released == 1);
+    assert(m.storage.counters.residenceMs == 5225);
+    m.drain();
+    clockMs = UINT32_MAX - 10;
+    assert(m.add(40));
+    clockMs = 15;
+    m.snapshotQueueStatsNoLock_(snapshot, clockMs);
+    assert(snapshot.oldestMs == 26);
+    m.drain();
+}
+
 int main() {
+    diagnostics();
     promotion();
     interruptedDispatch(MqttBuildResult::Ready, true);
     interruptedDispatch(MqttBuildResult::RetryLater, true);

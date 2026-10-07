@@ -5,6 +5,7 @@
 
 #define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::WebInterfaceModule)
 #include "WebInterfaceModule.h"
+#include "WebMemoryDiagnostics.h"
 #include "Core/CounterPersistence.h"
 
 #include "Core/DataKeys.h"
@@ -178,6 +179,7 @@ void WebInterfaceModule::onEvent_(const Event& e)
 
 void WebInterfaceModule::loop()
 {
+    WebMemoryDiagnostics::poll();
     if (webStartLedPulseActive_ && (int32_t)(millis() - webStartLedPulseUntilMs_) >= 0) {
         if (hmiSvc_ && hmiSvc_->setStatusLedAutoWifiMode && webStartLedPrevAutoModeValid_) {
             hmiSvc_->setStatusLedAutoWifiMode(hmiSvc_->ctx, webStartLedPrevAutoMode_);
@@ -225,6 +227,10 @@ void WebInterfaceModule::loop()
         const uint32_t largestInternalBeforeStart =
             (uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
         startServer_();
+        if (!started_) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            return;
+        }
         const uint32_t minHeapAfterStart = (uint32_t)heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
         const uint32_t internalAfterStart = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
         const uint32_t largestInternalAfterStart =

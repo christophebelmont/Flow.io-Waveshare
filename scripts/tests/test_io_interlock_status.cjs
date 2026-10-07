@@ -14,7 +14,7 @@ const context = vm.createContext({
   document: { createElement: () => ({}) },
   tr: (_key, fallback) => fallback,
 });
-for (const name of ['ioSummaryStateLabel', 'ioSummaryStateClass', 'createIoStateBadge', 'createIoDeviceStateBadgeBase', 'actuatorControlLabel', 'formatActivityActor', 'createIoDeviceStateBadge']) {
+for (const name of ['ioSummaryStateLabel', 'ioSummaryStateClass', 'ioSummaryText', 'createIoStateBadge', 'actuatorControlLabel', 'formatActivityActor', 'createIoDeviceStateBadge', 'ioDeviceLastValueLabel']) {
   vm.runInContext(extract(name), context);
 }
 function badge(interlock_state, overrides = {}, state = 'active') {
@@ -39,6 +39,14 @@ assert.equal(context.actuatorControlLabel(normal, false), '', 'Dashboard omits t
 assert.equal(context.actuatorControlLabel(normal), 'Guidé', 'Equipment dialog retains its explicit mode');
 assert.match(context.actuatorControlLabel({ ...normal, control_mode: 'forced', override_value: true, override_remaining_s: 90 }, false), /Marche forcée.*1:30/);
 assert.match(context.actuatorControlLabel({ ...normal, control_mode: 'forced', override_value: false, override_remaining_s: 60 }, false), /Arrêt forcé.*1:00/);
+assert.equal(context.ioDeviceLastValueLabel({ last_value: 'on', pool_device: { control: normal } }), 'on [Guidé]');
+assert.match(
+  context.ioDeviceLastValueLabel({ last_value: 'off', pool_device: { control: { ...normal, control_mode: 'forced', override_value: true, override_remaining_s: 90 } } }),
+  /^off \[.*Marche forcée.*1:30\]$/
+);
+assert.equal(context.ioDeviceLastValueLabel({ last_value: 'off', pool_device: { control: { override_supported: false } } }), 'off');
+assert.equal(context.ioDeviceLastValueLabel({ last_value: 'off' }), 'off');
+assert.equal(context.ioDeviceLastValueLabel({}), '-');
 assert.equal(context.formatActivityActor({ actor_kind: 'user', actor: 'Christophe' }), 'par Christophe');
 assert.equal(context.formatActivityActor({ actor_kind: 'remote', actor: '' }), 'Remote (MQTT)');
 assert.equal(context.formatActivityActor({ actor_kind: 'system', actor: '' }), 'Système');

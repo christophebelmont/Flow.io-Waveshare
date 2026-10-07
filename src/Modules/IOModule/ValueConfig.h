@@ -1,6 +1,8 @@
 #pragma once
 #include "Core/ConfigStore.h"
 #include "Core/ConfigDoubleAccess.h"
+#include "Core/ConfigCandidate.h"
+#include <memory>
 #include "Core/Values/ValueRegistry.h"
 #include <esp_heap_caps.h>
 #include <new>
@@ -56,59 +58,33 @@ struct ValueConfig {
             }
         }
     }
+    bool affectedBy(const ConfigCandidate& candidate) const {
+        for (const auto& d : definitions) {
+            if (candidate.contains(d.enabledVar) || candidate.contains(d.exprVar) ||
+                candidate.contains(d.modeVar) || candidate.contains(d.precisionVar) ||
+                candidate.contains(d.nameVar) || candidate.contains(d.unitVar)) return true;
+            for (const auto& parameter : d.parameterVars) if (candidate.contains(parameter)) return true;
+        }
+        return false;
+    }
+    template<class ReadSource>
+    bool validateCandidate(const ConfigCandidate& candidate, ReadSource readSource) const {
+        return bool(makePlan_(candidate, readSource));
+    }
     bool resolve(ValueRegistry& registry) {
-        // Boot-only scratch, released on every exit. Keep the task stack bounded even
-        // for a chain of all definitions; executable programs live in the registry.
-        struct Scratch {
-            ValueExpression::Program programs[ValueIds::DerivedCapacity]{};
-            bool resolved[ValueIds::DerivedCapacity]{};
-            uint8_t order[ValueIds::DerivedCapacity]{};
-            ~Scratch() = default;
-        };
-        void* memory = heap_caps_malloc(sizeof(Scratch), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (!memory) memory = heap_caps_malloc(sizeof(Scratch), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-        if (!memory) return false;
-        auto* scratch = new (memory) Scratch{};
-        struct Cleanup {
-            Scratch* scratch;
-            ~Cleanup() { scratch->~Scratch(); heap_caps_free(scratch); }
-        } cleanup{scratch};
-        uint8_t count = 0, enabled = 0;
-        for (uint8_t i = 0; i < ValueIds::DerivedCapacity; ++i) {
-            const auto& d = definitions[i];
-            if (!d.enabled) continue;
-            ++enabled;
-            if (d.mode > uint8_t(AggregationMode::Counter) || !ValueExpression::compile(d.expr, scratch->programs[i])) return false;
-            for (double parameter : d.parameters) if (!isfinite(parameter)) return false;
-        }
-        for (uint8_t pass = 0; pass < ValueIds::DerivedCapacity; ++pass) {
-            bool progress = false;
-            for (uint8_t i = 0; i < ValueIds::DerivedCapacity; ++i) {
-                if (!definitions[i].enabled || scratch->resolved[i]) continue;
-                const auto& p = scratch->programs[i];
-                bool ready = true;
-                for (uint8_t dep = 0; dep < p.dependencyCount; ++dep) {
-                    const auto id = p.dependencies[dep];
-                    if (id >= ValueIds::Derived) ready &= scratch->resolved[id - ValueIds::Derived];
-                    else {
-                        ValueSnapshot source;
-                        if (!registry.read(id, source)) return false;
-                    }
-                }
-                if (!ready) continue;
-                scratch->resolved[i] = true; scratch->order[count++] = i; progress = true;
-            }
-            if (!progress) break;
-        }
-        // Reject missing/disabled sources and cycles before installing any program.
-        if (count != enabled) return false;
-        for (uint8_t position = 0; position < count; ++position) {
-            const auto i = scratch->order[position];
-            const auto& d = definitions[i];
-            int8_t precision = (d.precision < 0) ? 0
-                : (d.precision > VALUE_PRECISION_MAX ? VALUE_PRECISION_MAX : (int8_t)d.precision);
-            if (!registry.defineProgram(ValueIds::Derived + i, scratch->programs[i], d.parameters,
-                                        static_cast<AggregationMode>(d.mode), d.unit, precision)) return false;
+        auto plan = makePlan_(ConfigCandidate{}, [&registry](ValueId id, ValueType& type) {
+            ValueSnapshot snapshot;
+            ValueMetadata metadata;
+            if (!registry.read(id, snapshot, &metadata)) return false;
+            type = metadata.type;
+            return true;
+        });
+        if (!plan) return false;
+        for (uint8_t position = 0; position < plan->count; ++position) {
+            const auto i = plan->order[position];
+            const auto& d = plan->definitions[i];
+            if (!registry.defineProgram(ValueIds::Derived + i, plan->programs[i], d.parameters,
+                                        static_cast<AggregationMode>(d.mode), d.unit, d.precision)) return false;
             active_[i] = true;
         }
         return true;
@@ -122,5 +98,73 @@ struct ValueConfig {
         }
     }
 private:
+    struct Settings {
+        bool enabled = false;
+        char expr[ValueExpression::TextCapacity]{};
+        double parameters[ValueExpression::ParamCount]{};
+        uint8_t mode = 0;
+        int32_t precision = 1;
+        char name[64]{}, unit[UnitTextCapacity]{};
+    };
+    struct Plan {
+        Settings definitions[ValueIds::DerivedCapacity]{};
+        ValueExpression::Program programs[ValueIds::DerivedCapacity]{};
+        bool resolved[ValueIds::DerivedCapacity]{};
+        uint8_t order[ValueIds::DerivedCapacity]{}, count = 0;
+    };
+    struct FreePlan {
+        void operator()(Plan* plan) const { if (plan) { plan->~Plan(); heap_caps_free(plan); } }
+    };
+    using PlanPtr = std::unique_ptr<Plan, FreePlan>;
+    template<class ReadSource>
+    PlanPtr makePlan_(const ConfigCandidate& candidate, ReadSource readSource) const {
+        void* memory = heap_caps_malloc(sizeof(Plan), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!memory) memory = heap_caps_malloc(sizeof(Plan), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (!memory) return {};
+        PlanPtr plan(new (memory) Plan{});
+        uint8_t enabled = 0;
+        for (uint8_t i = 0; i < ValueIds::DerivedCapacity; ++i) {
+            const auto& current = definitions[i];
+            auto& next = plan->definitions[i];
+            if (!candidate.read(current.enabledVar, current.enabled, next.enabled) ||
+                !candidate.read(current.exprVar, current.expr, next.expr) ||
+                !candidate.read(current.modeVar, current.mode, next.mode) ||
+                !candidate.read(current.precisionVar, current.precision, next.precision) ||
+                !candidate.read(current.nameVar, current.name, next.name) ||
+                !candidate.read(current.unitVar, current.unit, next.unit) ||
+                next.mode > uint8_t(AggregationMode::Counter) || next.precision < 0 ||
+                next.precision > VALUE_PRECISION_MAX) return {};
+            double parameters[ValueExpression::ParamCount];
+            ConfigDoubleAccess::copy(current.parameters, parameters, ValueExpression::ParamCount);
+            for (uint8_t k = 0; k < ValueExpression::ParamCount; ++k)
+                if (!candidate.read(current.parameterVars[k], parameters[k], next.parameters[k])) return {};
+            if (!next.enabled) continue;
+            ++enabled;
+            if (!ValueExpression::compile(next.expr, plan->programs[i])) return {};
+        }
+        for (uint8_t pass = 0; pass < ValueIds::DerivedCapacity; ++pass) {
+            bool progress = false;
+            for (uint8_t i = 0; i < ValueIds::DerivedCapacity; ++i) {
+                if (!plan->definitions[i].enabled || plan->resolved[i]) continue;
+                const auto& program = plan->programs[i];
+                bool ready = true;
+                for (uint8_t dep = 0; dep < program.dependencyCount; ++dep) {
+                    const auto id = program.dependencies[dep];
+                    if (id >= ValueIds::Derived) ready &= plan->resolved[id - ValueIds::Derived];
+                    else {
+                        ValueType type;
+                        if (!readSource(id, type) || !ValueExpression::validSourceType(id, type)) return {};
+                    }
+                }
+                if (!ready) continue;
+                plan->resolved[i] = true;
+                plan->order[plan->count++] = i;
+                progress = true;
+            }
+            if (!progress) break;
+        }
+        if (plan->count != enabled) return {};
+        return plan;
+    }
     bool active_[ValueIds::DerivedCapacity]{};
 };

@@ -84,6 +84,7 @@ APPLY_PREAMBLE = r"""
 #include <ArduinoJson.h>
 #include "Core/ConfigTypes.h"
 #include "Core/ConfigDoubleAccess.h"
+#include "Core/ConfigCandidate.h"
 #include "Core/Values/ValueExpression.h"
 #include <cassert>
 #include <cstring>
@@ -102,9 +103,14 @@ class ConfigStore {
 public:
     ConfigMeta* _meta;
     uint16_t _metaCount;
+    struct MutationGuard { explicit MutationGuard(int) {} };
+    int mutationMutex_ = 0;
+    bool (*candidateCheck)(const ConfigCandidate&, void*) = nullptr;
+    void* candidateContext = nullptr;
     bool persistenceWorks = false;
     unsigned writes = 0, notifications = 0;
     bool applyJson(const char*);
+    bool validateCandidate(const ConfigCandidate& candidate) const { return !candidateCheck || candidateCheck(candidate, candidateContext); }
     bool writePersistent(const ConfigMeta&) { ++writes; return persistenceWorks; }
     void notifyChanged(const char*, const char*, uint8_t, uint8_t) { ++notifications; }
 };
@@ -150,6 +156,10 @@ int main() {
     store.persistenceWorks = true;
     assert(store.applyJson(expression)); assert(!meta[1].persistencePending);
     assert(!strcmp(expr,"42"));
+    const unsigned before = store.writes;
+    store.candidateCheck = [](const ConfigCandidate&, void*) { return false; };
+    assert(!store.applyJson(R"({"io/value/v00":{"expr":"123","k1":99,"enabled":false}})"));
+    assert(!strcmp(expr,"42") && enabled && parameter == 2 && store.writes == before);
 }
 """
 

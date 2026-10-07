@@ -92,3 +92,15 @@ requiert les fichiers web. Le ZIP OTA seul ne met pas à jour la table de partit
 Au redémarrage, vérifier la connexion réseau, l’état MQTT et la sauvegarde d’un
 réglage après un second reboot. Le journal d’occupation NVS doit refléter la nouvelle
 partition et ne plus montrer d’échec d’écriture `0x1105`.
+
+## Conservation des compteurs lors du redémarrage
+
+La validation d'une release exige un checkpoint réussi avant la sélection de la
+nouvelle partition de démarrage. Un échec conserve la release vérifiée et permet
+une nouvelle tentative de validation, sans programmer de redémarrage.
+
+Un second checkpoint est exigé juste avant le redémarrage. En cas d'échec, le
+redémarrage est annulé, la transaction passe en échec et la partition actuellement
+exécutée est rétablie comme partition de démarrage. Un échec de cette restauration
+est signalé explicitement. Cette politique privilégie la conservation des compteurs ;
+elle ne constitue pas une garantie contre une coupure entre deux checkpoints.

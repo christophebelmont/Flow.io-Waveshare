@@ -3,6 +3,7 @@
  * @brief Implementation file.
  */
 #include "WifiModule.h"
+#include "Core/SpiRamJsonDocument.h"
 #include "Core/BufferUsageTracker.h"
 #include "Core/EventBus/EventPayloads.h"
 #define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::WifiModule)
@@ -754,7 +755,8 @@ bool WifiModule::buildScanStatusJson_(char* out, size_t outLen)
     }
     portEXIT_CRITICAL(&scanMux_);
 
-    StaticJsonDocument<Limits::Wifi::Buffers::ScanStatusJson> doc;
+    SpiRamJsonDocument doc(Limits::Wifi::Buffers::ScanStatusJson);
+    if (doc.capacity() < Limits::Wifi::Buffers::ScanStatusJson) return false;
     doc["ok"] = true;
     doc["running"] = running;
     doc["requested"] = requested;

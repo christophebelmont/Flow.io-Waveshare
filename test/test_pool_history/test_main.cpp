@@ -259,9 +259,42 @@ void test_persistence_v4_round_trip_and_checksum_validation()
     TEST_ASSERT_FALSE(PoolHistoryPersistence::decode(encoded, encodedLength, decoded));
 }
 
+void test_calendar_realign_preserves_sources_before_overwrite()
+{
+    PoolHistoryDayState records[POOL_HISTORY_COMPLETE_DAY_COUNT]{};
+    for (uint8_t i = 0; i < POOL_HISTORY_COMPLETE_DAY_COUNT; ++i) {
+        records[i].valid = true;
+        records[i].localDate = kDatesForSep04[i];
+        records[i].refillVolumeLitres = 10.0 + i;
+    }
+    PoolHistoryAccumulator history{};
+    history.restoreForDate(20260904U, 1788472800ULL, kDatesForSep04, records,
+                           POOL_HISTORY_COMPLETE_DAY_COUNT);
+    history.observeRefill(60000U, true, 60.0f, true, 1788500000ULL);
+    history.alignDay(20260905U, 1788559200ULL, kDatesForSep05);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, history.completedDayState(0).refillVolumeLitres);
+    for (uint8_t i = 1; i < POOL_HISTORY_COMPLETE_DAY_COUNT; ++i) {
+        TEST_ASSERT_EQUAL_UINT32(kDatesForSep05[i], history.completedDayState(i).localDate);
+        TEST_ASSERT_FLOAT_WITHIN(0.001f, 9.0f+i, history.completedDayState(i).refillVolumeLitres);
+    }
+    const uint32_t datesForSep07[] = {20260906U, 20260905U, 20260904U, 20260903U,
+                                     20260902U, 20260901U, 20260831U};
+    history.alignDay(20260907U, 1788732000ULL, datesForSep07);
+    TEST_ASSERT_FALSE(history.completedDayState(0).valid);
+    TEST_ASSERT_EQUAL_UINT32(20260905U, history.completedDayState(1).localDate);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, history.completedDayState(2).refillVolumeLitres);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 10.0f, history.completedDayState(3).refillVolumeLitres);
+    history.alignDay(20260904U, 1788472800ULL, kDatesForSep04);
+    for (uint8_t i = 0; i < POOL_HISTORY_COMPLETE_DAY_COUNT; ++i)
+        TEST_ASSERT_FALSE(history.completedDayState(i).valid);
+    TEST_ASSERT_TRUE(history.todayState().refillVolumeValid);
+    TEST_ASSERT_EQUAL_UINT32(0, history.todayState().refillEventCount);
+}
+
 int main()
 {
     UNITY_BEGIN();
+    RUN_TEST(test_calendar_realign_preserves_sources_before_overwrite);
     RUN_TEST(test_daily_metrics_filtration_temperature_and_refill_are_aggregated);
     RUN_TEST(test_sampling_gate_requires_ten_continuous_minutes);
     RUN_TEST(test_day_rollover_exposes_only_complete_days);

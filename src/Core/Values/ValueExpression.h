@@ -15,6 +15,11 @@ struct Program {
 };
 // delta is the finite difference from the previous observation, not a derivative.
 struct Number { double previous = 0, current = 0, delta = 0; };
+// Digital references in the expression language are pulse counters, never states.
+inline bool validSourceType(ValueId id, ValueType type) {
+    return id >= ValueIds::Digital && id < ValueIds::PulseRate
+        ? type == ValueType::UInt64 : type != ValueType::Bool;
+}
 bool compile(const char* text, Program& output);
 bool validate(const Program& program);
 Program affine(ValueId source);

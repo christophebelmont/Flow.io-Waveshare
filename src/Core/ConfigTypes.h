@@ -52,7 +52,7 @@ struct ConfigVariable {
 
     /** @brief Change handler entry. */
     struct Handler { ConfigCallback<T> cb; void* ctx; };
-    Handler handlers[MAX_HANDLERS];
+    Handler handlers[MAX_HANDLERS]{};
     uint8_t handlerCount = 0;
     bool (*validateText)(const char*) = nullptr;
 

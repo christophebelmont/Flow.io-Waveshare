@@ -5,6 +5,7 @@
  */
 
 #include <WiFiUdp.h>
+#include "Core/SpiRamObject.h"
 
 #include "Core/Hmi/HmiUdpProtocol.h"
 #include "Core/Module.h"
@@ -82,8 +83,13 @@ private:
     const WifiService* wifiSvc_ = nullptr;
     DataStore* dataStore_ = nullptr;
 
-    uint8_t rxBuf_[HMI_UDP_MAX_PACKET]{};
-    uint8_t txBuf_[HMI_UDP_MAX_PACKET]{};
+    struct PacketBuffers {
+        uint8_t rx[HMI_UDP_MAX_PACKET]{};
+        uint8_t tx[HMI_UDP_MAX_PACKET]{};
+        uint8_t reliablePending[HMI_UDP_MAX_PACKET]{};
+        OutPacket outgoing[HMI_UDP_OUT_QUEUE_SIZE]{};
+    };
+    SpiRamPtr<PacketBuffers> buffers_;
 
     IPAddress remoteIp_{};
     uint16_t remotePort_ = HMI_UDP_PORT;
@@ -107,10 +113,8 @@ private:
     uint8_t eventHead_ = 0;
     uint8_t eventTail_ = 0;
 
-    OutPacket outQueue_[HMI_UDP_OUT_QUEUE_SIZE]{};
     uint8_t outHead_ = 0;
     uint8_t outTail_ = 0;
-    uint8_t reliablePendingBuf_[HMI_UDP_MAX_PACKET]{};
     size_t reliablePendingLen_ = 0;
     uint16_t reliablePendingSeq_ = 0;
     HmiUdpMsgType reliablePendingType_ = HmiUdpMsgType::Error;

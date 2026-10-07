@@ -129,7 +129,8 @@ public:
     }
 
 private:
-    static PoolHistoryDayState makeDay_(uint32_t localDate, uint64_t dayStartUtc);
+    static void resetDay_(PoolHistoryDayState& day);
+    static void makeDay_(PoolHistoryDayState& day, uint32_t localDate, uint64_t dayStartUtc);
     static void noteObservation_(PoolHistoryDayState& day, uint64_t observedAtUtc);
     static void fillMetricSummary_(const PoolHistoryMetricState& state,
                                    PoolHistoryMetricSummary& out);

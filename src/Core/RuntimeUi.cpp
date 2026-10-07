@@ -97,6 +97,15 @@ bool RuntimeUiBinaryWriter::writeU32(RuntimeUiId runtimeId, uint32_t value)
            appendU32_(value);
 }
 
+bool RuntimeUiBinaryWriter::writeF64(RuntimeUiId runtimeId, double value)
+{
+    static_assert(sizeof(double) == sizeof(uint64_t), "Float64 requires an eight-byte double");
+    uint64_t bits;
+    memcpy(&bits, &value, sizeof(bits));
+    return writeHeader_(runtimeId, RuntimeUiWireType::Float64, 8U) &&
+           appendU32_(uint32_t(bits)) && appendU32_(uint32_t(bits >> 32));
+}
+
 bool RuntimeUiBinaryWriter::writeF32(RuntimeUiId runtimeId, float value)
 {
     uint32_t bits = 0U;

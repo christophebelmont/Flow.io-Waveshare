@@ -21,6 +21,7 @@
 #include "Core/Services/Services.h"
 #include "Modules/Network/MQTTModule/RuntimeProducer.h"
 #include <mqtt_client.h>
+#include "MqttDiagnostics.h"
 
 /** @brief MQTT configuration values. */
 struct MQTTConfig {
@@ -136,6 +137,28 @@ private:
         uint16_t waiting = 0;
     };
 
+    struct QueueCounters {
+        uint32_t admitted = 0;
+        uint32_t coalesced = 0;
+        uint32_t dequeued = 0;
+        uint32_t released = 0;
+        uint64_t residenceMs = 0;
+        uint32_t rejected[MqttDiagnostics::SourceCount][3]{};
+    };
+
+    struct QueueSnapshot {
+        uint32_t atMs = 0;
+        uint16_t used = 0;
+        uint16_t free = 0;
+        JobStateCounts states{};
+        uint16_t physical[3]{};
+        uint16_t live[3]{};
+        uint16_t stale[3]{};
+        uint32_t oldestMs = 0;
+        bool invariant = true;
+        QueueCounters counters{};
+    };
+
     struct Job {
         JobState state = JobState::Free;
         bool requeueAfterProcess = false;
@@ -145,6 +168,7 @@ private:
         uint8_t flags = 0;
         uint8_t retryCount = 0;
         uint32_t notBeforeMs = 0;
+        uint32_t admittedMs = 0;
         uint8_t queuedPrio = 0;
         uint16_t queueToken = 0;
     };
@@ -263,6 +287,7 @@ private:
 
     struct TxStorage {
         Job jobs[MaxJobs]{};
+        QueueCounters counters{};
         JobRing<HighQueueCap> highQ{};
         JobRing<NormalQueueCap> normalQ{};
         JobRing<LowQueueCap> lowQ{};
@@ -301,6 +326,7 @@ private:
     uint32_t mqttClientStackReportDueMs_ = 0;
     bool mqttClientStackReportPending_ = false;
     uint32_t occLastReportMs_ = 0;
+    QueueCounters lastReportedCounters_{};
     uint16_t occMaxJobs_ = 0;
     uint16_t occMaxHigh_ = 0;
     uint16_t occMaxNormal_ = 0;
@@ -359,20 +385,10 @@ private:
     bool tryPublishNow_(const char* topic, const char* payload, uint8_t qos, bool retain);
     void processJobs_(uint32_t nowMs);
     bool enqueueJob_(uint8_t producerId, uint16_t messageId, uint8_t priority, uint8_t flags);
-    void snapshotQueueStatsNoLock_(uint16_t& jobsUsed,
-                                   uint16_t& highCount,
-                                   uint16_t& normalCount,
-                                   uint16_t& lowCount,
-                                   JobStateCounts* states = nullptr) const;
-    void logEnqueueIssue_(uint8_t producerId,
-                           uint16_t messageId,
-                           uint8_t priority,
-                           const char* reason,
-                           uint16_t jobsUsed,
-                           uint16_t highCount,
-                           uint16_t normalCount,
-                           uint16_t lowCount,
-                           bool accepted);
+    void snapshotQueueStatsNoLock_(QueueSnapshot& snapshot, uint32_t nowMs) const;
+    void logQueueSnapshot_(const QueueSnapshot& snapshot) const;
+    void logEnqueueIssue_(uint8_t producerId, uint16_t messageId, uint8_t priority,
+                          const char* reason, const QueueSnapshot& snapshot, bool accepted);
     bool queuePush_(uint8_t prio, const JobQueueItem& item);
     bool queuePop_(uint8_t prio, JobQueueItem& out);
     // Caller holds jobsMux_. A failed promotion preserves the old queue entry.

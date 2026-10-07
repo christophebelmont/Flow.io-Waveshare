@@ -1511,7 +1511,8 @@ void FirmwareUpdateModule::failLocalRelease_(const char* reason)
     }
     const FirmwareUpdateTarget target =
         localRelease_.stage == LocalReleaseStage::WritingFirmware ||
-                localRelease_.stage == LocalReleaseStage::FirmwareVerified
+                localRelease_.stage == LocalReleaseStage::FirmwareVerified ||
+                localRelease_.stage == LocalReleaseStage::ReadyToBoot
             ? FirmwareUpdateTarget::Waveshare
             : FirmwareUpdateTarget::Spiffs;
     snprintf(localRelease_.failureReason,
@@ -1880,13 +1881,8 @@ bool FirmwareUpdateModule::commitLocalRelease_(uint32_t transactionId,
         failLocalRelease_("failed to select release boot partition");
         return writeSimpleError_(errOut, errOutLen, "failed to select release boot partition");
     }
-    // Counter persistence is best-effort here: it must never abort an otherwise
-    // valid release. loop() retries the checkpoint right before the reboot.
-    char counterErr[96] = {0};
-    if (!saveCountersBeforeUpdate_(counterErr, sizeof(counterErr))) {
-        LOGW("[UPGRADE] counter checkpoint failed (%s); committing anyway",
-             counterErr[0] ? counterErr : "unknown");
-    }
+    // A verified release may be committed only after a confirmed checkpoint.
+    if (!saveCountersBeforeUpdate_(errOut, errOutLen)) return false;
     if (!persistReceipt_(FirmwareUpdateTarget::Waveshare,
                          localRelease_.operationId,
                          FirmwareUpdateReceiptState::RebootPending)) {
@@ -1915,6 +1911,24 @@ bool FirmwareUpdateModule::commitLocalRelease_(uint32_t transactionId,
     LOGI("[UPGRADE] release verified; boot partition -> %s",
          ReleaseStorage::applicationLabel(localRelease_.targetSlot));
     return true;
+}
+
+bool FirmwareUpdateModule::prepareLocalReleaseReboot_()
+{
+    SemaphoreGuard transactionGuard(localReleaseMutex_);
+    if (!transactionGuard.acquired() || !localRelease_.rebootPending) return false;
+    char error[96]{};
+    if (saveCountersBeforeUpdate_(error, sizeof(error))) return true;
+    localRelease_.rebootPending = false;
+    // Commit already selected the new slot. Restore the running application so
+    // a later unrelated reset does not silently complete this failed upgrade.
+    const auto* running = esp_ota_get_running_partition();
+    const bool restored = running && esp_ota_set_boot_partition(running) == ESP_OK;
+    (void)persistReceipt_(FirmwareUpdateTarget::Waveshare, localRelease_.operationId,
+                          FirmwareUpdateReceiptState::Failed);
+    failLocalRelease_(restored ? "counter checkpoint failed; reboot cancelled"
+                              : "counter checkpoint failed; reboot cancelled; boot partition restore failed");
+    return false;
 }
 
 bool FirmwareUpdateModule::abortLocalRelease_(uint32_t transactionId,
@@ -2398,13 +2412,7 @@ void FirmwareUpdateModule::loop()
         }
     }
     if (localReleaseRebootDue) {
-        // Best-effort: a counter persistence failure must not strand a device
-        // with an installed release that never reboots into it.
-        char counterErr[96] = {0};
-        if (!saveCountersBeforeUpdate_(counterErr, sizeof(counterErr))) {
-            LOGW("[UPGRADE] counter checkpoint failed (%s); rebooting anyway",
-                 counterErr[0] ? counterErr : "unknown");
-        }
+        if (!prepareLocalReleaseReboot_()) return;
         LOGI("[UPGRADE] reboot");
         ESP.restart();
     }

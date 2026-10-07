@@ -77,6 +77,7 @@ private:
         int32_t i32Value = 0;
         uint32_t u32Value = 0U;
         float f32Value = 0.0f;
+        double f64Value = 0.0;
         char stringValue[64]{};
     };
 

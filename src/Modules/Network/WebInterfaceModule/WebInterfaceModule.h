@@ -14,6 +14,7 @@
 #include "Core/Services/ILogger.h"
 #include <HardwareSerial.h>
 #include <ESPAsyncWebServer.h>
+#include "PsramWebServer.h"
 #include <freertos/queue.h>
 #include <memory>
 #include "Core/EventBus/EventBus.h"
@@ -162,7 +163,7 @@ private:
     int uartTxPin_ = 17;
     bool bridgeUartConfigured_ = false;
     bool bridgeUartEnabled_ = false;
-    AsyncWebServer server_{kServerPort};
+    PsramWebServer server_{kServerPort};
     AsyncWebSocket wsLog_{"/wslog"};
     AsyncEventSource runtimeEvents_{"/api/runtime/events"};
     RuntimeEventState runtimeEventState_;

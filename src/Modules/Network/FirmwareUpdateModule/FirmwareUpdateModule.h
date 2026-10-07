@@ -145,6 +145,7 @@ private:
         ConfigType::CharArray, cfgData_.updatePath, ConfigPersistence::Persistent, sizeof(cfgData_.updatePath)
     };
     ServiceRegistry* services_ = nullptr;
+    bool prepareLocalReleaseReboot_();
     bool saveCountersBeforeUpdate_(char* errOut, size_t errOutLen);
     ConfigStore* cfgStore_ = nullptr;
     const LogHubService* logHub_ = nullptr;

@@ -39,7 +39,9 @@ def _project_dir():
 
 def _binary_dir():
     out_dir = _project_dir() / "binary"
-    out_dir.mkdir(exist_ok=True)
+    if env.get("FLOW_MEMORY_DIAGNOSTICS", False):
+        out_dir /= "diagnostics"
+    out_dir.mkdir(parents=True, exist_ok=True)
     return out_dir
 
 

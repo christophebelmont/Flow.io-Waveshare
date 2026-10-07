@@ -25,13 +25,11 @@ class MqttQueueTests(unittest.TestCase):
         source = (MODULE / 'MQTTQueue.cpp').read_text()
         names = ['findJobSlot_', 'allocJobSlot_', 'queuePush_', 'queuePop_',
                  'queueSlot_', 'deferJob_', 'releaseJob_', 'retryPendingJobsNoLock_',
-                 'snapshotQueueStatsNoLock_', 'logEnqueueIssue_', 'enqueueJob_',
-                 'enqueue', 'dequeueNextJob_', 'processJobs_']
+                 'snapshotQueueStatsNoLock_', 'logQueueSnapshot_', 'logEnqueueIssue_', 'enqueueJob_',
+                 'enqueue', 'dequeueNextJob_', 'processJobs_', 'updateAndReportQueueOccupancy_']
         bodies = [method(source, name) for name in names]
         declarations = '\n'.join(body[:body.index('\n{')].replace('MQTTModule::', '') + ';'
                                  for body in bodies)
-        # Keep the production default argument used by enqueue diagnostics.
-        declarations = declarations.replace('JobStateCounts* states)', 'JobStateCounts* states = nullptr)')
         types = header[header.index('    enum class JobState'):header.index('    struct ScratchBuffers')]
         fixture = (ROOT / 'test/host/mqtt_queue.cpp').read_text()
         code = fixture.replace('// PRODUCTION_TYPES', types).replace('// PRODUCTION_DECLARATIONS', declarations)

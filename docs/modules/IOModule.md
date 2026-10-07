@@ -405,22 +405,39 @@ Voir [Pilotage des équipements](PoolActuators.md) pour les descripteurs, les fo
 
 ### Valeurs calculées et Home Assistant
 
-Les 16 emplacements `io/value/v00` à `io/value/v15` disposent d'un booléen
-persistant `enabled`. Il vaut `false` par défaut pour tous les emplacements.
-Une activation déjà enregistrée en NVS est conservée. Une source à `65535` (`VALUE_INVALID`) laisse l'emplacement inactif,
-quel que soit `enabled`. Les changements de définition prennent effet après
-redémarrage.
+Les cinq emplacements `io/value/v00` à `io/value/v04` disposent d'un booléen
+persistant `enabled`, désactivé par défaut, et d'une formule `expr`. Les changements
+de définition prennent effet après redémarrage ; les coefficients `k0` à `k3`
+s'appliquent immédiatement. Le nom, l'unité, l'agrégation et la précision font partie
+de la définition persistante.
+
+Chaque modification passe par la validation du graphe candidat complet avant toute
+mutation RAM ou NVS : expressions, cycles, dépendances activées, existence et type
+des sources, précision de 0 à 6 et coefficients finis. Une référence `.count`
+nécessite un compteur `UInt64` ; une entrée booléenne ne peut pas le remplacer.
+Les modifications des bindings ou de l'activation des pilotes sont également
+validées contre les formules qui les utilisent. Un même patch peut modifier une
+source et ses dépendants ensemble. Les écritures de configuration sont sérialisées
+pour que cette validation reste valable jusqu'à l'application du patch.
 
 Une valeur désactivée n'est pas enregistrée dans le registre et ne dispose plus
 de route MQTT ni de nouvelles données d'historique. Ses valeurs dépendantes
-doivent être désactivées ou recevoir une autre source : une dépendance absente
-est une erreur de configuration IO, comme un cycle ou une transformation invalide.
+doivent être désactivées ou recevoir une autre source dans le même patch.
+Si une ancienne configuration invalide est chargée au démarrage, le graphe calculé
+est rejeté et l'erreur journalisée ; les acquisitions IO physiques restent actives.
+
+Les valeurs calculées conservent leur précision `double` jusqu'au JSON MQTT,
+au dashboard web et au TFT. Le protocole Runtime UI ajoute le type `Float64`
+(code 8, huit octets little-endian ; les codes existants restent inchangés).
+Le formatage borné utilise la notation scientifique pour les grandes valeurs,
+contrôle les dépassements de buffer et publie `null` pour une qualité non valide.
+L'éditeur refuse une saisie numérique vide, non finie ou mal formée, sans la
+remplacer par zéro. Les quatre coefficients sont visibles et sauvegardés.
 
 Lorsque MQTT et Home Assistant sont activés, chaque valeur effectivement publiée
 crée un capteur Discovery `io_value_vNN`, nommé `Value VNN`, lié à
 `<prefix>/rt/value/<96 + NN>`. Le capteur lit `value` et devient indisponible si
-`quality` n'est pas `1` (valide), ou si Flow.io est hors ligne. Aucune unité n'est
-supposée pour ces transformations génériques. Au démarrage, les entrées Discovery
+`quality` n'est pas `1` (valide), ou si Flow.io est hors ligne. L’unité configurée est transmise sans supposer une unité par défaut. Au démarrage, les entrées Discovery
 des emplacements désactivés ou sans source sont retirées par un message retained
 vide, afin de supprimer les anciens capteurs dans Home Assistant.
 

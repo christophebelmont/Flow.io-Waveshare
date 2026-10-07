@@ -6,12 +6,25 @@ import tempfile
 import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 class ValueTests(unittest.TestCase):
+    def test_candidate_and_presentation_pipeline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = pathlib.Path(tmp) / 'value-pipeline'
+            subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
+                '-fsanitize=undefined,address', '-g', '-pthread',
+                '-Itest/host/value_config_stubs', '-Itest/host/value_stubs', '-Isrc', '-Iinclude',
+                '-I.pio/libdeps/Flowio-waveshare-esp32-s3/ArduinoJson/src',
+                'test/host/value_pipeline.cpp', 'src/Core/Values/ValueRegistry.cpp',
+                'src/Core/Values/ValueExpression.cpp', 'src/Core/RuntimeUi.cpp',
+                '-o', str(binary)], cwd=ROOT, check=True)
+            subprocess.run([str(binary)], cwd=ROOT, check=True)
+
     def test_expressions(self):
         with tempfile.TemporaryDirectory() as tmp:
             binary = pathlib.Path(tmp) / 'value-expressions'
             subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
                 '-fsanitize=undefined,address', '-g', '-pthread',
                 '-Itest/host/value_config_stubs', '-Itest/host/value_stubs', '-Isrc', '-Iinclude',
+                '-I.pio/libdeps/Flowio-waveshare-esp32-s3/ArduinoJson/src',
                 'test/host/value_expressions.cpp', 'src/Core/Values/ValueRegistry.cpp',
                 'src/Core/Values/ValueExpression.cpp', 'src/Modules/PoolHistoryModule/ValueHistory.cpp',
                 '-o', str(binary)], cwd=ROOT, check=True)
@@ -23,6 +36,7 @@ class ValueTests(unittest.TestCase):
             subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
                 '-fsanitize=undefined,address', '-g', '-pthread',
                 '-Itest/host/value_config_stubs', '-Itest/host/value_stubs', '-Isrc', '-Iinclude',
+                '-I.pio/libdeps/Flowio-waveshare-esp32-s3/ArduinoJson/src',
                 'test/host/value_config_discovery.cpp', 'src/Core/Values/ValueRegistry.cpp', 'src/Core/Values/ValueExpression.cpp',
                 '-o', str(binary)], cwd=ROOT, check=True)
             subprocess.run([str(binary)], cwd=ROOT, check=True)

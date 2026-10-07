@@ -38,7 +38,8 @@ public:
     }
     uint8_t taskCount() const override { return 1U; }
     const ModuleTaskSpec* taskSpecs() const override { return singleLoopTaskSpec(); }
-    uint16_t taskStackSize() const override { return 4096U; }
+    // Reserve headroom for calendar conversion, service calls and persistence.
+    uint16_t taskStackSize() const override { return 6144U; }
     UBaseType_t taskStackCaps() const override {
         return (heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0
                     ? MALLOC_CAP_SPIRAM : MALLOC_CAP_INTERNAL) | MALLOC_CAP_8BIT;

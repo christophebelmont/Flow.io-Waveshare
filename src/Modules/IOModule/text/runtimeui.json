@@ -211,7 +211,7 @@
     {
       "valueId": 80,
       "key": "io.value_v00",
-      "type": "float",
+      "type": "double",
       "domain": "sondes",
       "display": "value",
       "decimals": 1,
@@ -222,7 +222,7 @@
     {
       "valueId": 81,
       "key": "io.value_v01",
-      "type": "float",
+      "type": "double",
       "domain": "sondes",
       "display": "value",
       "decimals": 1,
@@ -233,7 +233,7 @@
     {
       "valueId": 82,
       "key": "io.value_v02",
-      "type": "float",
+      "type": "double",
       "domain": "sondes",
       "display": "value",
       "decimals": 1,
@@ -244,7 +244,7 @@
     {
       "valueId": 83,
       "key": "io.value_v03",
-      "type": "float",
+      "type": "double",
       "domain": "sondes",
       "display": "value",
       "decimals": 1,
@@ -255,7 +255,7 @@
     {
       "valueId": 84,
       "key": "io.value_v04",
-      "type": "float",
+      "type": "double",
       "domain": "sondes",
       "display": "value",
       "decimals": 1,

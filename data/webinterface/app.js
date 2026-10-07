@@ -5646,7 +5646,7 @@
       return badge;
     }
 
-    function createIoDeviceStateBadgeBase(row) {
+    function createIoDeviceStateBadge(row) {
       const badge = createIoStateBadge(row.state);
       const device = row.pool_device;
       if (!device || !device.enabled || (device.block_code !== 0 && device.block_code !== 2)) return badge;
@@ -5669,16 +5669,10 @@
       return badge;
     }
 
-    function createIoDeviceStateBadge(row) {
-      const badge = createIoDeviceStateBadgeBase(row);
-      const label = actuatorControlLabel(row.pool_device && row.pool_device.control);
-      if (!label) return badge;
-      const wrapper = document.createElement('span');
-      wrapper.className = 'io-control-state';
-      const control = document.createElement('small');
-      control.textContent = label;
-      wrapper.append(badge, control);
-      return wrapper;
+    function ioDeviceLastValueLabel(row) {
+      const value = ioSummaryText(row && row.last_value, '-');
+      const label = actuatorControlLabel(row && row.pool_device && row.pool_device.control);
+      return label ? (value + ' [' + label + ']') : value;
     }
 
     function createIoCompactTable(title, columns, rows) {
@@ -5908,7 +5902,7 @@
             { key: 'driver', label: tr('io.col.driver', 'Driver'), render: (row) => createIoOptionalCell(row.driver) },
             { key: 'channel', label: tr('io.col.channel', 'Canal interne'), render: (row) => createIoOptionalCell(row.channel) },
             { key: 'state', label: tr('io.col.state', 'Etat'), render: (row) => createIoDeviceStateBadge(row) },
-            { key: 'last_value', label: tr('io.col.lastValue', 'Dernière valeur') },
+            { key: 'last_value', label: tr('io.col.lastValue', 'Dernière valeur'), render: (row) => ioDeviceLastValueLabel(row) },
             { key: 'error', label: tr('io.col.error', 'Erreur') }
           ],
           ioSlots
@@ -5920,7 +5914,7 @@
             { key: 'io_name', label: tr('io.col.ioName', 'IONAME'), render: (row) => ioSummaryText(row.io_name, '-') },
             { key: 'io_slot', label: tr('io.col.ioSlot', 'IOSlot'), render: (row) => ioSummarySlotLabel(row) },
             { key: 'state', label: tr('io.col.state', 'Etat'), render: (row) => createIoDeviceStateBadge(row) },
-            { key: 'last_value', label: tr('io.col.lastValue', 'Dernière valeur') }
+            { key: 'last_value', label: tr('io.col.lastValue', 'Dernière valeur'), render: (row) => ioDeviceLastValueLabel(row) }
           ],
           domainSlots
         ));
@@ -6631,7 +6625,7 @@
       if (type === 'bool') {
         return rawValue ? 'Actif' : 'Arret';
       }
-      if (type === 'float' && Number.isFinite(Number(rawValue))) {
+      if ((type === 'float' || type === 'double') && Number.isFinite(Number(rawValue))) {
         const value = Number(rawValue);
         const text = formatRuntimeFloatValue(value, decimals);
         return unit ? (text + ' ' + unit) : text;
@@ -11220,8 +11214,8 @@
     const derivedValueSlotCount = 5;
     const derivedValueAnalogMax = 20;
     const derivedValueDigitalMax = 12;
-    const derivedValueCoefficientKeys = ['k0', 'k1', 'k2'];
-    const derivedValueSnapshotKeys = ['enabled', 'name', 'unit', 'precision', 'expr', 'aggregation', 'k0', 'k1', 'k2'];
+    const derivedValueCoefficientKeys = ['k0', 'k1', 'k2', 'k3'];
+    const derivedValueSnapshotKeys = ['enabled', 'name', 'unit', 'precision', 'expr', 'aggregation', ...derivedValueCoefficientKeys];
     let derivedValuesState = null;
     let derivedCounterInputs = [];
     const derivedEntityNames = {};
@@ -11232,8 +11226,11 @@
     }
 
     function derivedValueNormalizeNumber(value) {
-      const number = Number(value);
-      return Number.isFinite(number) ? number : 0;
+      const text = String(value ?? '').trim();
+      if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(text) || !Number.isFinite(Number(text))) {
+        throw new Error(tr('derived.invalidNumber', 'Nombre décimal invalide (utilisez un point).'));
+      }
+      return Number(text);
     }
 
     function derivedValueEntryFromData(slot, data) {
@@ -11250,6 +11247,7 @@
         k0: derivedValueNormalizeNumber(source.k0),
         k1: derivedValueNormalizeNumber(source.k1),
         k2: derivedValueNormalizeNumber(source.k2),
+        k3: derivedValueNormalizeNumber(source.k3),
         original: null,
         elements: null
       };
@@ -11260,12 +11258,13 @@
         enabled: entry.enabled === true,
         name: String(entry.name || ''),
         unit: String(entry.unit || ''),
-        precision: Number.isInteger(Number(entry.precision)) ? Number(entry.precision) : 1,
-        expr: String(entry.expr || '0'),
+        precision: Number(entry.precision),
+        expr: String(entry.expr ?? ''),
         aggregation: Number(entry.aggregation) || 0,
-        k0: derivedValueNormalizeNumber(entry.k0),
-        k1: derivedValueNormalizeNumber(entry.k1),
-        k2: derivedValueNormalizeNumber(entry.k2)
+        k0: String(entry.k0),
+        k1: String(entry.k1),
+        k2: String(entry.k2),
+        k3: String(entry.k3)
       };
     }
 
@@ -11435,7 +11434,7 @@
         help.appendChild(codeNode);
         help.appendChild(document.createTextNode(' '));
       });
-      help.appendChild(document.createTextNode(tr('derived.assist.help2', 'Fonctions : min, max, abs, clamp(x, min, max). Utilisez k0, k1, k2 pour les réglages fins : la formule reste inchangée quand un coefficient change.')));
+      help.appendChild(document.createTextNode(tr('derived.assist.help2', 'Fonctions : min, max, abs, clamp(x, min, max). Utilisez k0, k1, k2, k3 pour les réglages fins : la formule reste inchangée quand un coefficient change.')));
 
       const examples = document.createElement('div');
       examples.className = 'derived-examples';
@@ -11656,7 +11655,7 @@
         derivedValuesRefreshDirtyState();
       });
       precisionInput.addEventListener('input', () => {
-        entry.precision = Number(precisionInput.value) || 0;
+        entry.precision = precisionInput.valueAsNumber;
         derivedValuesRefreshDirtyState();
       });
       aggSelect.addEventListener('change', () => {
@@ -11679,7 +11678,13 @@
       });
       coefficientInputs.forEach((item) => {
         item.input.addEventListener('input', () => {
-          entry[item.key] = derivedValueNormalizeNumber(item.input.value);
+          entry[item.key] = item.input.value;
+          try {
+            derivedValueNormalizeNumber(item.input.value);
+            setConfigFieldValidationState(item.input, true, '');
+          } catch (error) {
+            setConfigFieldValidationState(item.input, false, error.message);
+          }
           derivedValuesRefreshDirtyState();
         });
       });
@@ -11709,7 +11714,7 @@
         const badge = entry.elements.effectBadge;
         if (!badge) return;
         badge.classList.remove('is-restart', 'is-live');
-        if (keys.some((key) => key !== 'k0' && key !== 'k1' && key !== 'k2')) {
+        if (keys.some((key) => !derivedValueCoefficientKeys.includes(key))) {
           badge.textContent = tr('derived.effect.restart', 'Redémarrage requis');
           badge.classList.add('is-restart');
         } else if (keys.length > 0) {
@@ -11757,7 +11762,7 @@
       const effects = derivedIntroNode('ul', 'derived-intro-list');
       [
         tr('derived.intro.effectRestart', 'Activation, nom, unité, précision, agrégation et formule : au redémarrage.'),
-        tr('derived.intro.effectLive', 'Coefficients k0, k1, k2 : immédiat.'),
+        tr('derived.intro.effectLive', 'Coefficients k0, k1, k2, k3 : immédiat.'),
         tr('derived.intro.effectDiscovery', 'Annonce MQTT Discovery : au redémarrage, uniquement pour les valeurs activées.')
       ].forEach((text) => effects.appendChild(derivedIntroNode('li', null, text)));
       details.appendChild(effects);
@@ -11806,7 +11811,8 @@
       const found = [];
       const pending = [];
       for (let index = 0; index <= derivedValueDigitalMax; ++index) {
-        const moduleName = 'io/input/i' + String(index).padStart(2, '0');
+        const ref = 'i' + String(index).padStart(2, '0');
+        const moduleName = 'io/input/' + ref;
         pending.push((async () => {
           try {
             const response = await fetchJsonResponse(
@@ -11817,8 +11823,9 @@
               const data = response.data.data;
               if (Number(data.mode) === 1) { // IO_DIGITAL_INPUT_COUNTER
                 found.push(index);
-                const name = typeof data.name === 'string' ? data.name.trim() : '';
-                if (name) derivedEntityNames['i' + String(index).padStart(2, '0')] = name;
+                const rawName = data[ref + '_name'];
+                const name = typeof rawName === 'string' ? rawName.trim() : '';
+                if (name) derivedEntityNames[ref] = name;
               }
             }
           } catch (err) {
@@ -11864,32 +11871,28 @@
       if (applyBtn) applyBtn.disabled = true;
       derivedValuesSetStatus(tr('derived.loading', 'Chargement des valeurs calculées…'), 'busy');
 
-      const entries = new Array(derivedValueSlotCount);
-      const pending = [];
-      for (let slot = 0; slot < derivedValueSlotCount; ++slot) {
-        pending.push((async () => {
-          let data = {};
-          try {
-            const response = await fetchJsonResponse(
-              '/api/flowcfg/module?name=' + encodeURIComponent(derivedValueModuleName(slot)),
-              { cache: 'no-store' }
-            );
-            if (response.res.ok && response.data && response.data.ok === true && response.data.data) {
-              data = response.data.data;
-            }
-          } catch (err) {
-          }
-          entries[slot] = derivedValueEntryFromData(slot, data);
-        })());
+      try {
+        const entries = await Promise.all(Array.from({ length: derivedValueSlotCount }, async (_, slot) => {
+          const response = await fetchJsonResponse(
+            '/api/flowcfg/module?name=' + encodeURIComponent(derivedValueModuleName(slot)),
+            { cache: 'no-store' }
+          );
+          if (!response.res.ok || !response.data || response.data.ok !== true || !response.data.data)
+            throw new Error(tr('derived.loadFailed', 'Lecture de configuration échouée.'));
+          return derivedValueEntryFromData(slot, response.data.data);
+        }));
+        await loadDerivedCounterInputs();
+        entries.forEach((entry) => { entry.original = derivedValueSnapshot(entry); });
+        derivedValuesState = { entries };
+        await loadDerivedEntityNames();
+        renderDerivedValues();
+        derivedValuesSetStatus(tr('derived.loaded', 'Configuration chargée.'), 'ok');
+      } catch (error) {
+        derivedValuesSetStatus(error.message, 'error');
+      } finally {
+        if (reloadBtn) reloadBtn.disabled = false;
+        if (applyBtn) applyBtn.disabled = !derivedValuesState;
       }
-      await Promise.all([Promise.all(pending), loadDerivedCounterInputs()]);
-      entries.forEach((entry) => { if (entry) entry.original = derivedValueSnapshot(entry); });
-      derivedValuesState = { entries: entries };
-      await loadDerivedEntityNames();
-      renderDerivedValues();
-      if (reloadBtn) reloadBtn.disabled = false;
-      if (applyBtn) applyBtn.disabled = false;
-      derivedValuesSetStatus(tr('derived.loaded', 'Configuration chargée.'), 'ok');
     }
 
     function onDerivedValuesPageShown() {
@@ -11897,21 +11900,39 @@
       if (!derivedValuesState) loadDerivedValues(false).catch(() => {});
     }
 
+    function derivedValueBuildPatch(entries) {
+      const patch = {};
+      entries.forEach((entry) => {
+        if (!entry) return;
+        const current = derivedValueSnapshot(entry);
+        const coefficients = {};
+        derivedValueCoefficientKeys.forEach((key) => {
+          coefficients[key] = derivedValueNormalizeNumber(current[key]);
+        });
+        if (!current.expr.trim() || !Number.isInteger(current.precision) || current.precision < 0 || current.precision > 6)
+          throw new Error(tr('derived.invalidDefinition', 'Formule et précision valides requises.'));
+        const delta = {};
+        derivedValueSnapshotKeys.forEach((key) => {
+          if (current[key] !== entry.original[key]) delta[key] = derivedValueCoefficientKeys.includes(key) ? coefficients[key] : current[key];
+        });
+        if (Object.keys(delta).length > 0) patch[derivedValueModuleName(entry.slot)] = delta;
+      });
+
+      return patch;
+    }
+
     async function applyDerivedValues() {
       if (!derivedValuesState) return;
       const reloadBtn = document.getElementById('derivedValuesReload');
       const applyBtn = document.getElementById('derivedValuesApply');
 
-      const patch = {};
-      derivedValuesState.entries.forEach((entry) => {
-        if (!entry) return;
-        const current = derivedValueSnapshot(entry);
-        const delta = {};
-        derivedValueSnapshotKeys.forEach((key) => {
-          if (current[key] !== entry.original[key]) delta[key] = current[key];
-        });
-        if (Object.keys(delta).length > 0) patch[derivedValueModuleName(entry.slot)] = delta;
-      });
+      let patch;
+      try {
+        patch = derivedValueBuildPatch(derivedValuesState.entries);
+      } catch (error) {
+        derivedValuesSetStatus(error.message, 'error');
+        return;
+      }
 
       if (Object.keys(patch).length === 0) {
         derivedValuesSetStatus(tr('derived.noChange', 'Aucune modification à appliquer.'), 'ok');
@@ -11931,7 +11952,7 @@
         }
         derivedValuesState.entries.forEach((entry) => { if (entry) entry.original = derivedValueSnapshot(entry); });
         derivedValuesRefreshDirtyState();
-        derivedValuesSetStatus(tr('derived.applied', 'Enregistré. Activation, nom, agrégation et formule prennent effet au redémarrage ; les coefficients k0, k1, k2 sont appliqués immédiatement. L’annonce MQTT Discovery sera publiée au redémarrage pour les valeurs activées.'), 'ok');
+        derivedValuesSetStatus(tr('derived.applied', 'Enregistré. Activation, nom, agrégation et formule prennent effet au redémarrage ; les coefficients k0, k1, k2, k3 sont appliqués immédiatement. L’annonce MQTT Discovery sera publiée au redémarrage pour les valeurs activées.'), 'ok');
       } catch (err) {
         derivedValuesSetStatus(tr('derived.applyFailed', 'Application échouée : {err}').replace('{err}', String(err)), 'error');
       } finally {

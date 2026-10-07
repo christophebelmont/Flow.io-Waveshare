@@ -29,6 +29,7 @@
 #include "Core/Log.h"
 #include "Core/SystemLimits.h"
 #include "Core/ConfigDoubleAccess.h"
+#include "Core/ConfigCandidate.h"
 #include "Core/Services/IEventBus.h"
 #include "Core/EventBus/EventBus.h"
 #include "Core/EventBus/EventPayloads.h"
@@ -43,6 +44,17 @@ public:
 
     //explicit ConfigStore(Preferences& prefs);
     ConfigStore() = default;
+    using CandidateValidator = bool (*)(void*, const ConfigCandidate&);
+    bool registerValidator(CandidateValidator validate, void* context) {
+        if (!validate || validatorCount_ == MaxValidators) return false;
+        validators_[validatorCount_++] = {validate, context};
+        return true;
+    }
+    bool validateCandidate(const ConfigCandidate& candidate) const {
+        for (uint8_t i = 0; i < validatorCount_; ++i)
+            if (!validators_[i].validate(validators_[i].context, candidate)) return false;
+        return true;
+    }
 
     /** @brief Inject EventBus dependency for change notifications. */
     void setEventBus(EventBus* bus) { _eventBus = bus; }
@@ -106,6 +118,23 @@ public:
     void logNvsWriteSummaryIfDue(uint32_t nowMs, uint32_t periodMs = 60000U);
 
 private:
+    class MutationGuard {
+    public:
+        explicit MutationGuard(SemaphoreHandle_t mutex) : mutex_(mutex) {
+            xSemaphoreTakeRecursive(mutex_, portMAX_DELAY);
+        }
+        ~MutationGuard() { xSemaphoreGiveRecursive(mutex_); }
+        MutationGuard(const MutationGuard&) = delete;
+        MutationGuard& operator=(const MutationGuard&) = delete;
+    private:
+        SemaphoreHandle_t mutex_;
+    };
+    StaticSemaphore_t mutationMutexStorage_{};
+    SemaphoreHandle_t mutationMutex_ = xSemaphoreCreateRecursiveMutexStatic(&mutationMutexStorage_);
+    static constexpr uint8_t MaxValidators = 8;
+    struct Validator { CandidateValidator validate; void* context; };
+    Validator validators_[MaxValidators]{};
+    uint8_t validatorCount_ = 0;
     Preferences* _prefs = nullptr;
     EventBus* _eventBus = nullptr;
     ConfigMeta* _meta = nullptr;
@@ -209,7 +238,8 @@ void ConfigStore::registerVar(ConfigVariable<T, H>& var, uint8_t moduleId, uint8
 template<typename T, size_t H>
 bool ConfigStore::set(ConfigVariable<T, H>& var, const T& value)
 {
-    if (!var.value) return false;
+    MutationGuard mutation(mutationMutex_);
+    if (!var.value || !validateCandidate(ConfigCandidate(var.value, &value))) return false;
 
     bool changed = false;
     T oldValue{};
@@ -296,7 +326,10 @@ void ConfigStore::loadPersistentVar(ConfigVariable<T, H>& var)
 template<size_t H>
 bool ConfigStore::set(ConfigVariable<char, H>& var, const char* str)
 {
+    MutationGuard mutation(mutationMutex_);
     if (!var.value || !str || var.size == 0) return false;
+    if (var.validateText && (strlen(str) >= var.size || !var.validateText(str))) return false;
+    if (!validateCandidate(ConfigCandidate(var.value, str))) return false;
 
     size_t len = strlen(str);
     if (len >= var.size) len = var.size - 1;

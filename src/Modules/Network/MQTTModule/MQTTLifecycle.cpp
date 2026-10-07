@@ -281,13 +281,11 @@ void MQTTModule::handleEvent_(const Event& e)
                 setState_(MQTTState::WaitingNetwork);
             }
             const uint32_t dtUs = (uint32_t)(micros() - t0);
-            uint16_t jobsUsed = 0U;
-            uint16_t highCount = 0U;
-            uint16_t normalCount = 0U;
-            uint16_t lowCount = 0U;
+            QueueSnapshot snapshot{};
             portENTER_CRITICAL(&jobsMux_);
-            snapshotQueueStatsNoLock_(jobsUsed, highCount, normalCount, lowCount);
+            snapshotQueueStatsNoLock_(snapshot, millis());
             portEXIT_CRITICAL(&jobsMux_);
+            logQueueSnapshot_(snapshot);
             const bool slow = dtUs >= kDataChangedSlowWarnUs;
             if (slow) {
                 LOGW("datachanged net key=%u dt=%lu us ready=%u->%u state=%u->%u jobs=%u/%u qh=%u/%u qn=%u/%u ql=%u/%u",
@@ -297,13 +295,13 @@ void MQTTModule::handleEvent_(const Event& e)
                      (unsigned)netReady_,
                      (unsigned)oldState,
                      (unsigned)state_,
-                     (unsigned)jobsUsed,
+                     (unsigned)snapshot.used,
                      (unsigned)MaxJobs,
-                     (unsigned)highCount,
+                     (unsigned)snapshot.physical[2],
                      (unsigned)HighQueueCap,
-                     (unsigned)normalCount,
+                     (unsigned)snapshot.physical[1],
                      (unsigned)NormalQueueCap,
-                     (unsigned)lowCount,
+                     (unsigned)snapshot.physical[0],
                      (unsigned)LowQueueCap);
             } else {
                 LOGI("datachanged net key=%u dt=%lu us ready=%u->%u state=%u->%u jobs=%u/%u qh=%u/%u qn=%u/%u ql=%u/%u",
@@ -313,13 +311,13 @@ void MQTTModule::handleEvent_(const Event& e)
                      (unsigned)netReady_,
                      (unsigned)oldState,
                      (unsigned)state_,
-                     (unsigned)jobsUsed,
+                     (unsigned)snapshot.used,
                      (unsigned)MaxJobs,
-                     (unsigned)highCount,
+                     (unsigned)snapshot.physical[2],
                      (unsigned)HighQueueCap,
-                     (unsigned)normalCount,
+                     (unsigned)snapshot.physical[1],
                      (unsigned)NormalQueueCap,
-                     (unsigned)lowCount,
+                     (unsigned)snapshot.physical[0],
                      (unsigned)LowQueueCap);
             }
             return;
@@ -335,13 +333,11 @@ void MQTTModule::handleEvent_(const Event& e)
         if (slow && trace &&
             (uint32_t)(nowMs - lastDataChangedTraceLogMs_) >= kDataChangedTraceMinIntervalMs) {
             lastDataChangedTraceLogMs_ = nowMs;
-            uint16_t jobsUsed = 0U;
-            uint16_t highCount = 0U;
-            uint16_t normalCount = 0U;
-            uint16_t lowCount = 0U;
+            QueueSnapshot snapshot{};
             portENTER_CRITICAL(&jobsMux_);
-            snapshotQueueStatsNoLock_(jobsUsed, highCount, normalCount, lowCount);
+            snapshotQueueStatsNoLock_(snapshot, millis());
             portEXIT_CRITICAL(&jobsMux_);
+            logQueueSnapshot_(snapshot);
             LOGW("datachanged slow key=%u dt=%lu us state=%u routes=%u checked=%u matched=%u enq_ok=%u enq_fail=%u already=%u enq_us=%lu jobs=%u/%u qh=%u/%u qn=%u/%u ql=%u/%u",
                  (unsigned)p->id,
                  (unsigned long)dtUs,
@@ -353,13 +349,13 @@ void MQTTModule::handleEvent_(const Event& e)
                  (unsigned)stats.enqueueFail,
                  (unsigned)stats.pendingAlready,
                  (unsigned long)stats.enqueueUs,
-                 (unsigned)jobsUsed,
+                 (unsigned)snapshot.used,
                  (unsigned)MaxJobs,
-                 (unsigned)highCount,
+                 (unsigned)snapshot.physical[2],
                  (unsigned)HighQueueCap,
-                 (unsigned)normalCount,
+                 (unsigned)snapshot.physical[1],
                  (unsigned)NormalQueueCap,
-                 (unsigned)lowCount,
+                 (unsigned)snapshot.physical[0],
                  (unsigned)LowQueueCap);
         }
         return;

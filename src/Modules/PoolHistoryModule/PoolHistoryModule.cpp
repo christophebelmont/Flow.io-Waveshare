@@ -344,21 +344,20 @@ void PoolHistoryModule::initializeHistory_(const LocalDayContext& day,
         day.completeDates,
         storage_->loadedRecords,
         storage_->loadedRecordCount);
-    const PoolHistoryDayState restoredToday = storage_->history.todayState();
+    const auto& restoredToday = storage_->history.todayState();
+    const uint32_t restoredDate = restoredToday.localDate;
+    const bool restoredCurrentObservations = restoredToday.observedUntilUtc != 0U;
     storage_->todayDirty = !restoredTodayRecord;
     for (uint8_t i = 0U; i < POOL_HISTORY_COMPLETE_DAY_COUNT; ++i) {
         storage_->completedDayDirty[i] = false;
     }
     unlockState_();
 
-    const bool restoredCurrentObservations = restoredToday.observedUntilUtc != 0U;
     uint8_t restoredCompleteCount = 0U;
     for (uint8_t i = 0U; i < POOL_HISTORY_COMPLETE_DAY_COUNT; ++i) {
         if (storage_->history.completedDayState(i).valid) ++restoredCompleteCount;
     }
-    for (uint8_t i = 0U; i < POOL_HISTORY_COMPLETE_DAY_COUNT + 2U; ++i) {
-        storage_->loadedRecords[i] = PoolHistoryDayState{};
-    }
+    // Loaded records are no longer consulted once their count is cleared.
     storage_->loadedRecordCount = 0U;
     storage_->initialized = true;
     storage_->lastTickMs = nowMs;
@@ -378,7 +377,7 @@ void PoolHistoryModule::initializeHistory_(const LocalDayContext& day,
                    filtrationRunning);
 
     LOGI("Ready today=%lu previous=%lu restored_today=%u restored_complete=%u",
-         (unsigned long)restoredToday.localDate,
+         (unsigned long)restoredDate,
          (unsigned long)storage_->history.completedDayState(0U).localDate,
          restoredCurrentObservations ? 1U : 0U,
          (unsigned)restoredCompleteCount);

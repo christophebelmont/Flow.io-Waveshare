@@ -65,6 +65,21 @@ class NextionArtifactFilenameTests(unittest.TestCase):
 
 
 class ReleasePackageTests(unittest.TestCase):
+    def test_diagnostic_exports_are_isolated(self):
+        function = MODULE["_binary_dir"]
+        globals_ = function.__globals__
+        original_env, original_project = globals_["env"], globals_["_project_dir"]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            try:
+                globals_["_project_dir"] = lambda: root
+                globals_["env"] = {"FLOW_MEMORY_DIAGNOSTICS": True}
+                self.assertEqual(function(), root / "binary" / "diagnostics")
+                globals_["env"] = {"FLOW_MEMORY_DIAGNOSTICS": False}
+                self.assertEqual(function(), root / "binary")
+            finally:
+                globals_["env"], globals_["_project_dir"] = original_env, original_project
+
     def test_filesystem_size_comes_from_partition_table(self):
         self.assertEqual(0x180000, MODULE["_expected_filesystem_size"]())
 

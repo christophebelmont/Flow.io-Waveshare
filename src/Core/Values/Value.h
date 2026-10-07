@@ -46,6 +46,8 @@ inline double roundToPrecision(double value, int precision) {
     if (precision > VALUE_PRECISION_MAX) precision = VALUE_PRECISION_MAX;
     double scale = 1.0;
     for (int i = 0; i < precision; ++i) scale *= 10.0;
+    // At this magnitude a double has no fractional digits to round.
+    if (!isfinite(value) || fabs(value) >= 0x1p52 / scale) return value;
     return round(value * scale) / scale;
 }
 

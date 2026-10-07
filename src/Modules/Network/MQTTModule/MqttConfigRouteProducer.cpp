@@ -5,6 +5,8 @@
 #include "Modules/Network/MQTTModule/MQTTRuntime.h"
 
 #include <Arduino.h>
+#include <esp_heap_caps.h>
+#include <new>
 #include <stdio.h>
 #include <string.h>
 
@@ -15,6 +17,30 @@ namespace {
 static constexpr uint16_t kRetryMinMs = 200U;
 static constexpr uint16_t kRetryMaxMs = 2000U;
 static constexpr uint32_t kRetryTimeoutMs = 10000U;
+}
+
+MqttConfigRouteProducer::~MqttConfigRouteProducer()
+{
+    if (state_) {
+        state_->~RouteState();
+        heap_caps_free(state_);
+    }
+}
+
+bool MqttConfigRouteProducer::allocateRouteState_()
+{
+    if (state_) return true;
+    const bool external = heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0;
+    const uint32_t caps = (external ? MALLOC_CAP_SPIRAM : MALLOC_CAP_INTERNAL) | MALLOC_CAP_8BIT;
+    void* memory = heap_caps_malloc(sizeof(RouteState), caps);
+    if (!memory) {
+        LOGE("Config producer state allocation failed bytes=%u", (unsigned)sizeof(RouteState));
+        return false;
+    }
+    state_ = new (memory) RouteState{};
+    LOGI("Config producer state ready bytes=%u memory=%s", (unsigned)sizeof(RouteState),
+         external ? "psram" : "internal");
+    return true;
 }
 
 bool MqttConfigRouteProducer::buildRelativeTopic(char* dst,
@@ -50,6 +76,8 @@ void MqttConfigRouteProducer::configure(void* owner,
                                         uint8_t routeCount,
                                         ServiceRegistry& services)
 {
+    // Register callbacks only once their bounded storage is available.
+    if (!allocateRouteState_()) return;
     owner_ = owner;
     producerId_ = producerId;
     routes_ = routes;
@@ -94,31 +122,31 @@ int8_t MqttConfigRouteProducer::findRouteByMessage_(uint16_t messageId) const
 void MqttConfigRouteProducer::setPending_(uint8_t idx, bool pending)
 {
     if (idx >= routeCount_ || idx >= MaxRoutes) return;
-    pendingFlags_[idx] = pending;
+    state_->pendingFlags_[idx] = pending;
 }
 
 bool MqttConfigRouteProducer::isPending_(uint8_t idx) const
 {
     if (idx >= routeCount_ || idx >= MaxRoutes) return false;
-    return pendingFlags_[idx];
+    return state_->pendingFlags_[idx];
 }
 
 void MqttConfigRouteProducer::setNeedsEnqueue_(uint8_t idx, bool needed)
 {
     if (idx >= routeCount_ || idx >= MaxRoutes) return;
-    needsEnqueueFlags_[idx] = needed;
+    state_->needsEnqueueFlags_[idx] = needed;
 }
 
 bool MqttConfigRouteProducer::needsEnqueue_(uint8_t idx) const
 {
     if (idx >= routeCount_ || idx >= MaxRoutes) return false;
-    return needsEnqueueFlags_[idx];
+    return state_->needsEnqueueFlags_[idx];
 }
 
 bool MqttConfigRouteProducer::hasNeedsEnqueue_() const
 {
     for (uint8_t i = 0; i < routeCount_ && i < MaxRoutes; ++i) {
-        if (needsEnqueueFlags_[i]) return true;
+        if (state_->needsEnqueueFlags_[i]) return true;
     }
     return false;
 }
@@ -144,14 +172,14 @@ void MqttConfigRouteProducer::expireTimedOutRoutes_(uint32_t nowMs)
 {
     for (uint8_t i = 0; i < routeCount_ && i < MaxRoutes; ++i) {
         if (!needsEnqueue_(i)) continue;
-        const uint32_t firstRefusedMs = retryFirstRefusedMs_[i];
+        const uint32_t firstRefusedMs = state_->retryFirstRefusedMs_[i];
         if (firstRefusedMs == 0U) continue;
         if ((uint32_t)(nowMs - firstRefusedMs) < kRetryTimeoutMs) continue;
 
         // Timeout reached: this logical cfg publication is considered lost.
         setNeedsEnqueue_(i, false);
         setPending_(i, false);
-        retryFirstRefusedMs_[i] = 0U;
+        state_->retryFirstRefusedMs_[i] = 0U;
         ++metricsTimeoutWin_;
         ++metricsTimeoutTotal_;
     }
@@ -175,8 +203,8 @@ void MqttConfigRouteProducer::reportMetrics_(uint32_t nowMs)
     if ((uint32_t)(nowMs - metricsWinStartMs_) < 5000U) return;
     metricsWinStartMs_ = nowMs;
 
-    const uint8_t pendingEnq = countPendingFlags_(needsEnqueueFlags_);
-    const uint8_t pendingAny = countPendingFlags_(pendingFlags_);
+    const uint8_t pendingEnq = countPendingFlags_(state_->needsEnqueueFlags_);
+    const uint8_t pendingAny = countPendingFlags_(state_->pendingFlags_);
     if (metricsRefusedWin_ == 0U && metricsRetryTryWin_ == 0U &&
         metricsRetryOkWin_ == 0U && metricsTimeoutWin_ == 0U &&
         pendingEnq == 0U && pendingAny == 0U) {
@@ -258,8 +286,8 @@ bool MqttConfigRouteProducer::enqueueByRoute_(uint8_t idx, MqttPublishPriority p
     if (!mqttSvc_ || !mqttSvc_->enqueue) return false;
     if (idx >= routeCount_) return false;
     const bool wasPending = isPending_(idx);
-    const bool wasBuilding = (idx < MaxRoutes) && building_[idx];
-    if (wasBuilding) republishAfterPublish_[idx] = true;
+    const bool wasBuilding = (idx < MaxRoutes) && state_->building_[idx];
+    if (wasBuilding) state_->republishAfterPublish_[idx] = true;
     setPending_(idx, true);
     setNeedsEnqueue_(idx, true);
     constexpr uint8_t kFlags = (uint8_t)MqttEnqueueFlags::SilentRejectLog;
@@ -267,7 +295,7 @@ bool MqttConfigRouteProducer::enqueueByRoute_(uint8_t idx, MqttPublishPriority p
     const uint32_t nowMs = millis();
     if (accepted) {
         setNeedsEnqueue_(idx, false);
-        retryFirstRefusedMs_[idx] = 0U;
+        state_->retryFirstRefusedMs_[idx] = 0U;
         if (!hasNeedsEnqueue_()) {
             resetRetry_();
         } else if (retryDueMs_ == 0U || (int32_t)(nowMs - retryDueMs_) >= 0) {
@@ -280,9 +308,9 @@ bool MqttConfigRouteProducer::enqueueByRoute_(uint8_t idx, MqttPublishPriority p
     ++metricsRefusedTotal_;
     // If a route was already pending and this enqueue was refused, preserve a
     // one-shot republish so changes that arrived in-between are not lost.
-    if (wasPending && idx < MaxRoutes) republishAfterPublish_[idx] = true;
-    if (idx < MaxRoutes && retryFirstRefusedMs_[idx] == 0U) {
-        retryFirstRefusedMs_[idx] = nowMs;
+    if (wasPending && idx < MaxRoutes) state_->republishAfterPublish_[idx] = true;
+    if (idx < MaxRoutes && state_->retryFirstRefusedMs_[idx] == 0U) {
+        state_->retryFirstRefusedMs_[idx] = nowMs;
     }
     armRetry_(nowMs);
     return false;
@@ -355,7 +383,7 @@ MqttBuildResult MqttConfigRouteProducer::buildMessage_(uint16_t messageId, MqttB
     const uint8_t idx = (uint8_t)routeIdx;
     if (!isPending_(idx)) return MqttBuildResult::NoLongerNeeded;
     const Route& route = routes_[idx];
-    if (idx < MaxRoutes) building_[idx] = true;
+    if (idx < MaxRoutes) state_->building_[idx] = true;
 
     if (route.customBuild) {
         return route.customBuild(owner_, messageId, ctx);
@@ -411,17 +439,17 @@ void MqttConfigRouteProducer::onMessagePublished_(uint16_t messageId)
     const int8_t routeIdx = findRouteByMessage_(messageId);
     if (routeIdx < 0) return;
     const uint8_t idx = (uint8_t)routeIdx;
-    if (idx < MaxRoutes) building_[idx] = false;
+    if (idx < MaxRoutes) state_->building_[idx] = false;
 
-    if (idx < MaxRoutes && republishAfterPublish_[idx]) {
-        republishAfterPublish_[idx] = false;
+    if (idx < MaxRoutes && state_->republishAfterPublish_[idx]) {
+        state_->republishAfterPublish_[idx] = false;
         (void)enqueueByRoute_(idx, routePriority_(routes_[idx]));
         return;
     }
 
     setPending_(idx, false);
     setNeedsEnqueue_(idx, false);
-    retryFirstRefusedMs_[idx] = 0U;
+    state_->retryFirstRefusedMs_[idx] = 0U;
     if (!hasNeedsEnqueue_()) {
         resetRetry_();
     }
@@ -434,10 +462,10 @@ void MqttConfigRouteProducer::onMessageDropped_(uint16_t messageId)
     const uint8_t idx = (uint8_t)routeIdx;
     setPending_(idx, false);
     setNeedsEnqueue_(idx, false);
-    retryFirstRefusedMs_[idx] = 0U;
+    state_->retryFirstRefusedMs_[idx] = 0U;
     if (idx < MaxRoutes) {
-        building_[idx] = false;
-        republishAfterPublish_[idx] = false;
+        state_->building_[idx] = false;
+        state_->republishAfterPublish_[idx] = false;
     }
     if (!hasNeedsEnqueue_()) {
         resetRetry_();

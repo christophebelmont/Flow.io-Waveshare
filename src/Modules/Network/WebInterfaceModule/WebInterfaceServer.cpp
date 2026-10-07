@@ -3,7 +3,9 @@
  * @brief HTTP server wiring and network-facing endpoints for WebInterfaceModule.
  */
 
+#include "Core/Values/ValueFormat.h"
 #include "WebInterfaceModule.h"
+#include "WebMemoryDiagnostics.h"
 #include "RuntimeActionArguments.h"
 
 #include "Board/BoardSpec.h"
@@ -17,6 +19,8 @@
 #include "Core/SystemLimits.h"
 #include "Core/SystemStats.h"
 #include "Core/SpiRamJsonDocument.h"
+#include "Core/SpiRamObject.h"
+#include <array>
 #include "HistoryJson.h"
 #include "Domain/Pool/PoolIds.h"
 #include "Domain/Pool/PoolDomain.h"
@@ -588,7 +592,7 @@ struct WebHeapCharBuffer {
 
 struct BootLogJsonPageCtx {
     WebInterfaceModule* self = nullptr;
-    AsyncResponseStream* response = nullptr;
+    Print* response = nullptr;
     bool first = true;
     uint16_t count = 0;
 };
@@ -1569,6 +1573,7 @@ const char* runtimeUiWireTypeName_(RuntimeUiWireType type)
     case RuntimeUiWireType::Int32: return "int32";
     case RuntimeUiWireType::UInt32: return "uint32";
     case RuntimeUiWireType::Float32: return "float";
+    case RuntimeUiWireType::Float64: return "double";
     case RuntimeUiWireType::Enum: return "enum";
     case RuntimeUiWireType::String: return "string";
     default: return "unknown";
@@ -1890,10 +1895,16 @@ bool appendWaveshareLocalRuntimeValue_(Print& out,
             if (dataStore->values.read(ValueIds::Derived + (valueId - IO_RUNTIME_UI_DERIVED_BASE), value, &metadata) &&
                 value.quality == ValueQuality::Valid) {
                 const RuntimeUiManifestItem* item = findRuntimeUiManifestItem(id);
-                printRuntimeF32_(out, firstValue, id, (item && item->key) ? item->key : "io.value",
-                                 (float)roundToPrecision(value.value.d, metadata.precision),
-                                 metadata.displayUnit[0] != '\0' ? metadata.displayUnit : nullptr,
-                                 metadata.precision);
+                char number[40];
+                if (!formatValueNumber(number, sizeof(number), value.value.d, metadata.precision)) {
+                    wavesharePrintUnavailableByManifestType_(out, firstValue, id);
+                    return true;
+                }
+                printRuntimeValuePrefix_(out, firstValue, id, (item && item->key) ? item->key : "io.value",
+                                         "double", metadata.displayUnit, metadata.precision);
+                out.print(",\"value\":");
+                out.print(number);
+                out.print('}');
             } else {
                 wavesharePrintUnavailableByManifestType_(out, firstValue, id);
             }
@@ -2324,22 +2335,33 @@ bool sendWaveshareStatusCompactResponse_(AsyncWebServerRequest* request,
                                         const AlarmService* alarmSvc)
 {
     if (!request) return false;
-    char systemJson[640] = {0};
-    char wifiJson[320] = {0};
-    char mqttJson[384] = {0};
-    char poolJson[512] = {0};
-    char i2cJson[256] = {0};
+    struct StatusBuffers {
+        char systemJson[640]{};
+        char wifiJson[320]{};
+        char mqttJson[384]{};
+        char poolJson[512]{};
+        char i2cJson[256]{};
+    };
+    auto buffers = makeSpiRamObject<StatusBuffers>();
+    if (!buffers) return false;
+    auto& systemJson = buffers->systemJson;
+    auto& wifiJson = buffers->wifiJson;
+    auto& mqttJson = buffers->mqttJson;
+    auto& poolJson = buffers->poolJson;
+    auto& i2cJson = buffers->i2cJson;
     if (!waveshareBuildStatusDomainJson_(FlowStatusDomain::System, dataStore, cfgStore, alarmSvc, systemJson, sizeof(systemJson))) return false;
     if (!waveshareBuildStatusDomainJson_(FlowStatusDomain::Wifi, dataStore, cfgStore, alarmSvc, wifiJson, sizeof(wifiJson))) return false;
     if (!waveshareBuildStatusDomainJson_(FlowStatusDomain::Mqtt, dataStore, cfgStore, alarmSvc, mqttJson, sizeof(mqttJson))) return false;
     if (!waveshareBuildStatusDomainJson_(FlowStatusDomain::Pool, dataStore, cfgStore, alarmSvc, poolJson, sizeof(poolJson))) return false;
     if (!waveshareBuildStatusDomainJson_(FlowStatusDomain::I2c, dataStore, cfgStore, alarmSvc, i2cJson, sizeof(i2cJson))) return false;
 
-    StaticJsonDocument<768> systemDoc;
-    StaticJsonDocument<512> wifiDoc;
-    StaticJsonDocument<512> mqttDoc;
-    StaticJsonDocument<640> poolDoc;
-    StaticJsonDocument<320> i2cDoc;
+    SpiRamJsonDocument systemDoc(768);
+    SpiRamJsonDocument wifiDoc(512);
+    SpiRamJsonDocument mqttDoc(512);
+    SpiRamJsonDocument poolDoc(640);
+    SpiRamJsonDocument i2cDoc(320);
+    if (systemDoc.capacity() < 768 || wifiDoc.capacity() < 512 ||
+        mqttDoc.capacity() < 512 || poolDoc.capacity() < 640 || i2cDoc.capacity() < 320) return false;
     if (deserializeJson(systemDoc, systemJson)) return false;
     if (deserializeJson(wifiDoc, wifiJson)) return false;
     if (deserializeJson(mqttDoc, mqttJson)) return false;
@@ -2418,6 +2440,7 @@ struct WaveshareDashboardRuntimeValue {
     int32_t i32Value = 0;
     uint32_t u32Value = 0U;
     float f32Value = 0.0f;
+    double f64Value = 0.0;
     char stringValue[64] = {0};
     char unit[UnitTextCapacity] = {0};
     int8_t precision = VALUE_PRECISION_NONE;
@@ -2669,8 +2692,8 @@ bool waveshareReadDashboardDerivedValue_(DataStore* dataStore,
         return false;
     }
     out.available = true;
-    out.wireType = RuntimeUiWireType::Float32;
-    out.f32Value = (float)value.value.d;
+    out.wireType = RuntimeUiWireType::Float64;
+    out.f64Value = value.value.d;
     out.precision = metadata.precision;
     snprintf(out.unit, sizeof(out.unit), "%s", metadata.displayUnit);
     return true;
@@ -2933,6 +2956,10 @@ void waveshareFormatDashboardRuntimeValue_(RuntimeUiId id,
         case RuntimeUiWireType::UInt32:
         case RuntimeUiWireType::Enum:
             snprintf(valueOut, valueOutLen, "%lu", (unsigned long)value.u32Value);
+            return;
+        case RuntimeUiWireType::Float64:
+            if (!formatValueNumber(valueOut, valueOutLen, value.f64Value, value.precision))
+                snprintf(valueOut, valueOutLen, "Indisponible");
             return;
         case RuntimeUiWireType::Float32: {
             // Calculated values carry their own display precision; keep it verbatim
@@ -4719,8 +4746,27 @@ void WebInterfaceModule::sendBootLogHttpResponse_(AsyncWebServerRequest* request
          (unsigned long)stats.droppedCount,
          state);
 
-    AsyncResponseStream* response = request->beginResponseStream("application/json");
-    addNoCacheHeaders_(response);
+    // A JSON character may expand to six bytes (\u00XX). Allocate the bounded
+    // page in PSRAM, retaining it until the async response is released.
+    const size_t capacity = 512U + size_t(limit) * (6U * (kLocalLogLineMax - 1U) + 3U);
+    auto response = std::make_shared<WebJsonBuffer>(capacity);
+    if (!response->valid()) {
+        sendTinyBusyJson_(request, "bootlog_memory");
+        return;
+    }
+    auto sendPage = [&]() {
+        if (!response->finish()) {
+            sendTinyBusyJson_(request, "bootlog_capacity");
+            return;
+        }
+        auto* httpResponse = request->beginResponse(
+            "application/json", response->length(),
+            [response](uint8_t* buffer, size_t maxLen, size_t index) {
+                return response->fillAt(buffer, maxLen, index);
+            });
+        addNoCacheHeaders_(httpResponse);
+        request->send(httpResponse);
+    };
     response->printf("{\"capacity\":%u,\"entries\":%u,\"dropped\":%lu,\"state\":\"%s\"",
                      (unsigned)stats.capacity,
                      (unsigned)stats.count,
@@ -4729,13 +4775,13 @@ void WebInterfaceModule::sendBootLogHttpResponse_(AsyncWebServerRequest* request
 
     if (statusOnly) {
         response->print('}');
-        request->send(response);
+        sendPage();
         return;
     }
 
     BootLogJsonPageCtx pageCtx{};
     pageCtx.self = this;
-    pageCtx.response = response;
+    pageCtx.response = response.get();
 
     const uint16_t writableLimit = available ? limit : 0U;
     uint16_t expectedCount = 0U;
@@ -4785,7 +4831,7 @@ void WebInterfaceModule::sendBootLogHttpResponse_(AsyncWebServerRequest* request
              (unsigned)stats.count);
     }
 
-    request->send(response);
+    sendPage();
 }
 
 void WebInterfaceModule::sendActivityLogHttpResponse_(AsyncWebServerRequest* request, bool statusOnly)
@@ -4931,6 +4977,7 @@ bool WebInterfaceModule::resolveRequestActor_(AsyncWebServerRequest* request, Ac
 
 void WebInterfaceModule::init(ConfigStore& cfg, ServiceRegistry& services)
 {
+    WebMemoryDiagnostics::sample("init_enter");
     cfgStore_ = &cfg;
 
     services_ = &services;
@@ -4981,12 +5028,15 @@ void WebInterfaceModule::init(ConfigStore& cfg, ServiceRegistry& services)
     health_.paused = uartPaused_;
     portEXIT_CRITICAL(&healthMux_);
 
+    WebMemoryDiagnostics::sample("init_ready");
     LOGI("WebInterface local runtime deferred (server deferred)");
 }
 
 void WebInterfaceModule::onStart(ConfigStore&, ServiceRegistry&)
 {
+    WebMemoryDiagnostics::sample("local_enter");
     startLocalRuntime_();
+    WebMemoryDiagnostics::sample("local_ready");
 }
 
 void WebInterfaceModule::startLocalRuntime_()
@@ -5041,6 +5091,7 @@ void WebInterfaceModule::startLocalRuntime_()
 void WebInterfaceModule::startServer_()
 {
     if (started_) return;
+    WebMemoryDiagnostics::sample("server_enter");
     gHttpActivityHook = &WebInterfaceModule::onHttpActivityHook_;
     gHttpActivityHookCtx = this;
 
@@ -6588,13 +6639,17 @@ void WebInterfaceModule::startServer_()
             return;
         }
 
-        char out[Limits::Wifi::Buffers::ScanStatusJson] = {0};
-        if (!wifiSvc_->scanStatusJson(wifiSvc_->ctx, out, sizeof(out))) {
+        auto out = makeSpiRamObject<std::array<char, Limits::Wifi::Buffers::ScanStatusJson>>();
+        if (!out) {
+            sendTinyBusyJson_(request, "wifi_scan_memory");
+            return;
+        }
+        if (!wifiSvc_->scanStatusJson(wifiSvc_->ctx, out->data(), out->size())) {
             request->send(500, "application/json",
                           "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"wifi.scan.get\"}}");
             return;
         }
-        request->send(200, "application/json", out);
+        request->send(200, "application/json", out->data());
     });
 
     server_.on("/api/wifi/scan", HTTP_POST, [this](AsyncWebServerRequest* request) {
@@ -6999,7 +7054,12 @@ void WebInterfaceModule::startServer_()
         }
 
         // Read every registered slot independently of dashboard visibility or enable state.
-        PoolDeviceSvcMeta devices[POOL_DEVICE_MAX] = {};
+        auto deviceStorage = makeSpiRamObject<std::array<PoolDeviceSvcMeta, POOL_DEVICE_MAX>>();
+        if (!deviceStorage) {
+            sendTinyBusyJson_(request, "pooldevice_memory");
+            return;
+        }
+        auto& devices = *deviceStorage;
         uint8_t count = 0;
         for (uint8_t slot = 0; slot < POOL_DEVICE_MAX; ++slot) {
             PoolDeviceSvcMeta meta{};
@@ -7663,9 +7723,6 @@ void WebInterfaceModule::startServer_()
 
     // --- Authentication routes and middleware --------------------------------
 
-    server_.addMiddleware([this](AsyncWebServerRequest* request, ArMiddlewareNext next) {
-        this->authGate_(request, next);
-    });
 
     server_.on("/login", HTTP_GET, [](AsyncWebServerRequest* request) {
         request->send(200, "text/html",
@@ -7906,6 +7963,18 @@ void WebInterfaceModule::startServer_()
         request->send(200, "application/json", "{\"ok\":true}");
     });
 
+    if (!server_.routesReady()) {
+        LOGE("Web route PSRAM allocation failed; server remains stopped");
+        server_.resetRoutes();
+        return;
+    }
+    LOGI("Web routes ready count=%u bytes=%u memory=psram",
+         (unsigned)server_.routeCount(), (unsigned)server_.routeStorageBytes());
+    WebMemoryDiagnostics::install(server_);
+    server_.addMiddleware([this](AsyncWebServerRequest* request, ArMiddlewareNext next) {
+        this->authGate_(request, next);
+    });
+
     if (!provisioningOnly_) {
         configureRuntimeEvents_();
         wsLog_.onEvent([this](AsyncWebSocket* server,
@@ -7927,7 +7996,9 @@ void WebInterfaceModule::startServer_()
     } else {
         LOGI("WebInterface WS handlers disabled in provisioning-only mode");
     }
+    WebMemoryDiagnostics::sample("routes_ready");
     server_.begin();
+    WebMemoryDiagnostics::sample("listening");
     started_ = true;
     noteServerStarted_();
     LOGI("WebInterface server started, listening on 0.0.0.0:%d", kServerPort);

@@ -3,6 +3,7 @@
  * @brief Local Waveshare ESP32-S3 TFT display.
  */
 
+#include "Core/Values/ValueFormat.h"
 #include "Modules/TFTModuleS3/TFTModuleS3.h"
 
 #include <Arduino.h>
@@ -1563,8 +1564,8 @@ bool TFTModuleS3::readIoDerivedValue_(uint8_t slot, RuntimeValue& out) const
         return false;
     }
     out.available = true;
-    out.wireType = RuntimeUiWireType::Float32;
-    out.f32Value = (float)value.value.d;
+    out.wireType = RuntimeUiWireType::Float64;
+    out.f64Value = value.value.d;
     return true;
 }
 
@@ -1657,6 +1658,12 @@ void TFTModuleS3::formatRuntimeValue_(RuntimeUiId runtimeId,
         case RuntimeUiWireType::Enum:
             snprintf(valueOut, valueOutLen, "%lu", (unsigned long)value.u32Value);
             break;
+        case RuntimeUiWireType::Float64: {
+            int8_t precision = VALUE_PRECISION_NONE;
+            readRuntimePrecision_(runtimeId, precision);
+            (void)formatValueNumber(valueOut, valueOutLen, value.f64Value, precision);
+            break;
+        }
         case RuntimeUiWireType::Float32: {
             uint8_t decimals = runtimeDecimals_(runtimeId, value.wireType, unit);
             int8_t derivedPrecision = VALUE_PRECISION_NONE;

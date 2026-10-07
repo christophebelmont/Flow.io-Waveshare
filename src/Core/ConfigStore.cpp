@@ -577,6 +577,7 @@ uint8_t ConfigStore::listModules(const char** out, uint8_t max) const
 
 bool ConfigStore::applyJson(const char* json)
 {
+    MutationGuard mutation(mutationMutex_);
     if (!json || json[0] == '\0') return false;
 
     static constexpr size_t APPLY_JSON_DOC_CAPACITY = Limits::JsonConfigApplyBuf;
@@ -670,6 +671,10 @@ bool ConfigStore::applyJson(const char* json)
         }
     }
 
+    if (!validateCandidate(ConfigCandidate(root))) {
+        Log::warn(LOG_MODULE_ID, "applyJson: candidate configuration rejected");
+        return false;
+    }
     Log::debug(LOG_MODULE_ID, "applyJson: start");
     for (uint16_t i = 0; i < _metaCount; ++i) {
         auto& m = _meta[i];

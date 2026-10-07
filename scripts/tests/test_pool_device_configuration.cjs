@@ -24,7 +24,7 @@ const context = vm.createContext({
   tr: (_key, fallback) => fallback,
   nettoyerNomFlowCfg: value => value.trim(),
   storeConfigFieldInitialValue: () => {},
-  activeDependencyMaskPopover: null,
+  isAnchoredPopoverOpenFor: () => false,
   openDependencyMaskPopover: (_trigger, popover) => { context.popover = popover; },
   flowCfgPoolDeviceOptions: Array.from({ length: 16 }, (_, slot) => ({
     value: slot, name: 'Device ' + slot, outputs: [slot], controllable: slot < 8
@@ -50,13 +50,13 @@ for (const currentSlot of [0, 8, 15]) {
   box.handlers.change();
   assert.equal(Number(editor.input.value), 0);
 }
-// Configuration metadata must expose the standalone PoolDevice branch.
+// Configuration metadata must hide the standalone PoolDevice branch from the tree.
 const manifest = JSON.parse(fs.readFileSync(path.join(root,
   'src/Modules/PoolDeviceModule/text/cfgmods.fr.json'), 'utf8'));
-assert.notEqual(manifest.docs.pdm.hidden, true);
+assert.equal(manifest.docs.pdm.hidden, true);
 for (const locale of ['fr', 'en']) {
   const catalog = JSON.parse(fs.readFileSync(path.join(root,
     `src/Modules/PoolDeviceModule/text/i18n.${locale}.json`), 'utf8'));
   assert.equal(catalog.translations[manifest.docs.pdm.label_t], 'PoolDevice');
 }
-console.log('PoolDevice configuration: visible branch, all 15 valid dependencies, upper mask bits OK.');
+console.log('PoolDevice configuration: hidden branch, all 15 valid dependencies, upper mask bits OK.');

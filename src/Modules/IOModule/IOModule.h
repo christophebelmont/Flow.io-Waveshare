@@ -241,6 +241,7 @@ private:
     uint32_t pulseLastAttemptMs_ = 0, pulseCheckpointWrites_ = 0, pulseCheckpointFailures_ = 0;
     bool pulseStorageReady_ = false, pulseRetry_ = false;
     ValueConfig* valueConfig_ = nullptr;
+    bool validateValueConfig_(const ConfigCandidate& candidate) const;
     void traceDigitalCounters_(uint32_t nowMs);
     void beginIoCycle_(uint32_t nowMs);
     void markIoCycleChanged_(IoId id);

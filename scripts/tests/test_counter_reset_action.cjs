@@ -17,7 +17,7 @@ const context = vm.createContext({
   document: { createElement: tag => new Element(tag) },
   window: { confirm: () => confirmed },
   cfgDocTr: key => key,
-  closeColorPickerPopover() {}, closeDependencyMaskPopover() {},
+  closeAnchoredPopover() {},
   configDocFor: () => ({ ...docs['io/input/i15/counter_reset'], label: 'Reset counter' }),
   configEnumOptionsForField: () => null,
   normalizeDigitalInputConfigKey: (_module, key) => key,

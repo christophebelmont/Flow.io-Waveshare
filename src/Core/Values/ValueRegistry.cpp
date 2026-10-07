@@ -42,7 +42,9 @@ bool ValueRegistry::defineProgram_(ValueId id, const ValueExpression::Program& p
         if (!isfinite(parameters[i])) return false;
     // Registration is topological: every dependency must already exist.
     for (uint8_t i = 0; i < program.dependencyCount; ++i)
-        if (!storage_->slots[program.dependencies[i]].used) return false;
+        if (!storage_->slots[program.dependencies[i]].used ||
+            !ValueExpression::validSourceType(program.dependencies[i],
+                storage_->slots[program.dependencies[i]].metadata.type)) return false;
     auto& slot = storage_->slots[id];
     slot.metadata = metadata; slot.used = true; slot.program = transformCount_;
     auto& transform = storage_->programs[transformCount_];

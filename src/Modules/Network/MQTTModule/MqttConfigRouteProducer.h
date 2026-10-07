@@ -19,6 +19,10 @@
  */
 class MqttConfigRouteProducer {
 public:
+    MqttConfigRouteProducer() = default;
+    ~MqttConfigRouteProducer();
+    MqttConfigRouteProducer(const MqttConfigRouteProducer&) = delete;
+    MqttConfigRouteProducer& operator=(const MqttConfigRouteProducer&) = delete;
     static constexpr uint8_t MaxRoutes = PendingMqttRoutes::Capacity;
 
     using CustomBuildFn = MqttBuildResult (*)(void* owner, uint16_t messageId, MqttBuildContext& ctx);
@@ -72,13 +76,20 @@ private:
     bool eventsSubscribed_ = false;
     bool configLoaded_ = false;
     bool mqttReadyLatched_ = false;
+    // Keep the mailbox and its critical-section control in internal RAM.
     PendingMqttRoutes requestedRoutes_;
-    bool pendingFlags_[MaxRoutes]{};
-    bool needsEnqueueFlags_[MaxRoutes]{};
+    struct RouteState {
+        bool pendingFlags_[MaxRoutes]{};
+        bool needsEnqueueFlags_[MaxRoutes]{};
+        uint32_t retryFirstRefusedMs_[MaxRoutes]{};
+        bool building_[MaxRoutes]{};
+        bool republishAfterPublish_[MaxRoutes]{};
+    };
+    RouteState* state_ = nullptr;
+    bool allocateRouteState_();
     uint32_t retryDueMs_ = 0;
     uint16_t retryBackoffMs_ = 0;
     uint8_t retryCursor_ = 0;
-    uint32_t retryFirstRefusedMs_[MaxRoutes]{};
     uint32_t metricsWinStartMs_ = 0;
     uint32_t metricsRefusedWin_ = 0;
     uint32_t metricsRetryTryWin_ = 0;
@@ -88,8 +99,6 @@ private:
     uint32_t metricsRetryTryTotal_ = 0;
     uint32_t metricsRetryOkTotal_ = 0;
     uint32_t metricsTimeoutTotal_ = 0;
-    bool building_[MaxRoutes]{};
-    bool republishAfterPublish_[MaxRoutes]{};
 
     MqttPublishProducer producer_{};
 

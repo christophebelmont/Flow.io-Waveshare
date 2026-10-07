@@ -25,6 +25,9 @@ static bool versionMajorEquals_(const char* version, uint8_t expected)
 
 void HmiUdpServerModule::init(ConfigStore& cfg, ServiceRegistry& services)
 {
+    if (!buffers_) buffers_ = makeSpiRamObject<PacketBuffers>();
+    if (!buffers_) LOGE("HMI UDP packet buffer PSRAM allocation failed");
+    else LOGI("HMI UDP packet buffers bytes=%u memory=psram", (unsigned)sizeof(PacketBuffers));
     cfg.registerVar(tokenVar_);
     wifiSvc_ = services.get<WifiService>(ServiceId::Wifi);
     const DataStoreService* dsSvc = services.get<DataStoreService>(ServiceId::DataStore);
@@ -34,6 +37,7 @@ void HmiUdpServerModule::init(ConfigStore& cfg, ServiceRegistry& services)
 bool HmiUdpServerModule::begin()
 {
     if (started_) return true;
+    if (!buffers_) return false;
     if (!wifiConnected_()) return false;
 
     if (!udp_.begin(HMI_UDP_PORT)) {
@@ -241,8 +245,8 @@ bool HmiUdpServerModule::sendImmediate_(HmiUdpMsgType type, const void* payload,
     if (!started_ || !displayOnline_ || !wifiConnected_()) return false;
 
     size_t packetLen = 0;
-    if (!hmiUdpBuildPacket(txBuf_,
-                           sizeof(txBuf_),
+    if (!hmiUdpBuildPacket(buffers_->tx,
+                           sizeof(buffers_->tx),
                            packetLen,
                            type,
                            txSeq_++,
@@ -253,7 +257,7 @@ bool HmiUdpServerModule::sendImmediate_(HmiUdpMsgType type, const void* payload,
         return false;
     }
     if (!udp_.beginPacket(remoteIp_, remotePort_)) return false;
-    const size_t written = udp_.write(txBuf_, packetLen);
+    const size_t written = udp_.write(buffers_->tx, packetLen);
     return written == packetLen && udp_.endPacket() == 1;
 }
 
@@ -265,7 +269,7 @@ bool HmiUdpServerModule::enqueueReliable_(HmiUdpMsgType type, const void* payloa
     if (type == HmiUdpMsgType::HomeStateBits) {
         uint8_t idx = outTail_;
         while (idx != outHead_) {
-            OutPacket& queued = outQueue_[idx];
+            OutPacket& queued = buffers_->outgoing[idx];
             if (queued.type == type) {
                 queued.len = payloadLen;
                 if (payloadLen > 0U && payload) {
@@ -283,7 +287,7 @@ bool HmiUdpServerModule::enqueueReliable_(HmiUdpMsgType type, const void* payloa
         return false;
     }
 
-    OutPacket& pkt = outQueue_[outHead_];
+    OutPacket& pkt = buffers_->outgoing[outHead_];
     pkt.type = type;
     pkt.len = payloadLen;
     if (payloadLen > 0U && payload) {
@@ -303,7 +307,7 @@ bool HmiUdpServerModule::sendReliableLarge_(HmiUdpMsgType type, const void* payl
         const size_t pendingPayloadLen = reliablePendingLen_ > sizeof(HmiUdpHeader)
             ? reliablePendingLen_ - sizeof(HmiUdpHeader)
             : 0U;
-        const uint8_t* pendingPayload = reliablePendingBuf_ + sizeof(HmiUdpHeader);
+        const uint8_t* pendingPayload = buffers_->reliablePending + sizeof(HmiUdpHeader);
         const bool samePending = reliablePendingType_ == type &&
                                  pendingPayloadLen == payloadLen &&
                                  (payloadLen == 0U || memcmp(pendingPayload, payload, payloadLen) == 0);
@@ -340,8 +344,8 @@ bool HmiUdpServerModule::buildReliablePending_(HmiUdpMsgType type, const void* p
     reliableLastSendMs_ = 0;
 
     size_t packetLen = 0;
-    if (!hmiUdpBuildPacket(reliablePendingBuf_,
-                           sizeof(reliablePendingBuf_),
+    if (!hmiUdpBuildPacket(buffers_->reliablePending,
+                           sizeof(buffers_->reliablePending),
                            packetLen,
                            type,
                            txSeq_++,
@@ -362,15 +366,15 @@ bool HmiUdpServerModule::loadNextReliable_()
 {
     if (reliablePendingLen_ > 0 || outHead_ == outTail_) return false;
 
-    const OutPacket& pkt = outQueue_[outTail_];
+    const OutPacket& pkt = buffers_->outgoing[outTail_];
     reliablePendingSeq_ = txSeq_;
     reliablePendingType_ = pkt.type;
     reliableAttempts_ = 0;
     reliableLastSendMs_ = 0;
 
     size_t packetLen = 0;
-    if (!hmiUdpBuildPacket(reliablePendingBuf_,
-                           sizeof(reliablePendingBuf_),
+    if (!hmiUdpBuildPacket(buffers_->reliablePending,
+                           sizeof(buffers_->reliablePending),
                            packetLen,
                            pkt.type,
                            txSeq_++,
@@ -413,7 +417,7 @@ void HmiUdpServerModule::serviceReliableTx_(uint32_t nowMs)
 
     if (reliableAttempts_ > 0U && (uint32_t)(nowMs - reliableLastSendMs_) < ReliableRetryMs) return;
     if (!udp_.beginPacket(remoteIp_, remotePort_)) return;
-    const size_t written = udp_.write(reliablePendingBuf_, reliablePendingLen_);
+    const size_t written = udp_.write(buffers_->reliablePending, reliablePendingLen_);
     if (written == reliablePendingLen_ && udp_.endPacket() == 1) {
         ++reliableAttempts_;
         reliableLastSendMs_ = nowMs;
@@ -469,8 +473,8 @@ bool HmiUdpServerModule::sendAck_(uint16_t seq)
 {
     if (!started_) return false;
     size_t packetLen = 0;
-    if (!hmiUdpBuildPacket(txBuf_,
-                           sizeof(txBuf_),
+    if (!hmiUdpBuildPacket(buffers_->tx,
+                           sizeof(buffers_->tx),
                            packetLen,
                            HmiUdpMsgType::Ack,
                            txSeq_++,
@@ -481,7 +485,7 @@ bool HmiUdpServerModule::sendAck_(uint16_t seq)
         return false;
     }
     if (!udp_.beginPacket(remoteIp_, remotePort_)) return false;
-    const size_t written = udp_.write(txBuf_, packetLen);
+    const size_t written = udp_.write(buffers_->tx, packetLen);
     return written == packetLen && udp_.endPacket() == 1;
 }
 
@@ -489,11 +493,11 @@ void HmiUdpServerModule::readUdp_(uint32_t nowMs)
 {
     int packetSize = udp_.parsePacket();
     while (packetSize > 0) {
-        if (packetSize <= (int)sizeof(rxBuf_)) {
-            const int len = udp_.read(rxBuf_, sizeof(rxBuf_));
+        if (packetSize <= (int)sizeof(buffers_->rx)) {
+            const int len = udp_.read(buffers_->rx, sizeof(buffers_->rx));
             const HmiUdpHeader* header = nullptr;
             const uint8_t* payload = nullptr;
-            if (len > 0 && hmiUdpValidatePacket(rxBuf_, (size_t)len, header, payload)) {
+            if (len > 0 && hmiUdpValidatePacket(buffers_->rx, (size_t)len, header, payload)) {
                 remoteIp_ = udp_.remoteIP();
                 remotePort_ = udp_.remotePort();
                 handlePacket_(*header, payload, nowMs);

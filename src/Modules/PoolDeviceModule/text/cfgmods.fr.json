@@ -6,7 +6,8 @@
   },
   "docs": {
     "pdm": {
-      "label_t": "cfgmods.pdm.label"
+      "label_t": "cfgmods.pdm.label",
+      "hidden": true
     }
   }
 }

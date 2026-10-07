@@ -5,6 +5,9 @@
 #include <new>
 #include <string.h>
 
+#define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::MQTTModule)
+#include "Core/ModuleLog.h"
+
 namespace {
 template <typename T>
 T* allocPsramArray_(size_t count)
@@ -87,6 +90,7 @@ void RuntimeProducer::rebuildRoutes()
             route.pending = true;
             route.force = true;
             snprintf(route.suffix, sizeof(route.suffix), "%s", suffix);
+
         }
     }
 }
@@ -147,6 +151,10 @@ void RuntimeProducer::onConnected()
     }
 
     for (uint8_t i = 0; i < routeCount_; ++i) {
+        const Route& route = routes_[i];
+        LOGI("route producer=%u type=1 msg=%u snapshot=%u class=%u suffix=%s",
+             (unsigned)ProducerId, (unsigned)i, (unsigned)route.snapshotIdx,
+             (unsigned)route.routeClass, route.suffix);
         markRoutePending_(i, true);
         enqueueRoute_(i);
     }

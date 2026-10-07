@@ -50,6 +50,7 @@ enum class RuntimeUiWireType : uint8_t {
     Float32 = 5,
     Enum = 6,
     String = 7,
+    Float64 = 8,
 };
 
 class IRuntimeUiWriter {
@@ -60,6 +61,7 @@ public:
     virtual bool writeI32(RuntimeUiId runtimeId, int32_t value) = 0;
     virtual bool writeU32(RuntimeUiId runtimeId, uint32_t value) = 0;
     virtual bool writeF32(RuntimeUiId runtimeId, float value) = 0;
+    virtual bool writeF64(RuntimeUiId runtimeId, double value) = 0;
     virtual bool writeEnum(RuntimeUiId runtimeId, uint8_t value) = 0;
     virtual bool writeString(RuntimeUiId runtimeId, const char* value) = 0;
     virtual bool writeNotFound(RuntimeUiId runtimeId) = 0;
@@ -92,6 +94,7 @@ public:
     bool writeI32(RuntimeUiId runtimeId, int32_t value) override;
     bool writeU32(RuntimeUiId runtimeId, uint32_t value) override;
     bool writeF32(RuntimeUiId runtimeId, float value) override;
+    bool writeF64(RuntimeUiId runtimeId, double value) override;
     bool writeEnum(RuntimeUiId runtimeId, uint8_t value) override;
     bool writeString(RuntimeUiId runtimeId, const char* value) override;
     bool writeNotFound(RuntimeUiId runtimeId) override;
