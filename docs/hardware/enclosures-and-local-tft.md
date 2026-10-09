@@ -91,6 +91,10 @@ Percer une plaque latérale, retirer temporairement la lentille si nécessaire, 
 
 Le signal est lu sur GPIO11, actif haut, via l'entrée logique PIR du firmware.
 
+Au réveil du TFT par le PIR, le logo Flow.io reste fixe pendant 1 seconde, puis le cycle des pages reprend sur la première page. Un mouvement détecté lorsque l'écran est déjà allumé ne relance pas le logo.
+
+Dans la configuration `hmi/tft`, activer **Flip** pour retourner l'affichage de 180° si le montage de l'écran l'exige. Ce réglage est désactivé par défaut, conservé après redémarrage et appliqué immédiatement lorsque le TFT est actif.
+
 ## 7. Fermeture et maintenance
 
 Remplacer les vis difficiles d'accès par quatre fixations M4 × 40 mm afin de pouvoir ouvrir le boîtier lorsqu'il est monté sur son support. La combinaison exacte vis, écrous et entretoises est **(À confirmer)** pour le boîtier réellement utilisé.

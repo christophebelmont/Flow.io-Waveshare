@@ -5,6 +5,11 @@
     "version": 1
   },
   "docs": {
+    "tft/s3/flip": {
+      "type": "Bool",
+      "label_t": "cfgdocs.tft.s3.flip.label",
+      "help_t": "cfgdocs.tft.s3.flip.help"
+    },
     "tft/s3/enabled": {
       "type": "Bool",
       "label_t": "cfgdocs.tft.s3.enabled.label",

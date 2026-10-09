@@ -60,6 +60,7 @@ public:
 private:
     struct ConfigData {
         bool enabled = true;
+        bool flip = false;
         bool autoOff60s = true;
         IoId motionIoId = ioIdFromSlot(digitalInputSlot(PoolInputSlots::Pir));
     };
@@ -132,11 +133,13 @@ private:
 
     void onEvent_(const Event& e);
     bool beginDisplay_();
+    void applyOrientation_();
     void applyBacklight_(bool on);
     void resetMotionInput_();
     void updateBacklight_();
     void render_(bool force);
     void invalidateRenderCache_();
+    void startSplash_(uint32_t holdMs);
     void drawBootLogo_();
     void drawStaticLayout_(Page page);
     void drawHeader_(const char* timeText, uint8_t wifiBars, bool apMode);
@@ -202,6 +205,10 @@ private:
     ConfigVariable<bool, 0> autoOffVar_{
         NVS_KEY("tfts3auto"), "auto_off_60s", "tft/s3",
         ConfigType::Bool, &cfgData_.autoOff60s, ConfigPersistence::Persistent, 0
+    };
+    ConfigVariable<bool, 0> flipVar_{
+        NVS_KEY("tfts3flip"), "flip", "tft/s3",
+        ConfigType::Bool, &cfgData_.flip, ConfigPersistence::Persistent, 0
     };
     ConfigVariable<IoId, 0> motionIoIdVar_{
         NVS_KEY("tfts3io"), "motion_io_id", "tft/s3",

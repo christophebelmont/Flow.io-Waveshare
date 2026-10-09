@@ -1,5 +1,7 @@
 {
   "translations": {
+    "cfgdocs.tft.s3.flip.label": "Flip",
+    "cfgdocs.tft.s3.flip.help": "Retourne l'affichage du TFT de 180 degrés (haut/bas), sans redémarrage.",
     "cfgdocs.tft.s3.auto_off_60s.help": "Eteint le retroeclairage apres 60 secondes sans mouvement local.",
     "cfgdocs.tft.s3.auto_off_60s.label": "Extinction auto",
     "cfgdocs.tft.s3.enabled.help": "Active le TFT local du Waveshare ESP32-S3.",

@@ -51,6 +51,7 @@ constexpr uint16_t kCfgMsgAlarmBase = 32U;
 constexpr uint32_t kRenderPeriodMs = 1000U;
 constexpr uint32_t kBacklightTimeoutMs = 60000U;
 constexpr uint32_t kStartupSplashHoldMs = 5000U;
+constexpr uint32_t kWakeSplashHoldMs = 1000U;
 constexpr uint32_t kPageRotateMs = 10000U;
 
 constexpr uint16_t rgb565_(uint8_t r, uint8_t g, uint8_t b)
@@ -527,6 +528,7 @@ void TFTModuleS3::init(ConfigStore& cfg, ServiceRegistry& services)
     cfg.registerVar(enabledVar_, module, kCfgBranch);
     cfg.registerVar(autoOffVar_, module, kCfgBranch);
     cfg.registerVar(motionIoIdVar_, module, kCfgBranch);
+    cfg.registerVar(flipVar_, module, kCfgBranch);
 
     for (uint8_t i = 0; i < DashboardSlotCount; ++i) {
         const uint8_t branch = (uint8_t)(kCfgBranchSensorBase + i);
@@ -591,6 +593,7 @@ void TFTModuleS3::loop()
         return;
     }
 
+    applyOrientation_();
     updateBacklight_();
     const uint32_t now = millis();
     if (!splashHeld_) {
@@ -655,20 +658,25 @@ bool TFTModuleS3::beginDisplay_()
     display_.setSPISpeed(displayCfg_.spiHz);
     display_.init(displayCfg_.resX, displayCfg_.resY);
     display_.setColRowStart(displayCfg_.colStart, displayCfg_.rowStart);
-    display_.setRotation(displayCfg_.rotation & 0x03U);
+    applyOrientation_();
     display_.invertDisplay(displayCfg_.invertColors);
     display_.setTextWrap(false);
     display_.fillScreen(color_(kColorBg));
     displayReady_ = true;
-    invalidateRenderCache_();
-    redrawRequested_ = true;
-    splashHeld_ = false;
-    splashHoldUntilMs_ = millis() + kStartupSplashHoldMs;
-    pageCycleStartMs_ = 0;
-    lastRenderedPageCycle_ = 0xFFFFFFFFU;
-    drawBootLogo_();
+    startSplash_(kStartupSplashHoldMs);
     LOGI("TFT S3 ready %ux%u", (unsigned)displayCfg_.resX, (unsigned)displayCfg_.resY);
     return true;
+}
+
+void TFTModuleS3::applyOrientation_()
+{
+    const uint8_t rotation = (displayCfg_.rotation + (cfgData_.flip ? 2U : 0U)) & 0x03U;
+    if (displayReady_ && display_.getRotation() == rotation) return;
+
+    display_.setRotation(rotation);
+    invalidateRenderCache_();
+    redrawRequested_ = true;
+    if (displayReady_ && !splashHeld_) drawBootLogo_();
 }
 
 void TFTModuleS3::applyBacklight_(bool on)
@@ -725,6 +733,10 @@ void TFTModuleS3::updateBacklight_()
     motionInputReady_ = true;
     motionReadErrorLogged_ = false;
     if (motionActive != 0U) lastMotionMs_ = now;
+    if (motionActive != 0U && !backlightOn_) {
+        // Prepare the logo while the backlight is off to avoid flashing the old page.
+        startSplash_(kWakeSplashHoldMs);
+    }
     applyBacklight_((now - lastMotionMs_) < kBacklightTimeoutMs);
 }
 
@@ -904,6 +916,17 @@ void TFTModuleS3::drawGfxTextCenteredY_(const GFXfont* font,
     setGfxFont_(font, fg, bg);
     display_.setCursor(x, gfxBaselineCenteredInBox_(text, boxY, boxH));
     display_.print(text ? text : "");
+}
+
+void TFTModuleS3::startSplash_(uint32_t holdMs)
+{
+    invalidateRenderCache_();
+    redrawRequested_ = true;
+    splashHeld_ = false;
+    pageCycleStartMs_ = 0;
+    lastRenderedPageCycle_ = 0xFFFFFFFFU;
+    drawBootLogo_();
+    splashHoldUntilMs_ = millis() + holdMs;
 }
 
 void TFTModuleS3::drawBootLogo_()
