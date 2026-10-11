@@ -1,5 +1,18 @@
 #include "fixture.h"
 int main() {
+    { // A request arriving during acquisition is newer than the cycle timestamp.
+        IOModule io;
+        const uint32_t cycleStarted = testNow;
+        testNow += 10;
+        io.drivers[0].raw = 42;
+        io.request();
+        io.servicePulseRequest_(cycleStarted);
+        assert(io.pulseRequestState_.load() == IOModule::PulseRequestState::Saving);
+        assert(io.writes == 1 && io.queued.count[0] == 42);
+        io.complete(); io.step();
+        assert(io.pulseRequestResult_ == IO_OK);
+        testNow = 0;
+    }
     { // Periodic frequency unchanged, then forced save reads the latest hardware count.
         IOModule io;
         io.drivers[0].raw = 53;

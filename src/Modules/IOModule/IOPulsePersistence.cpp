@@ -118,7 +118,9 @@ bool IOModule::servicePulseRequest_(uint32_t nowMs)
         pulseRequestState_.store(PulseRequestState::Complete);
     };
     if (state == PulseRequestState::Requested) {
-        if (uint32_t(nowMs - pulseRequestStartedMs_) >= PulseRequestTimeoutMs) {
+        // The acquisition cycle may have started before the caller published
+        // this request. Use the current clock to avoid unsigned underflow.
+        if (uint32_t(millis() - pulseRequestStartedMs_) >= PulseRequestTimeoutMs) {
             finish(IO_ERR_TIMEOUT);
             return true;
         }

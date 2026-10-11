@@ -415,7 +415,7 @@ body.web-icons-disabled .status-flag-check.is-true{font-size:13px;}
 .updates-progress-icon .ui-msr{display:inline-flex;align-items:center;justify-content:center;font-size:21px;}
 .updates-progress-icon.is-error{background:color-mix(in srgb,var(--danger) 12%,var(--surface));color:var(--danger);}
 .updates-progress-panel:not(.is-error) .updates-progress-icon .ui-msr{animation:upgrade-icon-spin 2.4s linear infinite;}
-@keyframes upgrade-icon-spin{to{transform:rotate(360deg);}}
+@keyframes upgrade-icon-spin{to{transform:rotate(-360deg);}}
 @media(prefers-reduced-motion:reduce){.updates-progress-panel:not(.is-error) .updates-progress-icon .ui-msr{animation:none;}}
 .updates-progress-body{display:grid;gap:10px;min-width:0;}
 .updates-progress-head{display:flex;align-items:center;justify-content:space-between;gap:14px;min-width:0;}
@@ -1304,7 +1304,7 @@ body.web-icons-disabled .control-field-apply{font-size:15px;font-weight:800;lett
 .runtime-override-status.is-forced { color:var(--warning,#a65d00); }
 .runtime-management-dialog .runtime-counter-table-scroll { container-type:inline-size; }
 .runtime-management-dialog .runtime-counter-table .runtime-override-row > td { text-align:left; }
-.runtime-override-panel { box-sizing:border-box; position:sticky; left:8px; width:calc(100cqw - 16px); max-width:100%; padding:12px; white-space:normal; text-align:left; }
+.runtime-override-panel { box-sizing:border-box; position:sticky; left:var(--runtime-table-cell-padding-x); width:calc(100cqw - 2 * var(--runtime-table-cell-padding-x)); max-width:100%; padding:12px; white-space:normal; text-align:left; }
 .runtime-override-controls { display:flex; align-items:flex-start; gap:20px; }
 .runtime-override-fields { display:grid; grid-template-columns:auto auto; gap:20px; flex:1; }
 .runtime-override-fields fieldset { margin:0; padding:0; border:0; min-width:0; }
@@ -1328,7 +1328,7 @@ body.web-icons-disabled .control-field-apply{font-size:15px;font-weight:800;lett
 .status-dual-tile > .dashboard-tile-switch { grid-column:2; grid-row:1 / span 4; z-index:2; }
 
 /* Equipment and alarm management popups share the reference card charter. */
-.runtime-management-dialog{width:min(1400px,calc(100% - 32px));padding:0;background:var(--surface);border-radius:22px;}
+.runtime-management-dialog{--runtime-table-cell-padding-x:24px;width:min(1400px,calc(100% - 32px));padding:0;background:var(--surface);border-radius:22px;}
 .runtime-management-dialog .runtime-management-header{align-items:center;margin:0 0 16px;padding:20px 24px;}
 .runtime-management-status{display:flex;align-items:center;gap:12px;flex-shrink:0;}
 .runtime-management-dialog .runtime-management-actions .runtime-management-close{width:40px;height:40px;min-width:0;padding:0;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text-muted);}
@@ -1340,8 +1340,8 @@ body.web-icons-disabled .control-field-apply{font-size:15px;font-weight:800;lett
 .runtime-equipment-dialog .runtime-counter-count::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--success);box-shadow:0 0 0 4px color-mix(in srgb,var(--success) 16%,transparent);}
 .runtime-management-dialog .runtime-management-panel{padding:0;border:0;border-radius:0;}
 .runtime-management-dialog .runtime-counter-table{min-width:900px;}
-.runtime-management-dialog .runtime-counter-table th,.runtime-management-dialog .runtime-counter-table td{padding:14px 24px;text-align:right;border-radius:0;vertical-align:middle;}
-.runtime-management-dialog .runtime-counter-table thead th{padding:11px 24px;background:var(--surface-soft);color:var(--text-muted);font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;}
+.runtime-management-dialog .runtime-counter-table th,.runtime-management-dialog .runtime-counter-table td{padding:14px var(--runtime-table-cell-padding-x);text-align:right;border-radius:0;vertical-align:middle;}
+.runtime-management-dialog .runtime-counter-table thead th{padding:11px var(--runtime-table-cell-padding-x);background:var(--surface-soft);color:var(--text-muted);font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;}
 .runtime-management-dialog .runtime-counter-table th:first-child{width:25%;min-width:210px;text-align:left;}
 .runtime-management-dialog .runtime-counter-table th:nth-child(2),.runtime-management-dialog .runtime-counter-table td:nth-child(2){text-align:left;}
 .runtime-management-dialog .runtime-counter-table th:last-child,.runtime-management-dialog .runtime-counter-table td:last-child{width:auto;}
@@ -1368,7 +1368,7 @@ body.web-icons-disabled .control-field-apply{font-size:15px;font-weight:800;lett
 .runtime-management-dialog .runtime-management-footer{padding:14px 24px;align-items:center;flex-wrap:wrap;}
 .runtime-management-dialog .runtime-action-switch-control{flex-wrap:nowrap;gap:10px;}
 @media(max-width:800px){.runtime-management-status{width:100%;justify-content:space-between;flex-wrap:wrap;gap:10px;}.runtime-management-dialog .runtime-management-actions{width:auto;flex-wrap:wrap;}}
-@media(max-width:600px){.runtime-management-dialog .runtime-management-header{padding:16px;margin-bottom:12px;}.runtime-management-dialog h2{font-size:16px;}.runtime-management-dialog .runtime-management-footer{padding:12px 16px;}.runtime-management-dialog .runtime-counter-count{font-size:11px;padding:6px 10px;}.runtime-equipment-subtitle{font-size:12px;}.runtime-management-dialog .runtime-counter-table th,.runtime-management-dialog .runtime-counter-table td{padding:12px 16px;}.runtime-management-dialog .runtime-counter-table thead th{padding:10px 16px;}}
+@media(max-width:600px){.runtime-management-dialog{--runtime-table-cell-padding-x:16px;}.runtime-management-dialog .runtime-management-header{padding:16px;margin-bottom:12px;}.runtime-management-dialog h2{font-size:16px;}.runtime-management-dialog .runtime-management-footer{padding:12px 16px;}.runtime-management-dialog .runtime-counter-count{font-size:11px;padding:6px 10px;}.runtime-equipment-subtitle{font-size:12px;}.runtime-management-dialog .runtime-counter-table th,.runtime-management-dialog .runtime-counter-table td{padding:12px var(--runtime-table-cell-padding-x);}.runtime-management-dialog .runtime-counter-table thead th{padding:10px var(--runtime-table-cell-padding-x);}}
 
 /* ===== Derived values page ===== */
 .derived-page-shell{max-width:1180px;margin:0 auto;display:grid;gap:16px;}
