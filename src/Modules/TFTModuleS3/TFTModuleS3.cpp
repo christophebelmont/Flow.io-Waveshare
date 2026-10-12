@@ -11,7 +11,6 @@
 #include <new>
 #include <ArduinoJson.h>
 #include <Fonts/FreeSans9pt7b.h>
-#include <Fonts/FreeSans18pt7b.h>
 #include <Fonts/FreeSansBold9pt7b.h>
 #include <Fonts/FreeSansBold12pt7b.h>
 #include <math.h>
@@ -36,6 +35,7 @@
 #include "Modules/Network/WifiModule/WifiRuntime.h"
 #include "Modules/PoolDeviceModule/PoolDeviceRuntime.h"
 #include "Modules/TFTModuleS3/FlowIoLogoBitmap.h"
+#include "Modules/TFTModuleS3/FlowIoWordmarkBitmaps.h"
 #include <WiFi.h>
 
 #define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::HMIModule)
@@ -62,8 +62,6 @@ constexpr uint16_t rgb565_(uint8_t r, uint8_t g, uint8_t b)
 constexpr uint16_t kColorBg = rgb565_(255, 255, 255);
 constexpr uint16_t kColorHeader = rgb565_(255, 255, 255);
 constexpr uint16_t kColorText = rgb565_(17, 24, 39);
-constexpr uint16_t kColorBrandFlow = rgb565_(7, 59, 102);
-constexpr uint16_t kColorBrandIo = rgb565_(0, 174, 239);
 constexpr uint16_t kColorMuted = rgb565_(108, 122, 141);
 constexpr uint16_t kColorWifiOff = rgb565_(226, 235, 246);
 constexpr uint16_t kColorOn = rgb565_(44, 204, 116);
@@ -941,7 +939,8 @@ void TFTModuleS3::drawBootLogo_()
     display_.drawRGBBitmap(x, y, kFlowIoLogoBitmap, kFlowIoLogoWidth, kFlowIoLogoHeight);
     int16_t textY = (int16_t)(y + (int16_t)kFlowIoLogoHeight + 8);
     if ((int16_t)(textY + 44) > h) textY = (int16_t)(h - 44);
-    drawBrandWordmark_(0, textY, w, 44, &FreeSans18pt7b, kColorHeader);
+    drawBrandWordmark_(0, textY, w, 44, kFlowIoWordmarkSplashBitmap,
+                       kFlowIoWordmarkSplashWidth, kFlowIoWordmarkSplashHeight);
 }
 
 void TFTModuleS3::drawStaticLayout_(Page page)
@@ -972,25 +971,25 @@ void TFTModuleS3::drawWifiBars_(int16_t x, int16_t y, uint8_t bars)
     }
 }
 
-void TFTModuleS3::drawBrandWordmark_(int16_t x, int16_t y, int16_t w, int16_t h, const GFXfont* font, uint16_t bg)
+void TFTModuleS3::drawBrandWordmark_(int16_t x, int16_t y, int16_t w, int16_t h,
+                                       const uint16_t* bitmap, int16_t bitmapW, int16_t bitmapH)
 {
-    static constexpr char kBrandFlow[] = "flow";
-    static constexpr char kBrandIo[] = ".io";
-    static constexpr char kBrandFull[] = "flow.io";
+    const int16_t left = (int16_t)(x + (w - bitmapW) / 2);
+    const int16_t top = (int16_t)(y + (h - bitmapH) / 2);
+    if (!displayCfg_.swapColorBytes) {
+        display_.drawRGBBitmap(left, top, bitmap, bitmapW, bitmapH);
+        return;
+    }
 
-    setGfxFont_(font, kColorBrandFlow, bg);
-    const int16_t flowW = gfxTextWidth_(kBrandFlow);
-    setGfxFont_(font, kColorBrandIo, bg);
-    const int16_t ioW = gfxTextWidth_(kBrandIo);
-    const int16_t startX = (int16_t)(x + ((w - (flowW + ioW)) / 2));
-    const int16_t baseY = gfxBaselineCenteredInBox_(kBrandFull, y, h);
-
-    setGfxFont_(font, kColorBrandFlow, bg);
-    display_.setCursor(startX, baseY);
-    display_.print(kBrandFlow);
-    setGfxFont_(font, kColorBrandIo, bg);
-    display_.setCursor((int16_t)(startX + flowW), baseY);
-    display_.print(kBrandIo);
+    // Honour the same colour byte order as the rest of the TFT interface.
+    display_.startWrite();
+    for (int16_t row = 0; row < bitmapH; ++row) {
+        for (int16_t col = 0; col < bitmapW; ++col) {
+            const uint16_t pixel = pgm_read_word(bitmap + row * bitmapW + col);
+            display_.writePixel(left + col, top + row, color_(pixel));
+        }
+    }
+    display_.endWrite();
 }
 
 void TFTModuleS3::drawHeader_(const char* timeText, uint8_t wifiBars, bool apMode)
@@ -1002,7 +1001,8 @@ void TFTModuleS3::drawHeader_(const char* timeText, uint8_t wifiBars, bool apMod
     } else {
         drawWifiBars_(8, 12, wifiBars);
     }
-    drawBrandWordmark_(0, 7, w, 34, &FreeSansBold12pt7b, kColorHeader);
+    drawBrandWordmark_(0, 7, w, 34, kFlowIoWordmarkHeaderBitmap,
+                       kFlowIoWordmarkHeaderWidth, kFlowIoWordmarkHeaderHeight);
     setGfxFont_(&FreeSansBold12pt7b, kColorText, kColorHeader);
     const char* cleanTime = (timeText && timeText[0] != '\0') ? timeText : "--:--";
     const int16_t tw = gfxTextWidth_(cleanTime);

@@ -159,7 +159,8 @@ private:
     void drawGfxText_(const GFXfont* font, uint16_t fg, uint16_t bg, int16_t x, int16_t baselineY, const char* text);
     void drawGfxTextCenteredY_(const GFXfont* font, uint16_t fg, uint16_t bg, int16_t x, int16_t boxY, int16_t boxH, const char* text);
     void drawWifiBars_(int16_t x, int16_t y, uint8_t bars);
-    void drawBrandWordmark_(int16_t x, int16_t y, int16_t w, int16_t h, const GFXfont* font, uint16_t bg);
+    void drawBrandWordmark_(int16_t x, int16_t y, int16_t w, int16_t h,
+                            const uint16_t* bitmap, int16_t bitmapW, int16_t bitmapH);
     void drawDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t w, int16_t h);
     void drawDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t w, int16_t h, const DashboardSlotRenderState& state);
     void readDashboardSlotState_(uint8_t slot, DashboardSlotRenderState& state) const;
