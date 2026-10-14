@@ -5,6 +5,7 @@
  */
 
 #include <stdint.h>
+#include "I2cAddressSelection.h"
 #include <Wire.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -38,6 +39,7 @@ public:
     void unlock();
 
     bool probe(uint8_t addr);
+    I2cProbeResult probePresence(uint8_t addr);
 
     bool writeReg(uint8_t addr, uint8_t reg, const uint8_t* data, uint16_t len);
     bool readReg(uint8_t addr, uint8_t reg, uint8_t* data, uint16_t len);

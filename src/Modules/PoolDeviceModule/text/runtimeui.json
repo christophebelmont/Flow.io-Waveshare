@@ -302,6 +302,106 @@
       "order": 110,
       "label_t": "runtimeui.pooldev.v05.label",
       "group_t": "runtimeui.pooldev.v01.group"
+    },
+    {
+      "valueId": 6,
+      "key": "pool.fill_pump_on",
+      "type": "bool",
+      "domain": "equipements",
+      "display": "boolean",
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.fill_pump.write",
+          "presentation": "switch",
+          "input": {
+            "name": "value",
+            "type": "bool"
+          },
+          "refreshDomains": [
+            "mode",
+            "equipements"
+          ]
+        }
+      ],
+      "order": 120,
+      "label_t": "runtimeui.pooldev.v06.label",
+      "group_t": "runtimeui.pooldev.v01.group"
+    },
+    {
+      "valueId": 7,
+      "key": "pool.chlorine_generator_on",
+      "type": "bool",
+      "domain": "equipements",
+      "display": "boolean",
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.chlorine_generator.write",
+          "presentation": "switch",
+          "input": {
+            "name": "value",
+            "type": "bool"
+          },
+          "refreshDomains": [
+            "mode",
+            "equipements"
+          ]
+        }
+      ],
+      "order": 130,
+      "label_t": "runtimeui.pooldev.v07.label",
+      "group_t": "runtimeui.pooldev.v01.group"
+    },
+    {
+      "valueId": 8,
+      "key": "pool.lights_on",
+      "type": "bool",
+      "domain": "equipements",
+      "display": "boolean",
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.lights.write",
+          "presentation": "switch",
+          "input": {
+            "name": "value",
+            "type": "bool"
+          },
+          "refreshDomains": [
+            "mode",
+            "equipements"
+          ]
+        }
+      ],
+      "order": 140,
+      "label_t": "runtimeui.pooldev.v08.label",
+      "group_t": "runtimeui.pooldev.v01.group"
+    },
+    {
+      "valueId": 9,
+      "key": "pool.heater_on",
+      "type": "bool",
+      "domain": "equipements",
+      "display": "boolean",
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.heater.write",
+          "presentation": "switch",
+          "input": {
+            "name": "value",
+            "type": "bool"
+          },
+          "refreshDomains": [
+            "mode",
+            "equipements"
+          ]
+        }
+      ],
+      "order": 150,
+      "label_t": "runtimeui.pooldev.v09.label",
+      "group_t": "runtimeui.pooldev.v01.group"
     }
   ]
 }

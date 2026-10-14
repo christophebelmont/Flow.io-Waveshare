@@ -93,6 +93,10 @@ public:
     bool writeRuntimeBlob(const char* key, const void* value, size_t len);
     /** @brief Remove one key guarded by the ConfigStore NVS exclusion. */
     bool eraseKey(const char* key);
+    /** Query persistence presence for additive schema migrations. */
+    bool persistentKeyExists(const char* key, bool& exists);
+    /** Persist a registered value without changing it or posting runtime events. */
+    bool persistRegisteredValue(const void* value);
     /** @brief Persist one float key without mutating registered RAM state. */
     bool persistFloatValue(const char* key, float value);
     /** @brief Post a config-changed event for an already-mutated registered value. */

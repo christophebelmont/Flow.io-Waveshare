@@ -150,7 +150,7 @@ private:
                 bool ready = true;
                 for (uint8_t dep = 0; dep < program.dependencyCount; ++dep) {
                     const auto id = program.dependencies[dep];
-                    if (id >= ValueIds::Derived) ready &= plan->resolved[id - ValueIds::Derived];
+                    if (ValueIds::isDerived(id)) ready &= plan->resolved[id - ValueIds::Derived];
                     else {
                         ValueType type;
                         if (!readSource(id, type) || !ValueExpression::validSourceType(id, type)) return {};

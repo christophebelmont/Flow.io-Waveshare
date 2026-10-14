@@ -94,6 +94,9 @@ public:
     const char* analogSlotName(uint8_t idx) const;
     bool analogSlotUsed(uint8_t idx) const;
     bool analogSlotPublished(uint8_t idx) const;
+    ValueId analogSourceValue(uint8_t idx) const {
+        return idx < MAX_ANALOG_ENDPOINTS ? analogSlots_[idx].sourceValue : VALUE_INVALID;
+    }
     bool digitalInputSlotUsed(uint8_t logicalIdx) const;
     bool digitalInputSlotPublished(uint8_t logicalIdx) const;
     uint8_t digitalInputValueType(uint8_t logicalIdx) const;
@@ -179,6 +182,12 @@ private:
     IoStatus ioListInvalidSensors_(IoId* outIds, uint8_t maxIds, uint8_t* outCount) const;
 
     bool configureRuntime_();
+    IOPortPresence portPresence_(PhysicalPortId port, uint8_t kind) const;
+    bool validateBindingConfig_(const ConfigCandidate& candidate) const;
+    void resolveBootBindings_();
+    void prepareBindingMigration_(ConfigStore& cfg);
+    void persistBindingMigration_(ConfigStore& cfg);
+    void validateResolvedResources_();
     const IOBindingPortSpec* bindingPortSpec_(PhysicalPortId portId) const;
     bool resolveAnalogBinding_(PhysicalPortId portId, uint8_t& sourceOut, uint8_t& channelOut, uint8_t& backendOut) const;
     bool resolveDigitalInputBinding_(PhysicalPortId portId,
@@ -254,6 +263,11 @@ private:
     uint8_t expanderAddress_(IOExpanderId expanderId) const;
     void resolveI2cAddresses_(const bool* needAnalogSource);
     uint8_t analogI2cAddresses_[IO_SRC_COUNT]{};
+    IOPortPresence analogPresence_[IO_SRC_COUNT]{};
+    IOPortPresence expanderPresence_[IO_MAX_EXPANDERS]{};
+    bool bindingsResolved_ = false;
+    bool bindingMigrationPending_ = false;
+    uint32_t legacyBindingSlots_ = 0;
     uint8_t expanderI2cAddresses_[IO_MAX_EXPANDERS]{};
     uint8_t expanderMaskDefault_(IOExpanderId expanderId) const;
     bool expanderOutputsInverted_(IOExpanderId expanderId) const;
@@ -317,9 +331,11 @@ private:
     static constexpr IoId IO_ID_AI_MAX = IO_ID_AI_BASE + MAX_ANALOG_ENDPOINTS;
 
     struct AnalogSlot {
+        ValueId sourceValue = VALUE_INVALID;
         bool used = false;
         IoId ioId = IO_ID_INVALID;
         IOAnalogDefinition def{};
+        IOResolvedBinding binding{};
         // `source` identifies the shared physical driver; `channel` selects one logical measurement.
         uint8_t source = IO_SRC_ADS_INTERNAL_SINGLE;
         uint8_t channel = 0;
@@ -344,6 +360,7 @@ private:
         char endpointId[8] = {0};
         IODigitalInputDefinition inDef{};
         IODigitalOutputDefinition outDef{};
+        IOResolvedBinding binding{};
         uint8_t backend = IO_BACKEND_GPIO;
         uint8_t channel = 0;
         IOExpanderId expanderId = IO_EXPANDER_INVALID;

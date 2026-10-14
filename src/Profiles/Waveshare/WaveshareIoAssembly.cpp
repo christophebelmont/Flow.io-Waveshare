@@ -264,7 +264,11 @@ void applyAnalogDefaultsForDomainSlot(DomainSlotId domainSlot, IOAnalogDefinitio
 {
     const FlowIoLayout::AnalogRoleDefault* spec = FlowIoLayout::analogDefaultForDomainSlot(domainSlot);
     requireSetup(spec != nullptr, "unsupported analog domain role");
-    def.bindingPort = spec->bindingPort;
+    def.binding.primaryPort = spec->bindingPort;
+    def.binding.secondaryPort = spec->secondaryPort;
+    def.legacyDefault = spec->legacyDefault;
+    def.secondaryC0 = spec->secondaryC0;
+    def.secondaryC1 = spec->secondaryC1;
     def.c0 = spec->c0;
     def.c1 = spec->c1;
     def.precision = spec->precision;
@@ -275,7 +279,7 @@ void applyDigitalDefaultsForDomainSlot(DomainSlotId domainSlot, IODigitalInputDe
 {
     const FlowIoLayout::DigitalInputRoleDefault* spec = FlowIoLayout::digitalInputDefaultForDomainSlot(domainSlot);
     requireSetup(spec != nullptr, "unsupported digital input domain role");
-    def.bindingPort = spec->bindingPort;
+    def.binding.primaryPort = spec->bindingPort;
     def.activeHigh = spec->activeHigh;
     def.pullMode = spec->pullMode;
     def.mode = spec->mode;
@@ -367,7 +371,8 @@ void syncAnalogSensors(ModuleInstances& modules)
         );
         char endpointId[8] = {0};
         snprintf(endpointId, sizeof(endpointId), "a%02u", (unsigned)i);
-        const char* label = spec.name;
+        const bool internalSource = modules.ioModule.analogSourceValue(i) != VALUE_INVALID;
+        const char* label = internalSource ? modules.ioModule.endpointLabel(IO_ID_AI_BASE + i) : spec.name;
         if (!label || label[0] == '\0') {
             label = modules.ioModule.endpointLabel(IO_ID_AI_BASE + i);
         }
@@ -383,7 +388,7 @@ void syncAnalogSensors(ModuleInstances& modules)
             gDiscoveryHeap->analogStateSuffix[i],
             gDiscoveryHeap->analogValueTpl[i],
             nullptr,
-            spec.icon,
+            internalSource ? "mdi:cup-water" : spec.icon,
             gDiscoveryHeap->analogUnit[i][0] != '\0' ? gDiscoveryHeap->analogUnit[i] : nullptr,
             false,
             kAvailabilityTpl
@@ -527,7 +532,7 @@ void configureIoModule(const AppContext& ctx, ModuleInstances& modules)
         def.edgeMode = IO_EDGE_RISING;
         def.counterDebounceUs = 0U;
         const PhysicalPortId defaultPort = digitalInputPortFromOrdinal((uint8_t)(i + 1U));
-        def.bindingPort = FlowIoLayout::digitalInputPortUsedByDomainRole(defaultPort)
+        def.binding.primaryPort = FlowIoLayout::digitalInputPortUsedByDomainRole(defaultPort)
             ? IO_PORT_INVALID
             : defaultPort;
         requireSetup(modules.ioModule.defineDigitalInput(def), "define waveshare digital input");
@@ -543,7 +548,7 @@ void configureIoModule(const AppContext& ctx, ModuleInstances& modules)
         def.mode = IO_DIGITAL_INPUT_STATE;
         def.edgeMode = IO_EDGE_RISING;
         def.counterDebounceUs = 0U;
-        def.bindingPort = waveshareMcpInputPort(i);
+        def.binding.primaryPort = waveshareMcpInputPort(i);
         requireSetup(modules.ioModule.defineDigitalInput(def), "define waveshare MCP digital input");
     }
 
@@ -560,7 +565,7 @@ void configureIoModule(const AppContext& ctx, ModuleInstances& modules)
         IODigitalOutputDefinition def{};
         snprintf(def.id, sizeof(def.id), "%s", preset.displayName ? preset.displayName : "output");
         def.ioId = ioIdFromSlot(ioSlot);
-        def.bindingPort = spec->bindingPort;
+        def.binding.primaryPort = spec->bindingPort;
         def.activeHigh = spec->activeHigh;
         def.initialOn = false;
         def.startupPolicy = spec->retainOnWarmReboot
@@ -576,7 +581,7 @@ void configureIoModule(const AppContext& ctx, ModuleInstances& modules)
         IODigitalOutputDefinition def{};
         snprintf(def.id, sizeof(def.id), "Lights");
         def.ioId = (IoId)(IO_ID_DO_BASE + 6U);
-        def.bindingPort = FlowIoLayout::PortExio7;
+        def.binding.primaryPort = FlowIoLayout::PortExio7;
         def.activeHigh = true;
         def.initialOn = false;
         def.startupPolicy = IOOutputStartupPolicy::ApplyInitial;
@@ -594,7 +599,7 @@ void configureIoModule(const AppContext& ctx, ModuleInstances& modules)
         IODigitalOutputDefinition def{};
         snprintf(def.id, sizeof(def.id), "MCP B%u", (unsigned)i);
         def.ioId = (IoId)(IO_ID_DO_BASE + logicalIdx);
-        def.bindingPort = waveshareCompOutputPort(i);
+        def.binding.primaryPort = waveshareCompOutputPort(i);
         def.activeHigh = true;
         def.initialOn = false;
         def.startupPolicy = IOOutputStartupPolicy::ApplyInitial;

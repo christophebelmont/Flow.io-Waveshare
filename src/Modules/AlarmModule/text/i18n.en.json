@@ -14,7 +14,7 @@
     "runtimeui.alarms.v03.display.columnLabel": "Cond.",
     "runtimeui.alarms.v03.group": "Alarms",
     "runtimeui.alarms.v03.label": "Alarms Conditions State",
-    "runtimeui.alarms.dialog.buttonText": "Manage alarms",
+    "runtimeui.alarms.dialog.buttonText": "Manage",
     "runtimeui.alarms.dialog.title": "Alarm management",
     "runtimeui.alarms.dialog.description": "The condition describes the detected problem. The latch retains the alarm after the problem has cleared, until acknowledgement. An active or unknown condition prevents acknowledgement. An alarm without a latch clears automatically.",
     "runtimeui.alarms.dialog.inputLabel": "Alarm",

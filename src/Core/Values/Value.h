@@ -9,7 +9,11 @@ namespace ValueIds {
 constexpr ValueId Analog = 0, Digital = 32, PulseRate = 48, Total = 64,
                   ConvertedRate = 80, Derived = 96;
 constexpr uint8_t DerivedCapacity = 5;
-constexpr uint16_t Capacity = Derived + DerivedCapacity;
+// Keep existing persisted/history identities stable. Equipment metrics have their own range.
+constexpr ValueId PoolTank = 112;
+constexpr uint8_t PoolTankSlots = 16;
+constexpr uint16_t Capacity = PoolTank + 2 * PoolTankSlots;
+constexpr bool isDerived(ValueId id) { return id >= Derived && id < Derived + DerivedCapacity; }
 }
 enum class ValueType : uint8_t { Bool, Int32, UInt32, UInt64, Float, Double };
 enum class AggregationMode : uint8_t { Gauge, Rate, Counter };

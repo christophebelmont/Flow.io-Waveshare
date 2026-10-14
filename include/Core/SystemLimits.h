@@ -29,7 +29,8 @@ constexpr size_t JsonConfigApplyBuf = JsonCfgBuf;
 /** @brief Maximum number of registered config variables in `ConfigStore` metadata table.
  *  Sized for the Waveshare profile with additional headroom for local TFT
  *  sensor/alarm slots, dashboard/LCD and PoolLogic extensions while staying bounded. */
-constexpr size_t MaxConfigVars = 896;
+// Dual boot bindings add 92 descriptors in the Waveshare profile. Metadata lives in PSRAM.
+constexpr size_t MaxConfigVars = 1024;
 /** @brief Maximum NVS key length (without null terminator) enforced by `ConfigTypes::NVS_KEY`. */
 constexpr size_t MaxNvsKeyLen = 15;
 /** @brief FreeRTOS log queue length used by `LogHub` (`LogHubModule::init`).

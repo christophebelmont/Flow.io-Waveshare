@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Domain/Pool/PoolIds.h"
+#include "Domain/Calibration.h"
 #include "Modules/IOModule/IODrivers/Ads1115Driver.h"
 #include "Modules/IOModule/IOModuleTypes.h"
 
@@ -164,13 +165,17 @@ struct AnalogRoleDefault {
     float c0; // Coefficient multiplicateur de calibration.
     float c1; // Offset de calibration.
     int32_t precision; // Precision d'affichage (nb de decimales).
-    const char* unit; // Unite affichee (vide = aucune).
+    const char* unit;
+    PhysicalPortId secondaryPort = IO_PORT_INVALID;
+    float secondaryC0 = 1.0f;
+    float secondaryC1 = 0.0f;
+    IOAnalogLegacyDefault legacyDefault{};
 };
 
 inline constexpr AnalogRoleDefault kAnalogRoleDefaults[] = {
     // {domainSlot, bindingPort, c0, c1, precision, unit}
-    {PoolIds::SensorOrp, PortAdsInternal0, FLOW_WIRDEF_IO_A00, FLOW_WIRDEF_IO_A01, FLOW_WIRDEF_IO_A0P, "mV"},
-    {PoolIds::SensorPh, PortAdsInternal1, FLOW_WIRDEF_IO_A10, FLOW_WIRDEF_IO_A11, FLOW_WIRDEF_IO_A1P, ""},
+    {PoolIds::SensorOrp, PortAdsExternal0, Calib::Orp::ExternalC0, Calib::Orp::ExternalC1, FLOW_WIRDEF_IO_A0P, "mV", PortAdsInternal0, Calib::Orp::InternalC0, Calib::Orp::InternalC1, {PortAdsInternal0, FLOW_WIRDEF_IO_A00, FLOW_WIRDEF_IO_A01}},
+    {PoolIds::SensorPh, PortAdsExternal1, Calib::Ph::ExternalC0, Calib::Ph::ExternalC1, FLOW_WIRDEF_IO_A1P, "", PortAdsInternal1, Calib::Ph::InternalC0, Calib::Ph::InternalC1, {PortAdsInternal1, FLOW_WIRDEF_IO_A10, FLOW_WIRDEF_IO_A11}},
     {PoolIds::SensorPsi, PortAdsInternal2, FLOW_WIRDEF_IO_A20, FLOW_WIRDEF_IO_A21, FLOW_WIRDEF_IO_A2P, "PSI"},
     {PoolIds::SensorSpareAnalog, PortAdsInternal3, FLOW_WIRDEF_IO_A30, FLOW_WIRDEF_IO_A31, FLOW_WIRDEF_IO_A3P, ""},
     {PoolIds::SensorWaterTemp, PortOneWireWater, FLOW_WIRDEF_IO_A40, FLOW_WIRDEF_IO_A41, FLOW_WIRDEF_IO_A4P, "\xC2\xB0""C"},

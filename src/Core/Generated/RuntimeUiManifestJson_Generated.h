@@ -112,7 +112,7 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
         "flagRole": "resettable",
         "columnLabel": "Reset",
         "actionDialog": {
-          "buttonText": "G\u00e9rer les alarmes",
+          "buttonText": "G\u00e9rer",
           "title": "Gestion des alarmes",
           "description": "La condition d\u00e9crit le probl\u00e8me d\u00e9tect\u00e9. Le latch conserve l\u2019alarme apr\u00e8s disparition du probl\u00e8me, jusqu\u2019\u00e0 son acquittement. Une condition active ou inconnue emp\u00eache l\u2019acquittement. Une alarme sans latch se l\u00e8ve automatiquement.",
           "inputLabel": "Alarme",
@@ -427,7 +427,7 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
       "displayConfig": {
         "showValue": false,
         "actionDialog": {
-          "buttonText": "G\u00e9rer les \u00e9quipements",
+          "buttonText": "G\u00e9rer",
           "title": "\u00c9quipements du bassin",
           "description": "Pour la filtration et le robot automatiques sur relais, choisissez une dur\u00e9e puis forcez la marche ou l\u2019arr\u00eat. Le for\u00e7age survit au red\u00e9marrage et revient ensuite au mode guid\u00e9. Les protections restent prioritaires. Les autres \u00e9quipements conservent leur commande manuelle. La remise \u00e0 z\u00e9ro efface les compteurs jour, semaine et mois, sans modifier les compteurs totaux.",
           "inputLabel": "\u00c9quipement",
@@ -616,6 +616,142 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
             "name": "slot",
             "type": "uint32"
           }
+        }
+      ]
+    },
+    {
+      "id": 2306,
+      "runtimeId": 2306,
+      "moduleId": 23,
+      "module": "pooldev",
+      "valueId": 6,
+      "key": "pool.fill_pump_on",
+      "label": "Remplissage",
+      "type": "bool",
+      "domain": "equipements",
+      "group": "Equipements",
+      "unit": null,
+      "decimals": null,
+      "order": 120,
+      "enum": null,
+      "flags": null,
+      "display": "boolean",
+      "displayConfig": null,
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.fill_pump.write",
+          "presentation": "switch",
+          "input": {
+            "name": "value",
+            "type": "bool"
+          },
+          "refreshDomains": [
+            "mode",
+            "equipements"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2307,
+      "runtimeId": 2307,
+      "moduleId": 23,
+      "module": "pooldev",
+      "valueId": 7,
+      "key": "pool.chlorine_generator_on",
+      "label": "\u00c9lectrolyseur",
+      "type": "bool",
+      "domain": "equipements",
+      "group": "Equipements",
+      "unit": null,
+      "decimals": null,
+      "order": 130,
+      "enum": null,
+      "flags": null,
+      "display": "boolean",
+      "displayConfig": null,
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.chlorine_generator.write",
+          "presentation": "switch",
+          "input": {
+            "name": "value",
+            "type": "bool"
+          },
+          "refreshDomains": [
+            "mode",
+            "equipements"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2308,
+      "runtimeId": 2308,
+      "moduleId": 23,
+      "module": "pooldev",
+      "valueId": 8,
+      "key": "pool.lights_on",
+      "label": "\u00c9clairage",
+      "type": "bool",
+      "domain": "equipements",
+      "group": "Equipements",
+      "unit": null,
+      "decimals": null,
+      "order": 140,
+      "enum": null,
+      "flags": null,
+      "display": "boolean",
+      "displayConfig": null,
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.lights.write",
+          "presentation": "switch",
+          "input": {
+            "name": "value",
+            "type": "bool"
+          },
+          "refreshDomains": [
+            "mode",
+            "equipements"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2309,
+      "runtimeId": 2309,
+      "moduleId": 23,
+      "module": "pooldev",
+      "valueId": 9,
+      "key": "pool.heater_on",
+      "label": "Chauffage",
+      "type": "bool",
+      "domain": "equipements",
+      "group": "Equipements",
+      "unit": null,
+      "decimals": null,
+      "order": 150,
+      "enum": null,
+      "flags": null,
+      "display": "boolean",
+      "displayConfig": null,
+      "actions": [
+        {
+          "id": "set",
+          "command": "poollogic.heater.write",
+          "presentation": "switch",
+          "input": {
+            "name": "value",
+            "type": "bool"
+          },
+          "refreshDomains": [
+            "mode",
+            "equipements"
+          ]
         }
       ]
     },

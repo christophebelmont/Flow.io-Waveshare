@@ -454,3 +454,11 @@ Le champ facultatif `io/value/vNN/name` définit le nom affiché dans Home Assis
 (63 octets UTF-8 maximum). Vide par défaut, il conserve le libellé `Value VNN`.
 Le nom prend effet après redémarrage ; le topic Discovery et l’identifiant unique
 restent identiques lors du renommage, y compris pour les capteurs déjà créés.
+
+### Sources analogiques internes
+
+Les entrées `aNN` disposent d'un choix `source_value` permettant de sélectionner
+le volume restant estimé (mL) ou le remplissage estimé (%) d'un PoolDevice.
+Le choix prend effet après redémarrage ; les ports physiques restent conservés.
+Voir [Sources analogiques internes](../core/internal-analog-sources.md) pour la
+configuration, les identités et les règles de validité.

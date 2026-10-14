@@ -13,7 +13,7 @@
     "runtimeui.alarms.v03.display.columnLabel": "Cond.",
     "runtimeui.alarms.v03.group": "Alarmes",
     "runtimeui.alarms.v03.label": "Conditions alarmes",
-    "runtimeui.alarms.dialog.buttonText": "Gérer les alarmes",
+    "runtimeui.alarms.dialog.buttonText": "Gérer",
     "runtimeui.alarms.dialog.title": "Gestion des alarmes",
     "runtimeui.alarms.dialog.description": "La condition décrit le problème détecté. Le latch conserve l’alarme après disparition du problème, jusqu’à son acquittement. Une condition active ou inconnue empêche l’acquittement. Une alarme sans latch se lève automatiquement.",
     "runtimeui.alarms.dialog.inputLabel": "Alarme",

@@ -30,7 +30,8 @@ enum class DomainSlotStatusReason : uint8_t {
     DriverInitFailed,
     NoValidValue,
     PoolDeviceBlocked,
-    ReadFailed
+    ReadFailed,
+    BindingResolutionFailed
 };
 
 struct DomainSlotStatus {
@@ -94,6 +95,7 @@ constexpr const char* domainSlotStatusReasonName(DomainSlotStatusReason reason)
         case DomainSlotStatusReason::DriverInitFailed: return "driver_init_failed";
         case DomainSlotStatusReason::NoValidValue: return "no_valid_value";
         case DomainSlotStatusReason::PoolDeviceBlocked: return "pool_device_blocked";
+        case DomainSlotStatusReason::BindingResolutionFailed: return "binding_resolution_failed";
         case DomainSlotStatusReason::ReadFailed: return "read_failed";
     }
     return "unknown";

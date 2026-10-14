@@ -4,6 +4,8 @@
  */
 
 #include "PoolDeviceModule.h"
+#include "Core/Values/InternalAnalogSources.h"
+static_assert(POOL_DEVICE_MAX <= ValueIds::PoolTankSlots, "Tank source catalog too small");
 #include <esp_timer.h>
 #include "Core/BufferUsageTracker.h"
 #include "Domain/Pool/PoolDeviceSlots.h"
@@ -746,6 +748,15 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
                 rtMetrics.tsMs = s.metricsTsMs;
                 (void)setPoolDeviceRuntimeMetrics(*dataStore_, i, rtMetrics);
             }
+        }
+
+        if (dataStore_ && (metricsChanged || s.lastTankPublishMs == 0 ||
+                          uint32_t(nowMs - s.lastTankPublishMs) >= 1000U)) {
+            InternalAnalogSources::publishTank(dataStore_->values, i, s.tankRemainingMl,
+                s.def.tankCapacityMl, s.def.enabled && s.runtimePublishable && s.driverReady &&
+                    !s.feedback.error && s.feedback.quality != PoolFeedbackQuality::Stale,
+                uint64_t(esp_timer_get_time()) / 1000ULL);
+            s.lastTankPublishMs = nowMs;
         }
 
         bool shouldPersist = false;

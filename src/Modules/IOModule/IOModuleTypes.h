@@ -8,6 +8,7 @@
 
 #include "Core/Services/IIO.h"
 #include "Core/ConfigDefaults.h"
+#include "Core/Values/Value.h"
 
 typedef uint16_t BindingPointId;
 typedef BindingPointId PhysicalPortId;
@@ -144,13 +145,23 @@ enum class IOOutputStartupPolicy : uint8_t {
     PreserveHardwareState = 1
 };
 
+struct IOAnalogLegacyDefault {
+    PhysicalPortId port = IO_PORT_INVALID;
+    float c0 = 1.0f;
+    float c1 = 0.0f;
+};
+
 struct IOAnalogDefinition {
+    // Explicit pre-dual-binding profile defaults, used only during schema migration.
+    IOAnalogLegacyDefault legacyDefault{};
     char id[24] = {0};
     /** Required explicit AI id in [IO_ID_AI_BASE..IO_ID_AI_BASE+MAX_ANALOG_ENDPOINTS). */
     IoId ioId = IO_ID_INVALID;
-    PhysicalPortId bindingPort = IO_PORT_INVALID;
+    IOBindingConfig binding{};
     float c0 = 1.0f;
     float c1 = 0.0f;
+    float secondaryC0 = 1.0f;
+    float secondaryC1 = 0.0f;
     int32_t precision = 1;
     const char* unit = nullptr;
     IOAnalogValueCallback onValueChanged = nullptr;
@@ -158,10 +169,13 @@ struct IOAnalogDefinition {
 };
 
 struct IOAnalogSlotConfig {
+    ValueId sourceValue = VALUE_INVALID; // Physical binding when unset; frozen at boot otherwise.
     char name[24] = {0};
-    PhysicalPortId bindingPort = IO_PORT_INVALID;
+    IOBindingConfig binding{};
     float c0 = 1.0f;
     float c1 = 0.0f;
+    float secondaryC0 = 1.0f;
+    float secondaryC1 = 0.0f;
     int32_t precision = 1;
     char unit[8] = {0};
 };
@@ -170,7 +184,7 @@ struct IODigitalOutputDefinition {
     char id[24] = {0};
     /** Required explicit DO id in [IO_ID_DO_BASE..IO_ID_DO_BASE+MAX_DIGITAL_OUTPUTS). */
     IoId ioId = IO_ID_INVALID;
-    PhysicalPortId bindingPort = IO_PORT_INVALID;
+    IOBindingConfig binding{};
     bool activeHigh = false;
     bool initialOn = false;
     IOOutputStartupPolicy startupPolicy = IOOutputStartupPolicy::ApplyInitial;
@@ -181,7 +195,7 @@ struct IODigitalOutputDefinition {
 
 struct IODigitalOutputSlotConfig {
     char name[24] = {0};
-    PhysicalPortId bindingPort = IO_PORT_INVALID;
+    IOBindingConfig binding{};
     bool activeHigh = false;
     bool initialOn = false;
     IOOutputStartupPolicy startupPolicy = IOOutputStartupPolicy::ApplyInitial;
@@ -192,7 +206,7 @@ struct IODigitalOutputSlotConfig {
 
 struct IODigitalInputSlotConfig {
     char name[24] = {0};
-    PhysicalPortId bindingPort = IO_PORT_INVALID;
+    IOBindingConfig binding{};
     bool activeHigh = true;
     uint8_t pullMode = IO_PULL_NONE;
     uint8_t mode = IO_DIGITAL_INPUT_STATE;
@@ -207,7 +221,7 @@ struct IODigitalInputDefinition {
     char id[24] = {0};
     /** Required explicit DI id in [IO_ID_DI_BASE..IO_ID_DI_BASE+MAX_DIGITAL_INPUTS). */
     IoId ioId = IO_ID_INVALID;
-    PhysicalPortId bindingPort = IO_PORT_INVALID;
+    IOBindingConfig binding{};
     bool activeHigh = true;
     uint8_t pullMode = IO_PULL_NONE;
     uint8_t mode = IO_DIGITAL_INPUT_STATE;

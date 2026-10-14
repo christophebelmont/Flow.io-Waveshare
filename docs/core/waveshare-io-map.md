@@ -14,8 +14,10 @@ domain_slot (besoin métier) -> io_slot (endpoint stable) -> binding_port (resso
 
 Le domaine choisit par exemple `ActuatorFiltrationPump -> d00`; la configuration de
 `d00` choisit ensuite le port physique `300 / EXIO1`. La valeur `binding_port=0`
-signifie « non connecté ». Un binding peut être changé en configuration sans modifier
-le rôle métier ni les topics runtime de l'IO slot.
+signifie « non connecté ». Les champs `binding_port` et `secondary_binding_port` définissent une préférence
+matérielle résolue uniquement au démarrage. Modifier ces ports nécessite un redémarrage,
+sans changer le rôle métier ni les topics du slot. Voir la
+[sélection des ports au boot](io-boot-binding.md).
 
 Les valeurs du profil décrivent uniquement la carte Flow.io actuelle. La capacité IO compilée est
 `{21, 13, 16, 21, 13, 16}`: 21 analogiques, 13 entrées digitales, 16 sorties digitales,
@@ -59,7 +61,7 @@ matériel (`GPIO05`, `GPA0`, `GPB0`, `EXIO1`, etc.). L'API `/api/io/topology`
 expose la configuration stable des ports et des slots, tandis que `/api/io/runtime`
 expose leurs états et valeurs actualisés. Les deux réponses sont préparées dans des
 tampons bornés en PSRAM avant leur transmission HTTP.
-Le schéma `3` distingue explicitement l'état `manually_disabled` de l'état `error`.
+Le schéma `4` expose la résolution des bindings au boot et distingue explicitement l'état `manually_disabled` de l'état `error`.
 Lorsqu'un `expanderXX` est désactivé, ses binding ports et tous les slots qui leur sont
 liés restent visibles, mais portent l'état `manually_disabled` avec la raison
 `expander_disabled`. Aucun accès matériel à cet expander n'est alors effectué.
@@ -159,8 +161,8 @@ défaut du profil.
 
 | IO slot | Nom | Binding port | Source |
 |---|---|---:|---|
-| `a00` | ORP | 100 | ADS1115 interne A0 |
-| `a01` | pH | 101 | ADS1115 interne A1 |
+| `a00` | ORP | 110, puis 100 | ADS externe A0-A1, sinon interne A0 au boot |
+| `a01` | pH | 111, puis 101 | ADS externe A2-A3, sinon interne A1 au boot |
 | `a02` | PSI | 102 | ADS1115 interne A2 |
 | `a03` | Spare | 103 | ADS1115 interne A3 |
 | `a04` | Water Temperature | 120 | OneWire GPIO20 |

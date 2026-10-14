@@ -585,6 +585,12 @@ bool PoolLogicModule::cmdMqttControl_(const CommandRequest& req, char* reply, si
     if (strcmp(cmdName, "poollogic.light.toggle") == 0 || strcmp(cmdName, "poollogic.lights.toggle") == 0) {
         return toggleDeviceValue("poollogic.lights.toggle", PoolIds::DeviceLights, false, nullptr);
     }
+    if (strcmp(cmdName, "poollogic.fill_pump.write") == 0 || strcmp(cmdName, "poollogic.fill.write") == 0) {
+        return writeDeviceFromArgs("poollogic.fill_pump.write", fillingDeviceSlot_, false, nullptr);
+    }
+    if (strcmp(cmdName, "poollogic.fill_pump.toggle") == 0 || strcmp(cmdName, "poollogic.fill.toggle") == 0) {
+        return toggleDeviceValue("poollogic.fill_pump.toggle", fillingDeviceSlot_, false, nullptr);
+    }
     if (strcmp(cmdName, "poollogic.robot.write") == 0) {
         return applyRobotManualFromArgs("poollogic.robot.write");
     }

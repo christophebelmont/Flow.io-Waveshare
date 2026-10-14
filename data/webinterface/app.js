@@ -66,7 +66,8 @@
       'icon-derived': 'functions',
       'icon-calibration': 'science',
       'icon-terminal': 'list_alt',
-      'icon-activity': 'history',
+      'icon-history': 'history',
+      'icon-activity': 'list_alt',
       'icon-system': 'system_update_alt',
       'icon-flowcfg': 'settings',
       'icon-info': 'info',
@@ -2119,10 +2120,22 @@
     const poolMeasuresDomains = document.getElementById('poolMeasuresDomains');
     const poolMeasuresGrid = document.getElementById('poolMeasuresGrid');
     const poolConfigSummary = document.getElementById('poolConfigSummary');
+    const appHeaderInfo = document.getElementById('appHeaderInfo');
     const poolHeroState = document.getElementById('poolHeroState');
-    const poolFiltrationStart = document.getElementById('poolFiltrationStart');
-    const poolFiltrationStop = document.getElementById('poolFiltrationStop');
-    const poolFiltrationFill = document.getElementById('poolFiltrationFill');
+    const dashGauges = document.getElementById('dashGauges');
+    const dashModes = document.getElementById('dashModes');
+    const dashEquip = document.getElementById('dashEquip');
+    const dashSondes = document.getElementById('dashSondes');
+    const dashSecurity = document.getElementById('dashSecurity');
+    const dashDisinfection = document.getElementById('dashDisinfection');
+    const dashFilWindow = document.getElementById('dashFilWindow');
+    const dashFilNow = document.getElementById('dashFilNow');
+    const dashFilStart = document.getElementById('dashFilStart');
+    const dashFilStop = document.getElementById('dashFilStop');
+    const dashFilDur = document.getElementById('dashFilDur');
+    const dashModeControl = document.getElementById('dashModeControl');
+    const dashModeButtons = dashModeControl ? Array.from(dashModeControl.querySelectorAll('[data-mode]')) : [];
+    dashModeButtons.forEach((button) => button.addEventListener('click', () => applyDashboardMode(button.dataset.mode)));
     const poolDisinfectionModes = document.getElementById('poolDisinfectionModes');
     const poolConfigGrid = document.getElementById('poolConfigGrid');
     const poolAiRefreshBtn = document.getElementById('poolAiRefresh');
@@ -5898,6 +5911,10 @@
           [
             { key: 'io_slot', label: tr('io.col.slot', 'Slot'), render: (row) => ioSummarySlotLabel(row) },
             { key: 'config_name', label: tr('io.col.configName', 'Nom config'), render: (row) => ioSummaryText(row.config_name, '-') },
+            { key: 'primary_binding_port', label: tr('io.col.primaryPort', 'Port primaire') },
+            { key: 'secondary_binding_port', label: tr('io.col.secondaryPort', 'Port secondaire') },
+            { key: 'resolved_binding_port', label: tr('io.col.resolvedPort', 'Port retenu au boot') },
+            { key: 'binding_reason', label: tr('io.col.bindingReason', 'Sélection au démarrage'), render: (row) => ioBindingResolutionLabel(row) },
             { key: 'kind', label: tr('io.col.kind', 'Type') },
             { key: 'driver', label: tr('io.col.driver', 'Driver'), render: (row) => createIoOptionalCell(row.driver) },
             { key: 'channel', label: tr('io.col.channel', 'Canal interne'), render: (row) => createIoOptionalCell(row.channel) },
@@ -6433,8 +6450,10 @@
         if (Number.isFinite(id)) entriesById.set(id, entry);
       });
       return (slots || []).map((slot) => {
-        const range = poolSondeRangeFromEntry(entriesById.get(Number(slot && slot.runtimeUiId)));
-        return range ? Object.assign({}, slot, { rangeMin: range.min, rangeMax: range.max }) : slot;
+        const entry = entriesById.get(Number(slot && slot.runtimeUiId));
+        const next = Object.assign({}, slot, { key: entry ? String(entry.key || '') : '' });
+        const range = entry ? poolSondeRangeFromEntry(entry) : null;
+        return range ? Object.assign(next, { rangeMin: range.min, rangeMax: range.max }) : next;
       });
     }
 
@@ -6517,67 +6536,71 @@
         const available = !!(slot && slot.enabled !== false && slot.available);
         if (!available) tile.classList.add('is-empty');
 
-        const bgColor = slot && isValidHexColor(slot.bgColor) ? slot.bgColor : '';
-        if (bgColor) {
-          tile.classList.add('has-custom-bg');
-          tile.style.background = bgColor;
-        }
+        const color = slot && isValidHexColor(slot.bgColor) ? slot.bgColor : '';
+        const display = splitPoolSondeValue(slot);
+        const numericValue = Number(display.value);
+        const rangeMin = Number(slot && slot.rangeMin);
+        const rangeMax = Number(slot && slot.rangeMax);
+        const hasRange = Number.isFinite(rangeMin) && Number.isFinite(rangeMax) && rangeMax > rangeMin;
+        const unitSuffix = display.unit ? ' ' + display.unit : '';
 
-        const title = document.createElement('div');
+        const head = document.createElement('div');
+        head.className = 'status-sonde-slot-head';
+        const title = document.createElement('span');
         title.className = 'status-sonde-slot-title';
         title.textContent = slot && slot.label ? slot.label : 'Mesure';
-        tile.appendChild(title);
-
-        const metric = document.createElement('div');
+        const metric = document.createElement('span');
         metric.className = 'status-sonde-slot-metric';
-        const display = splitPoolSondeValue(slot);
-
         const value = document.createElement('span');
         value.className = 'status-sonde-slot-value';
         value.textContent = display.value || '-';
         metric.appendChild(value);
-
         if (display.unit) {
           const unit = document.createElement('span');
           unit.className = 'status-sonde-slot-unit';
           unit.textContent = display.unit;
           metric.appendChild(unit);
         }
+        head.appendChild(title);
+        head.appendChild(metric);
+        tile.appendChild(head);
 
-        tile.appendChild(metric);
+        const range = document.createElement('div');
+        range.className = 'status-sonde-slot-range';
+        range.setAttribute('role', 'progressbar');
+        range.setAttribute('aria-label', title.textContent);
+        if (hasRange) {
+          range.setAttribute('aria-valuemin', String(rangeMin));
+          range.setAttribute('aria-valuemax', String(rangeMax));
+        }
+        const fill = document.createElement('span');
+        fill.className = 'status-sonde-slot-range-fill';
+        if (available && Number.isFinite(numericValue) && hasRange) {
+          const progress = Math.max(0, Math.min(100, ((numericValue - rangeMin) / (rangeMax - rangeMin)) * 100));
+          fill.style.width = progress.toFixed(2) + '%';
+          range.setAttribute('aria-valuenow', String(numericValue));
+          range.title = String(rangeMin) + unitSuffix + ' – ' + String(rangeMax) + unitSuffix;
+        } else {
+          fill.style.width = '0%';
+        }
+        if (color) {
+          fill.style.background = 'linear-gradient(90deg,color-mix(in srgb,' + color + ' 82%,#000000) 0%,color-mix(in srgb,' + color + ' 68%,#ffffff) 100%)';
+        }
+        range.appendChild(fill);
+        tile.appendChild(range);
 
-        const numericValue = Number(display.value);
-        const rangeMin = Number(slot && slot.rangeMin);
-        const rangeMax = Number(slot && slot.rangeMax);
-        const hasRange = Number.isFinite(rangeMin) && Number.isFinite(rangeMax) && rangeMax > rangeMin;
-        if (available || hasRange) {
-          const rangeGroup = document.createElement('div');
-          rangeGroup.className = 'status-sonde-slot-range-group';
-          const unitSuffix = display.unit ? ' ' + display.unit : '';
-          if (available && Number.isFinite(numericValue) && hasRange) {
-            const progress = Math.max(0, Math.min(100, ((numericValue - rangeMin) / (rangeMax - rangeMin)) * 100));
-            const range = document.createElement('div');
-            range.className = 'status-sonde-slot-range';
-            range.setAttribute('role', 'progressbar');
-            range.setAttribute('aria-label', title.textContent);
-            range.setAttribute('aria-valuemin', String(rangeMin));
-            range.setAttribute('aria-valuemax', String(rangeMax));
-            range.setAttribute('aria-valuenow', String(numericValue));
-            range.title = String(rangeMin) + unitSuffix + ' – ' + String(rangeMax) + unitSuffix;
-            const fill = document.createElement('span');
-            fill.className = 'status-sonde-slot-range-fill';
-            fill.style.width = progress.toFixed(2) + '%';
-            range.appendChild(fill);
-            rangeGroup.appendChild(range);
-          }
-          if (hasRange) {
-            const rangeLabel = document.createElement('div');
-            rangeLabel.className = 'status-sonde-slot-range-label';
-            rangeLabel.textContent = tr('dashboard.sonde.range', 'plage') + ' '
-              + formatRuntimeFloatValue(rangeMin, null) + '–' + formatRuntimeFloatValue(rangeMax, null) + unitSuffix;
-            rangeGroup.appendChild(rangeLabel);
-          }
-          if (rangeGroup.childElementCount) tile.appendChild(rangeGroup);
+        if (hasRange) {
+          const rangeValues = document.createElement('div');
+          rangeValues.className = 'status-sonde-slot-range-values';
+          const minEl = document.createElement('span');
+          minEl.className = 'status-sonde-slot-range-min';
+          minEl.textContent = formatRuntimeFloatValue(rangeMin, null);
+          const maxEl = document.createElement('span');
+          maxEl.className = 'status-sonde-slot-range-max';
+          maxEl.textContent = formatRuntimeFloatValue(rangeMax, null);
+          rangeValues.appendChild(minEl);
+          rangeValues.appendChild(maxEl);
+          tile.appendChild(rangeValues);
         }
         grid.appendChild(tile);
       }
@@ -6720,9 +6743,11 @@
           action: action,
           pending: !!actionKey && runtimeActionBusyKey === actionKey,
           sinceMs: runtimeValue && Number.isFinite(Number(runtimeValue.since_ms)) ? Number(runtimeValue.since_ms) : null,
-          disabled: !stateKnown || (!!runtimeActionBusyKey && runtimeActionBusyKey !== actionKey),
+          disabled: !stateKnown,
+          locked: !!runtimeActionBusyKey && runtimeActionBusyKey !== actionKey,
           feedback: actionKey ? runtimeActionFeedback.get(actionKey) : null,
           control: runtimeValue && runtimeValue.control,
+          iconKind: runtimeBooleanIconKind(entry),
           onOpen: opts.onOpen,
           openLabel: opts.openLabel,
           onAction: action
@@ -6732,6 +6757,26 @@
       );
       tile.dataset.runtimeValueId = String(Number(entry.id));
       return tile;
+    }
+
+    // Presentation registry: maps stable runtime keys to the icon drawn on the
+    // dashboard boolean tiles (equipment and modes).
+    function runtimeBooleanIconKind(entry) {
+      const icons = {
+        'pool.filtration_on': 'waves',
+        'pool.ph_pump_on': 'flask',
+        'pool.chlorine_pump_on': 'drop',
+        'pool.robot_on': 'robot',
+        'pool.fill_pump_on': 'fill',
+        'pool.chlorine_generator_on': 'bolt',
+        'pool.lights_on': 'light',
+        'pool.heater_on': 'thermometer',
+        'pool.auto_mode': 'tune',
+        'pool.winter_mode': 'snow',
+        'pool.ph_auto_mode': 'flask',
+        'pool.dis_auto_mode': 'drop'
+      };
+      return icons[String(entry && entry.key || '')] || 'equipment';
     }
 
     function runtimeMeasureSwitchAction(entry) {
@@ -6885,8 +6930,10 @@
         bolt: ['m13 2-9 12h7l-1 8 10-13h-7l1-7Z'],
         light: ['M9 18h6M10 21h4', 'M8 15a7 7 0 1 1 8 0c-1 1-1 2-1 3H9c0-1 0-2-1-3Z'],
         thermometer: ['M9 5a3 3 0 0 1 6 0v9a5 5 0 1 1-6 0V5Z', 'M12 7v10', 'M12 17a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z'],
+        snow: ['M12 3v18', 'M4.2 7.5l15.6 9', 'M19.8 7.5 4.2 16.5', 'M12 6.5 10 4.5', 'M12 6.5l2-2', 'M12 17.5l-2 2', 'M12 17.5l2 2'],
         bell: ['M6 9a6 6 0 0 1 12 0v5l2 3H4l2-3V9Z', 'M10 21h4M12 2v1'],
         equipment: ['M5 4h14v16H5Z', 'M9 8h6M9 12h6M9 16h2'],
+        tune: ['M4 6h9', 'M17 6h3', 'M15 4v4', 'M4 12h3', 'M11 12h9', 'M9 10v4', 'M4 18h11', 'M19 18h1', 'M17 16v4'],
         reset: ['M4 10a8 8 0 1 0 3-5', 'M4 3v7h7'],
         close: ['M6 6l12 12', 'M18 6 6 18'],
         check: ['m5 12 4 4L19 6'],
@@ -6978,6 +7025,7 @@
       const state = {
         checked: false,
         disabled: false,
+        locked: false,
         pending: false,
         label: '',
         title: ''
@@ -6993,13 +7041,15 @@
           });
           const checked = state.checked === true;
           const disabled = state.disabled === true;
+          const locked = state.locked === true;
           const pending = state.pending === true;
           visual.classList.toggle('is-checked', !input && checked);
           host.classList.toggle('is-disabled', disabled);
+          host.classList.toggle('is-locked', locked && !disabled);
           host.classList.toggle('is-pending', pending);
           if (!input) return;
           if (input.checked !== checked) input.checked = checked;
-          setRuntimeActionDisabled(input, disabled);
+          setRuntimeActionDisabled(input, disabled || locked);
           setRuntimeActionAttribute(input, 'aria-busy', pending ? 'true' : 'false');
           if (state.label) setRuntimeActionAttribute(input, 'aria-label', String(state.label));
           else input.removeAttribute('aria-label');
@@ -7893,21 +7943,29 @@
       const tile = document.createElement(!separateActions && currentOptions.action ? 'label' : 'div');
       const openButton = separateActions ? buildDashboardManagementButton(
         (trigger) => currentOptions.onOpen(trigger), currentOptions.openLabel || label) : null;
+      const icon = document.createElement('span');
+      icon.className = 'status-dual-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      const body = document.createElement('div');
+      body.className = 'status-dual-body';
       const title = document.createElement('div');
       title.className = 'status-dual-title';
-      const state = document.createElement('div');
+      const meta = document.createElement('div');
+      meta.className = 'status-dual-meta';
+      const state = document.createElement('span');
       state.className = 'status-dual-state';
-      const dot = document.createElement('span');
-      dot.className = 'status-dual-dot';
-      dot.setAttribute('aria-hidden', 'true');
       const text = document.createElement('span');
-      state.append(dot, text);
-      const since = document.createElement('div');
+      state.appendChild(text);
+      const sep = document.createElement('span');
+      sep.className = 'status-dual-sep';
+      sep.setAttribute('aria-hidden', 'true');
+      sep.textContent = '·';
+      const since = document.createElement('span');
       since.className = 'status-dual-since';
       since.hidden = true;
-      const controlStatus = document.createElement('div');
-      controlStatus.className = 'runtime-override-status';
-      tile.append(title, state, since, controlStatus);
+      meta.append(state, sep, since);
+      body.append(title, meta);
+      tile.append(icon, body);
       const switchView = buildFlowSwitch({
         host: separateActions ? undefined : tile,
         interactive: !!currentOptions.action,
@@ -7921,7 +7979,7 @@
         switchView.element.classList.add('dashboard-tile-switch');
         tile.append(openButton, switchView.element);
       }
-      const view = { label, value, options: currentOptions, update: (nextLabel, nextValue, nextOptions) => {
+      const view = { label, value, options: currentOptions, iconKind: '', update: (nextLabel, nextValue, nextOptions) => {
         currentOptions = nextOptions || {};
         view.label = nextLabel;
         view.value = nextValue;
@@ -7954,18 +8012,32 @@
         switchView.update({
           checked: stateKnown && nextValue,
           disabled: !!currentOptions.disabled || pending,
+          locked: !!currentOptions.locked,
           pending,
           label: nextLabel + ' : ' + stateText,
           title: feedback && feedback.message ? feedback.message : ''
         });
+        const iconKind = currentOptions.iconKind || 'equipment';
+        if (view.iconKind !== iconKind) {
+          icon.replaceChildren(buildRuntimeActionIcon(iconKind));
+          view.iconKind = iconKind;
+        }
         setRuntimeActionText(title, nextLabel);
         setRuntimeActionText(text, stateText);
-        const sinceText = formatStateSinceText(currentOptions.sinceMs);
-        setRuntimeActionText(since, sinceText);
-        since.hidden = !sinceText;
-        const controlText = actuatorControlLabel(currentOptions.control, false);
-        setRuntimeActionText(controlStatus, controlText);
-        controlStatus.hidden = !controlText;
+        const control = currentOptions.control;
+        const forced = !!(control && control.override_supported && control.control_mode === 'forced');
+        let metaText = '';
+        if (forced) {
+          const seconds = Math.max(0, Math.floor(Number(control.override_remaining_s) || 0));
+          const remaining = Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
+          metaText = tr('dashboard.forced', 'forcé') + ' ' + remaining;
+        } else {
+          metaText = formatStateDurationMs(currentOptions.sinceMs) || '';
+        }
+        setRuntimeActionText(since, metaText);
+        since.hidden = !metaText;
+        since.classList.toggle('is-forced', forced);
+        sep.hidden = !metaText;
       } };
       dashboardDualStateTileViews.set(tile, view);
       view.update(label, value, currentOptions);
@@ -8388,7 +8460,12 @@
               activeText: 'Marche',
               inactiveText: 'Arrêt'
             }
-            : null
+            : cleanGroupDomain === 'mode'
+              ? {
+                activeText: 'Actif',
+                inactiveText: 'Inactif'
+              }
+              : null
         };
 
         card.appendChild(buildDashboardMeasureCardHeader(group.domainKey, group.name));
@@ -8579,62 +8656,268 @@
       return card;
     }
 
-    function renderPoolMeasuresGrid() {
-      if (!poolMeasuresGrid) return;
+    function dashboardDomainContainers() {
+      return {
+        mode: dashModes,
+        equipements: dashEquip,
+        sondes: dashSondes,
+        alarm: dashSecurity
+      };
+    }
+
+    function buildDashboardDomainFragment(domainKey) {
       const fragment = document.createDocumentFragment();
+      const state = poolMeasureDomainState[domainKey];
+      const hasRenderableData = poolMeasureDomainHasRenderableData(domainKey, state);
+      if (state.loading && !hasRenderableData) {
+        fragment.appendChild(buildDashboardRuntimeSkeletonCard(domainKey));
+        return fragment;
+      }
+      if (state.error && !hasRenderableData) {
+        const card = document.createElement('div');
+        card.className = 'status-card';
+        decorateDashboardMeasureCard(card, domainKey);
+        const summary = document.createElement('p');
+        summary.className = 'status-card-summary';
+        summary.textContent = state.error;
+        card.appendChild(buildDashboardMeasureCardHeader(domainKey));
+        card.appendChild(summary);
+        fragment.appendChild(card);
+        return fragment;
+      }
+      if (!state.entries.length && !hasRenderableData) {
+        const card = document.createElement('div');
+        card.className = 'status-card';
+        decorateDashboardMeasureCard(card, domainKey);
+        const summary = document.createElement('p');
+        summary.className = 'status-card-summary';
+        summary.textContent = tr('dashboard.empty.domainNoRuntime', 'Aucune valeur runtime exposee pour ce domaine.');
+        card.appendChild(buildDashboardMeasureCardHeader(domainKey));
+        card.appendChild(summary);
+        fragment.appendChild(card);
+        return fragment;
+      }
+      if (domainKey === 'alarm') {
+        fragment.appendChild(buildDashboardAlarmCard(state.entries, state.alarmSlots));
+        return fragment;
+      }
+      // Auto / Hiver are driven by the header mode selector, so they are not
+      // repeated as tiles in the Mode card.
+      const entries = domainKey === 'mode'
+        ? state.entries.filter((entry) => entry.key !== 'pool.auto_mode' && entry.key !== 'pool.winter_mode')
+        : state.entries;
+      fragment.appendChild(buildPoolMeasureCards(entries, state.values, {
+        sondeSlots: state.sondeSlots,
+        alarmSlots: state.alarmSlots
+      }));
+      return fragment;
+    }
 
-      const domainKeys = dashboardMeasureDomainKeys();
+    // Alarms are shown as a compact summary (like the reference proposal) that can be
+    // expanded to reveal the individual protections, keeping the "Gérer les alarmes" action.
+    function buildDashboardAlarmCard(entries, alarmSlots) {
+      const card = document.createElement('div');
+      card.className = 'status-card status-card-runtime status-card-runtime-domain-alarm';
+      decorateDashboardMeasureCard(card, 'alarm');
 
-      let renderedCardCount = 0;
-      domainKeys.forEach((domainKey) => {
-        const state = poolMeasureDomainState[domainKey];
-        const hasRenderableData = poolMeasureDomainHasRenderableData(domainKey, state);
-        if (state.loading && !hasRenderableData) {
-          fragment.appendChild(buildDashboardRuntimeSkeletonCard(domainKey));
-          renderedCardCount += 1;
-          return;
-        }
-        if (state.error && !hasRenderableData) {
-          const card = document.createElement('div');
-          card.className = 'status-card';
-          decorateDashboardMeasureCard(card, domainKey);
-          const summary = document.createElement('p');
-          summary.className = 'status-card-summary';
-          summary.textContent = state.error;
-          card.appendChild(buildDashboardMeasureCardHeader(domainKey));
-          card.appendChild(summary);
-          fragment.appendChild(card);
-          renderedCardCount += 1;
-          return;
-        }
-        if (!state.entries.length && !hasRenderableData) {
-          const card = document.createElement('div');
-          card.className = 'status-card';
-          decorateDashboardMeasureCard(card, domainKey);
-          const summary = document.createElement('p');
-          summary.className = 'status-card-summary';
-          summary.textContent = tr('dashboard.empty.domainNoRuntime', 'Aucune valeur runtime exposee pour ce domaine.');
-          card.appendChild(buildDashboardMeasureCardHeader(domainKey));
-          card.appendChild(summary);
-          fragment.appendChild(card);
-          renderedCardCount += 1;
-          return;
-        }
-        const cards = buildPoolMeasureCards(state.entries, state.values, {
-          sondeSlots: state.sondeSlots,
-          alarmSlots: state.alarmSlots
-        });
-        renderedCardCount += cards.childNodes.length;
-        fragment.appendChild(cards);
+      const enabledSlots = (Array.isArray(alarmSlots) ? alarmSlots : []).filter((slot) => slot && slot.enabled);
+      const activeCount = enabledSlots.filter((slot) => slot.conditionTrue === true || slot.latched === true).length;
+
+      const managementEntry = (entries || []).find((entry) => {
+        const cfg = runtimeMeasureDisplayConfig(entry);
+        return cfg.actionDialog && cfg.actionDialog.layout === 'alarm-management';
       });
 
-      if (renderedCardCount === 0) {
-        const empty = document.createElement('div');
-        empty.className = 'measure-domain-empty';
-        empty.textContent = tr('dashboard.empty.activeDomainsNoRuntime', 'Aucune valeur runtime disponible pour les domaines du tableau de bord.');
-        fragment.appendChild(empty);
+      const head = buildDashboardMeasureCardHeader('alarm');
+      if (managementEntry) {
+        const actions = document.createElement('div');
+        actions.className = 'runtime-card-actions';
+        const button = buildRuntimeActionDialogButton(managementEntry);
+        if (button) actions.appendChild(button);
+        if (actions.childElementCount) head.appendChild(actions);
       }
-      reconcileDashboardMeasureCards(poolMeasuresGrid, fragment);
+      card.appendChild(head);
+
+      const summary = document.createElement('div');
+      summary.className = 'dash-alarm-summary ' + (activeCount ? 'is-alert' : 'is-ok');
+      const badge = document.createElement('span');
+      badge.className = 'dash-alarm-summary-badge';
+      badge.setAttribute('aria-hidden', 'true');
+      badge.textContent = activeCount ? '!' : '✓';
+      const copy = document.createElement('span');
+      copy.className = 'dash-alarm-summary-copy';
+      const title = document.createElement('span');
+      title.className = 'dash-alarm-summary-title';
+      title.textContent = enabledSlots.length + ' ' + tr('dashboard.alarms.monitored', 'alarmes surveillées');
+      const state = document.createElement('span');
+      state.className = 'dash-alarm-summary-state';
+      state.textContent = activeCount
+        ? tr('dashboard.alarms.activeCount', '{count} en alerte').replace('{count}', String(activeCount))
+        : tr('dashboard.alarms.allNormal', 'Tout est normal');
+      copy.appendChild(title);
+      copy.appendChild(state);
+      summary.appendChild(badge);
+      summary.appendChild(copy);
+      card.appendChild(summary);
+      return card;
+    }
+
+    function renderPoolMeasuresGrid() {
+      const containers = dashboardDomainContainers();
+      dashboardMeasureDomainKeys().forEach((domainKey) => {
+        const container = containers[domainKey];
+        if (!container) return;
+        reconcileDashboardMeasureCards(container, buildDashboardDomainFragment(domainKey));
+      });
+      renderDashboardGauges();
+      renderDashboardModeControl();
+    }
+
+    function dashboardModeBool(valueById, entries, key) {
+      const entry = entries.find((item) => item.key === key);
+      const value = entry ? valueById.get(Number(entry.id)) : null;
+      return value && typeof value.value === 'boolean' ? value.value : null;
+    }
+
+    // The Auto/Manuel/Hiver segmented control is a high-level view of the two
+    // PoolLogic booleans (auto_mode, winter_mode). It reflects their current state
+    // and applies the combination that matches the selected strategy.
+    function renderDashboardModeControl() {
+      if (!dashModeButtons.length) return;
+      const state = poolMeasureDomainState.mode;
+      const entries = state && Array.isArray(state.entries) ? state.entries : [];
+      const valueById = new Map();
+      (state && Array.isArray(state.values) ? state.values : []).forEach((item) => {
+        const id = Number(item && item.id);
+        if (Number.isFinite(id)) valueById.set(id, item);
+      });
+      const autoValue = dashboardModeBool(valueById, entries, 'pool.auto_mode');
+      const winterValue = dashboardModeBool(valueById, entries, 'pool.winter_mode');
+      const current = winterValue === true ? 'winter' : autoValue === true ? 'auto' : autoValue === false ? 'manual' : '';
+      const known = autoValue !== null;
+      const busy = !!runtimeActionBusyKey;
+      dashModeButtons.forEach((button) => {
+        const selected = button.dataset.mode === current;
+        button.classList.toggle('is-selected', selected);
+        button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+        button.disabled = busy || !known;
+      });
+    }
+
+    async function applyDashboardMode(mode) {
+      const state = poolMeasureDomainState.mode;
+      const entries = state && Array.isArray(state.entries) ? state.entries : [];
+      const autoEntry = entries.find((entry) => entry.key === 'pool.auto_mode');
+      const winterEntry = entries.find((entry) => entry.key === 'pool.winter_mode');
+      const autoAction = autoEntry ? runtimeMeasureSwitchAction(autoEntry) : null;
+      const winterAction = winterEntry ? runtimeMeasureSwitchAction(winterEntry) : null;
+      if (!autoEntry || !autoAction) return;
+
+      const valueById = new Map();
+      (state && Array.isArray(state.values) ? state.values : []).forEach((item) => {
+        const id = Number(item && item.id);
+        if (Number.isFinite(id)) valueById.set(id, item);
+      });
+      const targets = mode === 'winter'
+        ? { auto: true, winter: true }
+        : mode === 'manual'
+          ? { auto: false, winter: false }
+          : { auto: true, winter: false };
+
+      if (dashboardModeBool(valueById, entries, 'pool.auto_mode') !== targets.auto) {
+        await executeRuntimeAction(autoEntry, autoAction, targets.auto);
+      }
+      if (winterEntry && winterAction && dashboardModeBool(valueById, entries, 'pool.winter_mode') !== targets.winter) {
+        await executeRuntimeAction(winterEntry, winterAction, targets.winter);
+      }
+    }
+
+    function formatDashboardGaugeRange(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return String(value);
+      return Number.isInteger(n) ? String(n) : n.toFixed(1);
+    }
+
+    // The hero always shows the three vital measurements (water, pH, disinfection),
+    // resolved through the runtime manifest semantic keys rather than labels.
+    const dashboardGaugeDefs = Object.freeze([
+      Object.freeze({ key: 'pool.water_temp', accent: '#ffb057' }),
+      Object.freeze({ key: 'pool.ph', accent: '#4fd1a5' }),
+      Object.freeze({ key: 'pool.orp', accent: '#46d3ee' })
+    ]);
+
+    function buildDashboardGauge(slot, accent) {
+      const parts = splitPoolSondeValue(slot);
+      const numeric = Number(String(parts.value).replace(',', '.'));
+      const hasRange = Number.isFinite(slot.rangeMin) && Number.isFinite(slot.rangeMax) && slot.rangeMax > slot.rangeMin;
+
+      const wrap = document.createElement('div');
+      wrap.className = 'dash-gauge-wrap';
+
+      const ring = document.createElement('div');
+      ring.className = 'dash-gauge';
+      ring.style.setProperty('--dash-gauge-accent', accent);
+      let deg = 0;
+      if (hasRange && Number.isFinite(numeric)) {
+        const ratio = Math.max(0, Math.min(1, (numeric - slot.rangeMin) / (slot.rangeMax - slot.rangeMin)));
+        deg = Math.round(ratio * 270);
+      }
+      ring.style.setProperty('--dash-gauge-deg', deg + 'deg');
+
+      const inner = document.createElement('span');
+      inner.className = 'dash-gauge-in';
+      const value = document.createElement('span');
+      value.className = 'dash-gauge-val';
+      value.textContent = parts.value;
+      inner.appendChild(value);
+      if (parts.unit) {
+        const unit = document.createElement('span');
+        unit.className = 'dash-gauge-unit';
+        unit.textContent = parts.unit;
+        inner.appendChild(unit);
+      }
+      ring.appendChild(inner);
+
+      const name = document.createElement('span');
+      name.className = 'dash-gauge-name';
+      name.textContent = String(slot.label || '').trim();
+
+      wrap.appendChild(ring);
+      wrap.appendChild(name);
+      return wrap;
+    }
+
+    function renderDashboardGauges() {
+      if (!dashGauges) return;
+      const state = poolMeasureDomainState.sondes;
+      const slots = state && Array.isArray(state.sondeSlots) ? state.sondeSlots : [];
+      const available = slots.filter((slot) => slot && slot.enabled !== false && slot.available);
+
+      // Prefer the three vital measurements (water / pH / disinfection), then fall back
+      // to the remaining available slots so the gauges never disappear.
+      const ordered = [];
+      const usedIds = new Set();
+      dashboardGaugeDefs.forEach((def) => {
+        const slot = available.find((candidate) => String(candidate.key || '') === def.key);
+        if (slot) {
+          ordered.push(slot);
+          usedIds.add(Number(slot.runtimeUiId));
+        }
+      });
+      available.forEach((slot) => {
+        if (ordered.length >= dashboardGaugeDefs.length) return;
+        const id = Number(slot.runtimeUiId);
+        if (usedIds.has(id)) return;
+        usedIds.add(id);
+        ordered.push(slot);
+      });
+
+      const gauges = ordered.slice(0, dashboardGaugeDefs.length)
+        .map((slot, index) => ({ slot: slot, accent: dashboardGaugeDefs[index].accent }));
+
+      dashGauges.innerHTML = '';
+      dashGauges.hidden = gauges.length === 0;
+      gauges.forEach((item) => dashGauges.appendChild(buildDashboardGauge(item.slot, item.accent)));
     }
 
     function refreshPoolMeasuresView() {
@@ -8733,22 +9016,6 @@
       const n = Number(value);
       if (!Number.isFinite(n)) return null;
       return Math.max(0, Math.min(23, Math.trunc(n))) * 60;
-    }
-
-    function poolConfigDayProgress(startValue, stopValue) {
-      const start = poolConfigHourToMinutes(startValue);
-      const stopRaw = poolConfigHourToMinutes(stopValue);
-      if (start === null || stopRaw === null) return 0;
-      let stop = stopRaw;
-      const now = new Date();
-      let current = now.getHours() * 60 + now.getMinutes();
-      if (stop <= start) {
-        stop += 24 * 60;
-        if (current < start) current += 24 * 60;
-      }
-      if (current <= start) return 0;
-      if (current >= stop) return 100;
-      return Math.max(0, Math.min(100, ((current - start) / (stop - start)) * 100));
     }
 
     function poolConfigFormatDurationMs(value) {
@@ -8934,6 +9201,31 @@
         .replace('{heater}', heaterState);
     }
 
+    function buildDashboardStateBadge(kind) {
+      const badge = document.createElement('span');
+      badge.className = 'dash-state-badge is-' + kind;
+      badge.setAttribute('aria-hidden', 'true');
+      badge.innerHTML = kind === 'ok'
+        ? '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg>'
+        : '<svg viewBox="0 0 24 24"><path d="M12 6.5v7.5M12 18h.01"/></svg>';
+      return badge;
+    }
+
+    function updateDashboardHeaderInfo(modules) {
+      if (!appHeaderInfo) return;
+      const parts = [];
+      const o2 = modules && modules['poollogic/o2'];
+      const volume = o2 ? Number(o2.pool_volume_m3) : NaN;
+      if (Number.isFinite(volume) && volume > 0) {
+        parts.push('Bassin ' + formatDashboardGaugeRange(volume) + ' m³');
+      }
+      const now = new Date();
+      const pad2 = (value) => String(value).padStart(2, '0');
+      parts.push(tr('dashboard.header.updated', 'mise à jour à {time}')
+        .replace('{time}', pad2(now.getHours()) + ':' + pad2(now.getMinutes())));
+      appHeaderInfo.textContent = parts.join(' · ');
+    }
+
     function poolConfigRenderHero(modules, alarmSlots) {
       const modes = modules['poollogic/modes'] || {};
       const filtration = modules['poollogic/filtration'] || {};
@@ -8946,15 +9238,11 @@
         poolHeroState.className = 'pool-hero-state ' + (alarms.length ? 'is-alert' : 'is-ok');
         poolHeroState.removeAttribute('aria-busy');
         poolHeroState.innerHTML = '';
-        const icon = document.createElement('span');
-        icon.className = 'ui-msr pool-hero-state-icon';
-        icon.setAttribute('aria-hidden', 'true');
-        icon.textContent = alarms.length ? 'warning' : 'check_circle';
+        poolHeroState.appendChild(buildDashboardStateBadge(alarms.length ? 'alert' : 'ok'));
         const label = document.createElement('span');
         label.textContent = alarms.length
           ? tr('pool.state.alarmNamed', 'Alarme - {alarm}').replace('{alarm}', alarms[0].label)
           : tr('pool.state.normalStatus', 'État normal');
-        poolHeroState.appendChild(icon);
         poolHeroState.appendChild(label);
       }
       if (poolConfigSummary) {
@@ -8962,16 +9250,50 @@
         poolConfigSummary.removeAttribute('aria-busy');
         poolConfigSummary.textContent = poolConfigHeroSummary(modules, start, stop);
       }
-      if (poolFiltrationStart) {
-        poolFiltrationStart.classList.remove('is-loading');
-        poolFiltrationStart.textContent = start;
+      updateDashboardHeaderInfo(modules);
+      if (dashFilStart) {
+        dashFilStart.classList.remove('is-loading');
+        dashFilStart.textContent = start;
       }
-      if (poolFiltrationStop) {
-        poolFiltrationStop.classList.remove('is-loading');
-        poolFiltrationStop.textContent = stop;
+      if (dashFilStop) {
+        dashFilStop.classList.remove('is-loading');
+        dashFilStop.textContent = stop;
       }
-      if (poolFiltrationFill) {
-        poolFiltrationFill.style.width = poolConfigDayProgress(startValue, stopValue).toFixed(1) + '%';
+      renderDashboardFiltrationTimeline(startValue, stopValue);
+    }
+
+    function renderDashboardFiltrationTimeline(startValue, stopValue) {
+      const startMin = poolConfigHourToMinutes(startValue);
+      const stopMin = poolConfigHourToMinutes(stopValue);
+      const valid = startMin !== null && stopMin !== null;
+      let span = 0;
+      if (valid) {
+        span = stopMin - startMin;
+        if (span <= 0) span += 24 * 60;
+      }
+      if (dashFilDur) {
+        if (valid) {
+          const hours = Math.floor(span / 60);
+          const minutes = span % 60;
+          dashFilDur.textContent = minutes
+            ? hours + ' h ' + String(minutes).padStart(2, '0')
+            : hours + ' h';
+        } else {
+          dashFilDur.textContent = '—';
+        }
+      }
+      if (dashFilWindow) {
+        if (valid) {
+          dashFilWindow.style.left = (startMin / 1440 * 100).toFixed(2) + '%';
+          dashFilWindow.style.width = Math.min(100, span / 1440 * 100).toFixed(2) + '%';
+        } else {
+          dashFilWindow.style.left = '0%';
+          dashFilWindow.style.width = '0%';
+        }
+      }
+      if (dashFilNow) {
+        const now = new Date();
+        dashFilNow.style.left = ((now.getHours() * 60 + now.getMinutes()) / 1440 * 100).toFixed(2) + '%';
       }
     }
 
@@ -9183,8 +9505,65 @@
     function poolConfigRender(modules, alarmSlots) {
       const source = modules && typeof modules === 'object' ? modules : {};
       poolConfigRenderHero(source, alarmSlots);
+      renderDashboardDisinfection(source);
       poolConfigRenderDisinfection(source);
       poolConfigRenderGeneralCards(source);
+    }
+
+    function renderDashboardDisinfection(modules) {
+      if (!dashDisinfection) return;
+      const source = modules && typeof modules === 'object' ? modules : {};
+      const modes = source['poollogic/modes'] || {};
+      const selectedType = Number(modes.disinfection_type);
+      const selectedDef = poolDisinfectionModeDefs.find((def) => selectedType === def.typeValue) || null;
+      const selected = !!selectedDef;
+      const data = selected ? (source[selectedDef.module] || {}) : {};
+
+      dashDisinfection.innerHTML = '';
+      const card = document.createElement('article');
+      card.className = 'dash-disinfection';
+
+      const head = document.createElement('div');
+      head.className = 'dash-disinfection-head';
+      const icon = document.createElement('span');
+      icon.className = 'dash-disinfection-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      const disinfectionIconKind = { science: 'flask', bolt: 'bolt', bubble_chart: 'drop' };
+      icon.appendChild(buildRuntimeActionIcon(selected ? (disinfectionIconKind[selectedDef.icon] || 'flask') : 'equipment'));
+      const copy = document.createElement('div');
+      copy.className = 'dash-disinfection-copy';
+      const title = document.createElement('h3');
+      title.textContent = selected ? tr(selectedDef.titleKey, selectedDef.title) : tr('pool.disinfection.disabled', 'Désactivé');
+      const note = document.createElement('p');
+      note.textContent = selected
+        ? tr(selectedDef.noteKey, selectedDef.note)
+        : tr('pool.disinfection.disabled.note', 'Aucun traitement de désinfection n’est sélectionné.');
+      copy.appendChild(title);
+      copy.appendChild(note);
+      head.appendChild(icon);
+      head.appendChild(copy);
+      card.appendChild(head);
+
+      if (selected) {
+        const metrics = document.createElement('div');
+        metrics.className = 'dash-disinfection-metrics';
+        if (selectedDef.key === 'chlorine') {
+          poolConfigAppendMetric(metrics, tr('pool.metric.autoOrp', 'Auto ORP'), poolConfigBoolLabel(data.dis_auto_mode));
+          poolConfigAppendMetric(metrics, tr('pool.metric.setpoint', 'Consigne'), poolConfigFormatValue(selectedDef.module, 'dis_setpoint', data.dis_setpoint), { featured: true });
+          poolConfigAppendMetric(metrics, tr('pool.metric.window', 'Fenêtre'), poolConfigFormatValue(selectedDef.module, 'dis_window_ms', data.dis_window_ms));
+        } else if (selectedDef.key === 'swg') {
+          poolConfigAppendMetric(metrics, tr('pool.metric.control', 'Contrôle'), poolConfigFormatValue(selectedDef.module, 'swg_control_mode', data.swg_control_mode), { featured: true });
+          poolConfigAppendMetric(metrics, tr('pool.metric.delay', 'Délai'), poolConfigFormatValue(selectedDef.module, 'dly_electro_min', data.dly_electro_min));
+          poolConfigAppendMetric(metrics, tr('pool.metric.waterSafety', 'Sécurité eau'), poolConfigFormatValue(selectedDef.module, 'secure_elec_t', data.secure_elec_t));
+        } else if (selectedDef.key === 'o2') {
+          poolConfigAppendMetric(metrics, tr('pool.metric.poolVolume', 'Volume bassin'), poolConfigFormatValue(selectedDef.module, 'pool_volume_m3', data.pool_volume_m3), { featured: true });
+          poolConfigAppendMetric(metrics, tr('pool.metric.weeklyDose', 'Dose hebdo'), poolConfigFormatValue(selectedDef.module, 'dose_ml_10m3_week', data.dose_ml_10m3_week));
+          poolConfigAppendMetric(metrics, tr('pool.metric.injections', 'Injections'), poolConfigFormatValue(selectedDef.module, 'split_count', data.split_count));
+          poolConfigAppendMetric(metrics, tr('pool.metric.pending', 'En attente'), poolConfigFormatValue(selectedDef.module, 'pending_ml', data.pending_ml));
+        }
+        card.appendChild(metrics);
+      }
+      dashDisinfection.appendChild(card);
     }
 
     function poolConfigRenderSkeleton() {
@@ -9198,15 +9577,20 @@
         poolConfigSummary.classList.add('is-loading');
         poolConfigSummary.setAttribute('aria-busy', 'true');
       }
-      if (poolFiltrationStart) {
-        poolFiltrationStart.textContent = '--:--';
-        poolFiltrationStart.classList.add('is-loading');
+      if (dashFilStart) {
+        dashFilStart.textContent = '--:--';
+        dashFilStart.classList.add('is-loading');
       }
-      if (poolFiltrationStop) {
-        poolFiltrationStop.textContent = '--:--';
-        poolFiltrationStop.classList.add('is-loading');
+      if (dashFilStop) {
+        dashFilStop.textContent = '--:--';
+        dashFilStop.classList.add('is-loading');
       }
-      if (poolFiltrationFill) poolFiltrationFill.style.width = '0';
+      if (dashFilDur) dashFilDur.textContent = '—';
+      if (dashFilWindow) {
+        dashFilWindow.style.left = '0%';
+        dashFilWindow.style.width = '0%';
+      }
+      if (dashFilNow) dashFilNow.style.left = '0%';
       if (poolDisinfectionModes) {
         poolDisinfectionModes.hidden = false;
         poolDisinfectionModes.innerHTML = '';
@@ -9238,13 +9622,9 @@
         poolHeroState.className = 'pool-hero-state is-alert';
         poolHeroState.removeAttribute('aria-busy');
         poolHeroState.innerHTML = '';
-        const icon = document.createElement('span');
-        icon.className = 'ui-msr pool-hero-state-icon';
-        icon.setAttribute('aria-hidden', 'true');
-        icon.textContent = 'error';
+        poolHeroState.appendChild(buildDashboardStateBadge('error'));
         const label = document.createElement('span');
         label.textContent = tr('pool.state.unavailable', 'État indisponible');
-        poolHeroState.appendChild(icon);
         poolHeroState.appendChild(label);
       }
       if (poolConfigSummary) {
@@ -9252,11 +9632,15 @@
         poolConfigSummary.removeAttribute('aria-busy');
         poolConfigSummary.textContent = detailText;
       }
-      [poolFiltrationStart, poolFiltrationStop].forEach((node) => {
+      [dashFilStart, dashFilStop].forEach((node) => {
         if (!node) return;
         node.classList.remove('is-loading');
         node.textContent = '--:--';
       });
+      if (dashFilWindow) {
+        dashFilWindow.style.left = '0%';
+        dashFilWindow.style.width = '0%';
+      }
       if (poolDisinfectionModes) {
         poolDisinfectionModes.innerHTML = '';
         poolDisinfectionModes.hidden = true;
@@ -12503,10 +12887,23 @@
       return value;
     }
 
-    function configIsBindingPortField(moduleName, key) {
-      if (String(key || '').trim() !== 'binding_port') return false;
-      const modulePath = String(moduleName || '').trim().toLowerCase();
-      return /^io\/(?:input\/(?:a\d{2}|i\d{2})|output\/d\d{2})$/.test(modulePath);
+    function ioBindingResolutionLabel(row) {
+      const sourceId = Number(row.source_value);
+      const reason = Number.isFinite(sourceId) && sourceId !== 65535
+        ? tr('io.source.internal', 'Valeur interne') + ' [' + sourceId + ']'
+        : tr('io.binding.' + row.binding_reason, row.binding_reason || '-');
+      return row.binding_restart_required
+        ? reason + ' · ' + tr('io.binding.restartRequired', 'Redémarrage requis')
+        : reason;
+    }
+
+    function configConditionMatches(condition, value) {
+      if (!condition || typeof condition !== 'object') return true;
+      return Number(value) === Number(condition.equals);
+    }
+
+    function configIsBindingPortField(doc) {
+      return Boolean(doc && doc.binding_port_field === true);
     }
 
     function configNormalizeBindingPortSelectValue(value) {
@@ -13007,7 +13404,7 @@
           if (doc && typeof doc.display_format === 'string') {
             select.dataset.format = doc.display_format;
           }
-          const isBindingPortField = configIsBindingPortField(moduleName, key);
+          const isBindingPortField = configIsBindingPortField(doc);
           const currentValue = isBindingPortField ? configNormalizeBindingPortSelectValue(value) : String(value);
           let hasSelectedOption = false;
           enumOptions.forEach((opt) => {
@@ -13150,6 +13547,29 @@
         row.appendChild(valueWrap);
         containerEl.appendChild(row);
         visibilityEntries.push({ row, inputEl, key, doc });
+      }
+
+      // Declarative conditions also apply when the user changes a field before saving.
+      const conditionalEntries = visibilityEntries.filter(entry => entry.doc && entry.doc.visible_when);
+      if (conditionalEntries.length > 0) {
+        const refreshVisibility = () => {
+          conditionalEntries.forEach(entry => {
+            const condition = entry.doc.visible_when;
+            const source = visibilityEntries.find(item => item.key === condition.field);
+            const value = source ? readConfigFieldValue(source.inputEl) : data[condition.field];
+            const hidden = !configConditionMatches(condition, value);
+            entry.row.hidden = hidden;
+            if (entry.inputEl) {
+              entry.inputEl.dataset.runtimeHidden = hidden ? '1' : '0';
+              entry.inputEl.disabled = hidden;
+            }
+          });
+          if (controlsPrimaryPane && !perFieldApply) updatePrimaryCfgApplyState();
+        };
+        visibilityEntries.forEach(entry => {
+          if (entry.inputEl) entry.inputEl.addEventListener('change', refreshVisibility);
+        });
+        refreshVisibility();
       }
 
       if (isDigitalInputConfigModule(moduleName) && visibilityEntries.length > 0) {

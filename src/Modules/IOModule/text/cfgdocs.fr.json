@@ -212,12 +212,20 @@
     "io/input/a00/a00_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a00.a00_c0.label",
-      "help_t": "cfgdocs.io.input.a00.a00_c0.help"
+      "help_t": "cfgdocs.io.input.a00.a00_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a00/a00_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a00.a00_c1.label",
-      "help_t": "cfgdocs.io.input.a00.a00_c1.help"
+      "help_t": "cfgdocs.io.input.a00.a00_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a00/a00_name": {
       "type": "CharArray",
@@ -234,17 +242,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a00.binding_port.label",
       "help_t": "cfgdocs.io.input.a00.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a01/a01_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a01.a01_c0.label",
-      "help_t": "cfgdocs.io.input.a01.a01_c0.help"
+      "help_t": "cfgdocs.io.input.a01.a01_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a01/a01_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a01.a01_c1.label",
-      "help_t": "cfgdocs.io.input.a01.a01_c1.help"
+      "help_t": "cfgdocs.io.input.a01.a01_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a01/a01_name": {
       "type": "CharArray",
@@ -261,17 +282,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a01.binding_port.label",
       "help_t": "cfgdocs.io.input.a01.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a02/a02_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a02.a02_c0.label",
-      "help_t": "cfgdocs.io.input.a02.a02_c0.help"
+      "help_t": "cfgdocs.io.input.a02.a02_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a02/a02_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a02.a02_c1.label",
-      "help_t": "cfgdocs.io.input.a02.a02_c1.help"
+      "help_t": "cfgdocs.io.input.a02.a02_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a02/a02_name": {
       "type": "CharArray",
@@ -288,17 +322,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a02.binding_port.label",
       "help_t": "cfgdocs.io.input.a02.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a03/a03_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a03.a03_c0.label",
-      "help_t": "cfgdocs.io.input.a03.a03_c0.help"
+      "help_t": "cfgdocs.io.input.a03.a03_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a03/a03_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a03.a03_c1.label",
-      "help_t": "cfgdocs.io.input.a03.a03_c1.help"
+      "help_t": "cfgdocs.io.input.a03.a03_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a03/a03_name": {
       "type": "CharArray",
@@ -315,17 +362,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a03.binding_port.label",
       "help_t": "cfgdocs.io.input.a03.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a04/a04_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a04.a04_c0.label",
-      "help_t": "cfgdocs.io.input.a04.a04_c0.help"
+      "help_t": "cfgdocs.io.input.a04.a04_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a04/a04_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a04.a04_c1.label",
-      "help_t": "cfgdocs.io.input.a04.a04_c1.help"
+      "help_t": "cfgdocs.io.input.a04.a04_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a04/a04_name": {
       "type": "CharArray",
@@ -342,17 +402,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a04.binding_port.label",
       "help_t": "cfgdocs.io.input.a04.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a05/a05_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a05.a05_c0.label",
-      "help_t": "cfgdocs.io.input.a05.a05_c0.help"
+      "help_t": "cfgdocs.io.input.a05.a05_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a05/a05_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a05.a05_c1.label",
-      "help_t": "cfgdocs.io.input.a05.a05_c1.help"
+      "help_t": "cfgdocs.io.input.a05.a05_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a05/a05_name": {
       "type": "CharArray",
@@ -369,17 +442,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a05.binding_port.label",
       "help_t": "cfgdocs.io.input.a05.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a06/a06_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a06.a06_c0.label",
-      "help_t": "cfgdocs.io.input.a06.a06_c0.help"
+      "help_t": "cfgdocs.io.input.a06.a06_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a06/a06_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a06.a06_c1.label",
-      "help_t": "cfgdocs.io.input.a06.a06_c1.help"
+      "help_t": "cfgdocs.io.input.a06.a06_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a06/a06_name": {
       "type": "CharArray",
@@ -396,17 +482,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a06.binding_port.label",
       "help_t": "cfgdocs.io.input.a06.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a07/a07_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a07.a07_c0.label",
-      "help_t": "cfgdocs.io.input.a07.a07_c0.help"
+      "help_t": "cfgdocs.io.input.a07.a07_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a07/a07_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a07.a07_c1.label",
-      "help_t": "cfgdocs.io.input.a07.a07_c1.help"
+      "help_t": "cfgdocs.io.input.a07.a07_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a07/a07_name": {
       "type": "CharArray",
@@ -423,17 +522,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a07.binding_port.label",
       "help_t": "cfgdocs.io.input.a07.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a08/a08_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a08.a08_c0.label",
-      "help_t": "cfgdocs.io.input.a08.a08_c0.help"
+      "help_t": "cfgdocs.io.input.a08.a08_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a08/a08_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a08.a08_c1.label",
-      "help_t": "cfgdocs.io.input.a08.a08_c1.help"
+      "help_t": "cfgdocs.io.input.a08.a08_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a08/a08_name": {
       "type": "CharArray",
@@ -450,17 +562,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a08.binding_port.label",
       "help_t": "cfgdocs.io.input.a08.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a09/a09_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a09.a09_c0.label",
-      "help_t": "cfgdocs.io.input.a09.a09_c0.help"
+      "help_t": "cfgdocs.io.input.a09.a09_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a09/a09_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a09.a09_c1.label",
-      "help_t": "cfgdocs.io.input.a09.a09_c1.help"
+      "help_t": "cfgdocs.io.input.a09.a09_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a09/a09_name": {
       "type": "CharArray",
@@ -477,17 +602,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a09.binding_port.label",
       "help_t": "cfgdocs.io.input.a09.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a10/a10_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a10.a10_c0.label",
-      "help_t": "cfgdocs.io.input.a10.a10_c0.help"
+      "help_t": "cfgdocs.io.input.a10.a10_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a10/a10_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a10.a10_c1.label",
-      "help_t": "cfgdocs.io.input.a10.a10_c1.help"
+      "help_t": "cfgdocs.io.input.a10.a10_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a10/a10_name": {
       "type": "CharArray",
@@ -504,17 +642,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a10.binding_port.label",
       "help_t": "cfgdocs.io.input.a10.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a11/a11_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a11.a11_c0.label",
-      "help_t": "cfgdocs.io.input.a11.a11_c0.help"
+      "help_t": "cfgdocs.io.input.a11.a11_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a11/a11_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a11.a11_c1.label",
-      "help_t": "cfgdocs.io.input.a11.a11_c1.help"
+      "help_t": "cfgdocs.io.input.a11.a11_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a11/a11_name": {
       "type": "CharArray",
@@ -531,17 +682,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a11.binding_port.label",
       "help_t": "cfgdocs.io.input.a11.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a12/a12_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a12.a12_c0.label",
-      "help_t": "cfgdocs.io.input.a12.a12_c0.help"
+      "help_t": "cfgdocs.io.input.a12.a12_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a12/a12_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a12.a12_c1.label",
-      "help_t": "cfgdocs.io.input.a12.a12_c1.help"
+      "help_t": "cfgdocs.io.input.a12.a12_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a12/a12_name": {
       "type": "CharArray",
@@ -558,17 +722,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a12.binding_port.label",
       "help_t": "cfgdocs.io.input.a12.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a13/a13_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a13.a13_c0.label",
-      "help_t": "cfgdocs.io.input.a13.a13_c0.help"
+      "help_t": "cfgdocs.io.input.a13.a13_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a13/a13_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a13.a13_c1.label",
-      "help_t": "cfgdocs.io.input.a13.a13_c1.help"
+      "help_t": "cfgdocs.io.input.a13.a13_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a13/a13_name": {
       "type": "CharArray",
@@ -585,17 +762,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a13.binding_port.label",
       "help_t": "cfgdocs.io.input.a13.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a14/a14_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a14.a14_c0.label",
-      "help_t": "cfgdocs.io.input.a14.a14_c0.help"
+      "help_t": "cfgdocs.io.input.a14.a14_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a14/a14_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a14.a14_c1.label",
-      "help_t": "cfgdocs.io.input.a14.a14_c1.help"
+      "help_t": "cfgdocs.io.input.a14.a14_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a14/a14_name": {
       "type": "CharArray",
@@ -612,17 +802,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a14.binding_port.label",
       "help_t": "cfgdocs.io.input.a14.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a15/a15_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a15.a15_c0.label",
-      "help_t": "cfgdocs.io.input.a15.a15_c0.help"
+      "help_t": "cfgdocs.io.input.a15.a15_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a15/a15_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a15.a15_c1.label",
-      "help_t": "cfgdocs.io.input.a15.a15_c1.help"
+      "help_t": "cfgdocs.io.input.a15.a15_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a15/a15_name": {
       "type": "CharArray",
@@ -639,13 +842,19 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a15.binding_port.label",
       "help_t": "cfgdocs.io.input.a15.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/i00/binding_port": {
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.i00.binding_port.label",
       "help_t": "cfgdocs.io.input.i00.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_input"
+      "enum_set": "flowio_binding_port_digital_input",
+      "binding_port_field": true
     },
     "io/input/i00/counter_total": {
       "type": "Float",
@@ -694,7 +903,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.i01.binding_port.label",
       "help_t": "cfgdocs.io.input.i01.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_input"
+      "enum_set": "flowio_binding_port_digital_input",
+      "binding_port_field": true
     },
     "io/input/i01/counter_total": {
       "type": "Float",
@@ -743,7 +953,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.i02.binding_port.label",
       "help_t": "cfgdocs.io.input.i02.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_input"
+      "enum_set": "flowio_binding_port_digital_input",
+      "binding_port_field": true
     },
     "io/input/i02/counter_total": {
       "type": "Float",
@@ -792,7 +1003,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.i03.binding_port.label",
       "help_t": "cfgdocs.io.input.i03.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_input"
+      "enum_set": "flowio_binding_port_digital_input",
+      "binding_port_field": true
     },
     "io/input/i03/counter_total": {
       "type": "Float",
@@ -841,7 +1053,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.i04.binding_port.label",
       "help_t": "cfgdocs.io.input.i04.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_input"
+      "enum_set": "flowio_binding_port_digital_input",
+      "binding_port_field": true
     },
     "io/input/i04/counter_total": {
       "type": "Float",
@@ -890,7 +1103,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.i05.binding_port.label",
       "help_t": "cfgdocs.io.input.i05.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_input"
+      "enum_set": "flowio_binding_port_digital_input",
+      "binding_port_field": true
     },
     "io/input/i05/counter_total": {
       "type": "Float",
@@ -939,7 +1153,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.i06.binding_port.label",
       "help_t": "cfgdocs.io.input.i06.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_input"
+      "enum_set": "flowio_binding_port_digital_input",
+      "binding_port_field": true
     },
     "io/input/i06/counter_total": {
       "type": "Float",
@@ -988,7 +1203,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.i07.binding_port.label",
       "help_t": "cfgdocs.io.input.i07.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_input"
+      "enum_set": "flowio_binding_port_digital_input",
+      "binding_port_field": true
     },
     "io/input/i07/counter_total": {
       "type": "Float",
@@ -1037,7 +1253,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.output.d00.binding_port.label",
       "help_t": "cfgdocs.io.output.d00.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_output"
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
     },
     "io/output/d00/d00_active_high": {
       "type": "Bool",
@@ -1069,7 +1286,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.output.d01.binding_port.label",
       "help_t": "cfgdocs.io.output.d01.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_output"
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
     },
     "io/output/d01/d01_active_high": {
       "type": "Bool",
@@ -1101,7 +1319,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.output.d02.binding_port.label",
       "help_t": "cfgdocs.io.output.d02.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_output"
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
     },
     "io/output/d02/d02_active_high": {
       "type": "Bool",
@@ -1133,7 +1352,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.output.d03.binding_port.label",
       "help_t": "cfgdocs.io.output.d03.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_output"
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
     },
     "io/output/d03/d03_active_high": {
       "type": "Bool",
@@ -1165,7 +1385,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.output.d04.binding_port.label",
       "help_t": "cfgdocs.io.output.d04.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_output"
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
     },
     "io/output/d04/d04_active_high": {
       "type": "Bool",
@@ -1197,7 +1418,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.output.d05.binding_port.label",
       "help_t": "cfgdocs.io.output.d05.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_output"
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
     },
     "io/output/d05/d05_active_high": {
       "type": "Bool",
@@ -1229,7 +1451,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.output.d06.binding_port.label",
       "help_t": "cfgdocs.io.output.d06.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_output"
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
     },
     "io/output/d06/d06_active_high": {
       "type": "Bool",
@@ -1261,7 +1484,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.output.d07.binding_port.label",
       "help_t": "cfgdocs.io.output.d07.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_output"
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
     },
     "io/output/d07/d07_active_high": {
       "type": "Bool",
@@ -1341,7 +1565,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.output.d08.binding_port.label",
       "help_t": "cfgdocs.io.output.d08.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_output"
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
     },
     "io/output/d08/d08_active_high": {
       "type": "Bool",
@@ -1379,7 +1604,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.output.d09.binding_port.label",
       "help_t": "cfgdocs.io.output.d09.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_output"
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
     },
     "io/output/d09/d09_active_high": {
       "type": "Bool",
@@ -1417,7 +1643,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.output.d10.binding_port.label",
       "help_t": "cfgdocs.io.output.d10.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_output"
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
     },
     "io/output/d10/d10_active_high": {
       "type": "Bool",
@@ -1455,7 +1682,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.output.d11.binding_port.label",
       "help_t": "cfgdocs.io.output.d11.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_output"
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
     },
     "io/output/d11/d11_active_high": {
       "type": "Bool",
@@ -1493,7 +1721,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.output.d12.binding_port.label",
       "help_t": "cfgdocs.io.output.d12.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_output"
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
     },
     "io/output/d12/d12_active_high": {
       "type": "Bool",
@@ -1531,7 +1760,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.output.d13.binding_port.label",
       "help_t": "cfgdocs.io.output.d13.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_output"
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
     },
     "io/output/d13/d13_active_high": {
       "type": "Bool",
@@ -1569,7 +1799,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.output.d14.binding_port.label",
       "help_t": "cfgdocs.io.output.d14.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_output"
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
     },
     "io/output/d14/d14_active_high": {
       "type": "Bool",
@@ -1607,7 +1838,8 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.output.d15.binding_port.label",
       "help_t": "cfgdocs.io.output.d15.binding_port.help",
-      "enum_set": "flowio_binding_port_digital_output"
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
     },
     "io/output/d15/d15_active_high": {
       "type": "Bool",
@@ -1644,12 +1876,20 @@
     "io/input/a16/a16_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a16.a16_c0.label",
-      "help_t": "cfgdocs.io.input.a16.a16_c0.help"
+      "help_t": "cfgdocs.io.input.a16.a16_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a16/a16_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a16.a16_c1.label",
-      "help_t": "cfgdocs.io.input.a16.a16_c1.help"
+      "help_t": "cfgdocs.io.input.a16.a16_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a16/a16_name": {
       "type": "CharArray",
@@ -1666,17 +1906,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a16.binding_port.label",
       "help_t": "cfgdocs.io.input.a16.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a17/a17_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a17.a17_c0.label",
-      "help_t": "cfgdocs.io.input.a17.a17_c0.help"
+      "help_t": "cfgdocs.io.input.a17.a17_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a17/a17_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a17.a17_c1.label",
-      "help_t": "cfgdocs.io.input.a17.a17_c1.help"
+      "help_t": "cfgdocs.io.input.a17.a17_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a17/a17_name": {
       "type": "CharArray",
@@ -1693,17 +1946,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a17.binding_port.label",
       "help_t": "cfgdocs.io.input.a17.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a18/a18_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a18.a18_c0.label",
-      "help_t": "cfgdocs.io.input.a18.a18_c0.help"
+      "help_t": "cfgdocs.io.input.a18.a18_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a18/a18_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a18.a18_c1.label",
-      "help_t": "cfgdocs.io.input.a18.a18_c1.help"
+      "help_t": "cfgdocs.io.input.a18.a18_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a18/a18_name": {
       "type": "CharArray",
@@ -1720,17 +1986,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a18.binding_port.label",
       "help_t": "cfgdocs.io.input.a18.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a19/a19_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a19.a19_c0.label",
-      "help_t": "cfgdocs.io.input.a19.a19_c0.help"
+      "help_t": "cfgdocs.io.input.a19.a19_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a19/a19_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a19.a19_c1.label",
-      "help_t": "cfgdocs.io.input.a19.a19_c1.help"
+      "help_t": "cfgdocs.io.input.a19.a19_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a19/a19_name": {
       "type": "CharArray",
@@ -1747,17 +2026,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a19.binding_port.label",
       "help_t": "cfgdocs.io.input.a19.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a20/a20_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a20.a20_c0.label",
-      "help_t": "cfgdocs.io.input.a20.a20_c0.help"
+      "help_t": "cfgdocs.io.input.a20.a20_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a20/a20_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a20.a20_c1.label",
-      "help_t": "cfgdocs.io.input.a20.a20_c1.help"
+      "help_t": "cfgdocs.io.input.a20.a20_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a20/a20_name": {
       "type": "CharArray",
@@ -1774,17 +2066,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a20.binding_port.label",
       "help_t": "cfgdocs.io.input.a20.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a21/a21_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a21.a21_c0.label",
-      "help_t": "cfgdocs.io.input.a21.a21_c0.help"
+      "help_t": "cfgdocs.io.input.a21.a21_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a21/a21_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a21.a21_c1.label",
-      "help_t": "cfgdocs.io.input.a21.a21_c1.help"
+      "help_t": "cfgdocs.io.input.a21.a21_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a21/a21_name": {
       "type": "CharArray",
@@ -1801,17 +2106,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a21.binding_port.label",
       "help_t": "cfgdocs.io.input.a21.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a22/a22_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a22.a22_c0.label",
-      "help_t": "cfgdocs.io.input.a22.a22_c0.help"
+      "help_t": "cfgdocs.io.input.a22.a22_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a22/a22_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a22.a22_c1.label",
-      "help_t": "cfgdocs.io.input.a22.a22_c1.help"
+      "help_t": "cfgdocs.io.input.a22.a22_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a22/a22_name": {
       "type": "CharArray",
@@ -1828,17 +2146,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a22.binding_port.label",
       "help_t": "cfgdocs.io.input.a22.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a23/a23_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a23.a23_c0.label",
-      "help_t": "cfgdocs.io.input.a23.a23_c0.help"
+      "help_t": "cfgdocs.io.input.a23.a23_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a23/a23_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a23.a23_c1.label",
-      "help_t": "cfgdocs.io.input.a23.a23_c1.help"
+      "help_t": "cfgdocs.io.input.a23.a23_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a23/a23_name": {
       "type": "CharArray",
@@ -1855,17 +2186,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a23.binding_port.label",
       "help_t": "cfgdocs.io.input.a23.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a24/a24_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a24.a24_c0.label",
-      "help_t": "cfgdocs.io.input.a24.a24_c0.help"
+      "help_t": "cfgdocs.io.input.a24.a24_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a24/a24_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a24.a24_c1.label",
-      "help_t": "cfgdocs.io.input.a24.a24_c1.help"
+      "help_t": "cfgdocs.io.input.a24.a24_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a24/a24_name": {
       "type": "CharArray",
@@ -1882,17 +2226,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a24.binding_port.label",
       "help_t": "cfgdocs.io.input.a24.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a25/a25_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a25.a25_c0.label",
-      "help_t": "cfgdocs.io.input.a25.a25_c0.help"
+      "help_t": "cfgdocs.io.input.a25.a25_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a25/a25_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a25.a25_c1.label",
-      "help_t": "cfgdocs.io.input.a25.a25_c1.help"
+      "help_t": "cfgdocs.io.input.a25.a25_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a25/a25_name": {
       "type": "CharArray",
@@ -1909,17 +2266,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a25.binding_port.label",
       "help_t": "cfgdocs.io.input.a25.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a26/a26_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a26.a26_c0.label",
-      "help_t": "cfgdocs.io.input.a26.a26_c0.help"
+      "help_t": "cfgdocs.io.input.a26.a26_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a26/a26_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a26.a26_c1.label",
-      "help_t": "cfgdocs.io.input.a26.a26_c1.help"
+      "help_t": "cfgdocs.io.input.a26.a26_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a26/a26_name": {
       "type": "CharArray",
@@ -1936,17 +2306,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a26.binding_port.label",
       "help_t": "cfgdocs.io.input.a26.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a27/a27_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a27.a27_c0.label",
-      "help_t": "cfgdocs.io.input.a27.a27_c0.help"
+      "help_t": "cfgdocs.io.input.a27.a27_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a27/a27_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a27.a27_c1.label",
-      "help_t": "cfgdocs.io.input.a27.a27_c1.help"
+      "help_t": "cfgdocs.io.input.a27.a27_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a27/a27_name": {
       "type": "CharArray",
@@ -1963,17 +2346,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a27.binding_port.label",
       "help_t": "cfgdocs.io.input.a27.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a28/a28_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a28.a28_c0.label",
-      "help_t": "cfgdocs.io.input.a28.a28_c0.help"
+      "help_t": "cfgdocs.io.input.a28.a28_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a28/a28_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a28.a28_c1.label",
-      "help_t": "cfgdocs.io.input.a28.a28_c1.help"
+      "help_t": "cfgdocs.io.input.a28.a28_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a28/a28_name": {
       "type": "CharArray",
@@ -1990,17 +2386,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a28.binding_port.label",
       "help_t": "cfgdocs.io.input.a28.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a29/a29_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a29.a29_c0.label",
-      "help_t": "cfgdocs.io.input.a29.a29_c0.help"
+      "help_t": "cfgdocs.io.input.a29.a29_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a29/a29_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a29.a29_c1.label",
-      "help_t": "cfgdocs.io.input.a29.a29_c1.help"
+      "help_t": "cfgdocs.io.input.a29.a29_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a29/a29_name": {
       "type": "CharArray",
@@ -2017,17 +2426,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a29.binding_port.label",
       "help_t": "cfgdocs.io.input.a29.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a30/a30_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a30.a30_c0.label",
-      "help_t": "cfgdocs.io.input.a30.a30_c0.help"
+      "help_t": "cfgdocs.io.input.a30.a30_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a30/a30_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a30.a30_c1.label",
-      "help_t": "cfgdocs.io.input.a30.a30_c1.help"
+      "help_t": "cfgdocs.io.input.a30.a30_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a30/a30_name": {
       "type": "CharArray",
@@ -2044,17 +2466,30 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a30.binding_port.label",
       "help_t": "cfgdocs.io.input.a30.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a31/a31_c0": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a31.a31_c0.label",
-      "help_t": "cfgdocs.io.input.a31.a31_c0.help"
+      "help_t": "cfgdocs.io.input.a31.a31_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a31/a31_c1": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.a31.a31_c1.label",
-      "help_t": "cfgdocs.io.input.a31.a31_c1.help"
+      "help_t": "cfgdocs.io.input.a31.a31_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a31/a31_name": {
       "type": "CharArray",
@@ -2071,7 +2506,12 @@
       "type": "UInt16",
       "label_t": "cfgdocs.io.input.a31.binding_port.label",
       "help_t": "cfgdocs.io.input.a31.binding_port.help",
-      "enum_set": "flowio_binding_port_analog"
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/i00/counter_reset": {
       "type": "UInt16",
@@ -2423,162 +2863,290 @@
     "io/input/a00/a00_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a01/a01_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a02/a02_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a03/a03_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a04/a04_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a05/a05_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a06/a06_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a07/a07_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a08/a08_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a09/a09_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a10/a10_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a11/a11_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a12/a12_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a13/a13_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a14/a14_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a15/a15_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a16/a16_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a17/a17_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a18/a18_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a19/a19_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a20/a20_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a21/a21_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a22/a22_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a23/a23_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a24/a24_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a25/a25_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a26/a26_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a27/a27_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a28/a28_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a29/a29_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a30/a30_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/input/a31/a31_unit": {
       "type": "CharArray",
       "label_t": "cfgdocs.io.input.unit.label",
-      "help_t": "cfgdocs.io.input.unit.help"
+      "help_t": "cfgdocs.io.input.unit.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
     },
     "io/value/v00/unit": {
       "type": "CharArray",
@@ -2590,6 +3158,1294 @@
       "label_t": "cfgdocs.io.value.v00.precision.label",
       "help_t": "cfgdocs.io.value.v00.precision.help",
       "unit": "digits"
+    },
+    "io/input/a00/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a00.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a00.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a00/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a00.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a00.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a00/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a00.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a00.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a01/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a01.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a01.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a01/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a01.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a01.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a01/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a01.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a01.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a02/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a02.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a02.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a02/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a02.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a02.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a02/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a02.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a02.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a03/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a03.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a03.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a03/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a03.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a03.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a03/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a03.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a03.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a04/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a04.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a04.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a04/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a04.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a04.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a04/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a04.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a04.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a05/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a05.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a05.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a05/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a05.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a05.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a05/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a05.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a05.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a06/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a06.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a06.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a06/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a06.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a06.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a06/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a06.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a06.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a07/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a07.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a07.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a07/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a07.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a07.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a07/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a07.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a07.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a08/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a08.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a08.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a08/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a08.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a08.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a08/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a08.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a08.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a09/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a09.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a09.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a09/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a09.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a09.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a09/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a09.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a09.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a10/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a10.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a10.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a10/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a10.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a10.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a10/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a10.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a10.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a11/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a11.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a11.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a11/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a11.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a11.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a11/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a11.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a11.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a12/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a12.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a12.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a12/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a12.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a12.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a12/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a12.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a12.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a13/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a13.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a13.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a13/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a13.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a13.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a13/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a13.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a13.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a14/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a14.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a14.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a14/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a14.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a14.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a14/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a14.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a14.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a15/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a15.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a15.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a15/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a15.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a15.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a15/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a15.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a15.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/i00/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.i00.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.i00.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_input",
+      "binding_port_field": true
+    },
+    "io/input/i01/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.i01.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.i01.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_input",
+      "binding_port_field": true
+    },
+    "io/input/i02/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.i02.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.i02.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_input",
+      "binding_port_field": true
+    },
+    "io/input/i03/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.i03.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.i03.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_input",
+      "binding_port_field": true
+    },
+    "io/input/i04/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.i04.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.i04.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_input",
+      "binding_port_field": true
+    },
+    "io/input/i05/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.i05.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.i05.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_input",
+      "binding_port_field": true
+    },
+    "io/input/i06/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.i06.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.i06.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_input",
+      "binding_port_field": true
+    },
+    "io/input/i07/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.i07.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.i07.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_input",
+      "binding_port_field": true
+    },
+    "io/output/d00/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.output.d00.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.output.d00.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
+    },
+    "io/output/d01/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.output.d01.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.output.d01.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
+    },
+    "io/output/d02/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.output.d02.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.output.d02.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
+    },
+    "io/output/d03/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.output.d03.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.output.d03.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
+    },
+    "io/output/d04/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.output.d04.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.output.d04.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
+    },
+    "io/output/d05/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.output.d05.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.output.d05.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
+    },
+    "io/output/d06/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.output.d06.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.output.d06.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
+    },
+    "io/output/d07/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.output.d07.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.output.d07.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
+    },
+    "io/output/d08/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.output.d08.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.output.d08.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
+    },
+    "io/output/d09/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.output.d09.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.output.d09.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
+    },
+    "io/output/d10/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.output.d10.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.output.d10.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
+    },
+    "io/output/d11/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.output.d11.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.output.d11.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
+    },
+    "io/output/d12/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.output.d12.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.output.d12.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
+    },
+    "io/output/d13/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.output.d13.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.output.d13.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
+    },
+    "io/output/d14/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.output.d14.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.output.d14.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
+    },
+    "io/output/d15/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.output.d15.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.output.d15.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_digital_output",
+      "binding_port_field": true
+    },
+    "io/input/a16/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a16.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a16.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a16/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a16.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a16.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a16/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a16.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a16.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a17/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a17.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a17.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a17/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a17.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a17.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a17/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a17.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a17.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a18/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a18.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a18.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a18/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a18.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a18.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a18/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a18.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a18.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a19/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a19.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a19.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a19/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a19.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a19.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a19/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a19.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a19.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a20/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a20.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a20.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a20/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a20.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a20.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a20/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a20.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a20.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a21/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a21.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a21.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a21/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a21.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a21.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a21/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a21.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a21.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a22/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a22.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a22.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a22/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a22.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a22.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a22/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a22.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a22.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a23/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a23.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a23.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a23/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a23.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a23.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a23/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a23.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a23.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a24/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a24.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a24.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a24/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a24.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a24.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a24/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a24.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a24.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a25/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a25.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a25.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a25/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a25.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a25.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a25/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a25.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a25.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a26/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a26.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a26.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a26/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a26.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a26.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a26/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a26.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a26.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a27/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a27.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a27.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a27/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a27.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a27.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a27/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a27.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a27.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a28/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a28.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a28.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a28/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a28.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a28.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a28/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a28.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a28.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a29/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a29.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a29.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a29/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a29.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a29.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a29/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a29.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a29.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a30/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a30.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a30.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a30/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a30.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a30.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a30/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a30.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a30.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a31/secondary_binding_port": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.input.a31.secondary_binding_port.label",
+      "help_t": "cfgdocs.io.input.a31.secondary_binding_port.help",
+      "enum_set": "flowio_binding_port_analog",
+      "binding_port_field": true,
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a31/secondary_c0": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a31.secondary_c0.label",
+      "help_t": "cfgdocs.io.input.a31.secondary_c0.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a31/secondary_c1": {
+      "type": "Float",
+      "label_t": "cfgdocs.io.input.a31.secondary_c1.label",
+      "help_t": "cfgdocs.io.input.a31.secondary_c1.help",
+      "visible_when": {
+        "field": "source_value",
+        "equals": 65535
+      }
+    },
+    "io/input/a00/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a01/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a02/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a03/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a04/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a05/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a06/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a07/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a08/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a09/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a10/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a11/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a12/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a13/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a14/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a15/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a16/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a17/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a18/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a19/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a20/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a21/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a22/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a23/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a24/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a25/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a26/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a27/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a28/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a29/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a30/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
+    },
+    "io/input/a31/source_value": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.io.source.label",
+      "help_t": "cfgdocs.io.source.help",
+      "enum_set": "internal_analog_source"
     }
   }
 }

@@ -236,6 +236,26 @@ bool ConfigStore::eraseKey(const char* key)
     return ok;
 }
 
+bool ConfigStore::persistentKeyExists(const char* key, bool& exists)
+{
+    exists = false;
+    if (!_prefs || !key || !lockPrefs_()) return false;
+    exists = _prefs->isKey(key);
+    unlockPrefs_();
+    return true;
+}
+
+
+bool ConfigStore::persistRegisteredValue(const void* value)
+{
+    MutationGuard mutation(mutationMutex_);
+    if (!value) return false;
+    for (uint16_t i = 0; i < _metaCount; ++i) {
+        if (_meta[i].valuePtr == value) return writePersistent(_meta[i]);
+    }
+    return false;
+}
+
 bool ConfigStore::persistFloatValue(const char* key, float value)
 {
     return putFloat_(key, value);

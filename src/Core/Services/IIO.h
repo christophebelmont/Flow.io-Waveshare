@@ -1,5 +1,6 @@
 #pragma once
 #include "ActuatorControlState.h"
+#include "Core/IOBinding.h"
 /**
  * @file IIO.h
  * @brief Unified I/O service interfaces.
@@ -71,7 +72,8 @@ enum IoBackend : uint8_t {
     IO_BACKEND_BME680 = 7,
     IO_BACKEND_INA226 = 8,
     IO_BACKEND_TCA9554 = 9,
-    IO_BACKEND_MCP23017 = 10
+    IO_BACKEND_MCP23017 = 10,
+    IO_BACKEND_INTERNAL_VALUE = 11
 };
 
 /** Endpoint capability bitmask. */
@@ -96,13 +98,17 @@ struct IoValue {
 
 /** Static metadata describing one endpoint identity and capabilities. */
 struct IoEndpointMeta {
+    uint16_t sourceValue = 0xFFFFu;
+    uint16_t configuredSourceValue = 0xFFFFu;
     IoId id = IO_ID_INVALID;
     uint8_t kind = IO_KIND_DIGITAL_IN;
     uint8_t valueType = IO_VAL_BOOL;
     uint8_t backend = IO_BACKEND_GPIO;
     uint8_t channel = 0;
     /** Profile physical binding identifier; 0 means that the endpoint is unbound. */
-    uint16_t bindingPort = 0;
+    uint16_t bindingPort = 0; // Resolved at boot, never follows pending configuration.
+    IOBindingConfig bindingConfig{};
+    IOResolvedBinding bindingResolution{};
     uint8_t capabilities = 0;
     char name[IO_NAME_MAX_LEN] = {0};
     int32_t precision = 0;
@@ -127,7 +133,8 @@ enum IoRuntimeReason : uint8_t {
     IO_RUNTIME_REASON_EXPANDER_DISABLED = 4,
     IO_RUNTIME_REASON_HARDWARE_NOT_DETECTED = 5,
     IO_RUNTIME_REASON_DRIVER_INIT_FAILED = 6,
-    IO_RUNTIME_REASON_READ_FAILED = 7
+    IO_RUNTIME_REASON_READ_FAILED = 7,
+    IO_RUNTIME_REASON_BINDING_RESOLUTION_FAILED = 8
 };
 
 /** Runtime status kept independently from endpoint hardware availability. */
@@ -160,6 +167,7 @@ constexpr const char* ioRuntimeReasonName(uint8_t reason)
         case IO_RUNTIME_REASON_EXPANDER_DISABLED: return "expander_disabled";
         case IO_RUNTIME_REASON_HARDWARE_NOT_DETECTED: return "hardware_not_detected";
         case IO_RUNTIME_REASON_DRIVER_INIT_FAILED: return "driver_init_failed";
+        case IO_RUNTIME_REASON_BINDING_RESOLUTION_FAILED: return "binding_resolution_failed";
         case IO_RUNTIME_REASON_READ_FAILED: return "read_failed";
         default: return "unknown";
     }

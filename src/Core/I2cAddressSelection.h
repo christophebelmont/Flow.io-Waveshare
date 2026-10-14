@@ -3,9 +3,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+enum class I2cProbeResult : uint8_t { Present, Absent, Error };
+inline I2cProbeResult i2cProbeResult(bool present) { return present ? I2cProbeResult::Present : I2cProbeResult::Absent; }
+inline I2cProbeResult i2cProbeResult(I2cProbeResult result) { return result; }
+
 enum class I2cAddressStatus : uint8_t {
     Disabled, Invalid, PrimaryConflict, Missing, SecondaryReserved,
-    SecondaryConflict, Primary, Secondary
+    SecondaryConflict, Primary, Secondary, DetectionFailed
 };
 
 struct I2cAddressSelection {
@@ -44,9 +48,14 @@ void resolveI2cAddresses(I2cAddressSelection* devices, size_t count, Probe probe
                 break;
             }
         }
-        if (device.status == I2cAddressStatus::Missing && probe(device.primary)) {
-            device.active = device.primary;
-            device.status = I2cAddressStatus::Primary;
+        if (device.status == I2cAddressStatus::Missing) {
+            const auto result = i2cProbeResult(probe(device.primary));
+            if (result == I2cProbeResult::Present) {
+                device.active = device.primary;
+                device.status = I2cAddressStatus::Primary;
+            } else if (result == I2cProbeResult::Error) {
+                device.status = I2cAddressStatus::DetectionFailed;
+            }
         }
     }
 
@@ -78,9 +87,14 @@ void resolveI2cAddresses(I2cAddressSelection* devices, size_t count, Probe probe
         }
         if (conflict) {
             device.status = I2cAddressStatus::SecondaryConflict;
-        } else if (probe(device.secondary)) {
-            device.active = device.secondary;
-            device.status = I2cAddressStatus::Secondary;
+        } else {
+            const auto result = i2cProbeResult(probe(device.secondary));
+            if (result == I2cProbeResult::Present) {
+                device.active = device.secondary;
+                device.status = I2cAddressStatus::Secondary;
+            } else if (result == I2cProbeResult::Error) {
+                device.status = I2cAddressStatus::DetectionFailed;
+            }
         }
     }
 }
@@ -88,6 +102,7 @@ void resolveI2cAddresses(I2cAddressSelection* devices, size_t count, Probe probe
 inline const char* i2cAddressStatusName(I2cAddressStatus status)
 {
     switch (status) {
+        case I2cAddressStatus::DetectionFailed: return "detection failed";
         case I2cAddressStatus::Disabled: return "disabled";
         case I2cAddressStatus::Invalid: return "invalid configuration";
         case I2cAddressStatus::PrimaryConflict: return "primary conflict";

@@ -153,6 +153,7 @@ private:
         float injectedMlWeek = 0.0f;
         float injectedMlMonth = 0.0f;
         float injectedMlTotal = 0.0f;
+        uint32_t lastTankPublishMs = 0;
         float tankRemainingMl = 0.0f;
         uint32_t dayKey = 0;
         uint32_t weekKey = 0;

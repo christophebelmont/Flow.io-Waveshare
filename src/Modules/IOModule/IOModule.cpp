@@ -5,6 +5,7 @@
 
 #include "Core/Values/ValueFormat.h"
 #include "IOModule.h"
+#include "Core/Values/InternalAnalogSources.h"
 #include "IOConfigDescriptorStorage.h"
 #include "Core/SpiRamJsonDocument.h"
 #define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::IOModule)
@@ -565,9 +566,11 @@ bool IOModule::defineAnalogInput(const IOAnalogDefinition& def)
     if (analogIdx < ANALOG_CFG_SLOTS) {
         strncpy(analogCfg_[analogIdx].name, def.id, sizeof(analogCfg_[analogIdx].name) - 1);
         analogCfg_[analogIdx].name[sizeof(analogCfg_[analogIdx].name) - 1] = '\0';
-        analogCfg_[analogIdx].bindingPort = def.bindingPort;
+        analogCfg_[analogIdx].binding = def.binding;
         analogCfg_[analogIdx].c0 = def.c0;
         analogCfg_[analogIdx].c1 = def.c1;
+        analogCfg_[analogIdx].secondaryC0 = def.secondaryC0;
+        analogCfg_[analogIdx].secondaryC1 = def.secondaryC1;
         analogCfg_[analogIdx].precision = def.precision;
         setValueUnit(analogCfg_[analogIdx].unit, def.unit);
     }
@@ -592,9 +595,11 @@ bool IOModule::applyAnalogInputDefaults(const IOAnalogDefinition& def)
     if (analogIdx < ANALOG_CFG_SLOTS) {
         strncpy(analogCfg_[analogIdx].name, def.id, sizeof(analogCfg_[analogIdx].name) - 1);
         analogCfg_[analogIdx].name[sizeof(analogCfg_[analogIdx].name) - 1] = '\0';
-        analogCfg_[analogIdx].bindingPort = def.bindingPort;
+        analogCfg_[analogIdx].binding = def.binding;
         analogCfg_[analogIdx].c0 = def.c0;
         analogCfg_[analogIdx].c1 = def.c1;
+        analogCfg_[analogIdx].secondaryC0 = def.secondaryC0;
+        analogCfg_[analogIdx].secondaryC1 = def.secondaryC1;
         analogCfg_[analogIdx].precision = def.precision;
         setValueUnit(analogCfg_[analogIdx].unit, def.unit);
     }
@@ -683,7 +688,7 @@ bool IOModule::defineDigitalInput(const IODigitalInputDefinition& def)
         if (logicalIdx < MAX_DIGITAL_INPUTS) {
             strncpy(digitalInCfg_[logicalIdx].name, def.id, sizeof(digitalInCfg_[logicalIdx].name) - 1);
             digitalInCfg_[logicalIdx].name[sizeof(digitalInCfg_[logicalIdx].name) - 1] = '\0';
-            digitalInCfg_[logicalIdx].bindingPort = def.bindingPort;
+            digitalInCfg_[logicalIdx].binding = def.binding;
             digitalInCfg_[logicalIdx].activeHigh = def.activeHigh;
             digitalInCfg_[logicalIdx].pullMode = def.pullMode;
             digitalInCfg_[logicalIdx].mode = def.mode;
@@ -721,7 +726,7 @@ bool IOModule::defineDigitalOutput(const IODigitalOutputDefinition& def)
             const uint8_t cfgIdx = logicalIdx;
             strncpy(digitalCfg_[cfgIdx].name, def.id, sizeof(digitalCfg_[cfgIdx].name) - 1);
             digitalCfg_[cfgIdx].name[sizeof(digitalCfg_[cfgIdx].name) - 1] = '\0';
-            digitalCfg_[cfgIdx].bindingPort = def.bindingPort;
+            digitalCfg_[cfgIdx].binding = def.binding;
             digitalCfg_[cfgIdx].activeHigh = def.activeHigh;
             digitalCfg_[cfgIdx].initialOn = def.initialOn;
             digitalCfg_[cfgIdx].startupPolicy = def.startupPolicy;
@@ -1037,6 +1042,13 @@ bool IOModule::buildEndpointSnapshot_(IOEndpoint* ep, char* out, size_t len, uin
     const char* label = endpointLabel(ep->numericId);
     doc["id"] = id ? id : "";
     doc["name"] = label && label[0] ? label : id ? id : "";
+    if (ep->numericId >= IO_ID_AI_BASE && ep->numericId < IO_ID_AI_MAX) {
+        const ValueId sourceValue = analogSourceValue(ep->numericId - IO_ID_AI_BASE);
+        if (sourceValue != VALUE_INVALID) {
+            doc["source_value"] = sourceValue;
+            doc["estimated"] = true;
+        }
+    }
     doc["available"] = value.valid;
     if (!value.valid) doc["value"] = nullptr;
     else if (value.valueType == IO_EP_VALUE_BOOL) doc["value"] = value.v.b;
@@ -1337,10 +1349,14 @@ bool IOModule::resolveConfiguredAnalogSource_(uint8_t idx, uint8_t& sourceOut) c
     if (idx >= ANALOG_CFG_SLOTS) return false;
     if (!analogSlots_[idx].used) return false;
 
+    if (InternalAnalogSources::contains(analogSlots_[idx].sourceValue)) {
+        sourceOut = IO_ANALOG_SOURCE_INVALID;
+        return true;
+    }
     uint8_t channel = 0U;
     uint8_t backend = IO_BACKEND_GPIO;
     uint8_t source = IO_ANALOG_SOURCE_INVALID;
-    if (!resolveAnalogBinding_(analogCfg_[idx].bindingPort, source, channel, backend)) return false;
+    if (!resolveAnalogBinding_(analogSlots_[idx].binding.port, source, channel, backend)) return false;
 
     sourceOut = source;
     return true;
@@ -1398,11 +1414,11 @@ bool IOModule::digitalRuntimeRoutePublished_(uint8_t slotIdx) const
         if (slot.logicalIdx >= MAX_DIGITAL_INPUTS) return false;
         // Counter-mode inputs stay internal (local web only): never broadcast on MQTT.
         if (slot.inDef.mode == IO_DIGITAL_INPUT_COUNTER) return false;
-        return digitalInCfg_[slot.logicalIdx].bindingPort != IO_PORT_INVALID;
+        return slot.binding.port != IO_PORT_INVALID;
     }
     if (slot.kind == DIGITAL_SLOT_OUTPUT) {
         if (slot.logicalIdx >= DIGITAL_CFG_SLOTS) return false;
-        return digitalCfg_[slot.logicalIdx].bindingPort != IO_PORT_INVALID;
+        return slot.binding.port != IO_PORT_INVALID;
     }
     return false;
 }
@@ -1442,18 +1458,28 @@ bool IOModule::processAnalogDefinition_(uint8_t idx, uint32_t nowMs)
     AnalogSlot& slot = analogSlots_[idx];
     if (!slot.used || !slot.endpoint) return false;
 
-    const IOAnalogProvider* provider = analogProviderForSource_(slot.source);
-    if (!provider || !provider->isBound()) {
-        invalidateAnalogSlot_(slot, nowMs);
-        return false;
-    }
-
     IOAnalogSample sample{};
-    const uint8_t readChannel =
-        (slot.source == IO_SRC_DS18_WATER || slot.source == IO_SRC_DS18_AIR) ? 0U : slot.channel;
-    if (!provider->readSample(readChannel, sample)) {
-        invalidateAnalogSlot_(slot, nowMs);
-        return false;
+    const bool internal = slot.sourceValue != VALUE_INVALID;
+    uint64_t timestampMs = uint64_t(esp_timer_get_time()) / 1000ULL;
+    if (internal) {
+        ValueSnapshot value{};
+        if (!dataStore_ || !dataStore_->values.read(slot.sourceValue, value) ||
+            !InternalAnalogSources::fresh(value, timestampMs)) {
+            invalidateAnalogSlot_(slot, nowMs);
+            return false;
+        }
+        sample.value = value.value.f;
+        sample.seq = value.sequence;
+        sample.hasSeq = true;
+        timestampMs = value.timestampMs;
+    } else {
+        const IOAnalogProvider* provider = analogProviderForSource_(slot.source);
+        const uint8_t readChannel =
+            (slot.source == IO_SRC_DS18_WATER || slot.source == IO_SRC_DS18_AIR) ? 0U : slot.channel;
+        if (!provider || !provider->isBound() || !provider->readSample(readChannel, sample)) {
+            invalidateAnalogSlot_(slot, nowMs);
+            return false;
+        }
     }
     float raw = sample.value;
     int16_t rawBinary = sample.raw;
@@ -1467,8 +1493,8 @@ bool IOModule::processAnalogDefinition_(uint8_t idx, uint32_t nowMs)
         slot.lastSampleSeqValid = true;
     }
 
-    float filtered = slot.median.update(raw);
-    float calibrated = (slot.def.c0 * filtered) + slot.def.c1;
+    float filtered = internal ? raw : slot.median.update(raw);
+    float calibrated = internal ? raw : (slot.def.c0 * filtered) + slot.def.c1;
     float rounded = ioRoundToPrecision(calibrated, slot.def.precision);
 
     // Trace pH/ORP/PSI calculation chain with configurable periodic ticker.
@@ -1493,10 +1519,10 @@ bool IOModule::processAnalogDefinition_(uint8_t idx, uint32_t nowMs)
         }
     }
 
-    slot.endpoint->update(rounded, true, nowMs);
+    slot.endpoint->update(rounded, true, uint32_t(timestampMs));
     if (dataStore_) {
         ValueNumber sample; sample.f = rounded;
-        dataStore_->values.write(ValueIds::Analog + idx, sample, esp_timer_get_time() / 1000ULL);
+        dataStore_->values.write(ValueIds::Analog + idx, sample, timestampMs);
     }
 
     if (!slot.lastRoundedValid || rounded != slot.lastRounded) {
@@ -1645,6 +1671,11 @@ void IOModule::forceAnalogSnapshotPublish_(uint8_t analogIdx, uint32_t nowMs)
     if (analogIdx >= MAX_ANALOG_ENDPOINTS) return;
     AnalogSlot& slot = analogSlots_[analogIdx];
     if (!slot.used || !slot.endpoint) return;
+    if (slot.sourceValue != VALUE_INVALID) {
+        slot.lastSampleSeqValid = false;
+        processAnalogDefinition_(analogIdx, nowMs);
+        return;
+    }
 
     IOEndpointValue v{};
     if (!slot.endpoint->read(v) || !v.valid || v.valueType != IO_EP_VALUE_FLOAT) return;
@@ -1660,14 +1691,17 @@ void IOModule::refreshAnalogConfigState_()
 {
     if (!ensureAnalogPrecisionState_()) return;
 
-    // `c0/c1` live in the logical slot, not in the shared provider. Keeping them
-    // synced here makes the next acquired sample use the new calibration without reboot.
+    // Apply calibration edits for the selected candidate without changing the boot route.
     if (runtimeReady_) {
         for (uint8_t i = 0; i < ANALOG_CFG_SLOTS; ++i) {
             if (i >= MAX_ANALOG_ENDPOINTS) continue;
             if (!analogSlots_[i].used) continue;
-            analogSlots_[i].def.c0 = analogCfg_[i].c0;
-            analogSlots_[i].def.c1 = analogCfg_[i].c1;
+            auto& slot = analogSlots_[i];
+            const auto& config = analogCfg_[i];
+            const bool secondary = slot.binding.selection == IOBindingSelection::Secondary;
+            if (slot.binding.port != (secondary ? config.binding.secondaryPort : config.binding.primaryPort)) continue;
+            slot.def.c0 = secondary ? config.secondaryC0 : config.c0;
+            slot.def.c1 = secondary ? config.secondaryC1 : config.c1;
         }
     }
 
@@ -1785,12 +1819,10 @@ IoStatus IOModule::ioMeta_(IoId id, IoEndpointMeta* outMeta) const
             : ((s.inDef.mode == IO_DIGITAL_INPUT_COUNTER) ? IO_VAL_FLOAT : IO_VAL_BOOL);
         outMeta->backend = s.backend;
         outMeta->channel = s.channel;
-        outMeta->bindingPort = (s.kind == DIGITAL_SLOT_OUTPUT) ? s.outDef.bindingPort : s.inDef.bindingPort;
-        if (s.kind == DIGITAL_SLOT_OUTPUT && s.logicalIdx < DIGITAL_CFG_SLOTS) {
-            outMeta->bindingPort = digitalCfg_[s.logicalIdx].bindingPort;
-        } else if (s.kind == DIGITAL_SLOT_INPUT && s.logicalIdx < DIGITAL_INPUT_CFG_SLOTS) {
-            outMeta->bindingPort = digitalInCfg_[s.logicalIdx].bindingPort;
-        }
+        outMeta->bindingPort = s.binding.port;
+        outMeta->bindingResolution = s.binding;
+        outMeta->bindingConfig = s.kind == DIGITAL_SLOT_OUTPUT
+            ? digitalCfg_[s.logicalIdx].binding : digitalInCfg_[s.logicalIdx].binding;
 
         if (s.kind == DIGITAL_SLOT_INPUT) {
             uint8_t pin = 0U;
@@ -1850,15 +1882,17 @@ IoStatus IOModule::ioMeta_(IoId id, IoEndpointMeta* outMeta) const
         const uint8_t analogIdx = (uint8_t)(id - IO_ID_AI_BASE);
         const AnalogSlot& s = analogSlots_[analogIdx];
         if (!s.used) return IO_ERR_UNKNOWN_ID;
+        outMeta->sourceValue = s.sourceValue;
+        outMeta->configuredSourceValue = analogCfg_[analogIdx].sourceValue;
 
         outMeta->kind = IO_KIND_ANALOG_IN;
         outMeta->valueType = IO_VAL_FLOAT;
         outMeta->capabilities = s.endpoint ? IO_CAP_R : 0;
         outMeta->channel = s.channel;
         outMeta->backend = s.backend;
-        outMeta->bindingPort = (analogIdx < ANALOG_CFG_SLOTS)
-            ? analogCfg_[analogIdx].bindingPort
-            : s.def.bindingPort;
+        outMeta->bindingPort = s.binding.port;
+        outMeta->bindingResolution = s.binding;
+        outMeta->bindingConfig = analogCfg_[analogIdx].binding;
         uint8_t source = IO_ANALOG_SOURCE_INVALID;
         uint8_t channel = 0U;
         uint8_t backend = IO_BACKEND_GPIO;
@@ -1904,9 +1938,33 @@ IoStatus IOModule::ioRuntimeStatus_(IoId id, IoRuntimeStatus* outStatus) const
         return IO_OK;
     }
 
+    if (meta.sourceValue != VALUE_INVALID) {
+        ValueSnapshot value{};
+        const bool valid = dataStore_ && dataStore_->values.read(meta.sourceValue, value) &&
+            InternalAnalogSources::fresh(value, uint64_t(esp_timer_get_time()) / 1000ULL);
+        outStatus->state = valid ? IO_RUNTIME_ACTIVE : IO_RUNTIME_ERROR;
+        outStatus->reason = valid ? IO_RUNTIME_REASON_NONE : IO_RUNTIME_REASON_READ_FAILED;
+        return IO_OK;
+    }
+
     if (meta.bindingPort == IO_PORT_INVALID) {
-        outStatus->state = IO_RUNTIME_SLEEPING;
-        outStatus->reason = IO_RUNTIME_REASON_UNBOUND;
+        const auto& resolution = meta.bindingResolution;
+        const bool disabled = (resolution.primaryPresence == IOPortPresence::Disabled ||
+                               resolution.secondaryPresence == IOPortPresence::Disabled) &&
+            (resolution.primaryPresence == IOPortPresence::Disabled || resolution.primaryPresence == IOPortPresence::Unconfigured) &&
+            (resolution.secondaryPresence == IOPortPresence::Disabled || resolution.secondaryPresence == IOPortPresence::Unconfigured);
+        if (disabled) {
+            outStatus->state = IO_RUNTIME_MANUALLY_DISABLED;
+            outStatus->reason = meta.kind == IO_KIND_ANALOG_IN
+                ? IO_RUNTIME_REASON_DRIVER_DISABLED : IO_RUNTIME_REASON_EXPANDER_DISABLED;
+        } else if (resolution.reason == IOBindingReason::Unconfigured) {
+            outStatus->state = IO_RUNTIME_SLEEPING;
+            outStatus->reason = IO_RUNTIME_REASON_UNBOUND;
+        } else {
+            outStatus->state = IO_RUNTIME_ERROR;
+            outStatus->reason = resolution.reason == IOBindingReason::NoEligiblePort
+                ? IO_RUNTIME_REASON_HARDWARE_NOT_DETECTED : IO_RUNTIME_REASON_BINDING_RESOLUTION_FAILED;
+        }
         return IO_OK;
     }
 
@@ -1944,7 +2002,7 @@ IoStatus IOModule::ioRuntimeStatus_(IoId id, IoRuntimeStatus* outStatus) const
             outStatus->reason = IO_RUNTIME_REASON_DRIVER_DISABLED;
             return IO_OK;
         }
-        if (analogSlots_[analogIdx].endpoint) {
+        if (analogSlots_[analogIdx].endpoint && analogProviders_[source].isBound()) {
             outStatus->state = IO_RUNTIME_ACTIVE;
             return IO_OK;
         }
@@ -2222,7 +2280,7 @@ IoStatus IOModule::ioSensorStatus_(IoId id, IoSensorStatus* outStatus) const
             return IO_ERR_UNKNOWN_ID;
         }
 
-        if (analogIdx < ANALOG_CFG_SLOTS && analogCfg_[analogIdx].bindingPort == IO_PORT_INVALID) {
+        if (analogIdx < ANALOG_CFG_SLOTS && analogSlots_[analogIdx].sourceValue == VALUE_INVALID && analogSlots_[analogIdx].binding.port == IO_PORT_INVALID) {
             outStatus->enabled = 0U;
             outStatus->invalidReasons = IO_SENSOR_INVALID_DISABLED | IO_SENSOR_INVALID_NO_BINDING;
             return IO_OK;
@@ -2233,7 +2291,7 @@ IoStatus IOModule::ioSensorStatus_(IoId id, IoSensorStatus* outStatus) const
             outStatus->invalidReasons = IO_SENSOR_INVALID_DISABLED;
 
             if (analogIdx < ANALOG_CFG_SLOTS) {
-                if (analogCfg_[analogIdx].bindingPort == IO_PORT_INVALID) {
+                if (analogSlots_[analogIdx].binding.port == IO_PORT_INVALID) {
                     outStatus->invalidReasons |= IO_SENSOR_INVALID_NO_BINDING;
                 } else {
                     uint8_t source = IO_ANALOG_SOURCE_INVALID;
@@ -2249,6 +2307,10 @@ IoStatus IOModule::ioSensorStatus_(IoId id, IoSensorStatus* outStatus) const
         }
 
         outStatus->enabled = 1U;
+        if (analogSlots_[analogIdx].sourceValue != VALUE_INVALID && runtime.state != IO_RUNTIME_ACTIVE) {
+            outStatus->invalidReasons = IO_SENSOR_INVALID_NO_VALUE;
+            return IO_OK;
+        }
         if (!analogSlots_[analogIdx].endpoint) {
             outStatus->invalidReasons = IO_SENSOR_INVALID_NOT_READY;
             return IO_OK;
@@ -2277,15 +2339,7 @@ IoStatus IOModule::ioSensorStatus_(IoId id, IoSensorStatus* outStatus) const
     }
 
     if (id >= IO_ID_DI_BASE && id < IO_ID_DI_MAX) {
-        const uint8_t logicalIdx = (uint8_t)(id - IO_ID_DI_BASE);
         outStatus->kind = IO_KIND_DIGITAL_IN;
-
-        if (logicalIdx < DIGITAL_INPUT_CFG_SLOTS &&
-            digitalInCfg_[logicalIdx].bindingPort == IO_PORT_INVALID) {
-            outStatus->enabled = 0U;
-            outStatus->invalidReasons = IO_SENSOR_INVALID_DISABLED | IO_SENSOR_INVALID_NO_BINDING;
-            return IO_OK;
-        }
 
         uint8_t slotIdx = 0xFF;
         if (!findDigitalSlotByIoId_(id, slotIdx)) {
@@ -2740,8 +2794,44 @@ bool IOModule::configureRuntime_()
     if (!pulseStorageReady_) LOGE("Pulse checkpoint unavailable or corrupt; counters disabled");
     bool needAnalogSource[IO_SRC_COUNT] = {false};
 
+    // Discover all candidate devices before selecting or activating any endpoint.
     for (uint8_t i = 0; i < MAX_ANALOG_ENDPOINTS; ++i) {
         if (!analogSlots_[i].used) continue;
+        if (analogCfg_[i].sourceValue != VALUE_INVALID) continue;
+        const auto& binding = analogCfg_[i].binding;
+        for (PhysicalPortId port : {binding.primaryPort, binding.secondaryPort}) {
+            uint8_t source, channel, backend;
+            if (resolveAnalogBinding_(port, source, channel, backend)) needAnalogSource[source] = true;
+        }
+    }
+    bool needI2c = false;
+    for (uint8_t source = 0; source < IO_SRC_COUNT; ++source) {
+        if (source != IO_SRC_DS18_WATER && source != IO_SRC_DS18_AIR)
+            needI2c |= needAnalogSource[source];
+    }
+    needI2c |= cfgData_.sht40Enabled || cfgData_.bmp280Enabled || cfgData_.bme680Enabled || cfgData_.ina226Enabled;
+    for (uint8_t i = 0; i < IO_MAX_EXPANDERS; ++i) needI2c |= expanderUsable_(i);
+    if (needI2c) {
+        if (i2cBus_) i2cBus_->begin(cfgData_.i2cSda, cfgData_.i2cScl);
+        resolveI2cAddresses_(needAnalogSource);
+    }
+    if (needAnalogSource[IO_SRC_DS18_WATER]) {
+        oneWireWaterAddrValid_ = resolveDsBusAddress_(oneWireWater_, NvsKeys::Io::DsRomWater, oneWireWaterAddr_);
+        analogPresence_[IO_SRC_DS18_WATER] = oneWireWaterAddrValid_ ? IOPortPresence::Present :
+            (oneWireWater_ && oneWireWater_->deviceCount() == 0 ? IOPortPresence::Absent : IOPortPresence::DetectionFailed);
+    }
+    if (needAnalogSource[IO_SRC_DS18_AIR]) {
+        oneWireAirAddrValid_ = resolveDsBusAddress_(oneWireAir_, NvsKeys::Io::DsRomAir, oneWireAirAddr_);
+        analogPresence_[IO_SRC_DS18_AIR] = oneWireAirAddrValid_ ? IOPortPresence::Present :
+            (oneWireAir_ && oneWireAir_->deviceCount() == 0 ? IOPortPresence::Absent : IOPortPresence::DetectionFailed);
+    }
+    resolveBootBindings_();
+    validateResolvedResources_();
+    for (auto& needed : needAnalogSource) needed = false;
+
+    for (uint8_t i = 0; i < MAX_ANALOG_ENDPOINTS; ++i) {
+        if (!analogSlots_[i].used) continue;
+        analogSlots_[i].sourceValue = analogCfg_[i].sourceValue;
         analogSlots_[i].ioId = (IoId)(IO_ID_AI_BASE + i);
         analogSlots_[i].source = IO_ANALOG_SOURCE_INVALID;
         analogSlots_[i].channel = 0U;
@@ -2753,41 +2843,42 @@ bool IOModule::configureRuntime_()
 
         if (i < ANALOG_CFG_SLOTS) {
             snprintf(analogSlots_[i].def.id, sizeof(analogSlots_[i].def.id), "a%02u", (unsigned)i);
-            analogSlots_[i].def.bindingPort = analogCfg_[i].bindingPort;
-            analogSlots_[i].def.c0 = analogCfg_[i].c0;
-            analogSlots_[i].def.c1 = analogCfg_[i].c1;
+            analogSlots_[i].def.binding = analogCfg_[i].binding;
+            analogSlots_[i].def.c0 = analogSlots_[i].binding.selection == IOBindingSelection::Secondary
+                ? analogCfg_[i].secondaryC0 : analogCfg_[i].c0;
+            analogSlots_[i].def.c1 = analogSlots_[i].binding.selection == IOBindingSelection::Secondary
+                ? analogCfg_[i].secondaryC1 : analogCfg_[i].c1;
             analogSlots_[i].def.precision = analogCfg_[i].precision;
 
             uint8_t source = IO_ANALOG_SOURCE_INVALID;
             uint8_t channel = 0U;
             uint8_t backend = IO_BACKEND_GPIO;
-            if (resolveAnalogBinding_(analogSlots_[i].def.bindingPort, source, channel, backend)) {
+            if (resolveAnalogBinding_(analogSlots_[i].binding.port, source, channel, backend)) {
                 analogSlots_[i].source = source;
                 analogSlots_[i].channel = channel;
                 analogSlots_[i].backend = backend;
-            } else if (analogSlots_[i].def.bindingPort != IO_PORT_INVALID) {
+            } else if (analogSlots_[i].binding.port != IO_PORT_INVALID) {
                 LOGW("Analog %s unresolved binding_port=%u",
                      analogSlots_[i].def.id,
-                     (unsigned)analogSlots_[i].def.bindingPort);
+                     (unsigned)analogSlots_[i].binding.port);
             }
 
             if (i < 3 && analogSlots_[i].source != IO_ANALOG_SOURCE_INVALID) {
                 LOGI("Analog map %s binding_port=%u source=%u channel=%u",
                      analogSlots_[i].def.id,
-                     (unsigned)analogSlots_[i].def.bindingPort,
+                     (unsigned)analogSlots_[i].binding.port,
                      (unsigned)analogSlots_[i].source,
                      (unsigned)analogSlots_[i].channel);
             }
         }
 
-        if (analogSlots_[i].source < IO_SRC_COUNT) {
-            needAnalogSource[analogSlots_[i].source] = true;
-        } else {
-            continue;
-        }
+        const bool internal = InternalAnalogSources::contains(analogSlots_[i].sourceValue);
+        if (!internal && analogSlots_[i].source >= IO_SRC_COUNT) continue;
+        if (internal) analogSlots_[i].backend = IO_BACKEND_INTERNAL_VALUE;
+        else needAnalogSource[analogSlots_[i].source] = true;
 
         ValueMetadata analogMeta{};
-        setValueUnit(analogMeta.displayUnit, (i < ANALOG_CFG_SLOTS) ? analogCfg_[i].unit : "");
+        setValueUnit(analogMeta.displayUnit, internal ? InternalAnalogSources::unit(analogSlots_[i].sourceValue) : analogCfg_[i].unit);
         if (!dataStore_->values.define(ValueIds::Analog + i, analogMeta)) return false;
         analogSlots_[i].endpoint = allocAnalogEndpoint_(analogSlots_[i].def.id);
         if (!analogSlots_[i].endpoint) continue;
@@ -2800,81 +2891,15 @@ bool IOModule::configureRuntime_()
         }
     }
 
-    bool needPcfOutput = false;
-    bool needTcaOutput = false;
-    bool needMcpOutput = false;
-    bool needMcpInput = false;
     bool tcaPreserveStartup[IO_MAX_EXPANDERS] = {false};
     for (uint8_t i = 0; i < MAX_DIGITAL_SLOTS; ++i) {
-        const DigitalSlot& s = digitalSlots_[i];
-        if (!s.used) continue;
-
-        PhysicalPortId bindingPort = IO_PORT_INVALID;
-        IOOutputStartupPolicy startupPolicy = IOOutputStartupPolicy::ApplyInitial;
-        if (s.kind == DIGITAL_SLOT_INPUT) {
-            bindingPort = s.inDef.bindingPort;
-            if (s.logicalIdx < DIGITAL_INPUT_CFG_SLOTS) {
-                bindingPort = digitalInCfg_[s.logicalIdx].bindingPort;
-            }
-        } else if (s.kind == DIGITAL_SLOT_OUTPUT) {
-            bindingPort = s.outDef.bindingPort;
-            startupPolicy = s.outDef.startupPolicy;
-            if (s.logicalIdx < DIGITAL_CFG_SLOTS) {
-                bindingPort = digitalCfg_[s.logicalIdx].bindingPort;
-                startupPolicy = digitalCfg_[s.logicalIdx].startupPolicy;
-            }
+        const auto& slot = digitalSlots_[i];
+        if (!slot.used || slot.kind != DIGITAL_SLOT_OUTPUT) continue;
+        const auto* port = bindingPortSpec_(slot.binding.port);
+        if (port && port->kind == IO_PORT_KIND_TCA9554_OUTPUT &&
+            digitalCfg_[slot.logicalIdx].startupPolicy == IOOutputStartupPolicy::PreserveHardwareState) {
+            tcaPreserveStartup[port->expanderId] = true;
         }
-
-        const IOBindingPortSpec* spec = bindingPortSpec_(bindingPort);
-        if (spec && spec->kind == IO_PORT_KIND_MCP23017_INPUT) {
-            needMcpInput = true;
-        }
-        if (s.kind != DIGITAL_SLOT_OUTPUT) continue;
-        if (spec && spec->kind == IO_PORT_KIND_PCF8574_OUTPUT) {
-            needPcfOutput = true;
-        }
-        if (spec && spec->kind == IO_PORT_KIND_TCA9554_OUTPUT) {
-            needTcaOutput = true;
-            if (startupPolicy == IOOutputStartupPolicy::PreserveHardwareState &&
-                spec->expanderId < IO_MAX_EXPANDERS) {
-                tcaPreserveStartup[spec->expanderId] = true;
-            }
-        }
-        if (spec && spec->kind == IO_PORT_KIND_MCP23017_OUTPUT) {
-            needMcpOutput = true;
-        }
-    }
-
-    const bool needI2c =
-        needAnalogSource[IO_SRC_ADS_INTERNAL_SINGLE] ||
-        needAnalogSource[IO_SRC_ADS_EXTERNAL_DIFF] ||
-        needAnalogSource[IO_SRC_SHT40] ||
-        needAnalogSource[IO_SRC_BMP280] ||
-        needAnalogSource[IO_SRC_BME680] ||
-        needAnalogSource[IO_SRC_INA226] ||
-        cfgData_.sht40Enabled ||
-        cfgData_.bmp280Enabled ||
-        cfgData_.bme680Enabled ||
-        cfgData_.ina226Enabled ||
-        needPcfOutput ||
-        needTcaOutput ||
-        needMcpOutput ||
-        needMcpInput;
-
-    if (needI2c) {
-        if (!i2cBus_) {
-            LOGE("shared I2C bus service unavailable");
-            return false;
-        }
-        // Concrete bus/driver assembly is centralized here so the rest of the module can stay on kernel types.
-        i2cBus_->begin(cfgData_.i2cSda, cfgData_.i2cScl);
-        if (!i2cBus_->beginOk()) {
-            LOGW("i2c.begin failed sda=%d scl=%d freq=%lu",
-                 i2cBus_->beginSda(),
-                 i2cBus_->beginScl(),
-                 (unsigned long)i2cBus_->beginFrequencyHz());
-        }
-        resolveI2cAddresses_(needAnalogSource);
     }
 
     for (uint8_t i = 0; i < MAX_DIGITAL_SLOTS; ++i) {
@@ -2892,7 +2917,7 @@ bool IOModule::configureRuntime_()
                     strncpy(s.inDef.id, digitalInCfg_[cfgIdx].name, sizeof(s.inDef.id) - 1);
                     s.inDef.id[sizeof(s.inDef.id) - 1] = '\0';
                 }
-                s.inDef.bindingPort = digitalInCfg_[cfgIdx].bindingPort;
+                s.inDef.binding = digitalInCfg_[cfgIdx].binding;
                 s.inDef.activeHigh = digitalInCfg_[cfgIdx].activeHigh;
                 uint8_t pull = digitalInCfg_[cfgIdx].pullMode;
                 if (pull > IO_PULL_DOWN) pull = IO_PULL_NONE;
@@ -2907,28 +2932,17 @@ bool IOModule::configureRuntime_()
             uint8_t backend = IO_BACKEND_GPIO;
             uint8_t channel = 0U;
             IOExpanderId expanderId = IO_EXPANDER_INVALID;
-            if (!resolveDigitalInputBinding_(s.inDef.bindingPort, pin, backend, channel, expanderId)) {
-                if (s.inDef.bindingPort != IO_PORT_INVALID) {
+            if (!resolveDigitalInputBinding_(s.binding.port, pin, backend, channel, expanderId)) {
+                if (s.binding.port != IO_PORT_INVALID) {
                     LOGW("Digital input %s unresolved binding_port=%u",
                          s.endpointId,
-                         (unsigned)s.inDef.bindingPort);
+                         (unsigned)s.binding.port);
                 }
                 continue;
             }
             s.backend = backend;
             s.channel = channel;
             s.expanderId = expanderId;
-            if (backend == IO_BACKEND_MCP23017) {
-                if (s.inDef.pullMode == IO_PULL_DOWN) {
-                    LOGW("Digital input %s MCP23017 pull-down unsupported; using pull-none", s.endpointId);
-                    s.inDef.pullMode = IO_PULL_NONE;
-                }
-                if (s.inDef.mode == IO_DIGITAL_INPUT_COUNTER) {
-                    LOGW("Digital input %s MCP23017 counter mode unsupported; using state mode", s.endpointId);
-                    s.inDef.mode = IO_DIGITAL_INPUT_STATE;
-                }
-            }
-
             IDigitalPinDriver* driver = nullptr;
             IDigitalCounterDriver* counterDriver = nullptr;
             if (backend == IO_BACKEND_MCP23017) {
@@ -2957,7 +2971,7 @@ bool IOModule::configureRuntime_()
                 LOGW("Digital input %s driver alloc failed pin=%u binding_port=%u mode=%u debounce_us=%lu",
                      s.endpointId,
                      (unsigned)pin,
-                     (unsigned)s.inDef.bindingPort,
+                     (unsigned)s.binding.port,
                      (unsigned)s.inDef.mode,
                      (unsigned long)s.inDef.counterDebounceUs);
                 continue;
@@ -2970,7 +2984,7 @@ bool IOModule::configureRuntime_()
                      s.endpointId,
                      driver->id() ? driver->id() : "?",
                      (unsigned)pin,
-                     (unsigned)s.inDef.bindingPort,
+                     (unsigned)s.binding.port,
                      (unsigned)s.inDef.mode,
                      (unsigned long)s.inDef.counterDebounceUs);
                 continue;
@@ -3009,7 +3023,7 @@ bool IOModule::configureRuntime_()
         const uint8_t cfgIdx = s.logicalIdx;
         if (cfgIdx < DIGITAL_CFG_SLOTS) {
             snprintf(s.outDef.id, sizeof(s.outDef.id), "d%02u", (unsigned)cfgIdx);
-            s.outDef.bindingPort = digitalCfg_[cfgIdx].bindingPort;
+            s.outDef.binding = digitalCfg_[cfgIdx].binding;
             s.outDef.activeHigh = digitalCfg_[cfgIdx].activeHigh;
             s.outDef.initialOn = digitalCfg_[cfgIdx].initialOn;
             s.outDef.startupPolicy = digitalCfg_[cfgIdx].startupPolicy;
@@ -3033,33 +3047,11 @@ bool IOModule::configureRuntime_()
         bool usesPcfOut = false;
         bool usesTcaOut = false;
         bool usesMcpOut = false;
-        bool bindingAlreadyUsed = false;
-        if (s.outDef.bindingPort != IO_PORT_INVALID) {
-            for (uint8_t previous = 0; previous < i; ++previous) {
-                const DigitalSlot& other = digitalSlots_[previous];
-                if (!other.used || other.kind != DIGITAL_SLOT_OUTPUT) continue;
-                PhysicalPortId otherBinding = other.outDef.bindingPort;
-                if (other.logicalIdx < DIGITAL_CFG_SLOTS) {
-                    otherBinding = digitalCfg_[other.logicalIdx].bindingPort;
-                }
-                if (otherBinding == s.outDef.bindingPort) {
-                    bindingAlreadyUsed = true;
-                    LOGE("Digital outputs %s/%s share binding_port=%u; %s disabled",
-                         other.endpointId[0] ? other.endpointId : other.outDef.id,
-                         s.outDef.id,
-                         (unsigned)s.outDef.bindingPort,
-                         s.outDef.id);
-                    break;
-                }
-            }
-        }
-        if (bindingAlreadyUsed) continue;
-
-        if (!resolveDigitalOutputBinding_(s.outDef.bindingPort, pin, backend, channel, expanderId, usesPcfOut, usesTcaOut, usesMcpOut)) {
-            if (s.outDef.bindingPort != IO_PORT_INVALID) {
+        if (!resolveDigitalOutputBinding_(s.binding.port, pin, backend, channel, expanderId, usesPcfOut, usesTcaOut, usesMcpOut)) {
+            if (s.binding.port != IO_PORT_INVALID) {
                 LOGW("Digital output %s unresolved binding_port=%u",
                      s.endpointId,
-                     (unsigned)s.outDef.bindingPort);
+                     (unsigned)s.binding.port);
             }
             continue;
         }
@@ -3196,12 +3188,11 @@ bool IOModule::configureRuntime_()
     dsCfg.conversionWaitMs = 750;
 
     if (needAnalogSource[IO_SRC_DS18_WATER] && oneWireWater_) {
-        oneWireWaterAddrValid_ = resolveDsBusAddress_(oneWireWater_, NvsKeys::Io::DsRomWater, oneWireWaterAddr_);
         if (oneWireWaterAddrValid_) {
             IAnalogSourceDriver* driver = allocDsDriver_("ds18_water", oneWireWater_, oneWireWaterAddr_, dsCfg);
             if (driver) {
-                analogProviders_[IO_SRC_DS18_WATER] = makeAnalogProvider(driver);
-                (void)analogProviders_[IO_SRC_DS18_WATER].begin();
+                const auto provider = makeAnalogProvider(driver);
+                if (provider.begin()) analogProviders_[IO_SRC_DS18_WATER] = provider;
             } else {
                 LOGW("DS18 water pool exhausted");
             }
@@ -3211,12 +3202,11 @@ bool IOModule::configureRuntime_()
     }
 
     if (needAnalogSource[IO_SRC_DS18_AIR] && oneWireAir_) {
-        oneWireAirAddrValid_ = resolveDsBusAddress_(oneWireAir_, NvsKeys::Io::DsRomAir, oneWireAirAddr_);
         if (oneWireAirAddrValid_) {
             IAnalogSourceDriver* driver = allocDsDriver_("ds18_air", oneWireAir_, oneWireAirAddr_, dsCfg);
             if (driver) {
-                analogProviders_[IO_SRC_DS18_AIR] = makeAnalogProvider(driver);
-                (void)analogProviders_[IO_SRC_DS18_AIR].begin();
+                const auto provider = makeAnalogProvider(driver);
+                if (provider.begin()) analogProviders_[IO_SRC_DS18_AIR] = provider;
             } else {
                 LOGW("DS18 air pool exhausted");
             }
@@ -3306,6 +3296,19 @@ bool IOModule::configureRuntime_()
         }
     }
 
+    IOScheduledJob internalJob{};
+    internalJob.id = "internal_analog";
+    internalJob.periodMs = 250;
+    internalJob.ctx = this;
+    internalJob.fn = [](void* ctx, uint32_t nowMs) {
+        auto* self = static_cast<IOModule*>(ctx);
+        if (!self->runtimeReady_) return false;
+        for (uint8_t i = 0; i < MAX_ANALOG_ENDPOINTS; ++i)
+            if (self->analogSlots_[i].sourceValue != VALUE_INVALID) self->processAnalogDefinition_(i, nowMs);
+        return true;
+    };
+    if (!scheduler_.add(internalJob)) return false;
+
     IOScheduledJob adsJob{};
     adsJob.id = "ads_fast";
     adsJob.periodMs = (cfgData_.adsPollMs < 20) ? 20 : (uint32_t)cfgData_.adsPollMs;
@@ -3348,23 +3351,15 @@ bool IOModule::configureRuntime_()
         // The complete graph is rejected; no per-expression fallback is installed.
         LOGE("Derived values unavailable: invalid graph or source; physical IO remains active");
     }
-    for (ValueId id = ValueIds::Derived; id < ValueIds::Capacity; ++id) {
+    for (ValueId id = ValueIds::Derived; id < ValueIds::Derived + ValueIds::DerivedCapacity; ++id) {
         ValueSnapshot value;
         if (dataStore_->values.read(id, value)) valueRoutes_[valueRouteCount_++] = id;
     }
     runtimeReady_ = true;
-    const char* expanderState = "off";
-    if (needTcaOutput) expanderState = "tca9554";
-    else if (needPcfOutput) expanderState = "pcf8574";
-    else if (needMcpOutput || needMcpInput) expanderState = "mcp23017";
-
-    LOGI("I/O ready (ads=%ldms ds=%ldms i2c_ai=%s din=%ldms endpoints=%u expander=%s)",
-         (long)adsJob.periodMs,
-         (long)dsJob.periodMs,
-         needI2cAnalogJob ? "20ms" : "off",
-         (long)dinJob.periodMs,
-         (unsigned)registry_.count(),
-         expanderState);
+    LOGI("I/O ready (ads=%ldms ds=%ldms i2c_ai=%s din=%ldms endpoints=%u)",
+         (long)adsJob.periodMs, (long)dsJob.periodMs,
+         needI2cAnalogJob ? "20ms" : "off", (long)dinJob.periodMs,
+         (unsigned)registry_.count());
 
     return true;
 }
@@ -3646,7 +3641,8 @@ void IOModule::init(ConfigStore& cfg, ServiceRegistry& services)
     if (!valueConfig_) { LOGE("Value definition allocation failed"); return; }
     valueConfig_->registerConfig(cfg, kCfgModuleId);
     if (!cfg.registerValidator([](void* context, const ConfigCandidate& candidate) {
-            return static_cast<IOModule*>(context)->validateValueConfig_(candidate);
+            auto* self = static_cast<IOModule*>(context);
+            return self->validateBindingConfig_(candidate) && self->validateValueConfig_(candidate);
         }, this)) {
         LOGE("Value configuration validator registration failed");
         return;
@@ -3693,13 +3689,18 @@ void IOModule::init(ConfigStore& cfg, ServiceRegistry& services)
     cfg.registerVar(traceEnabledVar_, kCfgModuleId, kCfgBranchIoDebug);
     cfg.registerVar(tracePeriodVar_, kCfgModuleId, kCfgBranchIoDebug);
 
+    prepareBindingMigration_(cfg);
     for (uint8_t i = 0; i < ANALOG_CFG_SLOTS; ++i) {
         IOConfigDescriptorStorage::AnalogSlot& vars = configDescriptors_->analog[i];
         const uint8_t branch = analogCfgBranch_(i);
+        cfg.registerVar(vars.sourceValueVar, kCfgModuleId, branch);
         cfg.registerVar(vars.nameVar, kCfgModuleId, branch);
         cfg.registerVar(vars.bindingVar, kCfgModuleId, branch);
+        cfg.registerVar(vars.secondaryBindingVar, kCfgModuleId, branch);
         cfg.registerVar(vars.c0Var, kCfgModuleId, branch);
         cfg.registerVar(vars.c1Var, kCfgModuleId, branch);
+        cfg.registerVar(vars.secondaryC0Var, kCfgModuleId, branch);
+        cfg.registerVar(vars.secondaryC1Var, kCfgModuleId, branch);
         cfg.registerVar(vars.precisionVar, kCfgModuleId, branch);
     }
 
@@ -3708,6 +3709,7 @@ void IOModule::init(ConfigStore& cfg, ServiceRegistry& services)
         const uint8_t branch = digitalInputCfgBranch_(i);
         cfg.registerVar(vars.nameVar, kCfgModuleId, branch);
         cfg.registerVar(vars.bindingVar, kCfgModuleId, branch);
+        cfg.registerVar(vars.secondaryBindingVar, kCfgModuleId, branch);
         cfg.registerVar(vars.activeHighVar, kCfgModuleId, branch);
         cfg.registerVar(vars.pullModeVar, kCfgModuleId, branch);
         cfg.registerVar(vars.edgeModeVar, kCfgModuleId, branch);
@@ -3723,6 +3725,7 @@ void IOModule::init(ConfigStore& cfg, ServiceRegistry& services)
         const uint8_t branch = digitalOutputCfgBranch_(i);
         cfg.registerVar(vars.nameVar, kCfgModuleId, branch);
         cfg.registerVar(vars.bindingVar, kCfgModuleId, branch);
+        cfg.registerVar(vars.secondaryBindingVar, kCfgModuleId, branch);
         cfg.registerVar(vars.activeHighVar, kCfgModuleId, branch);
         cfg.registerVar(vars.initialOnVar, kCfgModuleId, branch);
         cfg.registerVar(vars.retainWarmVar, kCfgModuleId, branch);
@@ -3755,14 +3758,18 @@ void IOModule::onConfigLoaded(ConfigStore& cfg, ServiceRegistry& services)
     cfgStore_ = &cfg;
     cfgSvc_ = services.get<ConfigStoreService>(ServiceId::ConfigStore);
     for (uint8_t i = 0; i < ANALOG_CFG_SLOTS; ++i) {
-        analogCfg_[i].bindingPort = normalizeConfiguredBindingPort(analogCfg_[i].bindingPort);
+        analogCfg_[i].binding.primaryPort = normalizeConfiguredBindingPort(analogCfg_[i].binding.primaryPort);
+        analogCfg_[i].binding.secondaryPort = normalizeConfiguredBindingPort(analogCfg_[i].binding.secondaryPort);
     }
     for (uint8_t i = 0; i < DIGITAL_INPUT_CFG_SLOTS; ++i) {
-        digitalInCfg_[i].bindingPort = normalizeConfiguredBindingPort(digitalInCfg_[i].bindingPort);
+        digitalInCfg_[i].binding.primaryPort = normalizeConfiguredBindingPort(digitalInCfg_[i].binding.primaryPort);
+        digitalInCfg_[i].binding.secondaryPort = normalizeConfiguredBindingPort(digitalInCfg_[i].binding.secondaryPort);
     }
     for (uint8_t i = 0; i < DIGITAL_CFG_SLOTS; ++i) {
-        digitalCfg_[i].bindingPort = normalizeConfiguredBindingPort(digitalCfg_[i].bindingPort);
+        digitalCfg_[i].binding.primaryPort = normalizeConfiguredBindingPort(digitalCfg_[i].binding.primaryPort);
+        digitalCfg_[i].binding.secondaryPort = normalizeConfiguredBindingPort(digitalCfg_[i].binding.secondaryPort);
     }
+    persistBindingMigration_(cfg);
     const bool sdaValid = (cfgData_.i2cSda >= 0) && digitalPinIsValid((uint8_t)cfgData_.i2cSda);
     const bool sclValid = (cfgData_.i2cScl >= 0) && digitalPinIsValid((uint8_t)cfgData_.i2cScl);
     if (!sdaValid || !sclValid) {

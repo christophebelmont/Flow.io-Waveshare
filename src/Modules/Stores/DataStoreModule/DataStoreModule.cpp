@@ -3,6 +3,7 @@
  * @brief Implementation file.
  */
 #include "DataStoreModule.h"
+#include "Core/Values/InternalAnalogSources.h"
 #define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::DataStoreModule)
 #include "Core/ModuleLog.h"
 
@@ -11,6 +12,7 @@ void DataStoreModule::init(ConfigStore&, ServiceRegistry& services)
     if (!_store.values.begin()) {
         LOGE("Value storage allocation failed bytes=%u", (unsigned)ValueRegistry::storageBytes());
     } else {
+        if (!InternalAnalogSources::define(_store.values)) LOGE("Internal source catalog initialization failed");
         LOGI("Value storage ready bytes=%u memory=%s", (unsigned)ValueRegistry::storageBytes(),
              _store.values.storageInPsram() ? "psram" : "internal");
     }

@@ -88,8 +88,16 @@ void I2CBus::unlock()
 
 bool I2CBus::probe(uint8_t addr)
 {
+    return probePresence(addr) == I2cProbeResult::Present;
+}
+
+I2cProbeResult I2CBus::probePresence(uint8_t addr)
+{
     Wire.beginTransmission(addr);
-    return Wire.endTransmission() == 0;
+    const uint8_t result = Wire.endTransmission();
+    if (result == 0) return I2cProbeResult::Present;
+    // Wire error 2 is an address NACK. Timeouts and bus errors are not absence.
+    return result == 2 ? I2cProbeResult::Absent : I2cProbeResult::Error;
 }
 
 bool I2CBus::writeReg(uint8_t addr, uint8_t reg, const uint8_t* data, uint16_t len)

@@ -47,13 +47,17 @@ inline constexpr RuntimeUiActionManifestItem kRuntimeUiActionManifestItems[] = {
     {2305, "override_on", "pooldevice.override_on", "duration_s", RuntimeUiActionInputType::UInt32, "slot"},
     {2305, "override_off", "pooldevice.override_off", "duration_s", RuntimeUiActionInputType::UInt32, "slot"},
     {2305, "release_override", "pooldevice.release", nullptr, RuntimeUiActionInputType::None, "slot"},
+    {2306, "set", "poollogic.fill_pump.write", "value", RuntimeUiActionInputType::Bool, nullptr},
+    {2307, "set", "poollogic.chlorine_generator.write", "value", RuntimeUiActionInputType::Bool, nullptr},
+    {2308, "set", "poollogic.lights.write", "value", RuntimeUiActionInputType::Bool, nullptr},
+    {2309, "set", "poollogic.heater.write", "value", RuntimeUiActionInputType::Bool, nullptr},
     {2401, "set", "poollogic.auto_mode.set", "value", RuntimeUiActionInputType::Bool, nullptr},
     {2402, "set", "poollogic.winter_mode.set", "value", RuntimeUiActionInputType::Bool, nullptr},
     {2403, "set", "poollogic.ph_auto_mode.set", "value", RuntimeUiActionInputType::Bool, nullptr},
     {2404, "set", "poollogic.dis_auto_mode.set", "value", RuntimeUiActionInputType::Bool, nullptr},
 };
 
-inline constexpr size_t kRuntimeUiActionManifestItemCount = 18U;
+inline constexpr size_t kRuntimeUiActionManifestItemCount = 22U;
 
 inline constexpr RuntimeUiManifestItem kRuntimeUiManifestItems[] = {
     {901, "alarms.active_mask", "uint32", nullptr},
@@ -64,6 +68,10 @@ inline constexpr RuntimeUiManifestItem kRuntimeUiManifestItems[] = {
     {2303, "pool.chlorine_pump_on", "bool", nullptr},
     {2304, "pool.robot_on", "bool", nullptr},
     {2305, "pool.device_count", "uint32", nullptr},
+    {2306, "pool.fill_pump_on", "bool", nullptr},
+    {2307, "pool.chlorine_generator_on", "bool", nullptr},
+    {2308, "pool.lights_on", "bool", nullptr},
+    {2309, "pool.heater_on", "bool", nullptr},
     {2401, "pool.auto_mode", "bool", nullptr},
     {2402, "pool.winter_mode", "bool", nullptr},
     {2403, "pool.ph_auto_mode", "bool", nullptr},

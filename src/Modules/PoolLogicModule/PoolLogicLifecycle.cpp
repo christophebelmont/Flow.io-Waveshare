@@ -1091,6 +1091,8 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
             "poollogic.dis_pump.toggle",
             "poollogic.lights.write",
             "poollogic.lights.toggle",
+            "poollogic.fill_pump.write",
+            "poollogic.fill_pump.toggle",
             "poollogic.robot.write",
             "poollogic.robot.toggle",
             "poollogic.heater.write",

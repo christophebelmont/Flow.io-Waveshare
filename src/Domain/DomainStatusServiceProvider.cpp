@@ -109,11 +109,6 @@ bool DomainStatusServiceProvider::slotStatus_(DomainSlotId domainSlot, DomainSlo
     outStatus->hasMeta = 1U;
     outStatus->hasBindingPort = bindingPortExists_(outStatus->meta.bindingPort) ? 1U : 0U;
 
-    if (!outStatus->hasBindingPort) {
-        outStatus->reason = DomainSlotStatusReason::NoBinding;
-        return true;
-    }
-
     if (ioSvc_->runtimeStatus) {
         IoRuntimeStatus runtime{};
         if (ioSvc_->runtimeStatus(ioSvc_->ctx, outStatus->ioId, &runtime) == IO_OK) {
@@ -135,12 +130,19 @@ bool DomainStatusServiceProvider::slotStatus_(DomainSlotId domainSlot, DomainSlo
                 outStatus->reason =
                     (runtime.reason == IO_RUNTIME_REASON_HARDWARE_NOT_DETECTED)
                         ? DomainSlotStatusReason::HardwareNotDetected
+                    : (runtime.reason == IO_RUNTIME_REASON_BINDING_RESOLUTION_FAILED)
+                        ? DomainSlotStatusReason::BindingResolutionFailed
                     : (runtime.reason == IO_RUNTIME_REASON_DRIVER_INIT_FAILED)
                         ? DomainSlotStatusReason::DriverInitFailed
                         : DomainSlotStatusReason::ReadFailed;
                 return true;
             }
         }
+    }
+
+    if (!outStatus->hasBindingPort && outStatus->meta.sourceValue == 0xFFFFu) {
+        outStatus->reason = DomainSlotStatusReason::NoBinding;
+        return true;
     }
 
     if (outStatus->meta.kind != IO_KIND_DIGITAL_OUT && ioSvc_->sensorStatus) {

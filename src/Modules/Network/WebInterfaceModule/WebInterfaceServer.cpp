@@ -1975,7 +1975,11 @@ bool appendWaveshareLocalRuntimeValue_(Print& out,
         case 2301:
         case 2302:
         case 2303:
-        case 2304: {
+        case 2304:
+        case 2306:
+        case 2307:
+        case 2308:
+        case 2309: {
             uint8_t slot = PoolIds::DeviceFiltrationPump;
             const char* key = "pool.filtration_on";
             if (id == 2302) {
@@ -1987,6 +1991,18 @@ bool appendWaveshareLocalRuntimeValue_(Print& out,
             } else if (id == 2304) {
                 slot = PoolIds::DeviceRobot;
                 key = "pool.robot_on";
+            } else if (id == 2306) {
+                slot = PoolIds::DeviceFillPump;
+                key = "pool.fill_pump_on";
+            } else if (id == 2307) {
+                slot = PoolIds::DeviceChlorineGenerator;
+                key = "pool.chlorine_generator_on";
+            } else if (id == 2308) {
+                slot = PoolIds::DeviceLights;
+                key = "pool.lights_on";
+            } else if (id == 2309) {
+                slot = PoolIds::DeviceWaterHeater;
+                key = "pool.heater_on";
             }
 
             PoolDeviceRuntimeStateEntry state{};
@@ -2518,9 +2534,9 @@ constexpr uint8_t kWaveshareAlarmDashboardDefaultColorIds[kWaveshareDashboardSlo
     19U,
 };
 constexpr const char* kWaveshareDashboardColorHex[] = {
-    "#E6EFFF", "#E5F8FC", "#E8FAEF", "#F0EAFE", "#E4F6FA", "#E3F7FE", "#EAF8FD",
-    "#FEF0E8", "#FCE7EF", "#FFF0E1", "#FFF7D9", "#EDF8E7", "#F0FAE6", "#F5EEFF",
-    "#EBEEFF", "#EEF7FF", "#F4FADE", "#FFE9E4", "#F9EEE8", "#F1F4F8", "#FFFFFF",
+    "#4A90E2", "#20C5D8", "#54C27A", "#A97CF4", "#27B7C8", "#39B8F2", "#79C7F2",
+    "#F29B6B", "#E96AAE", "#F3A65A", "#E9CF54", "#7BC47F", "#9CCC4A", "#B388FF",
+    "#8C9EFF", "#6EC6FF", "#B7D64A", "#F28B82", "#D7A184", "#A8B2BF", "#FFFFFF",
 };
 
 const char* waveshareDashboardColorHex_(uint8_t colorId, uint8_t slot)
@@ -3003,6 +3019,7 @@ const char* waveshareIoBackendLabel_(uint8_t backend)
         case IO_BACKEND_INA226: return "INA226";
         case IO_BACKEND_TCA9554: return "TCA9554";
         case IO_BACKEND_MCP23017: return "MCP23017";
+        case IO_BACKEND_INTERNAL_VALUE: return "Internal value";
         default: return "unknown";
     }
 }
@@ -3407,6 +3424,31 @@ void waveshareCollectIoResponseSnapshot_(const IOServiceV2* ioSvc,
     }
 }
 
+void wavesharePrintBindingResolutionJson_(Print& response, const IoEndpointMeta& meta)
+{
+    response.print(",\"source_value\":");
+    response.print((unsigned)meta.sourceValue);
+    response.print(",\"configured_source_value\":");
+    response.print((unsigned)meta.configuredSourceValue);
+    response.print(",\"primary_binding_port\":");
+    response.print((unsigned)meta.bindingConfig.primaryPort);
+    response.print(",\"secondary_binding_port\":");
+    response.print((unsigned)meta.bindingConfig.secondaryPort);
+    response.print(",\"resolved_binding_port\":");
+    response.print((unsigned)meta.bindingPort);
+    response.print(",\"binding_selection\":");
+    printJsonEscaped_(response, meta.bindingResolution.selection == IOBindingSelection::Primary ? "primary" :
+                               meta.bindingResolution.selection == IOBindingSelection::Secondary ? "secondary" : "none");
+    response.print(",\"binding_reason\":");
+    printJsonEscaped_(response, ioBindingReasonName(meta.bindingResolution.reason));
+    response.print(",\"binding_restart_required\":");
+    const auto& boot = meta.bindingResolution.bootConfig;
+    const bool pending = meta.sourceValue != meta.configuredSourceValue ||
+                         (meta.sourceValue == 0xFFFFu && (boot.primaryPort != meta.bindingConfig.primaryPort ||
+                         boot.secondaryPort != meta.bindingConfig.secondaryPort));
+    response.print(pending ? "true" : "false");
+}
+
 void wavesharePrintIoSlotTopologyJson_(Print& response,
                                        const WaveshareIoSummaryState& state,
                                        const DomainIoSlotBinding& binding,
@@ -3435,6 +3477,7 @@ void wavesharePrintIoSlotTopologyJson_(Print& response,
     else response.print("null");
     response.print(",\"binding_port\":");
     response.print(port ? (unsigned)port->portId : 0U);
+    if (state.hasMeta) wavesharePrintBindingResolutionJson_(response, state.meta);
     response.print(",\"label\":");
     printJsonEscaped_(response, domainPreset && domainPreset->displayName ? domainPreset->displayName : "");
     response.print(",\"config_name\":");
@@ -3456,6 +3499,7 @@ void wavesharePrintIoSlotRuntimeJson_(Print& response,
     response.print((unsigned)ioSlotIndex(binding.ioSlot));
     response.print(",\"io_id\":");
     response.print((unsigned)ioIdFromSlot(binding.ioSlot));
+    if (state.hasMeta) wavesharePrintBindingResolutionJson_(response, state.meta);
     response.print(",\"state\":");
     printJsonEscaped_(response, state.state);
     response.print(",\"last_value\":");
@@ -3474,7 +3518,7 @@ void buildWaveshareIoTopologyResponse_(Print& response,
                                        uint32_t revision)
 {
     using namespace Profiles::Waveshare::IoLayout;
-    response.print("{\"ok\":true,\"schema\":3,\"revision\":");
+    response.print("{\"ok\":true,\"schema\":4,\"revision\":");
     response.print((unsigned long)revision);
     response.print(",\"binding_ports\":[");
     bool first = true;
@@ -3549,7 +3593,7 @@ void buildWaveshareIoRuntimeResponse_(Print& response,
                                       uint32_t topologyRevision)
 {
     using namespace Profiles::Waveshare::IoLayout;
-    response.print("{\"ok\":true,\"schema\":3,\"topology_revision\":");
+    response.print("{\"ok\":true,\"schema\":4,\"topology_revision\":");
     response.print((unsigned long)topologyRevision);
     response.print(",\"summary\":{");
     response.print("\"binding_ports_total\":");

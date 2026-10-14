@@ -18,10 +18,15 @@ struct IOConfigDescriptorStorage {
     static constexpr size_t NVS_KEY_CAPACITY = 10U;
 
     struct AnalogSlot {
+        char sourceValueKey[NVS_KEY_CAPACITY]{};
+        ConfigVariable<uint16_t, 0> sourceValueVar{};
         char nameKey[NVS_KEY_CAPACITY]{};
         char bindingKey[NVS_KEY_CAPACITY]{};
+        char secondaryBindingKey[NVS_KEY_CAPACITY]{};
         char c0Key[NVS_KEY_CAPACITY]{};
         char c1Key[NVS_KEY_CAPACITY]{};
+        char secondaryC0Key[NVS_KEY_CAPACITY]{};
+        char secondaryC1Key[NVS_KEY_CAPACITY]{};
         char precisionKey[NVS_KEY_CAPACITY]{};
         char unitKey[NVS_KEY_CAPACITY]{};
         char nameJson[9]{};
@@ -32,8 +37,11 @@ struct IOConfigDescriptorStorage {
         char moduleName[13]{};
         ConfigVariable<char, 0> nameVar{};
         ConfigVariable<PhysicalPortId, 0> bindingVar{};
+        ConfigVariable<PhysicalPortId, 0> secondaryBindingVar{};
         ConfigVariable<float, 0> c0Var{};
         ConfigVariable<float, 0> c1Var{};
+        ConfigVariable<float, 0> secondaryC0Var{};
+        ConfigVariable<float, 0> secondaryC1Var{};
         ConfigVariable<int32_t, 0> precisionVar{};
         ConfigVariable<char, 0> unitVar{};
     };
@@ -41,6 +49,7 @@ struct IOConfigDescriptorStorage {
     struct DigitalInputSlot {
         char nameKey[NVS_KEY_CAPACITY]{};
         char bindingKey[NVS_KEY_CAPACITY]{};
+        char secondaryBindingKey[NVS_KEY_CAPACITY]{};
         char activeHighKey[NVS_KEY_CAPACITY]{};
         char pullModeKey[NVS_KEY_CAPACITY]{};
         char edgeModeKey[NVS_KEY_CAPACITY]{};
@@ -57,6 +66,7 @@ struct IOConfigDescriptorStorage {
         char moduleName[13]{};
         ConfigVariable<char, 0> nameVar{};
         ConfigVariable<PhysicalPortId, 0> bindingVar{};
+        ConfigVariable<PhysicalPortId, 0> secondaryBindingVar{};
         ConfigVariable<bool, 0> activeHighVar{};
         ConfigVariable<uint8_t, 0> pullModeVar{};
         ConfigVariable<uint8_t, 0> edgeModeVar{};
@@ -70,6 +80,7 @@ struct IOConfigDescriptorStorage {
     struct DigitalOutputSlot {
         char nameKey[NVS_KEY_CAPACITY]{};
         char bindingKey[NVS_KEY_CAPACITY]{};
+        char secondaryBindingKey[NVS_KEY_CAPACITY]{};
         char activeHighKey[NVS_KEY_CAPACITY]{};
         char initialOnKey[NVS_KEY_CAPACITY]{};
         char retainWarmKey[NVS_KEY_CAPACITY]{};
@@ -83,6 +94,7 @@ struct IOConfigDescriptorStorage {
         char moduleName[14]{};
         ConfigVariable<char, 0> nameVar{};
         ConfigVariable<PhysicalPortId, 0> bindingVar{};
+        ConfigVariable<PhysicalPortId, 0> secondaryBindingVar{};
         ConfigVariable<bool, 0> activeHighVar{};
         ConfigVariable<bool, 0> initialOnVar{};
         ConfigVariable<bool, 0> retainWarmVar{};
@@ -100,8 +112,10 @@ struct IOConfigDescriptorStorage {
     {
         for (uint8_t slot = 0; slot < Limits::Io::AnalogConfigSlots; ++slot) {
             AnalogSlot& vars = analog[slot];
+            snprintf(vars.sourceValueKey, sizeof(vars.sourceValueKey), "io_a%02usv", (unsigned)slot);
             snprintf(vars.nameKey, sizeof(vars.nameKey), "io_a%02unm", (unsigned)slot);
             snprintf(vars.bindingKey, sizeof(vars.bindingKey), "io_a%02ubp", (unsigned)slot);
+            snprintf(vars.secondaryBindingKey, sizeof(vars.secondaryBindingKey), "io_a%02usb", (unsigned)slot);
             snprintf(vars.c0Key, sizeof(vars.c0Key), "io_a%02u0", (unsigned)slot);
             snprintf(vars.c1Key, sizeof(vars.c1Key), "io_a%02u1", (unsigned)slot);
             snprintf(vars.precisionKey, sizeof(vars.precisionKey), "io_a%02up", (unsigned)slot);
@@ -113,15 +127,25 @@ struct IOConfigDescriptorStorage {
             snprintf(vars.unitJson, sizeof(vars.unitJson), "a%02u_unit", (unsigned)slot);
             snprintf(vars.moduleName, sizeof(vars.moduleName), "io/input/a%02u", (unsigned)slot);
 
+            vars.sourceValueVar = {vars.sourceValueKey, "source_value", vars.moduleName, ConfigType::UInt16,
+                                   &analogCfg[slot].sourceValue, ConfigPersistence::Persistent, 0};
             vars.nameVar = {vars.nameKey, vars.nameJson, vars.moduleName, ConfigType::CharArray,
                             analogCfg[slot].name, ConfigPersistence::Persistent,
                             sizeof(analogCfg[slot].name)};
             vars.bindingVar = {vars.bindingKey, "binding_port", vars.moduleName, ConfigType::UInt16,
-                               &analogCfg[slot].bindingPort, ConfigPersistence::Persistent, 0};
+                               &analogCfg[slot].binding.primaryPort, ConfigPersistence::Persistent, 0};
+            vars.secondaryBindingVar = {vars.secondaryBindingKey, "secondary_binding_port", vars.moduleName, ConfigType::UInt16,
+                                        &analogCfg[slot].binding.secondaryPort, ConfigPersistence::Persistent, 0};
             vars.c0Var = {vars.c0Key, vars.c0Json, vars.moduleName, ConfigType::Float,
                           &analogCfg[slot].c0, ConfigPersistence::Persistent, 0};
             vars.c1Var = {vars.c1Key, vars.c1Json, vars.moduleName, ConfigType::Float,
                           &analogCfg[slot].c1, ConfigPersistence::Persistent, 0};
+            snprintf(vars.secondaryC0Key, sizeof(vars.secondaryC0Key), "io_a%02us0", (unsigned)slot);
+            snprintf(vars.secondaryC1Key, sizeof(vars.secondaryC1Key), "io_a%02us1", (unsigned)slot);
+            vars.secondaryC0Var = {vars.secondaryC0Key, "secondary_c0", vars.moduleName, ConfigType::Float,
+                                   &analogCfg[slot].secondaryC0, ConfigPersistence::Persistent, 0};
+            vars.secondaryC1Var = {vars.secondaryC1Key, "secondary_c1", vars.moduleName, ConfigType::Float,
+                                   &analogCfg[slot].secondaryC1, ConfigPersistence::Persistent, 0};
             vars.precisionVar = {vars.precisionKey, vars.precisionJson, vars.moduleName,
                                  ConfigType::Int32, &analogCfg[slot].precision,
                                  ConfigPersistence::Persistent, 0};
@@ -134,6 +158,7 @@ struct IOConfigDescriptorStorage {
             DigitalInputSlot& vars = digitalInputs[slot];
             snprintf(vars.nameKey, sizeof(vars.nameKey), "io_i%02unm", (unsigned)slot);
             snprintf(vars.bindingKey, sizeof(vars.bindingKey), "io_i%02ubp", (unsigned)slot);
+            snprintf(vars.secondaryBindingKey, sizeof(vars.secondaryBindingKey), "io_i%02usb", (unsigned)slot);
             snprintf(vars.activeHighKey, sizeof(vars.activeHighKey), "io_i%02uah", (unsigned)slot);
             snprintf(vars.pullModeKey, sizeof(vars.pullModeKey), "io_i%02upu", (unsigned)slot);
             snprintf(vars.edgeModeKey, sizeof(vars.edgeModeKey), "io_i%02ued", (unsigned)slot);
@@ -153,7 +178,9 @@ struct IOConfigDescriptorStorage {
                             digitalInputCfg[slot].name, ConfigPersistence::Persistent,
                             sizeof(digitalInputCfg[slot].name)};
             vars.bindingVar = {vars.bindingKey, "binding_port", vars.moduleName, ConfigType::UInt16,
-                               &digitalInputCfg[slot].bindingPort, ConfigPersistence::Persistent, 0};
+                               &digitalInputCfg[slot].binding.primaryPort, ConfigPersistence::Persistent, 0};
+            vars.secondaryBindingVar = {vars.secondaryBindingKey, "secondary_binding_port", vars.moduleName, ConfigType::UInt16,
+                                        &digitalInputCfg[slot].binding.secondaryPort, ConfigPersistence::Persistent, 0};
             vars.activeHighVar = {vars.activeHighKey, vars.activeHighJson, vars.moduleName,
                                   ConfigType::Bool, &digitalInputCfg[slot].activeHigh,
                                   ConfigPersistence::Persistent, 0};
@@ -181,6 +208,7 @@ struct IOConfigDescriptorStorage {
             DigitalOutputSlot& vars = digitalOutputs[slot];
             snprintf(vars.nameKey, sizeof(vars.nameKey), "io_d%02unm", (unsigned)slot);
             snprintf(vars.bindingKey, sizeof(vars.bindingKey), "io_d%02ubp", (unsigned)slot);
+            snprintf(vars.secondaryBindingKey, sizeof(vars.secondaryBindingKey), "io_d%02usb", (unsigned)slot);
             snprintf(vars.activeHighKey, sizeof(vars.activeHighKey), "io_d%02uah", (unsigned)slot);
             snprintf(vars.initialOnKey, sizeof(vars.initialOnKey), "io_d%02uin", (unsigned)slot);
             snprintf(vars.retainWarmKey, sizeof(vars.retainWarmKey), "io_d%02urt", (unsigned)slot);
@@ -197,7 +225,9 @@ struct IOConfigDescriptorStorage {
                             digitalOutputCfg[slot].name, ConfigPersistence::Persistent,
                             sizeof(digitalOutputCfg[slot].name)};
             vars.bindingVar = {vars.bindingKey, "binding_port", vars.moduleName, ConfigType::UInt16,
-                               &digitalOutputCfg[slot].bindingPort, ConfigPersistence::Persistent, 0};
+                               &digitalOutputCfg[slot].binding.primaryPort, ConfigPersistence::Persistent, 0};
+            vars.secondaryBindingVar = {vars.secondaryBindingKey, "secondary_binding_port", vars.moduleName, ConfigType::UInt16,
+                                        &digitalOutputCfg[slot].binding.secondaryPort, ConfigPersistence::Persistent, 0};
             vars.activeHighVar = {vars.activeHighKey, vars.activeHighJson, vars.moduleName,
                                   ConfigType::Bool, &digitalOutputCfg[slot].activeHigh,
                                   ConfigPersistence::Persistent, 0};
