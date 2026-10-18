@@ -482,3 +482,13 @@ avant de redémarrer pour obtenir les traces d’initialisation.
 Les nouvelles traces utilisent le logger asynchrone existant. Elles ne produisent
 pas de messages par octet ni à chaque passage de boucle. Les niveaux Info,
 Warning et Error conservent leur fonctionnement.
+
+Les lignes `Modbus TX ... hex=...` et `Modbus RX ... hex=...` contiennent
+les octets bruts des trames (CRC inclus), par groupes de 24 octets au maximum.
+Chaque ligne indique l’identifiant de transaction, l’offset et le nombre d’octets
+du groupe / de la trame. Les réponses sont tracées avant validation du CRC et
+du protocole. TX correspond à une trame acceptée par le transport ; RX correspond
+à une trame complète remise par le transport au scheduler.
+La conversion hexadécimale est évitée lorsque Debug est désactivé.
+Comme les autres traces, ces lignes utilisent la file asynchrone du logger :
+elles peuvent être perdues si celle-ci est saturée.

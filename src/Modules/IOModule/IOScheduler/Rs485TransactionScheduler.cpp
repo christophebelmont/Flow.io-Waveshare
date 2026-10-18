@@ -281,6 +281,7 @@ bool Rs485TransactionScheduler::sendActive_(Slot& slot, uint32_t nowMs, uint32_t
         finish_(slot, MODBUS_RESULT_IO_ERROR);
         return false;
     }
+    LOGD_HEX("Modbus TX", slot.transactionId, storage_->txFrame, txLength);
     slot.state = SlotState::Active;
     slot.sentAtMs = nowMs;
     LOGD("Modbus TX id=%u bytes=%u attempt=%u/%u timeout_ms=%lu protocol=%u",
@@ -370,6 +371,7 @@ void Rs485TransactionScheduler::tick(uint32_t nowMs, uint32_t nowUs, bool enable
         if (!bus_.takeFrame(storage_->rxFrame, sizeof(storage_->rxFrame), rxLength)) {
             retryOrFinish_(slot, MODBUS_RESULT_IO_ERROR, nowMs);
         } else {
+            LOGD_HEX("Modbus RX", slot.transactionId, storage_->rxFrame, rxLength);
             ModbusResponse response{};
             const ModbusResultCode result = ModbusRtuCodec::decodeResponse(
                 slot.request, storage_->rxFrame, rxLength, response);

@@ -41,7 +41,10 @@ class PoolActuatorTests(unittest.TestCase):
 
     def test_bus_arbitration_cancellation_and_retries(self):
         self.compile_and_run("rs485_scheduler.cpp", [
-            "src/Modules/IOModule/IOScheduler/Rs485TransactionScheduler.cpp", CODEC])
+            "src/Modules/IOModule/IOScheduler/Rs485TransactionScheduler.cpp", "src/Core/Log.cpp", CODEC])
+
+    def test_debug_hex_logging(self):
+        self.compile_and_run("log_hex.cpp", ["src/Core/Log.cpp"])
 
     def test_configuration_validation(self):
         self.compile_and_run("pool_config.cpp", [

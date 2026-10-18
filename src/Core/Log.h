@@ -35,6 +35,12 @@ namespace Log {
 
     /** @brief Convenience: Debug log. */
     void debug(LogModuleId moduleId, const char* fmt, ...);
+    /**
+     * @brief Dump bytes at Debug level, in bounded lines with a correlation id.
+     * No formatting is performed when Debug is disabled for the module.
+     */
+    void debugHex(LogModuleId moduleId, const char* label, uint32_t id,
+                  const uint8_t* data, size_t length);
     /** @brief Convenience: Info log. */
     void info(LogModuleId moduleId, const char* fmt, ...);
     /** @brief Convenience: Warning log. */

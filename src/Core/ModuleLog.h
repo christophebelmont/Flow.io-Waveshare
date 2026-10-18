@@ -14,11 +14,14 @@
 #endif
 
 #undef LOGD
+#undef LOGD_HEX
 #undef LOGI
 #undef LOGW
 #undef LOGE
 
 #define LOGD(...) ::Log::debug((LogModuleId)(LOG_MODULE_ID), __VA_ARGS__)
+#define LOGD_HEX(LABEL, ID, DATA, LENGTH) \
+    ::Log::debugHex((LogModuleId)(LOG_MODULE_ID), LABEL, ID, DATA, LENGTH)
 #define LOGI(...) ::Log::info((LogModuleId)(LOG_MODULE_ID), __VA_ARGS__)
 #define LOGW(...) ::Log::warn((LogModuleId)(LOG_MODULE_ID), __VA_ARGS__)
 #define LOGE(...) ::Log::error((LogModuleId)(LOG_MODULE_ID), __VA_ARGS__)
