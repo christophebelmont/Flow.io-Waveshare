@@ -125,7 +125,7 @@ bool ConfigStoreModule::toJsonModule_(const char* module, char* out, size_t outL
     return registry ? registry->toJsonModule(module, out, outLen, truncated) : false;
 }
 
-uint8_t ConfigStoreModule::listModules_(const char** out, uint8_t max) {
+size_t ConfigStoreModule::listModules_(const char** out, size_t max) {
     return registry ? registry->listModules(out, max) : 0;
 }
 

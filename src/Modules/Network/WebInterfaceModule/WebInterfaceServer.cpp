@@ -1,3 +1,4 @@
+#include "Core/Values/DataValueView.h"
 /**
  * @file WebInterfaceServer.cpp
  * @brief HTTP server wiring and network-facing endpoints for WebInterfaceModule.
@@ -1886,30 +1887,22 @@ bool appendWaveshareLocalRuntimeValue_(Print& out,
         return true;
     }
 
-    if ((ModuleId)runtimeUiModuleId(id) == ModuleId::Io) {
-        const uint8_t valueId = runtimeUiValueId(id);
-        if (valueId >= IO_RUNTIME_UI_DERIVED_BASE &&
-            valueId < IO_RUNTIME_UI_DERIVED_BASE + ValueIds::DerivedCapacity) {
-            ValueSnapshot value{};
-            ValueMetadata metadata{};
-            if (dataStore->values.read(ValueIds::Derived + (valueId - IO_RUNTIME_UI_DERIVED_BASE), value, &metadata) &&
-                value.quality == ValueQuality::Valid) {
-                const RuntimeUiManifestItem* item = findRuntimeUiManifestItem(id);
-                char number[40];
-                if (!formatValueNumber(number, sizeof(number), value.value.d, metadata.precision)) {
-                    wavesharePrintUnavailableByManifestType_(out, firstValue, id);
-                    return true;
-                }
-                printRuntimeValuePrefix_(out, firstValue, id, (item && item->key) ? item->key : "io.value",
-                                         "double", metadata.displayUnit, metadata.precision);
-                out.print(",\"value\":");
-                out.print(number);
-                out.print('}');
-            } else {
-                wavesharePrintUnavailableByManifestType_(out, firstValue, id);
-            }
+    if (runtimeDataValueId(id) != VALUE_INVALID) {
+        ValueSnapshot value{}; ValueMetadata metadata{};
+        const auto* item = findRuntimeUiManifestItem(id);
+        if (!readRuntimeDataValue(dataStore->values, id, value, metadata)) {
+            wavesharePrintUnavailableByManifestType_(out, firstValue, id);
             return true;
         }
+        const bool integer64 = metadata.type == ValueType::UInt64;
+        char number[40];
+        if (integer64) snprintf(number, sizeof(number), "%llu", (unsigned long long)value.value.u64);
+        else if (!formatValueNumber(number, sizeof(number), valueAsDouble(metadata.type, value.value), metadata.precision)) return false;
+        printRuntimeValuePrefix_(out, firstValue, id, item->key, integer64 ? "string" : "double", metadata.displayUnit, metadata.precision);
+        out.print(",\"value\":");
+        if (integer64) printJsonEscaped_(out, number); else out.print(number);
+        out.print('}');
+        return true;
     }
 
     switch (id) {
@@ -2449,15 +2442,7 @@ struct WaveshareAlarmDashboardSlotState {
     uint32_t lastChangeMs = 0U;
 };
 
-struct WaveshareDashboardRuntimeValue {
-    bool available = false;
-    RuntimeUiWireType wireType = RuntimeUiWireType::Unavailable;
-    bool boolValue = false;
-    int32_t i32Value = 0;
-    uint32_t u32Value = 0U;
-    float f32Value = 0.0f;
-    double f64Value = 0.0;
-    char stringValue[64] = {0};
+struct WaveshareDashboardRuntimeValue : DataValuePresentation {
     char unit[UnitTextCapacity] = {0};
     int8_t precision = VALUE_PRECISION_NONE;
 };
@@ -2696,24 +2681,7 @@ bool waveshareReadDashboardIoBackendValue_(const IOServiceV2* ioSvc,
     return false;
 }
 
-bool waveshareReadDashboardDerivedValue_(DataStore* dataStore,
-                                        uint8_t slot,
-                                        WaveshareDashboardRuntimeValue& out)
-{
-    if (!dataStore || slot >= ValueIds::DerivedCapacity) return false;
-    ValueSnapshot value{};
-    ValueMetadata metadata{};
-    if (!dataStore->values.read(ValueIds::Derived + slot, value, &metadata) ||
-        value.quality != ValueQuality::Valid) {
-        return false;
-    }
-    out.available = true;
-    out.wireType = RuntimeUiWireType::Float64;
-    out.f64Value = value.value.d;
-    out.precision = metadata.precision;
-    snprintf(out.unit, sizeof(out.unit), "%s", metadata.displayUnit);
-    return true;
-}
+
 
 bool waveshareReadDashboardPoolSensorDataStore_(DataStore* dataStore,
                                                uint8_t valueId,
@@ -2764,6 +2732,13 @@ bool waveshareReadDashboardRuntimeValue_(DataStore* dataStore,
                                         WaveshareRuntimeContext& ctx)
 {
     if (!findRuntimeUiManifestItem(id)) return false;
+    if (runtimeDataValueId(id) != VALUE_INVALID) {
+        ValueMetadata metadata{};
+        if (!dataStore || !presentDataValue(dataStore->values, id, out, metadata)) return false;
+        out.precision = metadata.precision;
+        snprintf(out.unit, sizeof(out.unit), "%s", metadata.displayUnit);
+        return true;
+    }
 
     const ModuleId module = (ModuleId)runtimeUiModuleId(id);
     const uint8_t valueId = runtimeUiValueId(id);
@@ -2837,12 +2812,7 @@ bool waveshareReadDashboardRuntimeValue_(DataStore* dataStore,
             return true;
 
         case ModuleId::Io:
-            if (valueId >= IO_RUNTIME_UI_DERIVED_BASE &&
-                valueId < IO_RUNTIME_UI_DERIVED_BASE + ValueIds::DerivedCapacity) {
-                return waveshareReadDashboardDerivedValue_(dataStore,
-                                                           valueId - IO_RUNTIME_UI_DERIVED_BASE,
-                                                           out);
-            }
+
             if (valueId >= 1U && valueId <= 6U) {
                 IoId ioId = ioIdFromSlot(analogInputSlot(4));
                 if (valueId == 2U) ioId = ioIdFromSlot(analogInputSlot(5));
@@ -3761,6 +3731,11 @@ void sendWaveshareDashboardSlotsResponse_(AsyncResponseStream& response,
 
         char label[32] = {0};
         snprintf(label, sizeof(label), "%s", slot.label);
+        if (label[0] == '\0' && runtimeDataValueId(slot.runtimeUiId) != VALUE_INVALID) {
+            ValueSnapshot value{}; ValueMetadata metadata{};
+            if (dataStore) dataStore->values.read(runtimeDataValueId(slot.runtimeUiId), value, &metadata);
+            snprintf(label, sizeof(label), "%s", dataValueLabel(runtimeDataValueId(slot.runtimeUiId), metadata));
+        }
         if (label[0] == '\0') {
             const uint8_t valueId = runtimeUiValueId(slot.runtimeUiId);
             if ((ModuleId)runtimeUiModuleId(slot.runtimeUiId) == ModuleId::Io &&
@@ -6944,19 +6919,19 @@ void WebInterfaceModule::startServer_()
                       "\"detail\":\"Use /api/io/topology and /api/io/runtime\"}}");
     });
 
-    // Bounded, read-only history responses. Large temporary objects stay in PSRAM.
-    auto sendHistory = [](AsyncWebServerRequest* request, const std::shared_ptr<WebJsonBuffer>& body) {
+    // Bounded JSON responses. Large temporary objects stay in PSRAM.
+    auto sendBufferedJson = [](AsyncWebServerRequest* request, const std::shared_ptr<WebJsonBuffer>& body) {
         if (!body->finish()) {
-            request->send(503, "application/json", "{\"ok\":false,\"err\":{\"code\":\"HistoryCapacity\"}}");
+            request->send(503, "application/json", "{\"ok\":false,\"err\":{\"code\":\"ResponseCapacity\"}}");
             return;
         }
         auto* response = request->beginResponse("application/json", body->length(),
             [body](uint8_t* buffer, size_t length, size_t index) { return body->fillAt(buffer, length, index); });
-        if (!response) { sendTinyBusyJson_(request, "history_response"); return; }
+        if (!response) { sendTinyBusyJson_(request, "json_response"); return; }
         addNoCacheHeaders_(response);
         request->send(response);
     };
-    server_.on("/api/history/pool", HTTP_GET, [this, sendHistory](AsyncWebServerRequest* request) {
+    server_.on("/api/history/pool", HTTP_GET, [this, sendBufferedJson](AsyncWebServerRequest* request) {
         const auto* history = services_ ? services_->get<PoolHistoryService>(ServiceId::PoolHistory) : nullptr;
         const auto* store = services_ ? services_->get<DataStoreService>(ServiceId::DataStore) : nullptr;
         if (!history || !history->getSnapshot) { sendTinyBusyJson_(request, "history_unavailable"); return; }
@@ -6964,7 +6939,10 @@ void WebInterfaceModule::startServer_()
         if (!memory) { sendTinyBusyJson_(request, "history_memory"); return; }
         auto* snapshot = new (memory) PoolHistorySnapshot{};
         const bool ready = history->getSnapshot(history->ctx, snapshot);
-        auto body = std::make_shared<WebJsonBuffer>(24U * 1024U);
+        // Bounded PSRAM transport: fixed day summaries plus one entry per catalog value,
+        // each carrying its eight daily records.
+        constexpr size_t kDayBytes = 24U * 1024U, kValueBytes = 1536U;
+        auto body = std::make_shared<WebJsonBuffer>(kDayBytes + kDataValueCount * kValueBytes);
         SpiRamJsonDocument doc(4096);
         if (!body->valid() || doc.capacity() < 4096) {
             snapshot->~PoolHistorySnapshot(); heap_caps_free(memory);
@@ -6983,20 +6961,90 @@ void WebInterfaceModule::startServer_()
         snapshot->~PoolHistorySnapshot(); heap_caps_free(memory);
         body->print("],\"values\":[");
         bool first = true;
-        if (store && store->store) for (ValueId id = 0; id < ValueIds::Capacity; ++id) {
+        if (store && store->store) for (const auto& descriptor : kDataValues) {
+            if (!dataValueHistorized(store->store->values, descriptor.id)) continue;
             ValueSnapshot value{}; ValueMetadata meta{};
-            if (!store->store->values.read(id, value, &meta)) continue;
+            const bool defined = store->store->values.read(descriptor.id, value, &meta) &&
+                dataValueCompatible(descriptor, meta);
+            if (!defined || value.quality != ValueQuality::Valid) continue;
             if (!first) body->print(',');
             first = false;
-            doc.clear(); doc["id"] = id; doc["mode"] = (uint8_t)meta.aggregation;
+            doc.clear(); doc["id"] = descriptor.id; doc["name"] = dataValueLabel(descriptor.id, meta);
+            doc["group"] = descriptor.group; doc["mode"] = (uint8_t)meta.aggregation;
             doc["unit"] = (uint8_t)meta.unit; doc["type"] = (uint8_t)meta.type;
+            doc["pending_restart"] =
+                store->store->configuredHistory(descriptor.id) != store->store->values.history(descriptor.id);
+            JsonArray days = doc.createNestedArray("days");
+            for (uint8_t age = 0; age <= ValueHistory::PsramDays; ++age) {
+                ValueHistoryRecord record{};
+                if (history->readValue &&
+                    history->readValue(history->ctx, descriptor.id, true, age, &record) && record.valid) {
+                    JsonObject entry = days.createNestedObject();
+                    HistoryJson::dailySummary(entry, record);
+                    entry["current"] = age == 0;
+                } else {
+                    days.add(nullptr);
+                }
+            }
+            if (doc.overflowed()) { sendTinyBusyJson_(request, "history_item_capacity"); return; }
             serializeJson(doc, *body);
         }
         body->print("]}");
         if (overflow) { sendTinyBusyJson_(request, "history_capacity"); return; }
-        sendHistory(request, body);
+        sendBufferedJson(request, body);
     });
-    server_.on("/api/history/value", HTTP_GET, [this, sendHistory](AsyncWebServerRequest* request) {
+    server_.on("/api/data/values", HTTP_GET, [this, sendBufferedJson](AsyncWebServerRequest* request) {
+        // Reserve once: AsyncResponseStream grows and copies on individual JSON writes.
+        // Budget includes JSON escaping of each descriptor and runtime label.
+        auto body = std::make_shared<WebJsonBuffer>(32U + kDataValueCount * 1568U);
+        if (!body->valid()) { sendTinyBusyJson_(request, "data_values_memory"); return; }
+        body->print("{\"ok\":true,\"values\":[");
+        bool first = true;
+        for (const auto& descriptor : kDataValues) {
+            ValueSnapshot value{}; ValueMetadata meta{};
+            const bool defined = dataStore_ && dataStore_->values.read(descriptor.id, value, &meta) && dataValueCompatible(descriptor, meta);
+            if (!first) body->print(',');
+            first = false;
+            StaticJsonDocument<896> item;
+            item["id"] = descriptor.id;
+            item["runtimeId"] = kDataRuntimeUiBase + descriptor.id;
+            auto runtimeIds = item.createNestedArray("runtime_ids");
+            for (const auto& ui : kRuntimeUiManifestItems)
+                if (ui.dataValueId == descriptor.id) runtimeIds.add(ui.id);
+            item["reference"] = descriptor.reference;
+            item["name"] = dataValueLabel(descriptor.id, meta);
+            item["group"] = descriptor.group;
+            item["kind"] = uint8_t(descriptor.kind);
+            item["unit"] = defined ? meta.displayUnit : descriptor.unit;
+            item["defined"] = defined;
+            item["available"] = defined && value.quality == ValueQuality::Valid;
+            item["publish_ha"] = dataStore_ && dataStore_->publishHa(descriptor.id);
+            item["history"] = meta.history;
+            item["usable"] = dataStore_ && dataStore_->values.usable(descriptor.id);
+            item["configured_usable"] = dataStore_ && dataStore_->configuredUsable(descriptor.id);
+            item["configured_publish_ha"] = dataStore_ && dataStore_->configuredPublishHa(descriptor.id);
+            item["configured_history"] = dataStore_ && dataStore_->configuredHistory(descriptor.id);
+            item["pending_restart"] = dataStore_ && (dataStore_->publishHa(descriptor.id) != dataStore_->configuredPublishHa(descriptor.id) ||
+                (defined && meta.history != dataStore_->configuredHistory(descriptor.id)) ||
+                dataStore_->values.usable(descriptor.id) != dataStore_->configuredUsable(descriptor.id));
+            item["estimated"] = descriptor.kind == DataValueKind::Tank;
+            item["precision"] = defined ? meta.precision : VALUE_PRECISION_NONE;
+            char configPath[20];
+            snprintf(configPath, sizeof(configPath), "data/value/d%03u", descriptor.id);
+            item["config_path"] = configPath;
+            if (defined && value.quality == ValueQuality::Valid) {
+                if (meta.type == ValueType::UInt64) {
+                    char exact[24]; snprintf(exact, sizeof(exact), "%llu", (unsigned long long)value.value.u64);
+                    item["value"] = exact;
+                } else item["value"] = valueAsDouble(meta.type, value.value);
+            } else item["value"] = nullptr;
+            if (item.overflowed()) { sendTinyBusyJson_(request, "data_values_item_capacity"); return; }
+            serializeJson(item, *body);
+        }
+        body->print("]}");
+        sendBufferedJson(request, body);
+    });
+    server_.on("/api/history/value", HTTP_GET, [this, sendBufferedJson](AsyncWebServerRequest* request) {
         auto readIndex = [request](const char* name, uint16_t limit, uint16_t& value) {
             if (!request->hasParam(name)) return false;
             const String& raw = request->getParam(name)->value();
@@ -7022,6 +7070,9 @@ void WebInterfaceModule::startServer_()
         if (!store->store->values.read(id, value, &meta)) {
             request->send(404, "application/json", "{\"ok\":false,\"err\":{\"code\":\"UnknownValue\"}}"); return;
         }
+        if (!dataValueHistorized(store->store->values, id)) {
+            request->send(404, "application/json", "{\"ok\":false,\"err\":{\"code\":\"UnavailableValue\"}}"); return;
+        }
         auto body = std::make_shared<WebJsonBuffer>(12U * 1024U);
         SpiRamJsonDocument doc(768);
         if (!body->valid() || doc.capacity() < 768) { sendTinyBusyJson_(request, "history_memory"); return; }
@@ -7040,7 +7091,7 @@ void WebInterfaceModule::startServer_()
         }
         body->print("]}");
         if (overflow) { sendTinyBusyJson_(request, "history_capacity"); return; }
-        sendHistory(request, body);
+        sendBufferedJson(request, body);
     });
 
     server_.on("/api/runtime/alarm_options", HTTP_GET, [this](AsyncWebServerRequest* request) {
@@ -7242,7 +7293,7 @@ void WebInterfaceModule::startServer_()
         }
     });
 
-    server_.on("/api/flowcfg/modules", HTTP_GET, [this](AsyncWebServerRequest* request) {
+    server_.on("/api/flowcfg/modules", HTTP_GET, [this, sendBufferedJson](AsyncWebServerRequest* request) {
         HttpLatencyScope latency(request,
                                  "/api/flowcfg/modules",
                                  kHttpLatencyFlowCfgInfoMs,
@@ -7253,26 +7304,30 @@ void WebInterfaceModule::startServer_()
             return;
         }
 
-        constexpr uint8_t kMaxModules = Limits::Config::Capacity::ModuleListMax;
-        const char* modules[kMaxModules] = {0};
-        const uint8_t moduleCount = cfgStore_->listModules(modules, kMaxModules);
+        constexpr size_t kMaxModules = Limits::Config::Capacity::ModuleListMax;
+        WebHeapCharBuffer moduleStorage(kMaxModules * sizeof(const char*));
+        if (!moduleStorage.data) { sendTinyBusyJson_(request, "config_modules_memory"); return; }
+        auto** modules = reinterpret_cast<const char**>(moduleStorage.data);
+        const size_t moduleCount = cfgStore_->listModules(modules, kMaxModules);
 
-        AsyncResponseStream* response = request->beginResponseStream("application/json");
-        addNoCacheHeaders_(response);
+        size_t responseCapacity = 64;
+        for (size_t i = 0; i < moduleCount; ++i) responseCapacity += 6 * strlen(modules[i]) + 3;
+        auto response = std::make_shared<WebJsonBuffer>(responseCapacity);
+        if (!response->valid()) { sendTinyBusyJson_(request, "config_list_memory"); return; }
         response->print("{\"ok\":true,\"modules\":[");
         bool first = true;
-        for (uint8_t i = 0; i < moduleCount; ++i) {
+        for (size_t i = 0; i < moduleCount; ++i) {
             if (!modules[i] || modules[i][0] == '\0') continue;
             if (!first) response->print(',');
             printJsonEscaped_(*response, modules[i]);
             first = false;
         }
         response->print("]}");
-        request->send(response);
+        sendBufferedJson(request, response);
         return;
     });
 
-    server_.on("/api/flowcfg/children", HTTP_GET, [this](AsyncWebServerRequest* request) {
+    server_.on("/api/flowcfg/children", HTTP_GET, [this, sendBufferedJson](AsyncWebServerRequest* request) {
         HttpLatencyScope latency(request,
                                  "/api/flowcfg/children",
                                  kHttpLatencyFlowCfgInfoMs,
@@ -7295,16 +7350,20 @@ void WebInterfaceModule::startServer_()
             --prefixLen;
         }
 
-        constexpr uint8_t kMaxModules = Limits::Config::Capacity::ModuleListMax;
-        const char* modules[kMaxModules] = {0};
-        const uint8_t moduleCount = cfgStore_->listModules(modules, kMaxModules);
+        constexpr size_t kMaxModules = Limits::Config::Capacity::ModuleListMax;
+        WebHeapCharBuffer moduleStorage(kMaxModules * sizeof(const char*));
+        if (!moduleStorage.data) { sendTinyBusyJson_(request, "config_modules_memory"); return; }
+        auto** modules = reinterpret_cast<const char**>(moduleStorage.data);
+        const size_t moduleCount = cfgStore_->listModules(modules, kMaxModules);
 
-        const char* childStarts[kMaxModules] = {0};
-        size_t childLens[kMaxModules] = {0};
-        uint8_t childCount = 0;
+        WebHeapCharBuffer childStorage(kMaxModules * (sizeof(const char*) + sizeof(size_t)));
+        if (!childStorage.data) { sendTinyBusyJson_(request, "config_children_memory"); return; }
+        auto** childStarts = reinterpret_cast<const char**>(childStorage.data);
+        auto* childLens = reinterpret_cast<size_t*>(childStarts + kMaxModules);
+        size_t childCount = 0;
         bool hasExact = false;
 
-        for (uint8_t i = 0; i < moduleCount; ++i) {
+        for (size_t i = 0; i < moduleCount; ++i) {
             const char* childStart = nullptr;
             size_t childLen = 0;
             bool exact = false;
@@ -7314,7 +7373,7 @@ void WebInterfaceModule::startServer_()
             }
 
             bool duplicate = false;
-            for (uint8_t j = 0; j < childCount; ++j) {
+            for (size_t j = 0; j < childCount; ++j) {
                 if (tokensEqual_(childStart, childLen, childStarts[j], childLens[j])) {
                     duplicate = true;
                     break;
@@ -7327,12 +7386,14 @@ void WebInterfaceModule::startServer_()
             ++childCount;
         }
 
-        AsyncResponseStream* response = request->beginResponseStream("application/json");
-        addNoCacheHeaders_(response);
+        size_t responseCapacity = 64;
+        for (size_t i = 0; i < moduleCount; ++i) responseCapacity += 6 * strlen(modules[i]) + 3;
+        auto response = std::make_shared<WebJsonBuffer>(responseCapacity);
+        if (!response->valid()) { sendTinyBusyJson_(request, "config_list_memory"); return; }
         response->print("{\"ok\":true,\"has_exact\":");
         response->print(hasExact ? "true" : "false");
         response->print(",\"children\":[");
-        for (uint8_t i = 0; i < childCount; ++i) {
+        for (size_t i = 0; i < childCount; ++i) {
             if (i > 0) response->print(',');
             response->print('\"');
             for (size_t j = 0; j < childLens[i]; ++j) {
@@ -7341,7 +7402,7 @@ void WebInterfaceModule::startServer_()
             response->print('\"');
         }
         response->print("]}");
-        request->send(response);
+        sendBufferedJson(request, response);
         return;
     });
 

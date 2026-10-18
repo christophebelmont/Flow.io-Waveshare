@@ -8,8 +8,9 @@
         </div>
       </div>
       <nav class="menu-group">
-        <button class="menu-item active" data-page="page-dashboard" title="Tableau de bord" data-i18n-title="menu.dashboard"><span class="ico icon-measures" aria-hidden="true"></span><span class="label" data-i18n="menu.dashboard">Tableau de bord</span></button>
-        <button class="menu-item" data-page="page-io-summary" title="Entrées/Sorties" data-i18n-title="menu.io"><span class="ico icon-io" aria-hidden="true"></span><span class="label" data-i18n="menu.io">Entrées/Sorties</span></button>
+        <button class="menu-item active" data-page="page-dashboard" title="Tableau de bord" data-i18n-title="menu.dashboard"><span class="ico icon-dashboard" aria-hidden="true"></span><span class="label" data-i18n="menu.dashboard">Tableau de bord</span></button>
+        <button class="menu-item" data-page="page-io-summary" title="Câblage" data-i18n-title="menu.io"><span class="ico icon-io" aria-hidden="true"></span><span class="label" data-i18n="menu.io">Câblage</span></button>
+        <button class="menu-item" data-page="page-data-values" data-admin-only hidden title="Diffusion des données" data-i18n-title="data.title"><span class="ico icon-data" aria-hidden="true"></span><span class="label" data-i18n="data.title">Diffusion des données</span></button>
         <button class="menu-item" data-page="page-derived-values" data-admin-only hidden title="Valeurs dérivées" data-i18n-title="menu.derived"><span class="ico icon-derived" aria-hidden="true"></span><span class="label" data-i18n="menu.derived">Valeurs dérivées</span></button>
         <button class="menu-item" data-page="page-calibration" data-admin-only hidden title="Étalonnage" data-i18n-title="menu.calibration"><span class="ico icon-calibration" aria-hidden="true"></span><span class="label" data-i18n="menu.calibration">Étalonnage</span></button>
         <button class="menu-item" data-page="page-history" title="Historique" data-i18n-title="history.title"><span class="ico icon-history" aria-hidden="true"></span><span class="label" data-i18n="history.title">Historique</span></button>
@@ -138,29 +139,12 @@
             </section>
           </section>
 
-          <details id="poolAiPreview" class="pool-ai-diagnostics pool-ai-diagnostics-bottom">
-            <summary>
-              <span class="ui-msr pool-ai-diagnostics-icon" aria-hidden="true">expand_more</span>
-              <span class="pool-ai-details-closed" data-i18n="pool.ai.showDetails">Afficher la météo et le prompt</span>
-              <span class="pool-ai-details-open" data-i18n="pool.ai.hideDetails">Masquer la météo et le prompt</span>
-            </summary>
-            <div class="pool-ai-diagnostics-grid">
-              <article class="pool-ai-text-block">
-                <h4 data-i18n="pool.ai.weather">Météo</h4>
-                <pre id="poolAiWeatherText">—</pre>
-              </article>
-              <article class="pool-ai-text-block">
-                <h4 data-i18n="pool.ai.prompt">Prompt préparé</h4>
-                <pre id="poolAiPromptText">—</pre>
-              </article>
-            </div>
-          </details>
         </div>
       </section>
 
       <section id="page-io-summary" class="page">
         <div class="topbar">
-          <h1 class="ui-heading-inline"><span class="ui-msr" aria-hidden="true">lan</span><span data-i18n="menu.io">Entrées/Sorties</span></h1>
+          <h1 class="ui-heading-inline"><span class="ui-msr" aria-hidden="true">cable</span><span data-i18n="menu.io">Câblage</span></h1>
         </div>
         <div class="control-shell io-summary-shell">
           <div id="ioSummaryCards" class="status-grid io-summary-cards" aria-live="polite"></div>
@@ -175,15 +159,9 @@
         </div>
         <p id="historyStatus" role="status" aria-live="polite"></p>
         <div class="status-card history-card">
-          <h2 data-i18n="history.poolTitle">La piscine sur 8 jours</h2>
-          <p data-i18n="history.poolNote">Aujourd’hui et les sept jours précédents, en dates locales. Sélectionnez un jour pour consulter ses mesures. Le volume d’appoint est estimé à partir du débit configuré.</p>
+          <h2 data-i18n="history.poolTitle">Données historisées sur 8 jours</h2>
+          <p data-i18n="history.poolNote">Moyenne journalière de chaque donnée historisée. Sélectionnez un jour dans l’en-tête pour consulter ses agrégats.</p>
           <div id="historyDays" class="history-scroll" tabindex="0" role="region" aria-label="Bilans journaliers" data-i18n-aria-label="history.poolTitle"></div>
-        </div>
-        <div id="historyDayDetail" class="status-card history-card" hidden>
-          <h2 id="historyDayTitle"></h2><p id="historyCoverage"></p>
-          <div id="historyMetrics" class="history-scroll" tabindex="0" role="region" aria-label="Mesures" data-i18n-aria-label="history.measure"></div>
-          <p id="historyNightDelta"></p>
-          <div id="historyPeriods" class="history-scroll" tabindex="0" role="region" aria-label="Durées par période" data-i18n-aria-label="history.periods"></div>
         </div>
         <div class="status-card history-card">
           <h2 data-i18n="history.valuesTitle">Historique des valeurs</h2>
@@ -192,9 +170,21 @@
             <label><span data-i18n="history.value">Valeur</span><select id="historyValueId"></select></label>
             <label><span data-i18n="history.period">Période</span><select id="historyValuePeriod"><option value="0" data-i18n="history.hourly">Horaire</option><option value="1" data-i18n="history.daily">Journalière</option></select></label>
             <button id="historyValueRead" class="btn-tonal" type="button" disabled data-i18n="history.view">Afficher</button>
+            <div class="history-view-toggle" role="group" aria-label="Affichage" data-i18n-aria-label="history.display">
+              <button type="button" class="history-view-btn is-active" data-history-view="chart" aria-pressed="true" data-i18n="history.chart">Graphe</button>
+              <button type="button" class="history-view-btn" data-history-view="table" aria-pressed="false" data-i18n="history.table">Tableau</button>
+            </div>
           </div>
           <div id="historyValues" class="history-scroll" tabindex="0" role="region" aria-label="Historique des valeurs" data-i18n-aria-label="history.valuesTitle"></div>
         </div>
+        <dialog id="historyDetailDialog" class="history-dialog" aria-labelledby="historyDetailTitle">
+          <div class="history-dialog-head">
+            <h2 id="historyDetailTitle" class="ui-heading-inline"><span class="ui-msr" aria-hidden="true">insights</span><span id="historyDetailName"></span></h2>
+            <button id="historyDetailClose" class="btn-tonal btn-icon-only" type="button" aria-label="Fermer" title="Fermer" data-i18n-aria-label="history.close" data-i18n-title="history.close"><span class="ui-msr" aria-hidden="true">close</span></button>
+          </div>
+          <p id="historyDetailDate" class="history-dialog-subtitle"></p>
+          <div id="historyDetailBody" class="history-scroll"></div>
+        </dialog>
       </section>
 
       <section id="page-activity-log" class="page">
@@ -351,6 +341,34 @@
             </div>
             <div id="wifiConfigStatus" class="config-status" data-i18n="wifi.ready">Configuration réseau prête.</div>
           </div>
+        </div>
+      </section>
+
+      <section id="page-data-values" class="page" data-admin-only>
+        <div class="derived-page-shell data-values-shell">
+          <div class="derived-hero">
+            <div class="derived-hero-head">
+              <span class="derived-hero-badge"><svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M155-75q-35-35-35-85t35-85q35-35 85-35 14 0 26 3t23 8l57-71q-28-31-39-70t-5-78l-81-27q-17 25-43 40t-58 15q-50 0-85-35T0-580q0-50 35-85t85-35q50 0 85 35t35 85v8l81 28q20-36 53.5-61t75.5-32v-87q-39-11-64.5-42.5T360-840q0-50 35-85t85-35q50 0 85 35t35 85q0 42-26 73.5T510-724v87q42 7 75.5 32t53.5 61l81-28v-8q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-32 0-58.5-15T739-515l-81 27q6 39-5 77.5T614-340l57 70q11-5 23-7.5t26-2.5q50 0 85 35t35 85q0 50-35 85t-85 35q-50 0-85-35t-35-85q0-20 6.5-38.5T624-232l-57-71q-41 23-87.5 23T392-303l-56 71q11 15 17.5 33.5T360-160q0 50-35 85t-85 35q-50 0-85-35Zm-35-465q17 0 28.5-11.5T160-580q0-17-11.5-28.5T120-620q-17 0-28.5 11.5T80-580q0 17 11.5 28.5T120-540Zm148.5 408.5Q280-143 280-160t-11.5-28.5Q257-200 240-200t-28.5 11.5Q200-177 200-160t11.5 28.5Q223-120 240-120t28.5-11.5Zm240-680Q520-823 520-840t-11.5-28.5Q497-880 480-880t-28.5 11.5Q440-857 440-840t11.5 28.5Q463-800 480-800t28.5-11.5ZM480-360q42 0 71-29t29-71q0-42-29-71t-71-29q-42 0-71 29t-29 71q0 42 29 71t71 29Zm268.5 228.5Q760-143 760-160t-11.5-28.5Q737-200 720-200t-28.5 11.5Q680-177 680-160t11.5 28.5Q703-120 720-120t28.5-11.5Zm120-420Q880-563 880-580t-11.5-28.5Q857-620 840-620t-28.5 11.5Q800-597 800-580t11.5 28.5Q823-540 840-540t28.5-11.5ZM480-840ZM120-580Zm360 120Zm360-120ZM240-160Zm480 0Z"/></svg></span>
+              <div class="derived-hero-copy">
+                <div id="dataValuesChips" class="data-values-chips"></div>
+                <p class="derived-intro-lead" data-i18n="data.intro">Chaque donnée dispose de trois réglages indépendants : envoi dans Home Assistant, historisation et utilisation dans GUI, Web, TFT et valeurs calculées.</p>
+                <div id="dataValuesIntro" class="derived-intro"></div>
+              </div>
+            </div>
+          </div>
+          <div class="data-values-toolbar">
+            <label class="data-values-search">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
+              <input id="dataValuesSearch" type="search" data-i18n-placeholder="data.search" data-i18n-aria-label="data.search" placeholder="Rechercher une donnée ou une référence…" />
+            </label>
+            <div class="data-values-toolbar-actions">
+              <span id="dataValuesDirty" class="data-values-dirty" role="status" hidden></span>
+              <button id="dataValuesReload" class="btn-tonal" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4v6h6M20 20v-6h-6"/><path d="M5.5 15a7 7 0 0 0 12.4 2.6M18.5 9A7 7 0 0 0 6.1 6.4"/></svg><span data-i18n="data.reload">Recharger</span></button>
+              <button id="dataValuesApply" class="btn-primary" type="button" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5 10 17.5 19 7.5"/></svg><span data-i18n="data.save">Enregistrer</span></button>
+            </div>
+          </div>
+          <div id="dataValuesStatus" class="config-status" role="status"></div>
+          <div id="dataValuesList" class="data-values-list"></div>
         </div>
       </section>
 

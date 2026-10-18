@@ -30,7 +30,7 @@ constexpr size_t JsonConfigApplyBuf = JsonCfgBuf;
  *  Sized for the Waveshare profile with additional headroom for local TFT
  *  sensor/alarm slots, dashboard/LCD and PoolLogic extensions while staying bounded. */
 // Dual boot bindings add 92 descriptors in the Waveshare profile. Metadata lives in PSRAM.
-constexpr size_t MaxConfigVars = 1024;
+constexpr size_t MaxConfigVars = 1536;
 /** @brief Maximum NVS key length (without null terminator) enforced by `ConfigTypes::NVS_KEY`. */
 constexpr size_t MaxNvsKeyLen = 15;
 /** @brief FreeRTOS log queue length used by `LogHub` (`LogHubModule::init`).
@@ -69,7 +69,8 @@ constexpr uint32_t LoopDelayMs = 10;
 namespace Config {
 namespace Capacity {
 /** @brief Maximum number of unique config branches returned by `ConfigStore::listModules`. */
-constexpr uint8_t ModuleListMax = 160;
+// Every variable can belong to a distinct branch; enumeration must cover the full store.
+constexpr size_t ModuleListMax = MaxConfigVars;
 /** @brief FreeRTOS queue length for serialized ConfigStore persistence requests. */
 constexpr uint8_t PersistenceQueueLen = 16;
 /** @brief Maximum runtime blob payload length accepted by ConfigStore async persistence. */
@@ -181,6 +182,7 @@ constexpr uint32_t StartupActuatorRetryMs = 3000;
 constexpr uint32_t DisabledDelayMs = 2000;
 /** @brief Network warmup delay in ms before first MQTT connect attempt in `MQTTModule::loop`. */
 constexpr uint32_t NetWarmupMs = 2000;
+constexpr uint32_t SensorRefreshMs = 120000; // Republish unchanged sensor states, without MQTT retention.
 /** @brief MQTT connection timeout in ms before forcing reconnect in `MQTTModule::loop`. */
 constexpr uint32_t ConnectTimeoutMs = 10000;
 /** @brief Main MQTT task loop delay in ms (`MQTTModule::loop`). */
@@ -223,7 +225,7 @@ constexpr uint8_t JitterPct = 15;
 
 }  // namespace Mqtt
 /** @brief Maximum number of runtime MQTT routes stored in the runtime mux (`RuntimeProducer`). */
-constexpr uint8_t MaxRuntimeRoutes = 112;
+constexpr uint8_t MaxRuntimeRoutes = 240;
 /** @brief Default momentary digital output pulse duration in ms (`IOModule`). */
 constexpr uint16_t MomentaryPulseMs = 500;
 /** @brief Default periodic trace interval for ORP/pH/PSI calc logs (`IOModule`, `trace_period_ms`). */

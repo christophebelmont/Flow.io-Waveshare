@@ -1,4 +1,5 @@
 #pragma once
+#include "Core/Values/DataValueView.h"
 /**
  * @file TFTModuleS3.h
  * @brief Local TFT module for Waveshare ESP32-S3 builds.
@@ -71,16 +72,7 @@ private:
         Alarms = 2,
     };
 
-    struct RuntimeValue {
-        bool available = false;
-        RuntimeUiWireType wireType = RuntimeUiWireType::Unavailable;
-        bool boolValue = false;
-        int32_t i32Value = 0;
-        uint32_t u32Value = 0U;
-        float f32Value = 0.0f;
-        double f64Value = 0.0;
-        char stringValue[64]{};
-    };
+    using RuntimeValue = DataValuePresentation;
 
     struct OverviewRenderCache {
         bool valid = false;
@@ -175,7 +167,6 @@ private:
     bool readIoValue_(IoId ioId, RuntimeValue& out) const;
     bool readIoBackendValue_(uint8_t backend, uint8_t channel, char* out, size_t outLen) const;
     bool readIoBackendValue_(uint8_t backend, uint8_t channel, RuntimeValue& out) const;
-    bool readIoDerivedValue_(uint8_t slot, RuntimeValue& out) const;
     bool readRuntimeUnit_(RuntimeUiId runtimeId, char* out, size_t outLen) const;
     bool readRuntimePrecision_(RuntimeUiId runtimeId, int8_t& out) const;
     uint8_t runtimeDecimals_(RuntimeUiId runtimeId, RuntimeUiWireType wireType, const char* unit) const;

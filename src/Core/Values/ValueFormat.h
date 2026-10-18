@@ -24,9 +24,14 @@ inline bool formatValueNumber(char* out, size_t capacity, double value, int prec
 inline bool formatValueSnapshot(char* out, size_t capacity, ValueId id,
                                 const ValueSnapshot& sample, const ValueMetadata& metadata) {
     char number[40] = "null";
-    if (sample.quality == ValueQuality::Valid &&
-        !formatValueNumber(number, sizeof(number), valueAsDouble(metadata.type, sample.value), metadata.precision))
-        return false;
+    if (sample.quality == ValueQuality::Valid) {
+        if (metadata.type == ValueType::Bool)
+            snprintf(number, sizeof(number), "%s", sample.value.b ? "true" : "false");
+        else if (metadata.type == ValueType::UInt64)
+            snprintf(number, sizeof(number), "%llu", (unsigned long long)sample.value.u64);
+        else if (!formatValueNumber(number, sizeof(number), valueAsDouble(metadata.type, sample.value), metadata.precision))
+            return false;
+    }
     const int length = snprintf(out, capacity,
         "{\"id\":%u,\"value\":%s,\"quality\":%u,\"generation\":%lu}",
         unsigned(id), number, unsigned(sample.quality), (unsigned long)sample.generation);

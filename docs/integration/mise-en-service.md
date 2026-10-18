@@ -142,7 +142,7 @@ Vérifier dans le moniteur série:
 5. si MQTT est activé, la connexion au broker et les publications runtime;
 6. l'absence d'erreur de domain slot non configuré ou sans binding.
 
-Dans l'interface web, la page **Entrées/Sorties** permet de contrôler la topologie, les valeurs runtime et l'affectation des binding ports. Vérifier d'abord les entrées sans charge, puis chaque relais avec un circuit de test adapté avant de raccorder les équipements piscine.
+Dans l'interface web, la page **Câblage** permet de contrôler la topologie, les valeurs runtime et l'affectation des binding ports. Vérifier d'abord les entrées sans charge, puis chaque relais avec un circuit de test adapté avant de raccorder les équipements piscine.
 
 ## 8. Identifiants par défaut
 

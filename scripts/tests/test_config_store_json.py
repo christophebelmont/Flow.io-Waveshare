@@ -187,7 +187,7 @@ class ConfigStoreJsonTest(unittest.TestCase):
         source = (ROOT / "src/Core/ConfigStore.cpp").read_text()
         # Exercise the actual methods without NVS/FreeRTOS dependencies.
         start = source.index("static bool isMaskedKey(")
-        end = source.index("uint8_t ConfigStore::listModules(", start)
+        end = source.index("size_t ConfigStore::listModules(", start)
         with tempfile.TemporaryDirectory(prefix="flow-config-json-") as directory:
             work = Path(directory)
             cpp = work / "main.cpp"

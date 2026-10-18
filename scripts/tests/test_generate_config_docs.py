@@ -62,32 +62,15 @@ class ConfigDocsWaveshareSlotTests(unittest.TestCase):
         self.assertIn("io/input/a20/a20_name", docs)
         self.assertNotIn("io/input/a21/a21_name", docs)
 
-    def test_tft_derived_runtime_options_match_io_runtime_value_ids(self):
+    def test_tft_derived_options_use_data_catalog(self):
+        from scripts.data_catalog import extend_config
         root = SCRIPT.parents[1]
-        io_runtime = (root / "src/Modules/IOModule/IORuntime.h").read_text(encoding="utf-8")
-        value_h = (root / "src/Core/Values/Value.h").read_text(encoding="utf-8")
-        module_id_h = (root / "src/Core/ModuleId.h").read_text(encoding="utf-8")
-
-        base = int(re.search(r"IO_RUNTIME_UI_DERIVED_BASE\s*=\s*(\d+)", io_runtime).group(1))
-        capacity = int(re.search(r"DerivedCapacity\s*=\s*(\d+)", value_h).group(1))
-        enum_body = re.search(r"enum class ModuleId\s*:\s*uint8_t\s*\{(?P<body>.*?)\};", module_id_h, re.S).group("body")
-        io_index = [
-            name.strip().split("=")[0].strip().rstrip(",")
-            for name in enum_body.splitlines()
-            if name.strip()
-        ].index("Io")
-
-        manifest = json.loads((root / "src/Modules/TFTModuleS3/text/cfgmods.fr.json").read_text())
-        entries = manifest["meta"]["enum_sets"]["tft_s3_dashboard_runtime_ui"]
-        derived = {entry["derived_slot"]: entry["value"] for entry in entries if "derived_slot" in entry}
-
-        self.assertEqual(set(range(capacity)), set(derived))
-        for slot, value in derived.items():
-            self.assertEqual(io_index * 100 + base + slot, value)
-
-        runtimeui = json.loads((root / "src/Modules/IOModule/text/runtimeui.json").read_text())
-        value_ids = {value["valueId"] for value in runtimeui["values"]}
-        self.assertTrue(set(range(base, base + capacity)).issubset(value_ids))
+        meta = json.loads((root / 'src/Modules/TFTModuleS3/text/cfgmods.fr.json').read_text())["meta"]
+        extend_config({}, {}, meta)
+        entries = meta["enum_sets"]["tft_s3_dashboard_runtime_ui"]
+        self.assertFalse(any("derived_slot" in entry for entry in entries))
+        for value in range(96, 101):
+            self.assertEqual([32768 + value], [entry["value"] for entry in entries if entry.get("data_value_id") == value])
 
     def test_waveshare_analog_configuration_tree_ends_at_a20(self):
         meta = {

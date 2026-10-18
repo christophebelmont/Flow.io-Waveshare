@@ -80,7 +80,7 @@ class ConfigMenuModel {
 public:
     static constexpr uint8_t RowsPerPage = 6;
     static constexpr uint8_t MaxRows = 24;
-    static constexpr uint8_t MaxModules = Limits::Config::Capacity::ModuleListMax;
+    static constexpr size_t MaxModules = Limits::Config::Capacity::ModuleListMax;
 
     bool begin(const ConfigStoreService* cfgSvc);
     void setHints(const ConfigMenuHint* hints, uint8_t count);
@@ -149,7 +149,7 @@ private:
     char currentModule_[28]{};
     char previousModule_[28]{};
 
-    uint8_t listSortedModules_(const char** modules, uint8_t max) const;
+    size_t listSortedModules_(const char** modules, size_t max) const;
     uint8_t currentRowCount_() const;
     uint8_t branchRowCount_(const char* branch) const;
     uint8_t moduleRowCount_(const char* module) const;

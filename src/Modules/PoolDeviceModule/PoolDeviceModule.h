@@ -153,8 +153,8 @@ private:
         float injectedMlWeek = 0.0f;
         float injectedMlMonth = 0.0f;
         float injectedMlTotal = 0.0f;
-        uint32_t lastTankPublishMs = 0;
-        float tankRemainingMl = 0.0f;
+        uint32_t lastEquipmentPublishMs = 0;
+        float tankRemainingL = 0.0f;
         uint32_t dayKey = 0;
         uint32_t weekKey = 0;
         uint32_t monthKey = 0;
@@ -214,7 +214,7 @@ private:
     PoolDeviceSvcStatus setTarget_(uint8_t slot, const PoolDeviceTarget* target, bool manual);
     PoolDeviceSvcStatus svcSetWritesEnabledImpl_(uint8_t enabled);
     uint8_t svcWritesEnabledImpl_() const;
-    PoolDeviceSvcStatus svcRefillTankImpl_(uint8_t slot, float remainingMl);
+    PoolDeviceSvcStatus svcRefillTankImpl_(uint8_t slot, float remainingL);
     void tickDevices_(uint32_t nowMs, bool allowPersist = true);
     void resetDailyCounters_();
     void resetWeeklyCounters_();

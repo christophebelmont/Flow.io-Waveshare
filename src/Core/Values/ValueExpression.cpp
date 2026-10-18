@@ -1,4 +1,5 @@
 #include "ValueExpression.h"
+#include "Core/Generated/DataValueCatalog_Generated.h"
 #include <string.h>
 #include <stdlib.h>
 #include <algorithm>
@@ -67,14 +68,15 @@ private:
             return end == cursor && isfinite(value) && emit(Op::Constant, value);
         }
         const char* start = cursor;
-        while (letter(*cursor) || digit(*cursor) || *cursor == '.') ++cursor;
+        while (letter(*cursor) || digit(*cursor) || *cursor == '.' || *cursor == '_') ++cursor;
         const size_t length = cursor - start;
         if (!length) return false;
         if (length == 2 && start[0] == 'k' && start[1] >= '0' && start[1] <= '3')
             return emit(Op::Parameter, 0, start[1] - '0');
-        if (length >= 3 && digit(start[1]) && digit(start[2])) {
+        const ValueId catalogId = dataValueReference(start, length);
+        if (catalogId != VALUE_INVALID || (length >= 3 && digit(start[1]) && digit(start[2]))) {
             const unsigned index = (start[1] - '0') * 10 + start[2] - '0';
-            ValueId id = VALUE_INVALID;
+            ValueId id = catalogId;
             if (length == 3 && start[0] == 'a' && index < 32) id = ValueIds::Analog + index;
             if (length == 3 && start[0] == 'v' && index < ValueIds::DerivedCapacity) id = ValueIds::Derived + index;
             if (start[0] == 'i' && index < 16) {

@@ -81,7 +81,7 @@ résolu n'est jamais persisté et aucune écriture NVS n'est faite pour une sél
 Les métadonnées IO et les réponses `/api/io/topology` et `/api/io/runtime` exposent
 les deux candidats, `resolved_binding_port`, `binding_selection`, `binding_reason`
 et `binding_restart_required`. Le driver et le canal affichés suivent le port
-résolu. La page Entrées/Sorties affiche les candidats et le résultat du boot.
+résolu. La page Câblage affiche les candidats et le résultat du boot.
 
 ## Vérification
 

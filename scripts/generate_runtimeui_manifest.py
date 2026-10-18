@@ -4,6 +4,9 @@ import json
 import os
 import re
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd() / "scripts"))
+from data_catalog import runtime_entries, write_header
 
 Import = type("Import", (), {})
 
@@ -140,6 +143,7 @@ def _write_header(out_path: Path, entries):
         f.write("    const char* key;\n")
         f.write("    const char* type;\n")
         f.write("    const char* unit;\n")
+        f.write("    uint16_t dataValueId = 65535;\n")
         f.write("};\n\n")
         f.write("inline constexpr RuntimeUiActionManifestItem kRuntimeUiActionManifestItems[] = {\n")
         input_types = {
@@ -176,7 +180,7 @@ def _write_header(out_path: Path, entries):
                 f"{entry['id']}, "
                 f"{_c_string(entry['key'])}, "
                 f"{_c_string(entry['type'])}, "
-                f"{_c_string(entry.get('unit') or '')}"
+                f"{_c_string(entry.get('unit') or '')}, {entry.get('dataValueId', 65535)}"
                 "},\n"
             )
         f.write("};\n\n")
@@ -607,15 +611,19 @@ def _collect_entries_for_locale(modules_root: Path, locale: str, numeric_by_name
                 "display": display,
                 "displayConfig": display_config,
             }
+            if "dataValueId" in value:
+                entry["dataValueId"] = value["dataValueId"]
             if normalized_actions:
                 entry["actions"] = normalized_actions
             entries.append(entry)
 
+    entries.extend(runtime_entries())
     entries.sort(key=lambda item: (item["domain"], item.get("group") or "", item.get("order") or 0, item["id"]))
     return entries
 
 
 def main():
+    write_header()
     project_dir = Path(_get_project_dir())
     modules_root = project_dir / "src" / "Modules"
     module_id_path = project_dir / "src" / "Core" / "ModuleId.h"

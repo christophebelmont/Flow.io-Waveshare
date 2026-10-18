@@ -6,6 +6,16 @@ import tempfile
 import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 class ValueTests(unittest.TestCase):
+    def test_data_value_catalog(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = pathlib.Path(tmp) / 'data-value-catalog'
+            subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
+                '-fsanitize=undefined,address', '-g', '-pthread',
+                '-Itest/host/value_stubs', '-Isrc', '-Iinclude',
+                'test/host/data_value_catalog.cpp', 'src/Core/Values/ValueRegistry.cpp',
+                'src/Core/Values/ValueExpression.cpp', '-o', str(binary)], cwd=ROOT, check=True)
+            subprocess.run([str(binary)], cwd=ROOT, check=True)
+
     def test_internal_analog_sources(self):
         with tempfile.TemporaryDirectory() as tmp:
             binary = pathlib.Path(tmp) / 'internal-analog-sources'

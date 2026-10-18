@@ -279,6 +279,7 @@ void setupProfile(AppContext& ctx)
     // heat_assist reason) stays available even when runtime route capacity is reached.
     if (mqttEnabledInPreferences(ctx.preferences)) {
         requireSetup(modules.mqttModule.registerRuntimeProvider(&modules.poolLogicModule), "register runtime provider poollogic");
+        requireSetup(modules.mqttModule.registerRuntimeProvider(&modules.dataStoreModule), "register runtime provider data");
         requireSetup(modules.mqttModule.registerRuntimeProvider(&modules.ioModule), "register runtime provider io");
         requireSetup(modules.mqttModule.registerRuntimeProvider(&modules.poolDeviceModule), "register runtime provider pooldev");
     }

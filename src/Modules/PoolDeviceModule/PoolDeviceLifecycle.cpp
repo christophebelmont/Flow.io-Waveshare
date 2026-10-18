@@ -4,6 +4,7 @@
  */
 
 #include "PoolDeviceModule.h"
+#include "Core/Values/PoolDeviceValues.h"
 #include "Drivers/PoolSerialHa.h"
 #include "Core/BufferUsageTracker.h"
 #include "Core/MqttTopics.h"
@@ -359,7 +360,19 @@ void PoolDeviceModule::onConfigLoaded(ConfigStore&, ServiceRegistry& services)
     for (uint8_t i = 0; i < POOL_DEVICE_MAX; ++i) {
         PoolDeviceSlot& s = slots_[i];
         if (!s.used) continue;
-        if (parsePoolDriverConfig(s.driverJson, s.driverConfig, s.driverError, sizeof(s.driverError))) registerDriverHa_(i);
+        const bool driverParsed = parsePoolDriverConfig(s.driverJson, s.driverConfig, s.driverError, sizeof(s.driverError));
+        if (driverParsed) registerDriverHa_(i);
+        if (dataStore_) {
+            // Follow the configured primary output, not the PoolDevice slot number.
+            IoEndpointMeta output{};
+            const bool hasOutputName = driverParsed &&
+                s.driverConfig.capabilities.kind != PoolControlKind::Rs485 &&
+                ioSvc_ && ioSvc_->meta &&
+                ioSvc_->meta(ioSvc_->ctx, s.driverConfig.outputs[0], &output) == IO_OK &&
+                output.name[0];
+            PoolDeviceValues::setNames(dataStore_->values, i,
+                                      hasOutputName ? output.name : s.def.label);
+        }
         (void)loadPersistedMetrics_(i, s);
         if (runtimePersistBuf_[i][0] != '\0') {
             BufferUsageTracker::note(TrackedBufferId::PoolDeviceRuntimePersistTable,

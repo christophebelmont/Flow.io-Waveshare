@@ -66,7 +66,7 @@ Lorsqu'un `expanderXX` est désactivé, ses binding ports et tous les slots qui 
 liés restent visibles, mais portent l'état `manually_disabled` avec la raison
 `expander_disabled`. Aucun accès matériel à cet expander n'est alors effectué.
 La topologie expose le marquage dans le champ `board_port`, accompagné du champ `direction` (`input` ou
-`output`). La page **Entrées/Sorties** affiche le nom physique et le sens du port
+`output`). La page **Câblage** affiche le nom physique et le sens du port
 séparément du numéro de canal interne du driver. La colonne `IoId` contient l'identifiant
 numérique de l'endpoint lié, ou « Non affecté » lorsque le port est libre. Dans la table
 IOSlots, `Driver` et `Canal interne` restent vides lorsque l'endpoint n'a aucun

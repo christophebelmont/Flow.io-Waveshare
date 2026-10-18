@@ -14,8 +14,10 @@
 #include <stdint.h>
 
 #include "Core/ModuleId.h"
+#include "Core/Values/Value.h"
 
 using RuntimeUiId = uint16_t;
+constexpr RuntimeUiId kDataRuntimeUiBase = 32768U;
 
 constexpr RuntimeUiId kRuntimeUiModuleStride = 100U;
 
@@ -36,6 +38,7 @@ constexpr uint8_t runtimeUiValueId(RuntimeUiId runtimeId)
 
 constexpr bool isValidRuntimeUiId(RuntimeUiId runtimeId)
 {
+    if (runtimeId >= kDataRuntimeUiBase) return runtimeId < kDataRuntimeUiBase + ValueIds::Capacity;
     const uint8_t moduleId = runtimeUiModuleId(runtimeId);
     const uint8_t valueId = runtimeUiValueId(runtimeId);
     return moduleId > 0U && moduleId < kModuleIdCount && valueId > 0U;

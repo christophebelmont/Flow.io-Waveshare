@@ -10,6 +10,9 @@
 #include "Core/SystemLimits.h"
 
 #include <ArduinoJson.h>
+#include <memory>
+#include <new>
+#include <algorithm>
 #include <ctype.h>
 #include <math.h>
 #include <stdio.h>
@@ -443,24 +446,12 @@ bool ConfigMenuModel::prevPage()
     return true;
 }
 
-uint8_t ConfigMenuModel::listSortedModules_(const char** modules, uint8_t max) const
+size_t ConfigMenuModel::listSortedModules_(const char** modules, size_t max) const
 {
     if (!modules || max == 0 || !cfgSvc_ || !cfgSvc_->listModules) return 0;
-    uint8_t count = cfgSvc_->listModules(cfgSvc_->ctx, modules, max);
-    if (count > max) count = max;
-
-    for (uint8_t i = 0; i < count; ++i) {
-        if (!modules[i]) modules[i] = "";
-    }
-    for (uint8_t i = 0; i < count; ++i) {
-        for (uint8_t j = (uint8_t)(i + 1U); j < count; ++j) {
-            if (strcmp(modules[i], modules[j]) > 0) {
-                const char* tmp = modules[i];
-                modules[i] = modules[j];
-                modules[j] = tmp;
-            }
-        }
-    }
+    const size_t count = std::min(cfgSvc_->listModules(cfgSvc_->ctx, modules, max), max);
+    for (size_t i = 0; i < count; ++i) if (!modules[i]) modules[i] = "";
+    std::sort(modules, modules + count, [](const char* a, const char* b) { return strcmp(a, b) < 0; });
     return count;
 }
 
@@ -472,12 +463,13 @@ uint8_t ConfigMenuModel::currentRowCount_() const
 
 uint8_t ConfigMenuModel::branchRowCount_(const char* branch) const
 {
-    const char* modules[MaxModules]{};
-    const uint8_t moduleCount = listSortedModules_(modules, MaxModules);
+    // Keep the full-store enumeration off the HMI task stack.
+    std::unique_ptr<const char*[]> modules(new (std::nothrow) const char*[MaxModules]{});
+    const size_t moduleCount = listSortedModules_(modules.get(), MaxModules);
 
     uint8_t count = 0;
     char lastFullPath[28]{};
-    for (uint8_t i = 0; i < moduleCount; ++i) {
+    for (size_t i = 0; i < moduleCount; ++i) {
         char child[28]{};
         char fullPath[28]{};
         if (!immediateChildForBranch_(modules[i],
@@ -548,12 +540,13 @@ bool ConfigMenuModel::branchRowAt_(const char* branch,
     hasModule = false;
     hasAttributes = false;
 
-    const char* modules[MaxModules]{};
-    const uint8_t moduleCount = listSortedModules_(modules, MaxModules);
+    // Keep the full-store enumeration off the HMI task stack.
+    std::unique_ptr<const char*[]> modules(new (std::nothrow) const char*[MaxModules]{});
+    const size_t moduleCount = listSortedModules_(modules.get(), MaxModules);
 
     uint8_t current = 0;
     char lastFullPath[28]{};
-    for (uint8_t i = 0; i < moduleCount; ++i) {
+    for (size_t i = 0; i < moduleCount; ++i) {
         char child[28]{};
         char path[28]{};
         if (!immediateChildForBranch_(modules[i],
@@ -684,9 +677,10 @@ const char* ConfigMenuModel::poolDeviceDisplayNameByRef_(const char* ref) const
 bool ConfigMenuModel::moduleExists_(const char* module) const
 {
     if (!module || module[0] == '\0') return false;
-    const char* modules[MaxModules]{};
-    const uint8_t moduleCount = listSortedModules_(modules, MaxModules);
-    for (uint8_t i = 0; i < moduleCount; ++i) {
+    // Keep the full-store enumeration off the HMI task stack.
+    std::unique_ptr<const char*[]> modules(new (std::nothrow) const char*[MaxModules]{});
+    const size_t moduleCount = listSortedModules_(modules.get(), MaxModules);
+    for (size_t i = 0; i < moduleCount; ++i) {
         if (strcmp(modules[i], module) == 0) return true;
     }
     return false;
@@ -695,9 +689,10 @@ bool ConfigMenuModel::moduleExists_(const char* module) const
 bool ConfigMenuModel::moduleHasChildren_(const char* module) const
 {
     if (!module || module[0] == '\0') return false;
-    const char* modules[MaxModules]{};
-    const uint8_t moduleCount = listSortedModules_(modules, MaxModules);
-    for (uint8_t i = 0; i < moduleCount; ++i) {
+    // Keep the full-store enumeration off the HMI task stack.
+    std::unique_ptr<const char*[]> modules(new (std::nothrow) const char*[MaxModules]{});
+    const size_t moduleCount = listSortedModules_(modules.get(), MaxModules);
+    for (size_t i = 0; i < moduleCount; ++i) {
         if (startsWithBranch_(modules[i], module)) return true;
     }
     return false;

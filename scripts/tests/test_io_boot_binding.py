@@ -36,7 +36,8 @@ class BootBindingTest(unittest.TestCase):
                             '-fsanitize=address,undefined', '-DADS1X15_GAIN_6144MV=0',
                             '-Isrc', '-Iinclude', '-Itest/host/value_stubs',
                             '-I.pio/libdeps/Flowio-waveshare-esp32-s3/ArduinoJson/src',
-                            str(cpp), '-o', str(exe)], cwd=ROOT, check=True)
+                            str(cpp), 'src/Core/Values/ValueRegistry.cpp',
+                            'src/Core/Values/ValueExpression.cpp', '-o', str(exe)], cwd=ROOT, check=True)
             subprocess.run([str(exe)], check=True)
 
 

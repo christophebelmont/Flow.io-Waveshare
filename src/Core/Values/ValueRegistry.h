@@ -39,6 +39,13 @@ public:
         notification_ = callback; notificationContext_ = context;
     }
     uint16_t used() const;
+    void expire(uint64_t nowMs);
+    void setPrecision(ValueId id, int8_t precision);
+    void setName(ValueId id, const char* name);
+    void setUsable(ValueId id, bool enabled);
+    bool usable(ValueId id) const;
+    void setHistory(ValueId id, bool enabled);
+    bool history(ValueId id) const;
 private:
     struct Slot {
         ValueMetadata metadata{};
@@ -63,6 +70,8 @@ private:
         Slot slots[ValueIds::Capacity]{};
         Transform programs[ProgramCapacity]{};
         ValueId transforms[ProgramCapacity]{};
+        bool historyDisabled[ValueIds::Capacity]{};
+        bool usageDisabled[ValueIds::Capacity]{};
     };
     Storage* storage_ = nullptr;
     bool storageInPsram_ = false;

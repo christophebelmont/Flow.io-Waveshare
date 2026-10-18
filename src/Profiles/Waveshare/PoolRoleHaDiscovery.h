@@ -29,7 +29,6 @@ inline uint8_t assignedSlot(PoolDeviceId role, const PoolDeviceAssignments& assi
 struct RoleBuffers {
     uint8_t slot = POOL_DEVICE_INVALID;
     char state[24]{};
-    char metrics[24]{};
     char config[16]{};
     char on[128]{};
     char off[128]{};
@@ -58,7 +57,6 @@ inline bool prepare(Storage& storage, const PoolDeviceAssignments& assignments, 
         auto& out = storage.roles[role];
         out.slot = slot;
         if (!format(out.state, "rt/pdm/state/pd%u", unsigned(slot)) ||
-            !format(out.metrics, "rt/pdm/metrics/pd%u", unsigned(slot)) ||
             !format(out.config, "cfg/pdm/pd%u", unsigned(slot)) ||
             !formatPoolDeviceHaWritePayload(out.on, sizeof(out.on), slot, true) ||
             !formatPoolDeviceHaWritePayload(out.off, sizeof(out.off), slot, false) ||
@@ -69,49 +67,6 @@ inline bool prepare(Storage& storage, const PoolDeviceAssignments& assignments, 
     }
     return true;
 }
-
-struct SensorsSpec {
-    PoolDeviceId role;
-    HASensorEntry entry;
-};
-
-inline constexpr SensorsSpec kSensors[] = {
-    {PoolIds::DeviceChlorinePump, {
-        "pooldev", "pd_chl_pmp_upt", "Pump uptime Chlorine",
-        nullptr, "{{ value_json.running.day_s | int(0) }}",
-        nullptr, "mdi:timer-outline", "s", false, nullptr, false, nullptr
-    }},
-    {PoolIds::DeviceChlorinePump, {
-        "pooldev", "pd_chl_tnk_rem", "Tank remaining Chlorine",
-        nullptr, "{{ ((value_json.tank.remaining_ml | float(0)) / 1000) | round(2) }}",
-        nullptr, "mdi:water-check", "L", false, nullptr, false, nullptr
-    }},
-    {PoolIds::DevicePhPump, {
-        "pooldev", "pd_ph_pmp_upt", "Pump uptime pH",
-        nullptr, "{{ value_json.running.day_s | int(0) }}",
-        nullptr, "mdi:timer-outline", "s", false, nullptr, false, nullptr
-    }},
-    {PoolIds::DevicePhPump, {
-        "pooldev", "pd_ph_tnk_rem", "Tank remaining pH",
-        nullptr, "{{ ((value_json.tank.remaining_ml | float(0)) / 1000) | round(2) }}",
-        nullptr, "mdi:beaker-check-outline", "L", false, nullptr, false, nullptr
-    }},
-    {PoolIds::DeviceFillPump, {
-        "pooldev", "pd_fill_upt_mn", "Pump uptime Fill",
-        nullptr, "{{ ((value_json.running.day_s | float(0)) / 60) | round(0) | int(0) }}",
-        nullptr, "mdi:timer-outline", "mn", false, nullptr, false, nullptr
-    }},
-    {PoolIds::DeviceFiltrationPump, {
-        "pooldev", "pd_flt_upt_mn", "Pump uptime Filtration",
-        nullptr, "{{ ((value_json.running.day_s | float(0)) / 60) | round(0) | int(0) }}",
-        nullptr, "mdi:timer-outline", "mn", false, nullptr, false, nullptr
-    }},
-    {PoolIds::DeviceChlorineGenerator, {
-        "pooldev", "pd_chl_gen_upt", "Pump uptime Chlorine Generator",
-        nullptr, "{{ ((value_json.running.day_s | float(0)) / 60) | round(0) | int(0) }}",
-        nullptr, "mdi:timer-outline", "mn", false, nullptr, false, nullptr
-    }},
-};
 
 struct NumbersSpec {
     PoolDeviceId role;
@@ -253,13 +208,8 @@ inline constexpr ButtonsSpec kButtons[] = {
 
 inline bool registerEntries(const HAService& ha, const Storage& storage)
 {
-    if (!ha.addSensor || !ha.addNumber || !ha.addButton) return false;
+    if (!ha.addNumber || !ha.addButton) return false;
     bool ok = true;
-    for (const auto& spec : kSensors) {
-        auto entry = spec.entry;
-        entry.stateTopicSuffix = storage.roles[spec.role].metrics;
-        if (!ha.addSensor(ha.ctx, &entry)) ok = false;
-    }
     for (const auto& spec : kNumbers) {
         auto entry = spec.entry;
         const auto& role = storage.roles[spec.role];

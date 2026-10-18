@@ -2,6 +2,7 @@
 #include "IOConfigDescriptorStorage.h"
 #include "ValueConfig.h"
 #include "Core/Values/InternalAnalogSources.h"
+#include "Core/Values/PoolDeviceValues.h"
 
 bool IOModule::validateValueConfig_(const ConfigCandidate& candidate) const
 {
@@ -20,6 +21,8 @@ bool IOModule::validateValueConfig_(const ConfigCandidate& candidate) const
     bool ioEnabled;
     if (!candidate.read(enabledVar_, cfgData_.enabled, ioEnabled)) return false;
     return valueConfig_->validateCandidate(candidate, [&](ValueId id, ValueType& type) {
+        if (PoolDeviceValues::isUptime(id)) { type = ValueType::UInt64; return true; }
+        if (InternalAnalogSources::contains(id)) { type = ValueType::Float; return true; }
         if (!ioEnabled) return false;
         if (id < ValueIds::Digital) {
             if (id >= MAX_ANALOG_ENDPOINTS || !analogSlots_[id].used) return false;
@@ -58,7 +61,8 @@ bool IOModule::validateValueConfig_(const ConfigCandidate& candidate) const
             }
             return false;
         }
-        const auto slot = uint8_t((id - ValueIds::Digital) % 16);
+        const bool state = ValueIds::isDigitalState(id);
+        const auto slot = state ? uint8_t(id - ValueIds::DigitalState) : uint8_t((id - ValueIds::Digital) % 16);
         if (slot >= MAX_DIGITAL_INPUTS) return false;
         uint8_t runtimeSlot;
         if (!findDigitalSlotByLogical_(DIGITAL_SLOT_INPUT, slot, runtimeSlot)) return false;
@@ -72,14 +76,15 @@ bool IOModule::validateValueConfig_(const ConfigCandidate& candidate) const
             !candidate.read(vars.secondaryBindingVar, current.binding.secondaryPort, secondary) ||
             !candidate.read(vars.modeVar, current.mode, mode) ||
             !candidate.read(vars.c0Var, current.c0, scale) || scale < 0 ||
-            mode != IO_DIGITAL_INPUT_COUNTER) return false;
+            mode != (state ? IO_DIGITAL_INPUT_STATE : IO_DIGITAL_INPUT_COUNTER)) return false;
         bool hasCounterPort = false;
         for (PhysicalPortId port : {primary, secondary}) {
             if (!port) continue;
-            if (!resolveDigitalInputBinding_(port, pin, backend, channel, expander) || backend != IO_BACKEND_GPIO) return false;
+            if (!resolveDigitalInputBinding_(port, pin, backend, channel, expander) || (!state && backend != IO_BACKEND_GPIO)) return false;
             hasCounterPort = true;
         }
         if (!hasCounterPort) return false;
+        if (state) { type = ValueType::Bool; return true; }
         type = id < ValueIds::PulseRate ? ValueType::UInt64 :
             (id < ValueIds::Total ? ValueType::Float : ValueType::Double);
         return true;

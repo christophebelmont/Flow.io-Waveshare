@@ -159,8 +159,9 @@ inline constexpr IOBindingPortSpec kBindingPorts[] = {
 static_assert((sizeof(kExpanders) / sizeof(kExpanders[0])) <= IO_MAX_EXPANDERS,
               "Waveshare expander topology exceeds IOModule capacity");
 
-struct AnalogRoleDefault {
-    DomainSlotId domainSlot; // Besoin fonctionnel de la sonde.
+struct AnalogSlotDefault {
+    IoSlotId ioSlot; // Entree logique du profil, independante des roles piscine.
+    const char* name;
     PhysicalPortId bindingPort; // Port physique associe.
     float c0; // Coefficient multiplicateur de calibration.
     float c1; // Offset de calibration.
@@ -172,16 +173,16 @@ struct AnalogRoleDefault {
     IOAnalogLegacyDefault legacyDefault{};
 };
 
-inline constexpr AnalogRoleDefault kAnalogRoleDefaults[] = {
-    // {domainSlot, bindingPort, c0, c1, precision, unit}
-    {PoolIds::SensorOrp, PortAdsExternal0, Calib::Orp::ExternalC0, Calib::Orp::ExternalC1, FLOW_WIRDEF_IO_A0P, "mV", PortAdsInternal0, Calib::Orp::InternalC0, Calib::Orp::InternalC1, {PortAdsInternal0, FLOW_WIRDEF_IO_A00, FLOW_WIRDEF_IO_A01}},
-    {PoolIds::SensorPh, PortAdsExternal1, Calib::Ph::ExternalC0, Calib::Ph::ExternalC1, FLOW_WIRDEF_IO_A1P, "", PortAdsInternal1, Calib::Ph::InternalC0, Calib::Ph::InternalC1, {PortAdsInternal1, FLOW_WIRDEF_IO_A10, FLOW_WIRDEF_IO_A11}},
-    {PoolIds::SensorPsi, PortAdsInternal2, FLOW_WIRDEF_IO_A20, FLOW_WIRDEF_IO_A21, FLOW_WIRDEF_IO_A2P, "PSI"},
-    {PoolIds::SensorSpareAnalog, PortAdsInternal3, FLOW_WIRDEF_IO_A30, FLOW_WIRDEF_IO_A31, FLOW_WIRDEF_IO_A3P, ""},
-    {PoolIds::SensorWaterTemp, PortOneWireWater, FLOW_WIRDEF_IO_A40, FLOW_WIRDEF_IO_A41, FLOW_WIRDEF_IO_A4P, "\xC2\xB0""C"},
-    {PoolIds::SensorAirTemp, PortOneWireAir, FLOW_WIRDEF_IO_A50, FLOW_WIRDEF_IO_A51, FLOW_WIRDEF_IO_A5P, "\xC2\xB0""C"},
-    {PoolIds::SensorCurrent, PortIna226CurrentMa, 1.0f, 0.0f, 2, "mA"},
-    {PoolIds::SensorVoltage, PortIna226BusV, 1.0f, 0.0f, 2, "V"},
+inline constexpr AnalogSlotDefault kAnalogSlotDefaults[] = {
+    // {ioSlot, name, bindingPort, c0, c1, precision, unit}
+    {analogInputSlot(0), "ORP", PortAdsExternal0, Calib::Orp::ExternalC0, Calib::Orp::ExternalC1, FLOW_WIRDEF_IO_A0P, "mV", PortAdsInternal0, Calib::Orp::InternalC0, Calib::Orp::InternalC1, {PortAdsInternal0, FLOW_WIRDEF_IO_A00, FLOW_WIRDEF_IO_A01}},
+    {analogInputSlot(1), "pH", PortAdsExternal1, Calib::Ph::ExternalC0, Calib::Ph::ExternalC1, FLOW_WIRDEF_IO_A1P, "", PortAdsInternal1, Calib::Ph::InternalC0, Calib::Ph::InternalC1, {PortAdsInternal1, FLOW_WIRDEF_IO_A10, FLOW_WIRDEF_IO_A11}},
+    {analogInputSlot(2), "PSI", PortAdsInternal2, FLOW_WIRDEF_IO_A20, FLOW_WIRDEF_IO_A21, FLOW_WIRDEF_IO_A2P, "PSI"},
+    {analogInputSlot(3), "Spare", PortAdsInternal3, FLOW_WIRDEF_IO_A30, FLOW_WIRDEF_IO_A31, FLOW_WIRDEF_IO_A3P, ""},
+    {analogInputSlot(4), "Water Temperature", PortOneWireWater, FLOW_WIRDEF_IO_A40, FLOW_WIRDEF_IO_A41, FLOW_WIRDEF_IO_A4P, "\xC2\xB0""C"},
+    {analogInputSlot(5), "Air Temperature", PortOneWireAir, FLOW_WIRDEF_IO_A50, FLOW_WIRDEF_IO_A51, FLOW_WIRDEF_IO_A5P, "\xC2\xB0""C"},
+    {analogInputSlot(6), "Current", PortIna226CurrentMa, 1.0f, 0.0f, 2, "mA"},
+    {analogInputSlot(7), "Voltage", PortIna226BusV, 1.0f, 0.0f, 2, "V"},
 };
 
 struct DigitalInputRoleDefault {
@@ -224,10 +225,10 @@ inline constexpr DigitalOutputRoleDefault kDigitalOutputRoleDefaults[] = {
     {PoolIds::ActuatorWaterHeater, PortExio8, true, false, false, 0U}, // Chauffage.
 };
 
-inline constexpr const AnalogRoleDefault* analogDefaultForDomainSlot(DomainSlotId domainSlot)
+inline constexpr const AnalogSlotDefault* analogDefaultForIoSlot(IoSlotId ioSlot)
 {
-    for (const AnalogRoleDefault& entry : kAnalogRoleDefaults) {
-        if (entry.domainSlot == domainSlot) return &entry;
+    for (const AnalogSlotDefault& entry : kAnalogSlotDefaults) {
+        if (entry.ioSlot == ioSlot) return &entry;
     }
     return nullptr;
 }

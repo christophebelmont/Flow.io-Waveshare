@@ -4,6 +4,9 @@
  */
 
 #include "PoolDeviceModule.h"
+#include "Core/Values/VolumeUnits.h"
+#include "Core/Values/InternalAnalogSources.h"
+#include "Core/Values/ValueFormat.h"
 #include "Core/ErrorCodes.h"
 #include "Core/SystemLimits.h"
 #include "Domain/Pool/PoolIds.h"
@@ -69,9 +72,9 @@ bool PoolDeviceModule::defineDevice(const PoolDeviceDefinition& def)
         float initial = (s.def.tankInitialMl > 0.0f) ? s.def.tankInitialMl : s.def.tankCapacityMl;
         if (initial > s.def.tankCapacityMl) initial = s.def.tankCapacityMl;
         if (initial < 0.0f) initial = 0.0f;
-        s.tankRemainingMl = initial;
+        s.tankRemainingL = VolumeUnits::millilitresToLitres(initial);
     } else {
-        s.tankRemainingMl = 0.0f;
+        s.tankRemainingL = 0.0f;
     }
     s.dayKey = 0;
     s.weekKey = 0;
@@ -272,7 +275,7 @@ bool PoolDeviceModule::buildMetricsSnapshot_(uint8_t slotIdx, char* out, size_t 
         "{\"id\":\"pd%u\",\"name\":\"%s\","
         "\"running\":{\"day_s\":%lu,\"week_s\":%lu,\"month_s\":%lu,\"total_s\":%lu},"
         "\"injected\":{\"day_ml\":%.3f,\"week_ml\":%.3f,\"month_ml\":%.3f,\"total_ml\":%.3f},"
-        "\"tank\":{\"remaining_ml\":%.3f},\"ts\":%lu}",
+        "\"ts\":%lu}",
         (unsigned)slotIdx,
         label[0] ? label : "pd",
         (unsigned long)entry.runningSecDay,
@@ -283,7 +286,6 @@ bool PoolDeviceModule::buildMetricsSnapshot_(uint8_t slotIdx, char* out, size_t 
         (double)entry.injectedMlWeek,
         (double)entry.injectedMlMonth,
         (double)entry.injectedMlTotal,
-        (double)entry.tankRemainingMl,
         (unsigned long)entry.tsMs
     );
     if (wrote < 0 || (size_t)wrote >= len) {
@@ -374,15 +376,15 @@ bool PoolDeviceModule::configureRuntime_()
         s.blockReason = s.driverReady ? POOL_DEVICE_BLOCK_NONE : POOL_DEVICE_BLOCK_UNBOUND;
 
         if (s.def.tankCapacityMl <= 0.0f) {
-            s.tankRemainingMl = 0.0f;
+            s.tankRemainingL = 0.0f;
         } else if (!s.hasPersistedMetrics) {
             float initial = (s.def.tankInitialMl > 0.0f) ? s.def.tankInitialMl : s.def.tankCapacityMl;
             if (initial > s.def.tankCapacityMl) initial = s.def.tankCapacityMl;
             if (initial < 0.0f) initial = 0.0f;
-            s.tankRemainingMl = initial;
+            s.tankRemainingL = VolumeUnits::millilitresToLitres(initial);
         } else {
-            if (!isFiniteNonNegative_(s.tankRemainingMl)) s.tankRemainingMl = 0.0f;
-            if (s.tankRemainingMl > s.def.tankCapacityMl) s.tankRemainingMl = s.def.tankCapacityMl;
+            if (!isFiniteNonNegative_(s.tankRemainingL)) s.tankRemainingL = 0.0f;
+            if (s.tankRemainingL > VolumeUnits::millilitresToLitres(s.def.tankCapacityMl)) s.tankRemainingL = VolumeUnits::millilitresToLitres(s.def.tankCapacityMl);
         }
 
         s.lastTickMs = now;
@@ -412,7 +414,6 @@ bool PoolDeviceModule::configureRuntime_()
         rtMetrics.injectedMlWeek = s.injectedMlWeek;
         rtMetrics.injectedMlMonth = s.injectedMlMonth;
         rtMetrics.injectedMlTotal = s.injectedMlTotal;
-        rtMetrics.tankRemainingMl = s.tankRemainingMl;
         rtMetrics.tsMs = s.metricsTsMs;
         if (dataStore_ && s.runtimePublishable) {
             (void)setPoolDeviceRuntimeState(*dataStore_, i, rtState);

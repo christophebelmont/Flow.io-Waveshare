@@ -570,17 +570,17 @@ bool ConfigStore::toJsonModule(const char* module,
     return any;
 }
 
-uint8_t ConfigStore::listModules(const char** out, uint8_t max) const
+size_t ConfigStore::listModules(const char** out, size_t max) const
 {
     if (!out || max == 0) return 0;
-    uint8_t count = 0;
+    size_t count = 0;
 
     for (uint16_t i = 0; i < _metaCount; ++i) {
         const ConfigMeta& m = _meta[i];
         if (!m.module || m.module[0] == '\0') continue;
 
         bool exists = false;
-        for (uint8_t j = 0; j < count; ++j) {
+        for (size_t j = 0; j < count; ++j) {
             if (strcmp(out[j], m.module) == 0) { exists = true; break; }
         }
         if (exists) continue;

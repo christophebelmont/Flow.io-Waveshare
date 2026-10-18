@@ -21,7 +21,8 @@
       "decimals": 1,
       "order": 10,
       "label_t": "runtimeui.io.v01.label",
-      "group_t": "runtimeui.io.v01.group"
+      "group_t": "runtimeui.io.v01.group",
+      "dataValueId": 4
     },
     {
       "valueId": 2,
@@ -43,7 +44,8 @@
       "decimals": 1,
       "order": 20,
       "label_t": "runtimeui.io.v02.label",
-      "group_t": "runtimeui.io.v02.group"
+      "group_t": "runtimeui.io.v02.group",
+      "dataValueId": 5
     },
     {
       "valueId": 3,
@@ -64,7 +66,8 @@
       "decimals": 2,
       "order": 30,
       "label_t": "runtimeui.io.v03.label",
-      "group_t": "runtimeui.io.v03.group"
+      "group_t": "runtimeui.io.v03.group",
+      "dataValueId": 1
     },
     {
       "valueId": 4,
@@ -86,7 +89,8 @@
       "decimals": 0,
       "order": 40,
       "label_t": "runtimeui.io.v04.label",
-      "group_t": "runtimeui.io.v04.group"
+      "group_t": "runtimeui.io.v04.group",
+      "dataValueId": 0
     },
     {
       "valueId": 5,
@@ -110,7 +114,8 @@
       "decimals": 2,
       "order": 60,
       "label_t": "runtimeui.io.v06.label",
-      "group_t": "runtimeui.io.v06.group"
+      "group_t": "runtimeui.io.v06.group",
+      "dataValueId": 2
     },
     {
       "valueId": 7,
@@ -207,61 +212,6 @@
       "order": 140,
       "label_t": "runtimeui.io.v14.label",
       "group_t": "runtimeui.io.v14.group"
-    },
-    {
-      "valueId": 80,
-      "key": "io.value_v00",
-      "type": "double",
-      "domain": "sondes",
-      "display": "value",
-      "decimals": 1,
-      "order": 200,
-      "label_t": "runtimeui.io.value_v00.label",
-      "group_t": "runtimeui.io.value_v00.group"
-    },
-    {
-      "valueId": 81,
-      "key": "io.value_v01",
-      "type": "double",
-      "domain": "sondes",
-      "display": "value",
-      "decimals": 1,
-      "order": 201,
-      "label_t": "runtimeui.io.value_v01.label",
-      "group_t": "runtimeui.io.value_v01.group"
-    },
-    {
-      "valueId": 82,
-      "key": "io.value_v02",
-      "type": "double",
-      "domain": "sondes",
-      "display": "value",
-      "decimals": 1,
-      "order": 202,
-      "label_t": "runtimeui.io.value_v02.label",
-      "group_t": "runtimeui.io.value_v02.group"
-    },
-    {
-      "valueId": 83,
-      "key": "io.value_v03",
-      "type": "double",
-      "domain": "sondes",
-      "display": "value",
-      "decimals": 1,
-      "order": 203,
-      "label_t": "runtimeui.io.value_v03.label",
-      "group_t": "runtimeui.io.value_v03.group"
-    },
-    {
-      "valueId": 84,
-      "key": "io.value_v04",
-      "type": "double",
-      "domain": "sondes",
-      "display": "value",
-      "decimals": 1,
-      "order": 204,
-      "label_t": "runtimeui.io.value_v04.label",
-      "group_t": "runtimeui.io.value_v04.group"
     }
   ]
 }

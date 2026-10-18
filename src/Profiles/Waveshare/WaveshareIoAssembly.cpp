@@ -1,6 +1,6 @@
+#include "Core/Values/DataValueView.h"
 #include "Profiles/Waveshare/WaveshareIoAssembly.h"
 #include "Profiles/Waveshare/PoolRoleHaDiscovery.h"
-#include "Profiles/Waveshare/DerivedValueHaDiscovery.h"
 #include "Profiles/Waveshare/WaveshareIoLayout.h"
 
 #include <Arduino.h>
@@ -37,78 +37,12 @@ using Profiles::Waveshare::ModuleInstances;
 namespace FlowIoLayout = Profiles::Waveshare::IoLayout;
 static constexpr uint8_t kFlowIoAnalogHaSlots = Limits::Io::MaxAnalogEndpoints;
 
-struct FlowIoAnalogHaSpec {
-    const char* objectSuffix = nullptr;
-    const char* name = nullptr;
-    const char* icon = nullptr;
-};
-
-struct FlowIoDigitalHaSpec {
-    uint8_t logicalIdx = 0;
-    const char* objectSuffix = nullptr;
-    const char* name = nullptr;
-    const char* icon = nullptr;
-};
-
-constexpr FlowIoAnalogHaSpec kAnalogHaSpecs[kFlowIoAnalogHaSlots] = {
-    {"io_orp", "ORP", "mdi:flash"},
-    {"io_ph", "pH", "mdi:ph"},
-    {"io_psi", "PSI", "mdi:gauge"},
-    {"io_spare", "Spare", "mdi:sine-wave"},
-    {"io_wat_tmp", "Water Temperature", "mdi:water-thermometer"},
-    {"io_air_tmp", "Air Temperature", "mdi:thermometer"},
-    {"io_current", "Current", "mdi:current-dc"},
-    {"io_voltage", "Voltage", "mdi:flash"},
-    {nullptr, nullptr, "mdi:sine-wave"},
-    {nullptr, nullptr, "mdi:sine-wave"},
-    {nullptr, nullptr, "mdi:sine-wave"},
-    {nullptr, nullptr, "mdi:sine-wave"},
-    {nullptr, nullptr, "mdi:sine-wave"},
-    {nullptr, nullptr, "mdi:sine-wave"},
-    {nullptr, nullptr, "mdi:sine-wave"},
-    {nullptr, nullptr, "mdi:sine-wave"},
-};
-
-constexpr FlowIoDigitalHaSpec kDigitalHaSpecs[] = {
-    {PoolInputSlots::FactoryReset, "io_factory_reset", "Factory Reset", "mdi:restart-alert"},
-    {PoolInputSlots::WaterMeter, "io_wat_meter", "Water Meter", "mdi:water-sync"},
-    {PoolInputSlots::PoolLevel, "io_pool_lvl", "Pool Level", "mdi:waves-arrow-up"},
-    {PoolInputSlots::ChlorineLevel, "io_chl_lvl", "Chlorine Level", "mdi:test-tube"},
-    {PoolInputSlots::PhLevel, "io_ph_lvl", "pH Level", "mdi:flask-outline"},
-    {PoolInputSlots::FlowMeter, "io_flow_meter", "Flow Meter", "mdi:waves-arrow-right"},
-    {PoolInputSlots::Spare, "io_gpio10", "GPIO10", "mdi:electric-switch"},
-    {PoolInputSlots::Pir, "io_pir", "PIR", "mdi:motion-sensor"},
-    {8, "io_mcp_gpa0", "MCP GPA0", "mdi:electric-switch"},
-    {9, "io_mcp_gpa1", "MCP GPA1", "mdi:electric-switch"},
-    {10, "io_mcp_gpa2", "MCP GPA2", "mdi:electric-switch"},
-    {11, "io_mcp_gpa3", "MCP GPA3", "mdi:electric-switch"},
-    {12, "io_mcp_gpa4", "MCP GPA4", "mdi:electric-switch"},
-};
-
 struct FlowIoDiscoveryHeap {
-    char analogObjectSuffix[kFlowIoAnalogHaSlots][24]{};
-    char analogFallbackName[kFlowIoAnalogHaSlots][24]{};
     char analogValueTpl[kFlowIoAnalogHaSlots][128]{};
-    char analogStateSuffix[kFlowIoAnalogHaSlots][24]{};
-    char analogUnit[kFlowIoAnalogHaSlots][UnitTextCapacity]{};
-    char digitalStateSuffix[sizeof(kDigitalHaSpecs) / sizeof(kDigitalHaSpecs[0])][24]{};
-    char derivedUnit[ValueIds::DerivedCapacity][UnitTextCapacity]{};
+    char dataNames[kDataValueCount][64]{};
+    char dataUnits[kDataValueCount][UnitTextCapacity]{};
     PoolRoleHaDiscovery::Storage poolRoles{};
-    DerivedValueHaDiscovery::Storage derivedValues{};
 };
-
-// Display unit lives with the value's metadata; the registry is the single source.
-void readValueDisplayUnit(const ModuleInstances& modules, ValueId id, char* out, size_t outLen)
-{
-    if (!out || outLen == 0U) return;
-    out[0] = '\0';
-    if (!modules.ioDataStore) return;
-    ValueSnapshot snapshot;
-    ValueMetadata metadata;
-    if (modules.ioDataStore->values.read(id, snapshot, &metadata)) {
-        snprintf(out, outLen, "%s", metadata.displayUnit);
-    }
-}
 
 FlowIoDiscoveryHeap* gDiscoveryHeap = nullptr;
 bool gDiscoveryHeapReleaseWaitLogged = false;
@@ -260,10 +194,11 @@ bool reportDiscoveryResult(bool ok, const char* step)
     return ok;
 }
 
-void applyAnalogDefaultsForDomainSlot(DomainSlotId domainSlot, IOAnalogDefinition& def)
+void applyAnalogDefaultsForIoSlot(IoSlotId ioSlot, IOAnalogDefinition& def)
 {
-    const FlowIoLayout::AnalogRoleDefault* spec = FlowIoLayout::analogDefaultForDomainSlot(domainSlot);
-    requireSetup(spec != nullptr, "unsupported analog domain role");
+    const FlowIoLayout::AnalogSlotDefault* spec = FlowIoLayout::analogDefaultForIoSlot(ioSlot);
+    if (!spec) return;
+    snprintf(def.id, sizeof(def.id), "%s", spec->name);
     def.binding.primaryPort = spec->bindingPort;
     def.binding.secondaryPort = spec->secondaryPort;
     def.legacyDefault = spec->legacyDefault;
@@ -326,115 +261,48 @@ void buildAnalogValueTemplate(const IOModule& ioModule, uint8_t analogIdx, char*
     );
 }
 
-void syncAnalogSensors(ModuleInstances& modules)
+void syncDataSensors(ModuleInstances& modules)
 {
-    if (!modules.haService || !modules.haService->addSensor) return;
-    if (!reportDiscoveryResult(ensureDiscoveryHeap(), "discovery heap")) return;
-    static constexpr const char* kAvailabilityTpl = "{{ 'online' if value_json.available else 'offline' }}";
-
-    for (uint8_t i = 0; i < kFlowIoAnalogHaSlots; ++i) {
-        if (!modules.ioModule.analogSlotPublished(i)) continue;
-        const FlowIoAnalogHaSpec& spec = kAnalogHaSpecs[i];
-
-        buildAnalogValueTemplate(
-            modules.ioModule,
-            i,
-            gDiscoveryHeap->analogValueTpl[i],
-            sizeof(gDiscoveryHeap->analogValueTpl[i])
-        );
-        snprintf(
-            gDiscoveryHeap->analogStateSuffix[i],
-            sizeof(gDiscoveryHeap->analogStateSuffix[i]),
-            "rt/io/input/a%02u",
-            (unsigned)i
-        );
-        if (spec.objectSuffix) {
-            snprintf(
-                gDiscoveryHeap->analogObjectSuffix[i],
-                sizeof(gDiscoveryHeap->analogObjectSuffix[i]),
-                "%s",
-                spec.objectSuffix
-            );
-        } else {
-            snprintf(
-                gDiscoveryHeap->analogObjectSuffix[i],
-                sizeof(gDiscoveryHeap->analogObjectSuffix[i]),
-                "io_a%02u",
-                (unsigned)i
-            );
-        }
-        snprintf(
-            gDiscoveryHeap->analogFallbackName[i],
-            sizeof(gDiscoveryHeap->analogFallbackName[i]),
-            "A%02u",
-            (unsigned)i
-        );
-        char endpointId[8] = {0};
-        snprintf(endpointId, sizeof(endpointId), "a%02u", (unsigned)i);
-        const bool internalSource = modules.ioModule.analogSourceValue(i) != VALUE_INVALID;
-        const char* label = internalSource ? modules.ioModule.endpointLabel(IO_ID_AI_BASE + i) : spec.name;
-        if (!label || label[0] == '\0') {
-            label = modules.ioModule.endpointLabel(IO_ID_AI_BASE + i);
-        }
-        if (!label || label[0] == '\0') {
-            label = gDiscoveryHeap->analogFallbackName[i];
-        }
-        readValueDisplayUnit(modules, ValueIds::Analog + i,
-                             gDiscoveryHeap->analogUnit[i], sizeof(gDiscoveryHeap->analogUnit[i]));
-        const HASensorEntry entry{
-            "io",
-            gDiscoveryHeap->analogObjectSuffix[i],
-            label,
-            gDiscoveryHeap->analogStateSuffix[i],
-            gDiscoveryHeap->analogValueTpl[i],
-            nullptr,
-            internalSource ? "mdi:cup-water" : spec.icon,
-            gDiscoveryHeap->analogUnit[i][0] != '\0' ? gDiscoveryHeap->analogUnit[i] : nullptr,
-            false,
-            kAvailabilityTpl
-        };
-        reportDiscoveryResult(modules.haService->addSensor(modules.haService->ctx, &entry), entry.objectSuffix);
-    }
-}
-
-void syncDigitalInputBinarySensors(ModuleInstances& modules)
-{
-    if (!modules.haService || !modules.haService->addBinarySensor || !modules.haService->addSensor) return;
-    if (!reportDiscoveryResult(ensureDiscoveryHeap(), "discovery heap")) return;
-    static constexpr const char* kBoolTpl = "{{ 'True' if value_json.value else 'False' }}";
-    static constexpr const char* kAvailabilityTpl = "{{ 'online' if value_json.available else 'offline' }}";
-
-    for (uint8_t i = 0; i < (uint8_t)(sizeof(kDigitalHaSpecs) / sizeof(kDigitalHaSpecs[0])); ++i) {
-        const FlowIoDigitalHaSpec& spec = kDigitalHaSpecs[i];
-        if (!modules.ioModule.digitalInputSlotPublished(spec.logicalIdx)) continue;
-
-        snprintf(
-            gDiscoveryHeap->digitalStateSuffix[i],
-            sizeof(gDiscoveryHeap->digitalStateSuffix[i]),
-            "rt/io/input/i%02u",
-            (unsigned)spec.logicalIdx
-        );
-        if (modules.ioModule.digitalInputValueType(spec.logicalIdx) != IO_VAL_BOOL) {
-            // Counter-mode inputs stay local (web only): drop any previous HA entity.
+    if (!modules.ioDataStore || !modules.haService || !modules.haService->addSensor) return;
+    if (!reportDiscoveryResult(ensureDiscoveryHeap(), "data discovery heap")) return;
+    for (size_t index = 0; index < kDataValueCount; ++index) {
+        const auto& d = kDataValues[index];
+        ValueSnapshot value{}; ValueMetadata meta{};
+        const bool defined = modules.ioDataStore->values.read(d.id, value, &meta) && dataValueCompatible(d, meta);
+        if (!modules.ioDataStore->publishHa(d.id)) {
             if (modules.haService->addDiscoveryRemoval) {
-                const HADiscoveryRemovalEntry removal{"sensor", spec.objectSuffix};
-                reportDiscoveryResult(modules.haService->addDiscoveryRemoval(modules.haService->ctx, &removal),
-                                      spec.objectSuffix);
+                const HADiscoveryRemovalEntry removal{d.kind == DataValueKind::Digital ? "binary_sensor" : "sensor", d.haSuffix};
+                reportDiscoveryResult(modules.haService->addDiscoveryRemoval(modules.haService->ctx, &removal), d.haSuffix);
             }
             continue;
         }
+        if (!defined) continue;
+        auto& name = gDiscoveryHeap->dataNames[index];
+        auto& unit = gDiscoveryHeap->dataUnits[index];
+        snprintf(name, sizeof(name), "%s", dataValueLabel(d.id, meta));
+        snprintf(unit, sizeof(unit), "%s", meta.displayUnit);
+        if (d.kind == DataValueKind::Digital) {
+            if (!modules.haService->addBinarySensor) continue;
+            const HABinarySensorEntry entry{"io", d.haSuffix, name, d.topic,
+                "{{ 'True' if value_json.value else 'False' }}", nullptr, nullptr,
+                "mdi:electric-switch", nullptr, true,
+                "{{ 'online' if value_json.quality == 1 else 'offline' }}", d.id};
+            reportDiscoveryResult(modules.haService->addBinarySensor(modules.haService->ctx, &entry), d.haSuffix);
+            continue;
+        }
+        const bool analog = d.kind == DataValueKind::Analog;
+        const char* valueTemplate = "{{ value_json.value }}";
+        if (analog) {
+            buildAnalogValueTemplate(modules.ioModule, d.slot, gDiscoveryHeap->analogValueTpl[d.slot], sizeof(gDiscoveryHeap->analogValueTpl[d.slot]));
+            valueTemplate = gDiscoveryHeap->analogValueTpl[d.slot];
 
-        const HABinarySensorEntry entry{
-            "io",
-            spec.objectSuffix,
-            spec.name,
-            gDiscoveryHeap->digitalStateSuffix[i],
-            kBoolTpl,
-            nullptr,
-            nullptr,
-            spec.icon
-        };
-        reportDiscoveryResult(modules.haService->addBinarySensor(modules.haService->ctx, &entry), entry.objectSuffix);
+        }
+        const HASensorEntry entry{"io", d.haSuffix, name, d.topic, valueTemplate, nullptr,
+            d.kind == DataValueKind::Tank ? "mdi:cup-water" :
+                (d.kind == DataValueKind::Uptime ? "mdi:timer-outline" : "mdi:chart-line"), unit[0] ? unit : nullptr,
+            true, analog ? "{{ 'online' if value_json.available else 'offline' }}" :
+                           "{{ 'online' if value_json.quality == 1 else 'offline' }}", false, nullptr, d.haSuffix, d.id};
+        reportDiscoveryResult(modules.haService->addSensor(modules.haService->ctx, &entry), d.haSuffix);
     }
 }
 
@@ -489,6 +357,7 @@ void configureIoModule(const AppContext& ctx, ModuleInstances& modules)
         IOAnalogDefinition def{};
         snprintf(def.id, sizeof(def.id), "a%02u", (unsigned)i);
         def.ioId = (IoId)(IO_ID_AI_BASE + i);
+        applyAnalogDefaultsForIoSlot(analogInputSlot(i), def);
         requireSetup(modules.ioModule.defineAnalogInput(def), "define analog input slot");
     }
 
@@ -511,14 +380,6 @@ void configureIoModule(const AppContext& ctx, ModuleInstances& modules)
             requireSetup(modules.ioModule.defineDigitalInput(def), "define digital input");
             continue;
         }
-
-        if (preset.slotKind != IO_SLOT_ANALOG_INPUT) continue;
-
-        IOAnalogDefinition def{};
-        snprintf(def.id, sizeof(def.id), "%s", preset.endpointId ? preset.endpointId : "analog");
-        def.ioId = ioId;
-        applyAnalogDefaultsForDomainSlot(preset.id, def);
-        requireSetup(modules.ioModule.applyAnalogInputDefaults(def), "apply analog input defaults");
     }
 
     for (uint8_t i = 0; i < 8U && i < Limits::Io::MaxDigitalInputs; ++i) {
@@ -632,17 +493,7 @@ void registerIoHomeAssistant(AppContext& ctx, ModuleInstances& modules)
             "pool role entities");
     }
 
-    for (uint8_t slot = 0; slot < ValueIds::DerivedCapacity; ++slot) {
-        readValueDisplayUnit(modules, ValueIds::Derived + slot,
-                             gDiscoveryHeap->derivedUnit[slot], sizeof(gDiscoveryHeap->derivedUnit[slot]));
-        reportDiscoveryResult(DerivedValueHaDiscovery::registerEntry(
-            *modules.haService, gDiscoveryHeap->derivedValues, slot,
-            modules.ioModule.derivedValuePublished(slot), modules.ioModule.derivedValueName(slot),
-            gDiscoveryHeap->derivedUnit[slot][0] != '\0' ? gDiscoveryHeap->derivedUnit[slot] : nullptr),
-            gDiscoveryHeap->derivedValues.slots[slot].objectSuffix);
-    }
-    syncAnalogSensors(modules);
-    syncDigitalInputBinarySensors(modules);
+    syncDataSensors(modules);
     if (rolesReady && ctx.domain) syncSwitches(*ctx.domain, modules);
 
     if (modules.haService->requestRefresh) {
@@ -664,7 +515,7 @@ void refreshIoHomeAssistantIfNeeded(ModuleInstances& modules)
     const uint32_t dirtyMask = modules.ioModule.takeAnalogConfigDirtyMask();
     if (dirtyMask == 0) return;
 
-    syncAnalogSensors(modules);
+    syncDataSensors(modules);
     if (modules.haService->requestRefresh) {
         (void)modules.haService->requestRefresh(modules.haService->ctx);
     }

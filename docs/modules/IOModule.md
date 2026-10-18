@@ -455,10 +455,30 @@ Le champ facultatif `io/value/vNN/name` définit le nom affiché dans Home Assis
 Le nom prend effet après redémarrage ; le topic Discovery et l’identifiant unique
 restent identiques lors du renommage, y compris pour les capteurs déjà créés.
 
-### Sources analogiques internes
+### Données des bidons
 
-Les entrées `aNN` disposent d'un choix `source_value` permettant de sélectionner
-le volume restant estimé (mL) ou le remplissage estimé (%) d'un PoolDevice.
-Le choix prend effet après redémarrage ; les ports physiques restent conservés.
-Voir [Sources analogiques internes](../core/internal-analog-sources.md) pour la
-configuration, les identités et les règles de validité.
+Les entrées `aNN` utilisent les bindings physiques primaire et secondaire.
+Le volume restant (L) et le remplissage (%) d’un PoolDevice sont directement
+accessibles via le catalogue des données, sans IOSlot intermédiaire.
+Voir [Données internes des bidons](../core/internal-analog-sources.md).
+
+### Diagnostic Modbus / RS485
+
+Le niveau **Debug** de l’IOModule, dans `log/levels` (niveau `0`),
+active les traces d’initialisation et de communication. Enregistrer ce niveau
+avant de redémarrer pour obtenir les traces d’initialisation.
+
+- Initialisation : capacités IO, validation de la topologie, UART, broches RX/TX,
+  débit, parité (`0=aucune, 1=paire, 2=impaire`), bits de stop,
+  commande de direction et intervalle de silence.
+- Transactions : `Modbus queued`, `TX`, `RX`, `done`, corrélés par `id`.
+  La requête indique le propriétaire, l’esclave, la fonction et les registres.
+  Les échanges indiquent le nombre d’octets et les délais ; `total_ms` inclut
+  l’attente dans la file et les nouvelles tentatives.
+- Diagnostic : timeout, CRC, erreur de protocole, exception Modbus, nouvelle
+  tentative, annulation, file pleine, émission incomplète et débordement RX.
+  `RS485 abort` indique aussi le nombre d’octets reçus avant interruption.
+
+Les nouvelles traces utilisent le logger asynchrone existant. Elles ne produisent
+pas de messages par octet ni à chaque passage de boucle. Les niveaux Info,
+Warning et Error conservent leur fonctionnement.

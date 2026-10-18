@@ -66,7 +66,7 @@ struct PoolDeviceService {
     /** Read whether physical actuator writes are currently enabled. */
     uint8_t (*writesEnabled)(void* ctx);
     /** Refill tracked tank level for one slot (peristaltic pumps). */
-    PoolDeviceSvcStatus (*refillTank)(void* ctx, uint8_t slot, float remainingMl);
+    PoolDeviceSvcStatus (*refillTank)(void* ctx, uint8_t slot, float remainingL);
     PoolDeviceSvcStatus (*setTarget)(void* ctx, uint8_t slot, const PoolDeviceTarget* target);
     PoolDeviceSvcStatus (*readState)(void* ctx, uint8_t slot, PoolDeviceFeedback* state);
     /** Opaque implementation context. */

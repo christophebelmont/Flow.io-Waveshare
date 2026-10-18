@@ -71,15 +71,15 @@ sont eux aussi hébergés dans les structures de travail PSRAM du module IA.
 
 ## Page web Historique
 
-Le menu **Historique** présente aujourd’hui et les sept journées précédentes en dates locales. Chaque jour donne accès aux neuf mesures agrégées (moyenne, min/max, première/dernière, nombre d’échantillons), aux durées de filtration et chauffage par période et à la variation thermique journée/nuit. Le volume d’appoint est explicitement présenté comme une estimation issue du débit configuré.
+Le menu **Historique** présente, sur les huit derniers jours UTC, une ligne par donnée à la fois valide (mesure courante disponible) et historisée, selon la même politique d’historisation que la page Diffusion des données. Chaque cellule du tableau affiche la moyenne journalière (la variation pour un compteur) ; un clic ouvre une fenêtre modale avec le min, le max, la couverture et les ruptures de cette donnée pour ce jour. Les anciens bilans piscine (filtration, chauffage, appoint, variation nuit/jour) restent produits et exposés par l’API, mais ne sont plus affichés.
 
-L’explorateur des valeurs sélectionne les séries par `ValueId` numérique et affiche leurs périodes horaires ou journalières UTC disponibles. Ces archives restent en mémoire depuis le démarrage. Les compteurs bruts sont transportés comme chaînes décimales pour préserver les 64 bits ; les ruptures et l’incertitude de répartition entre périodes sont indiquées. Une absence de donnée est distincte d’un zéro mesuré.
+L’explorateur des valeurs sélectionne les séries par `ValueId` numérique et affiche leurs périodes horaires ou journalières UTC disponibles. Une bascule **Graphe/Tableau** présente les 24 heures sous forme de bougies min/max avec la moyenne (ou d’un histogramme de variation pour un compteur), rendues en SVG sans dépendance ; le clic sur une heure ouvre le détail. Ces archives restent en mémoire depuis le démarrage. Les compteurs bruts sont transportés comme chaînes décimales pour préserver les 64 bits ; les ruptures et l’incertitude de répartition entre périodes sont indiquées. Une absence de donnée est distincte d’un zéro mesuré.
 
 API en lecture seule, soumises à l’authentification web existante :
 
-- `GET /api/history/pool` : huit bilans journaliers et catalogue numérique des valeurs.
+- `GET /api/history/pool` : huit bilans journaliers piscine et catalogue des données valides et historisées, chacune avec ses huit résumés journaliers (moyenne, min/max, couverture, variation, ruptures).
 - `GET /api/history/value?id=<ValueId>&daily=<0|1>` : au plus 25 périodes horaires ou 8 journalières, période courante comprise. Les paramètres invalides sont refusés (400), les valeurs non définies renvoient 404.
 
-Le navigateur charge à l’ouverture ou sur demande, sans interrogation périodique, et annule la requête en quittant la page. Les tampons de réponse bornés (24 Kio et 12 Kio), le document JSON et l’instantané piscine temporaire sont alloués en PSRAM. Ils sont libérés après utilisation/transmission ; un manque de PSRAM renvoie une indisponibilité sans repli sur de gros tampons internes.
+Le navigateur charge à l’ouverture ou sur demande, sans interrogation périodique, et annule la requête en quittant la page. Les tampons de réponse bornés (dimensionnés sur le catalogue des données, plus 24 Kio de bilans piscine et 12 Kio pour une valeur), le document JSON et l’instantané piscine temporaire sont alloués en PSRAM. Ils sont libérés après utilisation/transmission ; un manque de PSRAM renvoie une indisponibilité sans repli sur de gros tampons internes.
 
 Déploiement : mettre à jour le firmware **et** les ressources SPIFFS de la même version. Tests : `scripts/tests/test_history_page.cjs` pour le rendu et les états navigateur ; `scripts/tests/test_values.py` pour la sérialisation JSON, les compteurs et les agrégats.

@@ -1,6 +1,7 @@
 #include "ValueRegistry.h"
 #include <esp_heap_caps.h>
 #include <new>
+#include <stdio.h>
 namespace {
 struct Lock {
     SemaphoreHandle_t mutex;
@@ -29,6 +30,8 @@ bool ValueRegistry::define(ValueId id, const ValueMetadata& metadata) {
     Lock lock(mutex_);
     if (!storage_ || id >= ValueIds::Capacity || storage_->slots[id].used || metadata.source != VALUE_INVALID) return false;
     storage_->slots[id].metadata = metadata;
+    storage_->slots[id].metadata.history = !storage_->historyDisabled[id];
+    storage_->slots[id].metadata.usable = !storage_->usageDisabled[id];
     storage_->slots[id].used = true;
     ++used_;
     return true;
@@ -46,7 +49,7 @@ bool ValueRegistry::defineProgram_(ValueId id, const ValueExpression::Program& p
             !ValueExpression::validSourceType(program.dependencies[i],
                 storage_->slots[program.dependencies[i]].metadata.type)) return false;
     auto& slot = storage_->slots[id];
-    slot.metadata = metadata; slot.used = true; slot.program = transformCount_;
+    slot.metadata = metadata; slot.metadata.history = !storage_->historyDisabled[id]; slot.metadata.usable = !storage_->usageDisabled[id]; slot.used = true; slot.program = transformCount_;
     auto& transform = storage_->programs[transformCount_];
     transform.program = program;
     for (uint8_t i = 0; i < ValueExpression::ParamCount; ++i) transform.parameters[i] = parameters[i];
@@ -166,6 +169,9 @@ void ValueRegistry::propagate_(ValueId changedId, uint64_t timestampMs, ValueId 
         ValueExpression::Number inputs[ValueExpression::MaxDependencies];
         for (uint8_t d = 0; d < program.dependencyCount; ++d) {
             const auto& source = storage_->slots[program.dependencies[d]];
+            // Only user formulas consume the exposure policy. Internal conversions
+            // remain available to producers, HA and history.
+            if (ValueIds::isDerived(derivedId) && !source.metadata.usable) quality = ValueQuality::Invalid;
             const auto& now = source.runtime;
             const auto& previous = transform.previous[d];
             discontinuity |= now.generation != previous.generation;
@@ -220,3 +226,53 @@ void ValueRegistry::setObserver(Observer callback, void* context) {
     Lock lock(mutex_); observer_ = callback; observerContext_ = context;
 }
 uint16_t ValueRegistry::used() const { Lock lock(mutex_); return used_; }
+
+void ValueRegistry::setName(ValueId id, const char* name) {
+    Lock lock(mutex_);
+    if (!storage_ || id >= ValueIds::Capacity || !storage_->slots[id].used) return;
+    snprintf(storage_->slots[id].metadata.name, sizeof(storage_->slots[id].metadata.name), "%s", name ? name : "");
+}
+void ValueRegistry::setHistory(ValueId id, bool enabled) {
+    Lock lock(mutex_);
+    if (!storage_ || id >= ValueIds::Capacity) return;
+    storage_->historyDisabled[id] = !enabled;
+    storage_->slots[id].metadata.history = enabled;
+}
+void ValueRegistry::expire(uint64_t nowMs) {
+    Lock lock(mutex_);
+    if (!storage_) return;
+    for (ValueId id = 0; id < ValueIds::Capacity; ++id) {
+        auto& slot = storage_->slots[id];
+        if (!slot.used || !slot.metadata.maxAgeMs || slot.runtime.quality != ValueQuality::Valid ||
+            nowMs < slot.runtime.timestampMs || nowMs - slot.runtime.timestampMs <= slot.metadata.maxAgeMs) continue;
+        slot.runtime.quality = ValueQuality::Invalid;
+        slot.runtime.qualityChangedAtMs = nowMs;
+        slot.runtime.deltaValid = false;
+        ++slot.runtime.sequence;
+        notify_(id);
+        propagate_(id, nowMs);
+        if (notification_) notification_(notificationContext_, id, slot.runtime.sequence);
+    }
+}
+
+void ValueRegistry::setPrecision(ValueId id, int8_t precision) {
+    Lock lock(mutex_);
+    if (!storage_ || id >= ValueIds::Capacity || !storage_->slots[id].used) return;
+    storage_->slots[id].metadata.precision = precision;
+}
+
+void ValueRegistry::setUsable(ValueId id, bool enabled) {
+    Lock lock(mutex_);
+    if (!storage_ || id >= ValueIds::Capacity) return;
+    storage_->usageDisabled[id] = !enabled;
+    storage_->slots[id].metadata.usable = enabled;
+    if (storage_->slots[id].used) propagate_(id, storage_->slots[id].runtime.timestampMs);
+}
+bool ValueRegistry::usable(ValueId id) const {
+    Lock lock(mutex_);
+    return storage_ && id < ValueIds::Capacity && !storage_->usageDisabled[id];
+}
+bool ValueRegistry::history(ValueId id) const {
+    Lock lock(mutex_);
+    return storage_ && id < ValueIds::Capacity && !storage_->historyDisabled[id];
+}

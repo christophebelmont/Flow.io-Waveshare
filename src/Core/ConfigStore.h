@@ -114,7 +114,7 @@ public:
                       bool* truncated = nullptr,
                       bool maskSecrets = true) const;
     /** @brief List unique module names present in config metadata. */
-    uint8_t listModules(const char** out, uint8_t max) const;
+    size_t listModules(const char** out, size_t max) const;
     /** @brief Apply JSON patch to registered config variables. */
     bool applyJson(const char* json);
 

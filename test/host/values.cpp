@@ -71,6 +71,12 @@ static void registryTests() {
     std::thread writer([&]{ for(uint64_t i=3;i<100000;++i) { ValueNumber v; v.u64=(1ULL<<50)+i; registry.write(0,v,i); } done=true; });
     while(!done) { registry.read(0,result); if(result.timestampMs>=3) assert(result.value.u64==(1ULL<<50)+result.timestampMs); }
     writer.join();
+    assert(registry.history(0) && registry.usable(0));
+    registry.setHistory(0,false);
+    assert(!registry.history(0));
+    ValueMetadata historyMeta{}; assert(registry.read(0,result,&historyMeta) && !historyMeta.history);
+    registry.setHistory(0,true);
+    assert(registry.history(0) && !registry.history(ValueIds::Capacity));
     puts("registry: typed transforms, capacities, invalid sources, recalibration, concurrent coherent uint64 reads OK");
 }
 static void historyTests() {
@@ -101,6 +107,25 @@ static void historyTests() {
     h.tick(ValueHistory::HourMs+3000); assert(h.read(4,true,0,record)); near(record.average(),17.5);
     assert(h.read(4,false,1,record)); near(record.average(),10);
     h.tick(24*ValueHistory::HourMs); assert(h.read(4,true,1,record)); assert(record.durationMs==901000);
+    // Expiration is observed now, while preserving the acquisition timestamp.
+    ValueSnapshot expired{}; expired.value.f=25; expired.quality=ValueQuality::Valid;
+    expired.timestampMs=24*ValueHistory::HourMs; expired.sequence=1;
+    h.observe(5,gauge,expired,nullptr);
+    h.tick(expired.timestampMs+2000);
+    expired.quality=ValueQuality::Invalid; expired.qualityChangedAtMs=expired.timestampMs+5001;
+    h.observe(5,gauge,expired,nullptr);
+    h.tick(expired.timestampMs+10000);
+    assert(h.read(5,false,0,record)); assert(record.durationMs==5001);
+    // A never-valid source must not create history; recovery starts a fresh series.
+    const auto usedBefore = h.used();
+    h.observe(6,gauge,expired,nullptr);
+    assert(h.used()==usedBefore && !h.read(6,false,0,record));
+    expired.quality=ValueQuality::Valid; expired.timestampMs+=11000;
+    expired.qualityChangedAtMs=expired.timestampMs;
+    h.observe(6,gauge,expired,nullptr);
+    assert(h.used()==usedBefore+1);
+    h.tick(expired.timestampMs+1000);
+    assert(h.read(6,false,0,record) && record.durationMs==1000);
     // Clock rollback breaks interpolation instead of adding a huge duration.
     h.clock(24*ValueHistory::HourMs,epoch); h.tick(24*ValueHistory::HourMs+1000);
     printf("history: weighted gauge/rate, uint64 deltas, converted deltas, reset, hour/day, clock change OK; PSRAM=%zu fallback=%zu bytes\n",ValueHistory::bytes(24,7),ValueHistory::bytes(2,1));

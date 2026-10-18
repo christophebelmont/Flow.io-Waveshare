@@ -27,6 +27,8 @@ public:
     uint8_t routeCount() const { return routeCount_; }
 
     void onConnected();
+    /** Called by the MQTT task while connected. Deadlines use successful sends only. */
+    void tick(uint32_t nowMs);
     DataChangeStats onDataChanged(DataKey key);
 
     MqttBuildResult buildMessage(uint16_t messageId, MqttBuildContext& ctx);
@@ -42,6 +44,8 @@ private:
         uint8_t snapshotIdx = 0;
         RuntimeRouteClass routeClass = RuntimeRouteClass::NumericThrottled;
         char suffix[Limits::TopicBuf] = {0};
+        uint32_t refreshIntervalMs = 0;
+        bool refreshQueued = false;
         uint32_t lastPublishedTs = 0;
         uint32_t lastPublishMs = 0;
         uint32_t lastBuiltTs = 0;

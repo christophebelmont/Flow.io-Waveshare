@@ -4,6 +4,8 @@
  * @brief Home Assistant discovery service interface.
  */
 
+#include "Core/Values/Value.h"
+
 /** @brief Static Home Assistant sensor discovery registration. */
 struct HASensorEntry {
     const char* ownerId;
@@ -19,6 +21,7 @@ struct HASensorEntry {
     bool isText;
     const char* attributesTemplate = nullptr; // Language-neutral attributes from the state topic.
     const char* identityName = nullptr; // Optional fixed name for identity, independent of the display label.
+    ValueId dataValueId = VALUE_INVALID; // Catalogue sensors require a valid sample when discovery is published.
 };
 
 /** @brief Static Home Assistant binary sensor discovery registration. */
@@ -33,6 +36,8 @@ struct HABinarySensorEntry {
     const char* icon;
     const char* attributesTemplate = nullptr; // Attributes read from the state topic.
     bool includeNameInUniqueId = true;
+    const char* availabilityTemplate = nullptr;
+    ValueId dataValueId = VALUE_INVALID;
 };
 
 /** @brief Static Home Assistant switch discovery registration. */

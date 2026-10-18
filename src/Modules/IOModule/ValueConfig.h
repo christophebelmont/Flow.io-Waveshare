@@ -85,6 +85,7 @@ struct ValueConfig {
             const auto& d = plan->definitions[i];
             if (!registry.defineProgram(ValueIds::Derived + i, plan->programs[i], d.parameters,
                                         static_cast<AggregationMode>(d.mode), d.unit, d.precision)) return false;
+            registry.setName(ValueIds::Derived + i, d.name);
             active_[i] = true;
         }
         return true;

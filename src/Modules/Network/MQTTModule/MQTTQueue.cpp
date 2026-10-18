@@ -253,11 +253,11 @@ void MQTTModule::logQueueSnapshot_(const QueueSnapshot& snapshot) const
 {
     // LogHub caps each message at 160 bytes. The timestamp joins these lines
     // to one immutable snapshot even if another task logs between them.
-    LOGI("queue at=%lu used=%u free=%u queued=%u processing=%u waiting=%u invariant=%u",
+    LOGD("queue at=%lu used=%u free=%u queued=%u processing=%u waiting=%u invariant=%u",
          (unsigned long)snapshot.atMs, (unsigned)snapshot.used, (unsigned)snapshot.free,
          (unsigned)snapshot.states.queued, (unsigned)snapshot.states.processing,
          (unsigned)snapshot.states.waiting, (unsigned)snapshot.invariant);
-    LOGI("queue at=%lu h/n/l physical=%u/%u/%u live=%u/%u/%u stale=%u/%u/%u oldest_ms=%lu",
+    LOGD("queue at=%lu h/n/l physical=%u/%u/%u live=%u/%u/%u stale=%u/%u/%u oldest_ms=%lu",
          (unsigned long)snapshot.atMs,
          (unsigned)snapshot.physical[2], (unsigned)snapshot.physical[1], (unsigned)snapshot.physical[0],
          (unsigned)snapshot.live[2], (unsigned)snapshot.live[1], (unsigned)snapshot.live[0],
@@ -586,7 +586,7 @@ void MQTTModule::updateAndReportQueueOccupancy_(uint32_t nowMs)
     const uint32_t elapsed = interval == 0U ? 1U : interval;
     const auto& counters = snapshot.counters;
     logQueueSnapshot_(snapshot);
-    LOGI("queue at=%lu enqueue_mHz=%lu dequeue_mHz=%lu released=%lu mean_slot_ms=%lu coalesced=%lu",
+    LOGD("queue at=%lu enqueue_mHz=%lu dequeue_mHz=%lu released=%lu mean_slot_ms=%lu coalesced=%lu",
          (unsigned long)snapshot.atMs,
          (unsigned long)((uint64_t)(counters.admitted - lastReportedCounters_.admitted) * 1000000U / elapsed),
          (unsigned long)((uint64_t)(counters.dequeued - lastReportedCounters_.dequeued) * 1000000U / elapsed),

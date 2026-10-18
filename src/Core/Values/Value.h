@@ -12,7 +12,10 @@ constexpr uint8_t DerivedCapacity = 5;
 // Keep existing persisted/history identities stable. Equipment metrics have their own range.
 constexpr ValueId PoolTank = 112;
 constexpr uint8_t PoolTankSlots = 16;
-constexpr uint16_t Capacity = PoolTank + 2 * PoolTankSlots;
+constexpr ValueId PoolUptime = PoolTank + 2 * PoolTankSlots;
+constexpr ValueId DigitalState = PoolUptime + PoolTankSlots;
+constexpr uint16_t Capacity = DigitalState + 16;
+constexpr bool isDigitalState(ValueId id) { return id >= DigitalState && id < Capacity; }
 constexpr bool isDerived(ValueId id) { return id >= Derived && id < Derived + DerivedCapacity; }
 }
 enum class ValueType : uint8_t { Bool, Int32, UInt32, UInt64, Float, Double };
@@ -64,6 +67,10 @@ struct ValueMetadata {
     double offset = 0.0;
     char displayUnit[UnitTextCapacity] = {0};
     int8_t precision = VALUE_PRECISION_NONE;
+    uint32_t maxAgeMs = 0; // Zero: producer owns validity; otherwise expire centrally.
+    bool history = true;
+    bool usable = true; // User displays and formula sources; independent of production.
+    char name[64]{};
 };
 struct ValueSnapshot {
     ValueNumber value{};
@@ -75,6 +82,8 @@ struct ValueSnapshot {
     // published absolute value. Invalid across initialization/recalibration/reset.
     double delta = 0;
     bool deltaValid = false;
+    // Quality transitions can occur after the last acquisition (expiration).
+    uint64_t qualityChangedAtMs = 0;
 };
 inline double valueAsDouble(ValueType type, const ValueNumber& value) {
     switch (type) {

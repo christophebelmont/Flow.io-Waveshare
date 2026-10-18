@@ -148,22 +148,33 @@ bool formatChecked(char* out, size_t len, const char* fmt, ...) {
     int wrote = vsnprintf(out, len, fmt, args);
     va_end(args); return wrote >= 0 && static_cast<size_t>(wrote) < len;
 }
-bool networkReady(int) { return true; }
-bool mqttReady(int) { return true; }
-void setHaVendor(int&, const char*) {}
-void setHaDeviceId(int&, const char*) {}
+struct TestDataStore {
+    int values = 0;
+    bool enabled = true;
+    bool publishHa(ValueId) const { return enabled; }
+};
+bool readAvailableDataValue(int quality, ValueId, ValueSnapshot&, ValueMetadata&) {
+    return quality == int(ValueQuality::Valid);
+}
+bool networkReady(const TestDataStore&) { return true; }
+bool mqttReady(const TestDataStore&) { return true; }
+void setHaVendor(TestDataStore&, const char*) {}
+void setHaDeviceId(TestDataStore&, const char*) {}
 class HAModule { public:
     bool oneShotCompleted_ = false, startupReady_ = true;
     struct { bool enabled = true; const char* vendor = "test";
              const char* discoveryPrefix = "homeassistant"; } cfgData_;
     struct Mqtt { bool formatTopic = true; } mqtt_;
     Mqtt* mqttSvc_ = &mqtt_;
-    int store = 0;
-    struct DS { int* store; } ds_{&store};
+    TestDataStore store;
+    struct DS { TestDataStore* store; } ds_{&store};
     DS* dsSvc_ = &ds_;
     const char* deviceId_ = "device";
     const char* nodeTopicId_ = "device";
     char objectIdBuf_[96]{};
+    HASensorEntry sensors_[3]{};
+    uint8_t sensorCount_ = 2, binarySensorCount_ = 1;
+    HABinarySensorEntry binarySensors_[1]{};
     HADiscoveryRemovalEntry removals_[8]{};
     uint8_t removalCount_ = 0;
     bool isPending_(uint16_t) const { return true; }
@@ -192,6 +203,25 @@ void checkRemoval() {
     }
     MqttBuildContext context{topic, sizeof(topic), payload, sizeof(payload)};
     assert(ha.buildMessage_(ha.messageCount_(), context) == MqttBuildResult::NoLongerNeeded);
+    // Discovery is gated when the MQTT message is built, after acquisition starts.
+    ha.sensors_[0].dataValueId = 117;
+    ha.startupReady_ = false;
+    assert(ha.buildMessage_(0, context) == MqttBuildResult::RetryLater);
+    ha.startupReady_ = true;
+    assert(ha.buildMessage_(0, context) == MqttBuildResult::NoLongerNeeded);
+    ha.store.values = int(ValueQuality::Valid);
+    assert(ha.buildMessage_(0, context) == MqttBuildResult::Ready);
+    ha.store.values = int(ValueQuality::Invalid);
+    assert(ha.buildMessage_(0, context) == MqttBuildResult::NoLongerNeeded);
+    // Non-catalogue entities are unaffected, and no removal is added for unavailability.
+    assert(ha.buildMessage_(1, context) == MqttBuildResult::Ready);
+    assert(ha.removalCount_ == 8);
+    ha.binarySensors_[0].dataValueId = 164;
+    assert(ha.buildMessage_(2, context) == MqttBuildResult::NoLongerNeeded);
+    ha.store.values = int(ValueQuality::Valid);
+    assert(ha.buildMessage_(2, context) == MqttBuildResult::Ready);
+    ha.store.values = int(ValueQuality::Valid); ha.store.enabled = false;
+    assert(ha.buildMessage_(0, context) == MqttBuildResult::NoLongerNeeded);
     ha.oneShotCompleted_ = true;
     assert(ha.buildMessage_(ha.entityCount_(), context) == MqttBuildResult::NoLongerNeeded);
 }
@@ -318,7 +348,8 @@ int main() {
 
 class AlarmDiscoveryTest(unittest.TestCase):
     def test_existing_button_commands_are_raw_json(self):
-        # Changing the serializer must preserve every existing button command.
+        # Static module commands remain raw JSON. The eight role-dependent
+        # equipment commands are exercised by test_role_discovery_boot_assignments.
         count = 0
         for relative in ('PoolDeviceModule/PoolDeviceLifecycle.cpp',
                          'PoolLogicModule/PoolLogicLifecycle.cpp'):
@@ -329,7 +360,7 @@ class AlarmDiscoveryTest(unittest.TestCase):
                 command = json.loads(payload)
                 self.assertIsInstance(command['cmd'], str)
                 count += 1
-        self.assertEqual(count, 9)
+        self.assertEqual(count, 1)
 
     def test_discovery_roundtrip_and_reset_rules(self):
         header = (ROOT / 'src/Modules/AlarmModule/AlarmModule.h').read_text()

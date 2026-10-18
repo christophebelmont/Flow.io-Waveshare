@@ -56,7 +56,6 @@ struct PoolDeviceRuntimeMetricsEntry {
     float injectedMlWeek = 0.0f;
     float injectedMlMonth = 0.0f;
     float injectedMlTotal = 0.0f;
-    float tankRemainingMl = 0.0f;
     uint32_t tsMs = 0;
 };
 

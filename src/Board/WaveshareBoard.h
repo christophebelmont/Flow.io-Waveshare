@@ -107,7 +107,7 @@ inline constexpr MqttBufferSpec kWaveshareESP32S3MqttBuffers{
  *   Home Assistant naming/identity options are handled by separate persistent
  *   module config, not by this capacity block.
  */
-inline constexpr HaCapacitySpec kWaveshareESP32S3HaCapacity{68, 32, 16, 40, 38, 14};
+inline constexpr HaCapacitySpec kWaveshareESP32S3HaCapacity{160, 32, 16, 40, 38, 14};
 
 /*
  * UART definitions.

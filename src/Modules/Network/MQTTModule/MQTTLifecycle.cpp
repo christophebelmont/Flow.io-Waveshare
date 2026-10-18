@@ -612,6 +612,7 @@ void MQTTModule::loop()
                 (void)enqueue(ProducerIdStatus, p.messageId, MqttPublishPriority::Normal, 0);
             }
 
+            runtimeProducerCore_.tick(now);
             processJobs_(now);
             break;
         }

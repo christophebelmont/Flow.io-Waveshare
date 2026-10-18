@@ -47,6 +47,16 @@ inline void day(JsonObject out, const PoolHistoryDaySummary& value) {
     number(out["refill_litres"], value.refillVolumeValid, value.refillVolumeLitres);
     number(out["refill_events"], value.refillEventsValid, value.refillEventCount);
 }
+/** Compact daily aggregate for the multi-value overview; omits the exact 64-bit raw delta. */
+inline void dailySummary(JsonObject out, const ValueHistoryRecord& value) {
+    out["start"] = value.period * 86400ULL;
+    number(out["average"], value.valid, value.average());
+    number(out["min"], value.valid, value.minimum);
+    number(out["max"], value.valid, value.maximum);
+    out["coverage_ms"] = value.durationMs;
+    number(out["delta"], value.valid, value.delta);
+    out["discontinuities"] = value.discontinuities;
+}
 inline void record(JsonObject out, const ValueHistoryRecord& value, bool daily) {
     out["start_utc"] = value.period * (daily ? 86400ULL : 3600ULL);
     out["coverage_ms"] = value.durationMs;

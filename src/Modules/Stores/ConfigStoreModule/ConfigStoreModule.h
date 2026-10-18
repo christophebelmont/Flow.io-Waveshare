@@ -65,7 +65,7 @@ private:
     void emitApplyJsonActivity_(const char* json);
     void toJson_(char* out, size_t outLen);
     bool toJsonModule_(const char* module, char* out, size_t outLen, bool* truncated);
-    uint8_t listModules_(const char** out, uint8_t max);
+    size_t listModules_(const char** out, size_t max);
     bool erase_();
     bool readRuntimeBlob_(const char* key, void* out, size_t outLen, size_t* actualLen);
     bool writeRuntimeBlob_(const char* key, const void* value, size_t len);

@@ -6,6 +6,9 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd() / "scripts"))
+from data_catalog import extend_config
 from typing import Any, Dict, List, Optional, Tuple
 
 Import = type("Import", (), {})
@@ -683,6 +686,7 @@ def main() -> None:
         )
     combined_meta = _apply_profile_specific_io_enum_sets(combined_meta, profile, tft_enabled)
 
+    extend_config(cfgdocs_docs, cfgmods_docs, combined_meta)
     merged_docs = _resolved_docs(dict(cfgdocs_docs), i18n)
 
     cfgdocs_payload = {

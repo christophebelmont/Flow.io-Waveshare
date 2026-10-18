@@ -17,31 +17,63 @@ const section = shell.slice(shell.indexOf('      <section id="page-history"'), s
     await page.evaluate(code => {
       window.tr = (key, fallback) => fallback || key;
       window.currentWebLocaleTag = () => 'fr-FR';
-      const metric = average => ({ average, min: average == null ? null : average - .2, max: average == null ? null : average + .3, first: average, last: average, samples: 120 });
-      const activity = seconds => ({ seconds, observed_seconds: 36000, periods: [0, 1, 2, 3].map(i => ({ seconds: i === 2 ? seconds : 0, observed_seconds: 9000 })) });
-      window.fixture = { ok: true, ready: true, days: Array.from({length: 8}, (_, i) => ({ valid: i !== 7, complete: i > 0, date: 20260925 - i, from: 1790294400, until: 1790330400, metrics: [metric(25.4 - i * .2), metric(19.2), metric(i === 1 ? null : 7.2), metric(680), metric(25.6), metric(25.1), metric(7.2), metric(700), metric(26)], filtration: activity(i ? 18000 : 7200), heating: activity(0), refill_litres: i ? 25 : 0, refill_events: i ? 1 : 0, night_delta: -.5 })), values: [{ id: 32, mode: 2, type: 3 }, { id: 0, mode: 0, type: 4 }] };
+      const day = (average, start) => average == null ? null : ({ start, average, min: average - .2, max: average + .3, coverage_ms: 3600000, delta: average, discontinuities: 1 });
+      window.fixture = { ok: true, ready: true, values: [
+        { id: 0, name: 'Entrée A00', group: 'Entrées analogiques', mode: 0, type: 4, unit: 0, available: true, pending_restart: false,
+          days: [day(25.4, 1790294400), day(25.2, 1790208000), day(null, 0), day(24.8, 1790035200), day(24.6, 1789948800), day(24.4, 1789862400), day(24.2, 1789776000), day(24.0, 1789689600)] },
+        { id: 32, name: 'I00 · Impulsions', group: 'Compteurs', mode: 2, type: 3, unit: 1, available: false, pending_restart: true,
+          days: [day(120, 1790294400), day(80, 1790208000), day(null, 0), day(60, 1790035200), day(50, 1789948800), day(40, 1789862400), day(30, 1789776000), day(20, 1789689600)] }
+      ] };
       window.requests = [];
       window.responseMode = 0;
       window.fetchOkJson = async (url) => {
         requests.push(url);
         if (responseMode === 1) throw new Error('offline');
-        if (url.includes('/value?')) return { ok: true, mode: 2, type: 3, records: responseMode === 2 ? [] : [{ start_utc: 1790294400, current: true, raw_delta: '18446744073709551615', discontinuities: 1, boundary_uncertain: true }] };
+        if (url.includes('/value?')) {
+          const gauge = /[?&]id=0(&|$)/.test(url);
+          const hour = i => ({ start_utc: 1790294400 - i * 3600, current: i === 0, average: 25 - i * 0.1, min: 24 - i * 0.1, max: 26 - i * 0.1, delta: 10 + i, coverage_ms: 3600000, discontinuities: i === 3 ? 1 : 0, boundary_uncertain: i === 5, raw_delta: '18446744073709551615' });
+          return { ok: true, mode: gauge ? 0 : 2, type: gauge ? 4 : 3, unit: gauge ? 0 : 1, records: responseMode === 2 ? [] : Array.from({ length: 24 }, (_, i) => hour(i)) };
+        }
         return structuredClone(fixture);
       };
       const script = document.createElement('script'); script.textContent = code; document.body.appendChild(script);
     }, code);
     await page.evaluate(() => loadHistory());
-    assert.equal(await page.locator('#historyDays tbody tr').count(), 8);
-    assert.equal(await page.locator('#historyMetrics tbody tr').count(), 9);
-    assert.equal(await page.locator('#historyDays tbody tr').first().locator('td').nth(5).textContent(), '0 L');
-    await page.locator('#historyDays button').nth(1).click();
-    assert.equal(await page.locator('#historyMetrics tbody tr').nth(2).locator('td').nth(1).textContent(), '—');
-    assert.equal(await page.locator('#historyDays button').last().isDisabled(), true);
-    await page.locator('#historyValueRead').click();
-    await page.waitForFunction(() => document.getElementById('historyStatus').textContent.includes('actualisées'));
+    // One row per valid+historized value; eight day columns showing the daily mean.
+    assert.equal(await page.locator('#historyDays tbody tr').count(), 2);
+    assert.equal(await page.locator('#historyDays thead th').count(), 9);
+    assert.ok((await page.locator('#historyDays tbody tr').first().locator('td').nth(8).textContent()).includes('25,4'));
+    assert.equal(await page.locator('#historyDays tbody tr').first().locator('td').nth(6).textContent(), '—');
+    // Clicking a value opens the min/max popup; a day without a stored record stays inert.
+    assert.equal(await page.locator('#historyDays tbody tr').first().locator('.history-cell-btn').count(), 7);
+    await page.locator('#historyDays tbody tr').first().locator('.history-cell-btn').first().click();
+    assert.notEqual(await page.locator('#historyDetailDialog').getAttribute('open'), null);
+    assert.ok((await page.locator('#historyDetailBody').textContent()).includes('Min'));
+    assert.ok((await page.locator('#historyDetailBody').textContent()).includes('Max'));
+    await page.locator('#historyDetailClose').click();
+    assert.equal(await page.locator('#historyDetailDialog').getAttribute('open'), null);
+    const options = await page.locator('#historyValueId option').allTextContents();
+    assert.ok(options.some(text => text.includes('Redémarrage requis')));
+    // Hourly gauge: chart by default (one high/low candle per hour), toggle to the table.
+    await page.evaluate(() => loadHistory(true));
+    assert.equal(await page.locator('#historyValues svg.history-chart').count(), 1);
+    assert.equal(await page.locator('#historyValues .range').count(), 24);
+    assert.equal(await page.locator('#historyValues .hit').count(), 24);
+    await page.locator('#historyValues .hit').nth(10).click();
+    assert.notEqual(await page.locator('#historyDetailDialog').getAttribute('open'), null);
+    await page.locator('#historyDetailClose').click();
+    await page.locator('.history-view-btn[data-history-view="table"]').click();
+    assert.equal(await page.locator('#historyValues svg.history-chart').count(), 0);
+    assert.ok((await page.locator('#historyValues').textContent()).includes('Min / Max'));
+    // Hourly counter: table exposes the exact 64-bit variation, resets and uncertainty.
+    await page.selectOption('#historyValueId', '32');
+    await page.evaluate(() => loadHistory(true));
     assert.ok((await page.locator('#historyValues').textContent()).includes('18446744073709551615'));
     assert.ok((await page.locator('#historyValues').textContent()).includes('Ruptures: 1'));
     assert.ok((await page.locator('#historyValues').textContent()).includes('incertaine'));
+    // Counter chart renders one bar per hour.
+    await page.locator('.history-view-btn[data-history-view="chart"]').click();
+    assert.equal(await page.locator('#historyValues .bar').count(), 24);
     await page.evaluate(() => { responseMode = 2; return loadHistory(true); });
     assert.ok((await page.locator('#historyStatus').textContent()).includes('Aucune période'));
     await page.evaluate(() => { responseMode = 1; return loadHistory(); });
@@ -55,6 +87,6 @@ const section = shell.slice(shell.indexOf('      <section id="page-history"'), s
     const count = await page.evaluate(() => requests.length);
     await page.waitForTimeout(1100);
     assert.equal(await page.evaluate(() => requests.length), count, 'No background polling');
-    console.log('History browser: daily/detail tables, missing vs zero, exact uint64, resets, empty/error, responsive layout, no polling OK');
+    console.log('History browser: per-value week table, min/max popup, hourly chart/table toggle, exact uint64, resets, empty/error, responsive layout, no polling OK');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exit(1); });

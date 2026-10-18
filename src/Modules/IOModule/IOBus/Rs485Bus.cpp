@@ -15,9 +15,18 @@
 
 bool Rs485Bus::begin(const UartSpec& spec)
 {
-    if (spec.rxPin < 0 || spec.txPin < 0 || spec.baud == 0U) return false;
+    LOGD("RS485 init uart=%u rx=%d tx=%d baud=%lu parity=%u stop=%u de=%d tx_high=%u",
+         spec.uartIndex, spec.rxPin, spec.txPin, (unsigned long)spec.baud,
+         (unsigned)spec.parity, spec.stopBits, spec.directionPin, spec.directionTxHigh);
+    if (spec.rxPin < 0 || spec.txPin < 0 || spec.baud == 0U) {
+        LOGD("RS485 init rejected: invalid pins or baud");
+        return false;
+    }
     uint32_t serialConfig = SERIAL_8N1;
-    if (!serialConfig_(spec, serialConfig)) return false;
+    if (!serialConfig_(spec, serialConfig)) {
+        LOGD("RS485 init rejected: invalid parity or stop bits");
+        return false;
+    }
     if (!storageAllocationAttempted_) {
         storageAllocationAttempted_ = true;
         void* memory = heap_caps_malloc(sizeof(Storage), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -45,18 +54,32 @@ bool Rs485Bus::begin(const UartSpec& spec)
     frameGapUs_ = spec_.baud > 19200 ? 1750U : frameDurationUs_(3U);
     lastRxAtUs_ = micros();
     ready_ = true;
+    LOGD("RS485 initialized uart=%u frame_gap_us=%lu direction=%s",
+         spec_.uartIndex, (unsigned long)frameGapUs_,
+         spec_.directionPin < 0 ? "automatic" : "gpio");
     return true;
 }
 
 bool Rs485Bus::configureLine(const SerialLineProfile& p)
 {
     if (!ready_ || busy() || frameReady_ || p.busId != 0 || p.baud < 1200 ||
-        p.baud > 115200 || p.parity > 2 || (p.stopBits != 1 && p.stopBits != 2)) return false;
+        p.baud > 115200 || p.parity > 2 || (p.stopBits != 1 && p.stopBits != 2)) {
+        LOGD("RS485 line rejected ready=%u busy=%u frame_ready=%u bus=%u baud=%lu parity=%u stop=%u",
+             ready_, busy(), frameReady_, p.busId, (unsigned long)p.baud, p.parity, p.stopBits);
+        return false;
+    }
     const auto port = static_cast<uart_port_t>(spec_.uartIndex);
     const uart_parity_t parity[] = {UART_PARITY_DISABLE, UART_PARITY_EVEN, UART_PARITY_ODD};
     if (uart_set_baudrate(port, p.baud) != ESP_OK ||
         uart_set_parity(port, parity[p.parity]) != ESP_OK ||
-        uart_set_stop_bits(port, p.stopBits == 1 ? UART_STOP_BITS_1 : UART_STOP_BITS_2) != ESP_OK) return false;
+        uart_set_stop_bits(port, p.stopBits == 1 ? UART_STOP_BITS_1 : UART_STOP_BITS_2) != ESP_OK) {
+        LOGD("RS485 line configuration failed uart=%u", spec_.uartIndex);
+        return false;
+    }
+    if (spec_.baud != p.baud || (unsigned)spec_.parity != p.parity || spec_.stopBits != p.stopBits) {
+        LOGD("RS485 line uart=%u baud=%lu parity=%u stop=%u",
+             spec_.uartIndex, (unsigned long)p.baud, p.parity, p.stopBits);
+    }
     spec_.baud = p.baud;
     spec_.parity = static_cast<UartSpec::Parity>(p.parity);
     spec_.stopBits = p.stopBits;
@@ -89,6 +112,10 @@ bool Rs485Bus::serialConfig_(const UartSpec& spec, uint32_t& outConfig)
 
 void Rs485Bus::end()
 {
+    LOGD("RS485 stop uart=%u ready=%u tx=%lu rx=%lu overflows=%lu io_errors=%lu",
+         spec_.uartIndex, ready_, (unsigned long)stats_.transmittedFrames,
+         (unsigned long)stats_.receivedFrames, (unsigned long)stats_.receiveOverflows,
+         (unsigned long)stats_.ioErrors);
     if (ready_) serial_.end();
     ready_ = false;
     state_ = State::Idle;
@@ -124,6 +151,8 @@ bool Rs485Bus::startTransmit(const uint8_t* frame, size_t length, uint32_t nowUs
     setDirection_(true);
     const size_t written = serial_.write(frame, length);
     if (written != length) {
+        LOGD("RS485 TX incomplete uart=%u written=%u expected=%u",
+             spec_.uartIndex, (unsigned)written, (unsigned)length);
         ++stats_.ioErrors;
         setDirection_(false);
         return false;
@@ -153,6 +182,8 @@ void Rs485Bus::tick(uint32_t nowUs)
         const int byteValue = serial_.read();
         if (byteValue < 0) break;
         if (rxLength_ >= sizeof(storage_->rxBuffer)) {
+            LOGD("RS485 RX overflow uart=%u capacity=%u", spec_.uartIndex,
+                 (unsigned)sizeof(storage_->rxBuffer));
             ++stats_.receiveOverflows;
             abort();
             return;
@@ -181,6 +212,8 @@ bool Rs485Bus::takeFrame(uint8_t* out, size_t capacity, size_t& outLength)
 
 void Rs485Bus::abort()
 {
+    LOGD("RS485 abort uart=%u state=%u partial_rx_bytes=%u",
+         spec_.uartIndex, (unsigned)state_, (unsigned)rxLength_);
     setDirection_(false);
     state_ = State::Idle;
     frameReady_ = false;

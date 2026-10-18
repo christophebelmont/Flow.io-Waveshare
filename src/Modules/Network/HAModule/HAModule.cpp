@@ -4,6 +4,7 @@
  */
 
 #include "HAModule.h"
+#include "Core/Values/DataValueAvailability.h"
 #include "HADiscoveryJson.h"
 #include "Core/SpiRamJsonDocument.h"
 #include "Core/BufferUsageTracker.h"
@@ -609,7 +610,7 @@ bool HAModule::publishBinarySensor(const char* objectId, const char* name,
                                    const char* stateTopic, const char* valueTemplate,
                                    const char* deviceClass, const char* entityCategory,
                                    const char* icon, const char* attributesTemplate, bool includeNameInUniqueId,
-                                   MqttBuildContext* outCtx)
+                                   MqttBuildContext* outCtx, const char* availabilityTemplate)
 {
     if (!outCtx || !stateTopic || !valueTemplate) return false;
     SpiRamJsonDocument doc(4096);
@@ -619,7 +620,8 @@ bool HAModule::publishBinarySensor(const char* objectId, const char* name,
     if (icon && icon[0]) doc["ic"] = icon;
     char statusTopic[192]{};
     mqttSvc_->formatTopic(mqttSvc_->ctx, MqttTopics::SuffixStatus, statusTopic, sizeof(statusTopic));
-    HADiscoveryJson::availability(doc.as<JsonObject>(), statusTopic);
+    HADiscoveryJson::availability(doc.as<JsonObject>(), statusTopic,
+                                  availabilityTemplate ? stateTopic : nullptr, availabilityTemplate);
     HADiscoveryJson::binarySensor(doc.as<JsonObject>(), stateTopic, valueTemplate, attributesTemplate);
     if (!HADiscoveryJson::serialize(doc, outCtx->payload, outCtx->payloadCapacity)) {
         LOGW("HA binary_sensor payload overflow object=%s", objectId);
@@ -1066,7 +1068,7 @@ bool HAModule::buildEntityMessage_(uint16_t messageId, MqttBuildContext& buildCt
             const HABinarySensorEntry& e = binarySensors_[messageId - cursor];
             if (buildObjectId(e.objectSuffix, objectIdBuf_, sizeof(objectIdBuf_))) {
                 mqttSvc_->formatTopic(mqttSvc_->ctx, e.stateTopicSuffix, stateTopicBuf_, sizeof(stateTopicBuf_));
-                ok = publishBinarySensor(objectIdBuf_, e.name, stateTopicBuf_, e.valueTemplate, e.deviceClass, e.entityCategory, e.icon, e.attributesTemplate, e.includeNameInUniqueId, &buildCtx);
+                ok = publishBinarySensor(objectIdBuf_, e.name, stateTopicBuf_, e.valueTemplate, e.deviceClass, e.entityCategory, e.icon, e.attributesTemplate, e.includeNameInUniqueId, &buildCtx, e.availabilityTemplate);
             }
         } else {
             cursor = (uint16_t)(cursor + binarySensorCount_);
@@ -1156,6 +1158,16 @@ MqttBuildResult HAModule::buildMessage_(uint16_t messageId, MqttBuildContext& bu
                     (unsigned)entityCount,
                     (unsigned)messageCount_());
     if (messageId >= messageCount_()) return MqttBuildResult::NoLongerNeeded;
+    // Registration precedes acquisition. Gate catalogue discovery here, after startup,
+    // rather than treating every not-yet-sampled value as unavailable at registration.
+    const ValueId id = messageId < sensorCount_ ? sensors_[messageId].dataValueId :
+        messageId < sensorCount_ + binarySensorCount_ ? binarySensors_[messageId - sensorCount_].dataValueId : VALUE_INVALID;
+    if (id != VALUE_INVALID) {
+        ValueSnapshot value{}; ValueMetadata metadata{};
+        if (!dsSvc_->store->publishHa(id) ||
+            !readAvailableDataValue(dsSvc_->store->values, id, value, metadata))
+            return MqttBuildResult::NoLongerNeeded;
+    }
     const bool built = messageId < entityCount
         ? buildEntityMessage_(messageId, buildCtx)
         : buildRemovalMessage_(messageId - entityCount, buildCtx);

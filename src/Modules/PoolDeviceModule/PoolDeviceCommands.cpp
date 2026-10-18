@@ -4,6 +4,7 @@
  */
 
 #include "PoolDeviceModule.h"
+#include "Core/Values/VolumeUnits.h"
 #include "Core/ErrorCodes.h"
 #include "Domain/Pool/PoolIds.h"
 #define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::PoolDeviceModule)
@@ -410,11 +411,11 @@ bool PoolDeviceModule::handlePoolRefill_(const CommandRequest& req, char* reply,
         writeCmdErrorSlot_(reply, replyLen, "pool.refill", ErrorCode::UnknownSlot, slot);
         return false;
     }
-    remaining = slots_[slot].def.tankCapacityMl;
+    remaining = VolumeUnits::millilitresToLitres(slots_[slot].def.tankCapacityMl);
     unlockState_();
 
-    if (args.containsKey("remaining_ml")) {
-        JsonVariantConst rem = args["remaining_ml"];
+    if (args.containsKey("remaining_l")) {
+        JsonVariantConst rem = args["remaining_l"];
         if (rem.is<float>() || rem.is<double>() || rem.is<int32_t>() || rem.is<uint32_t>()) {
             remaining = rem.as<float>();
         } else if (rem.is<const char*>()) {
@@ -434,7 +435,7 @@ bool PoolDeviceModule::handlePoolRefill_(const CommandRequest& req, char* reply,
     char label[sizeof(PoolDeviceDefinition::label)] = {0};
     if (lockState_()) {
         if (slots_[slot].used) {
-            applied = slots_[slot].tankRemainingMl;
+            applied = slots_[slot].tankRemainingL;
             snprintf(label,
                      sizeof(label),
                      "%s",
@@ -450,7 +451,7 @@ bool PoolDeviceModule::handlePoolRefill_(const CommandRequest& req, char* reply,
              label[0] ? label : "Réservoir");
     snprintf(detail,
              sizeof(detail),
-             "Niveau réservoir mis à %.1f ml pour le slot %u.",
+             "Niveau réservoir mis à %.3f L pour le slot %u.",
              (double)applied,
              (unsigned)slot);
     emitActivity_(ActivityCode::PoolDeviceTankRefill,
@@ -464,7 +465,7 @@ bool PoolDeviceModule::handlePoolRefill_(const CommandRequest& req, char* reply,
                    detail,
                    "water_drop",
                    req.actor);
-    snprintf(reply, replyLen, "{\"ok\":true,\"slot\":%u,\"remaining_ml\":%.1f}", (unsigned)slot, (double)applied);
+    snprintf(reply, replyLen, "{\"ok\":true,\"slot\":%u,\"remaining_l\":%.3f}", (unsigned)slot, (double)applied);
     return true;
 }
 

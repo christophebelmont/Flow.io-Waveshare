@@ -61,8 +61,9 @@
     const remoteMenuIconFontLinkId = 'flowMenuIconFontRemote';
     const remoteMenuIconFontHref = 'https://fonts.googleapis.com/icon?family=Material+Symbols+Rounded&display=block';
     const remoteMenuIconLigatures = {
-      'icon-measures': 'water_damage',
-      'icon-io': 'lan',
+      'icon-dashboard': 'dashboard',
+      'icon-io': 'cable',
+      'icon-data': 'hub',
       'icon-derived': 'functions',
       'icon-calibration': 'science',
       'icon-terminal': 'list_alt',
@@ -1766,17 +1767,14 @@
     }
 
     // History is fetched only on entry or explicit refresh, never polled.
-    const historyView = { days: [], selected: 0, controller: null, sequence: 0 };
+    const historyView = { values: [], controller: null, sequence: 0 };
+    const historySvgNamespace = 'http://www.w3.org/2000/svg';
+    let historyValueView = 'chart';
+    let historyValueData = null;
     const historyText = (key, fallback) => tr('history.' + key, fallback);
     function historyNumber(value, unit = '', digits = 1) {
       return value === null || value === undefined || !Number.isFinite(Number(value))
         ? '—' : new Intl.NumberFormat(currentWebLocaleTag(), { maximumFractionDigits: digits }).format(Number(value)) + (unit ? ' ' + unit : '');
-    }
-    function historyDate(value) {
-      const raw = String(value || '');
-      if (raw.length !== 8) return '—';
-      return new Intl.DateTimeFormat(currentWebLocaleTag(), { day: 'numeric', month: 'short' })
-        .format(new Date(Number(raw.slice(0, 4)), Number(raw.slice(4, 6)) - 1, Number(raw.slice(6))));
     }
     function historyCell(row, value, header = false) {
       const cell = document.createElement(header ? 'th' : 'td');
@@ -1792,61 +1790,200 @@
       rows.forEach(values => { const row = body.insertRow(); values.forEach(value => historyCell(row, value)); });
       target.appendChild(table); return body;
     }
-    function renderHistoryDay() {
-      const day = historyView.days[historyView.selected];
-      const detail = document.getElementById('historyDayDetail');
-      detail.hidden = !day || !day.valid;
-      if (detail.hidden) return;
-      document.getElementById('historyDayTitle').textContent = historyDate(day.date) + ' · ' +
-        (day.complete ? historyText('closed', 'Journée clôturée') : historyText('current', 'Journée en cours'));
-      const names = [historyText('water', 'Eau'), historyText('air', 'Air'), 'pH', 'ORP',
-        historyText('dayWater', 'Eau · journée'), historyText('nightWater', 'Eau · nuit'),
-        historyText('phTarget', 'Consigne pH'), historyText('orpTarget', 'Consigne ORP'), historyText('heatTarget', 'Consigne chauffage')];
-      const units = ['°C', '°C', '', 'mV', '°C', '°C', '', 'mV', '°C'];
-      historyTable(document.getElementById('historyMetrics'), [historyText('measure', 'Mesure'),
-        historyText('average', 'Moyenne'), 'Min', 'Max', historyText('first', 'Première'), historyText('last', 'Dernière'),
-        historyText('samples', 'Échantillons')], names.map((name, index) => {
-          const metric = (day.metrics || [])[index] || {};
-          return [name, ...['average', 'min', 'max', 'first', 'last'].map(key => historyNumber(metric[key], units[index], 2)), historyNumber(metric.samples, '', 0)];
-        }));
-      const periods = [historyText('night', 'Nuit'), historyText('morning', 'Matin'), historyText('afternoon', 'Après-midi'), historyText('evening', 'Soir')];
-      historyTable(document.getElementById('historyPeriods'), [historyText('period', 'Période'), historyText('filtration', 'Filtration'), historyText('heating', 'Chauffage')], periods.map((name, i) =>
-        [name, ...['filtration', 'heating'].map(key => {
-          const seconds = day[key]?.periods?.[i]?.seconds;
-          return historyNumber(seconds == null ? null : seconds / 3600, 'h', 2);
-        })]));
-      const dateTime = value => value ? new Date(value * 1000).toLocaleString(currentWebLocaleTag()) : '—';
-      document.getElementById('historyCoverage').textContent = historyText('observed', 'Observations') + ' : ' + dateTime(day.from) + ' → ' + dateTime(day.until);
-      document.getElementById('historyNightDelta').textContent = historyText('nightDelta', 'Variation nuit − journée') + ' : ' + historyNumber(day.night_delta, '°C', 2);
+    function historyDayStart(age) {
+      for (const value of historyView.values) {
+        const entry = value.days && value.days[age];
+        if (entry && entry.start) return Number(entry.start);
+      }
+      return 0;
+    }
+    function historyDayLabel(age) {
+      const start = historyDayStart(age);
+      if (!start) return historyText('day', 'Jour') + ' -' + age;
+      return new Intl.DateTimeFormat(currentWebLocaleTag(), { day: 'numeric', month: 'short', timeZone: 'UTC' })
+        .format(new Date(start * 1000));
+    }
+    function historyEntryDate(entry) {
+      if (!entry || !entry.start) return '';
+      return new Intl.DateTimeFormat(currentWebLocaleTag(), { dateStyle: 'full', timeZone: 'UTC' })
+        .format(new Date(Number(entry.start) * 1000));
+    }
+    function historyAmount(mode, entry) {
+      return entry ? (mode === 2 ? entry.delta : entry.average) : null;
+    }
+    function showHistoryDetail(name, subtitle, rows) {
+      const dialog = document.getElementById('historyDetailDialog');
+      if (!dialog) return;
+      document.getElementById('historyDetailName').textContent = name;
+      document.getElementById('historyDetailDate').textContent = subtitle;
+      historyTable(document.getElementById('historyDetailBody'), [historyText('measure', 'Mesure'), historyText('value', 'Valeur')], rows);
+      if (typeof dialog.showModal === 'function') dialog.showModal();
+    }
+    function historyRecordRows(mode, entry) {
+      const counter = mode === 2;
+      const rows = [[historyText(counter ? 'delta' : 'average', counter ? 'Variation' : 'Moyenne'),
+        historyNumber(historyAmount(mode, entry), '', 3)]];
+      if (!counter) rows.push(['Min', historyNumber(entry.min, '', 3)], ['Max', historyNumber(entry.max, '', 3)]);
+      rows.push([historyText('coverage', 'Couverture'),
+        historyNumber(entry.coverage_ms == null ? null : entry.coverage_ms / 60000, 'min', 1)]);
+      if (entry.discontinuities) rows.push([historyText('reset', 'Ruptures'), String(entry.discontinuities)]);
+      return rows;
+    }
+    function historySvgElement(name, attributes) {
+      const element = document.createElementNS(historySvgNamespace, name);
+      if (attributes) for (const key of Object.keys(attributes)) element.setAttribute(key, attributes[key]);
+      return element;
+    }
+    function historyHourLabel(record) {
+      const start = Number(record.start_utc || 0);
+      if (!start) return '—';
+      return new Intl.DateTimeFormat(currentWebLocaleTag(), { day: 'numeric', month: 'short', hour: '2-digit', timeZone: 'UTC' })
+        .format(new Date(start * 1000));
+    }
+    function historyHourTick(record) {
+      const start = Number(record.start_utc || 0);
+      if (!start) return '';
+      return new Intl.DateTimeFormat(currentWebLocaleTag(), { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })
+        .format(new Date(start * 1000));
+    }
+    function renderHistoryWeek() {
+      const headings = [historyText('value', 'Valeur')];
+      for (let age = 7; age >= 0; age--) headings.push(historyDayLabel(age));
+      const rows = historyView.values.map(value => {
+        const cells = [value.name || ('#' + value.id)];
+        for (let age = 7; age >= 0; age--) {
+          cells.push(historyNumber(historyAmount(value.mode, value.days && value.days[age]), '', 3));
+        }
+        return cells;
+      });
+      const body = historyTable(document.getElementById('historyDays'), headings, rows);
+      [...body.rows].forEach((row, index) => {
+        const value = historyView.values[index];
+        for (let age = 7, col = 1; age >= 0; age--, col++) {
+          const entry = value.days && value.days[age];
+          if (!entry) continue;
+          const button = document.createElement('button');
+          button.type = 'button'; button.className = 'history-cell-btn';
+          button.textContent = row.cells[col].textContent;
+          button.setAttribute('aria-label', (value.name || ('#' + value.id)) + ' · ' + historyDayLabel(age));
+          button.addEventListener('click', () => showHistoryDetail(value.name || ('#' + value.id), historyEntryDate(entry), historyRecordRows(value.mode, entry)));
+          row.cells[col].replaceChildren(button);
+        }
+      });
+    }
+    function renderHistoryValueTable(host, data) {
+      const records = data.records || [];
+      const counter = data.mode === 2;
+      const unit = ['', historyText('pulses', 'impulsions'), historyText('pulsesMinute', 'impulsions/min')][data.unit || 0] || '';
+      const headings = [historyText('periodUtc', 'Période (UTC)'), (counter ? historyText('delta', 'Variation') : historyText('average', 'Moyenne')) + (unit ? ' · ' + unit : ''),
+        counter ? historyText('continuity', 'Continuité') : 'Min / Max', historyText('coverage', 'Couverture')];
+      const body = historyTable(host, headings, records.map(record => {
+        const flags = [];
+        if (record.discontinuities) flags.push(historyText('reset', 'Ruptures') + ': ' + record.discontinuities);
+        if (record.boundary_uncertain) flags.push(historyText('uncertain', 'Répartition entre périodes incertaine'));
+        const amount = counter && data.type === 3 ? record.raw_delta : historyNumber(counter ? record.delta : record.average, '', 3);
+        return [new Date(record.start_utc * 1000).toLocaleString(currentWebLocaleTag(), { timeZone: 'UTC' }) + (record.current ? ' · ' + historyText('ongoing', 'En cours') : ''),
+          amount, counter ? flags.join(' · ') || '—' : historyNumber(record.min, '', 3) + ' / ' + historyNumber(record.max, '', 3),
+          counter ? '—' : historyNumber(record.coverage_ms / 60000, 'min', 1)];
+      }));
+      body.parentElement.createCaption().textContent = historyText('value', 'Valeur') + ' #' + data.id + ' · ' +
+        (data.daily ? historyText('daily', 'Journalière') : historyText('hourly', 'Horaire'));
+    }
+    function renderHistoryChart(host, data) {
+      const records = (data.records || []).slice().reverse();
+      if (!records.length) { host.replaceChildren(); host.textContent = historyText('empty', 'Aucune période disponible pour cette valeur.'); return; }
+      const counter = data.mode === 2;
+      const value = record => counter ? Number(record.delta || 0) : Number(record.average || 0);
+      const width = 720, height = 260, padLeft = 56, padRight = 12, padTop = 14, padBottom = 28;
+      const plotWidth = width - padLeft - padRight, plotHeight = height - padTop - padBottom;
+      let low, high;
+      if (counter) {
+        low = 0;
+        high = Math.max(0, ...records.map(record => Number(record.delta) || 0));
+        if (high < 1e-9) high = 1;
+      } else {
+        low = Math.min(...records.map(record => Number(record.min)));
+        high = Math.max(...records.map(record => Number(record.max)));
+        if (!Number.isFinite(low) || !Number.isFinite(high) || high - low < 1e-9) {
+          low = Math.min(Number.isFinite(low) ? low : 0, 0) - 1;
+          high = Math.max(Number.isFinite(high) ? high : 0, 0) + 1;
+        }
+      }
+      const scaleY = v => padTop + (high - v) / (high - low) * plotHeight;
+      const slot = plotWidth / records.length;
+      const item = historyView.values.find(entry => Number(entry.id) === Number(data.id));
+      const name = item ? (item.name || ('#' + data.id)) : ('#' + data.id);
+      const svg = historySvgElement('svg', { viewBox: `0 0 ${width} ${height}`, class: 'history-chart', role: 'group', 'aria-label': name });
+      const gridCount = 4;
+      for (let i = 0; i <= gridCount; i++) {
+        const y = padTop + plotHeight * i / gridCount;
+        svg.appendChild(historySvgElement('line', { x1: padLeft, y1: y, x2: width - padRight, y2: y, class: 'grid' }));
+        const label = historySvgElement('text', { x: padLeft - 6, y: y + 3, 'text-anchor': 'end' });
+        label.textContent = historyNumber(low + (high - low) * (gridCount - i) / gridCount, '', 2);
+        svg.appendChild(label);
+      }
+      records.forEach((record, index) => {
+        const center = padLeft + slot * (index + 0.5);
+        if (counter) {
+          const top = scaleY(value(record));
+          svg.appendChild(historySvgElement('rect', { x: center - Math.max(1, slot * 0.3), y: top, width: Math.max(2, slot * 0.6), height: Math.max(0, scaleY(0) - top), class: 'bar' }));
+        } else {
+          const previous = index > 0 ? value(records[index - 1]) : value(record);
+          const trend = value(record) > previous ? 'up' : value(record) < previous ? 'down' : 'flat';
+          svg.appendChild(historySvgElement('line', { x1: center, y1: scaleY(record.min), x2: center, y2: scaleY(record.max), class: 'range ' + trend }));
+          const tick = Math.max(2, slot * 0.3);
+          svg.appendChild(historySvgElement('line', { x1: center - tick, y1: scaleY(value(record)), x2: center + tick, y2: scaleY(value(record)), class: 'avg' }));
+        }
+        const hit = historySvgElement('rect', { x: padLeft + slot * index, y: padTop, width: slot, height: plotHeight, class: 'hit', role: 'button', tabindex: '0' });
+        const title = historySvgElement('title');
+        title.textContent = historyHourLabel(record) + ' · ' + historyRecordRows(data.mode, record).map(row => row[0] + ' ' + row[1]).join(' · ');
+        hit.appendChild(title);
+        const open = () => showHistoryDetail(name, historyHourLabel(record), historyRecordRows(data.mode, record));
+        hit.addEventListener('click', open);
+        hit.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); } });
+        svg.appendChild(hit);
+      });
+      records.forEach((record, index) => {
+        if (index % 6 !== 0 && index !== records.length - 1) return;
+        const label = historySvgElement('text', { x: padLeft + slot * (index + 0.5), y: height - 8, 'text-anchor': 'middle' });
+        label.textContent = historyHourTick(record);
+        svg.appendChild(label);
+      });
+      host.replaceChildren(svg);
+    }
+    function renderHistoryValue() {
+      const host = document.getElementById('historyValues');
+      if (!host || !historyValueData) return;
+      if (historyValueView === 'table') renderHistoryValueTable(host, historyValueData);
+      else renderHistoryChart(host, historyValueData);
+    }
+    function setHistoryValueView(view) {
+      historyValueView = view === 'table' ? 'table' : 'chart';
+      document.querySelectorAll('.history-view-btn').forEach(button => {
+        const active = button.dataset.historyView === historyValueView;
+        button.classList.toggle('is-active', active);
+        button.setAttribute('aria-pressed', String(active));
+      });
+      renderHistoryValue();
     }
     function renderPoolHistory(data) {
-      historyView.days = Array.isArray(data.days) ? data.days : [];
-      const heading = [historyText('day', 'Jour'), historyText('water', 'Eau') + ' · ' + historyText('average', 'Moyenne'),
-        'pH', historyText('filtration', 'Filtration'), historyText('heating', 'Chauffage'),
-        historyText('refill', 'Appoint estimé'), historyText('refills', 'Appoints')];
-      const rows = historyView.days.map((day, index) => [historyDate(day.date),
-        historyNumber(day.metrics?.[0]?.average, '°C'), historyNumber(day.metrics?.[2]?.average, '', 2),
-        ...['filtration', 'heating'].map(key => historyNumber(day[key]?.seconds == null ? null : day[key].seconds / 3600, 'h', 2)),
-        historyNumber(day.refill_litres, 'L'), historyNumber(day.refill_events, '', 0)]);
-      const body = historyTable(document.getElementById('historyDays'), heading, rows);
-      [...body.rows].forEach((row, index) => {
-        const day = historyView.days[index]; const button = document.createElement('button');
-        button.className = 'btn-tonal'; button.textContent = historyDate(day.date) + (index === 0 ? ' · ' + historyText('today', 'Aujourd’hui') : '');
-        button.disabled = !day.valid;
-        button.setAttribute('aria-pressed', String(index === historyView.selected));
-        button.addEventListener('click', () => { historyView.selected = index; renderPoolHistory(data); });
-        row.cells[0].replaceChildren(button);
-      });
-      renderHistoryDay();
+      historyView.values = Array.isArray(data.values) ? data.values : [];
+      renderHistoryWeek();
       const select = document.getElementById('historyValueId'); const selected = select.value;
       select.replaceChildren();
-      const groups = [historyText('analog', 'Analogique'), historyText('digital', 'Entrée'), historyText('rate', 'Débit brut'),
-        historyText('total', 'Total converti'), historyText('convertedRate', 'Débit converti'), historyText('derived', 'Valeur dérivée')];
+      const groupHosts = new Map();
       (data.values || []).forEach(value => {
-        const id = Number(value.id); const group = id < 32 ? 0 : 1 + Math.floor((id - 32) / 16);
-        const base = [0, 32, 48, 64, 80, 96][group];
+        const id = Number(value.id); const groupName = String(value.group || '');
+        let host = groupHosts.get(groupName);
+        if (!host) {
+          host = document.createElement('optgroup'); host.label = groupName;
+          groupHosts.set(groupName, host); select.appendChild(host);
+        }
+        const markers = [];
+        if (value.pending_restart === true) markers.push(historyText('pendingRestart', 'Redémarrage requis'));
         const option = document.createElement('option'); option.value = String(id);
-        option.textContent = `${groups[group]} ${id - base + 1} · #${id}`; select.appendChild(option);
+        option.textContent = (value.name || ('#' + id)) + markers.map(marker => ' · ' + marker).join('');
+        host.appendChild(option);
       });
       if ([...select.options].some(option => option.value === selected)) select.value = selected;
       document.getElementById('historyValueRead').disabled = !select.options.length;
@@ -1876,22 +2013,10 @@
           renderPoolHistory(data);
           status.textContent = data.ready ? historyText('updated', 'Données actualisées. Les tirets indiquent une absence de mesure.') : historyText('waiting', 'Historique en attente de données ou d’une heure valide.');
         } else {
-          const records = data.records || [];
-          const counter = data.mode === 2;
-          const unit = ['', historyText('pulses', 'impulsions'), historyText('pulsesMinute', 'impulsions/min')][data.unit || 0] || '';
-          const headings = [historyText('periodUtc', 'Période (UTC)'), (counter ? historyText('delta', 'Variation') : historyText('average', 'Moyenne')) + (unit ? ' · ' + unit : ''),
-            counter ? historyText('continuity', 'Continuité') : 'Min / Max', historyText('coverage', 'Couverture')];
-          const resultBody = historyTable(document.getElementById('historyValues'), headings, records.map(record => {
-            const flags = [];
-            if (record.discontinuities) flags.push(historyText('reset', 'Ruptures') + ': ' + record.discontinuities);
-            if (record.boundary_uncertain) flags.push(historyText('uncertain', 'Répartition entre périodes incertaine'));
-            const amount = counter && data.type === 3 ? record.raw_delta : historyNumber(counter ? record.delta : record.average, '', 3);
-            return [new Date(record.start_utc * 1000).toLocaleString(currentWebLocaleTag(), { timeZone: 'UTC' }) + (record.current ? ' · ' + historyText('ongoing', 'En cours') : ''),
-              amount, counter ? flags.join(' · ') || '—' : historyNumber(record.min, '', 3) + ' / ' + historyNumber(record.max, '', 3),
-              counter ? '—' : historyNumber(record.coverage_ms / 60000, 'min', 1)];
-          }));
-          resultBody.parentElement.createCaption().textContent = historyText('value', 'Valeur') + ' #' + id + ' · ' + (daily === '1' ? historyText('daily', 'Journalière') : historyText('hourly', 'Horaire'));
-          status.textContent = records.length ? historyText('updated', 'Données actualisées. Les tirets indiquent une absence de mesure.') : historyText('empty', 'Aucune période disponible pour cette valeur.');
+          data.daily = daily === '1';
+          historyValueData = data;
+          renderHistoryValue();
+          status.textContent = (data.records || []).length ? historyText('updated', 'Données actualisées. Les tirets indiquent une absence de mesure.') : historyText('empty', 'Aucune période disponible pour cette valeur.');
         }
       } catch (error) {
         if (sequence === historyView.sequence) status.textContent = historyText('error', 'Historique indisponible') + ' · ' + historyText('retry', 'Réessayez avec Actualiser. Les données déjà affichées ne sont pas actualisées.');
@@ -1907,6 +2032,14 @@
     }
     document.getElementById('historyRefresh')?.addEventListener('click', () => loadHistory(false));
     document.getElementById('historyValueRead')?.addEventListener('click', () => loadHistory(true));
+    document.querySelectorAll('.history-view-btn').forEach(button => {
+      button.addEventListener('click', () => setHistoryValueView(button.dataset.historyView));
+    });
+    setHistoryValueView(historyValueView);
+    document.getElementById('historyDetailClose')?.addEventListener('click', () => document.getElementById('historyDetailDialog')?.close());
+    document.getElementById('historyDetailDialog')?.addEventListener('click', (event) => {
+      if (event.target === event.currentTarget) event.currentTarget.close();
+    });
 
     function showPage(pageId, options) {
       if (isAdminOnlyPage(pageId) && !isAdminSession()) {
@@ -1952,6 +2085,9 @@
         schedulePageTask(pageId, pageToken, deferredHeavyMs, () => onIoSummaryPageShown());
       } else {
         stopIoSummaryTimer();
+      }
+      if (pageId === 'page-data-values') {
+        schedulePageTask(pageId, pageToken, deferredHeavyMs, () => loadDataValuesPage());
       }
       if (pageId === 'page-derived-values') {
         schedulePageTask(pageId, pageToken, deferredHeavyMs, () => onDerivedValuesPageShown());
@@ -2142,8 +2278,6 @@
     const poolAiResultTitle = document.getElementById('poolAiResultTitle');
     const poolAiStatus = document.getElementById('poolAiStatus');
     const poolAiInsightText = document.getElementById('poolAiInsightText');
-    const poolAiWeatherText = document.getElementById('poolAiWeatherText');
-    const poolAiPromptText = document.getElementById('poolAiPromptText');
     const calibrationSensorSelect = document.getElementById('calibrationSensorSelect');
     const calibrationLoadBtn = document.getElementById('calibrationLoadBtn');
     const calibrationComputeBtn = document.getElementById('calibrationComputeBtn');
@@ -2225,7 +2359,6 @@
     let cfgTreeNodeTextNames = {};
     let cfgTreeNodeTextNamePending = new Set();
     const poolLogicDeviceIoOutputNames = {};
-    const ioDerivedValueInfo = {};
     const ioOutputPdmLabels = Object.freeze({
       0: 'Filtration',
       1: 'Pompe pH',
@@ -6194,7 +6327,7 @@
     }
 
     function registerRuntimeManifestEntry(cache, entry) {
-      if (!entry || !Number.isFinite(Number(entry.id))) return;
+      if (!entry || entry.selectableOnly === true || !Number.isFinite(Number(entry.id))) return;
       const domainKey = normalizeRuntimeManifestDomainKey(entry.domain);
       if (!domainKey || !Array.isArray(cache[domainKey])) return;
       cache[domainKey].push(entry);
@@ -8841,9 +8974,9 @@
     // The hero always shows the three vital measurements (water, pH, disinfection),
     // resolved through the runtime manifest semantic keys rather than labels.
     const dashboardGaugeDefs = Object.freeze([
-      Object.freeze({ key: 'pool.water_temp', accent: '#ffb057' }),
+      Object.freeze({ key: 'pool.water_temp', accent: '#46d3ee' }),
       Object.freeze({ key: 'pool.ph', accent: '#4fd1a5' }),
-      Object.freeze({ key: 'pool.orp', accent: '#46d3ee' })
+      Object.freeze({ key: 'pool.orp', accent: '#ffb057' })
     ]);
 
     function buildDashboardGauge(slot, accent) {
@@ -9735,16 +9868,6 @@
           : '';
         poolAiResultTitle.dataset.generatedAt = generatedAt;
         refreshPoolAiResultTitle();
-      }
-      if (poolAiWeatherText) {
-        poolAiWeatherText.textContent = String(payload && payload.weather_text ? payload.weather_text : '—');
-      }
-      if (poolAiPromptText) {
-        const instructions = String(payload && payload.instructions ? payload.instructions : '');
-        const input = String(payload && payload.prompt ? payload.prompt : '');
-        poolAiPromptText.textContent = instructions && input
-          ? instructions + '\n\nDONNÉES DYNAMIQUES ENVOYÉES\n\n' + input
-          : (instructions || input || '—');
       }
       const enabled = !!(payload && payload.enabled === true);
       const apiKeyConfigured = !!(payload && payload.api_key_configured === true);
@@ -11509,14 +11632,20 @@
       return !doc || String(doc.enum_set || '').trim() === 'poollogic_device_slot';
     }
 
+    function poolLogicDeviceDisplayName(slot) {
+      const n = Number.parseInt(slot, 10);
+      if (!Number.isFinite(n)) return '';
+      const ioName = typeof poolLogicDeviceIoOutputNames[n] === 'string'
+        ? poolLogicDeviceIoOutputNames[n].trim()
+        : '';
+      return ioName || String(ioOutputPdmLabels[n] || '').trim();
+    }
+
     function poolLogicDeviceSlotLabel(slot, fallback) {
       const n = Number.parseInt(slot, 10);
       const ref = poolLogicDeviceSlotRef(n);
       if (!ref) return String(fallback || slot);
-      const ioName = typeof poolLogicDeviceIoOutputNames[n] === 'string'
-        ? poolLogicDeviceIoOutputNames[n].trim()
-        : '';
-      const baseName = ioName || String(ioOutputPdmLabels[n] || '').trim();
+      const baseName = poolLogicDeviceDisplayName(n);
       const suffix = baseName ? (' [' + baseName + ']') : '';
       return 'pd' + String(n) + ' - ' + ref + suffix;
     }
@@ -11544,54 +11673,21 @@
       return !!doc && String(doc.enum_set || '').trim() === 'tft_s3_dashboard_runtime_ui';
     }
 
-    function derivedSlotFromEnumOption(opt) {
-      if (!opt || typeof opt !== 'object') return -1;
-      const slot = Number.parseInt(opt.derived_slot, 10);
-      return Number.isFinite(slot) ? slot : -1;
-    }
-
     function dynamicTftRuntimeUiOptions(enumOptions) {
       if (!Array.isArray(enumOptions)) return enumOptions;
       const out = [];
       enumOptions.forEach((opt) => {
-        const slot = derivedSlotFromEnumOption(opt);
-        if (slot < 0) {
-          out.push(opt);
+        const item = dataValueCatalog.find(value => value.id === opt.data_value_id ||
+          (Array.isArray(value.runtime_ids) && value.runtime_ids.includes(Number(opt.value))));
+        if ((Number.isInteger(opt.data_value_id) || item) &&
+            (!item || item.available !== true || item.usable !== true)) return;
+        if (Number.isInteger(opt.data_value_id) || item) {
+          out.push(item ? Object.assign({}, opt, { label: item.name + (item.unit ? ' (' + item.unit + ')' : '') }) : opt);
           return;
         }
-        const info = ioDerivedValueInfo[slot];
-        if (!info) {
-          out.push(opt);
-          return;
-        }
-        if (info.enabled !== true) return;
-        const fallback = (typeof opt.label === 'string' && opt.label.length > 0)
-          ? opt.label
-          : ('V' + String(slot).padStart(2, '0'));
-        out.push(Object.assign({}, opt, { label: (info.name || fallback) + ' [' + opt.value + ']' }));
+        out.push(opt);
       });
       return out;
-    }
-
-    async function loadIoDerivedValueInfo(derivedSlots) {
-      const pending = [];
-      derivedSlots.forEach((slot) => {
-        if (!Number.isFinite(slot) || slot < 0) return;
-        const moduleName = 'io/value/v' + String(slot).padStart(2, '0');
-        pending.push((async () => {
-          try {
-            const { res, data: payload } = await fetchJsonResponse(
-              '/api/flowcfg/module?name=' + encodeURIComponent(moduleName),
-              { cache: 'no-store' }
-            );
-            if (!res.ok || !payload || payload.ok !== true || !payload.data || typeof payload.data !== 'object') return;
-            const name = typeof payload.data.name === 'string' ? payload.data.name.trim() : '';
-            ioDerivedValueInfo[slot] = { enabled: payload.data.enabled === true, name: name };
-          } catch (err) {
-          }
-        })());
-      });
-      await Promise.all(pending);
     }
 
     // ---------- Derived values page ----------
@@ -11602,6 +11698,503 @@
     const derivedValueSnapshotKeys = ['enabled', 'name', 'unit', 'precision', 'expr', 'aggregation', ...derivedValueCoefficientKeys];
     let derivedValuesState = null;
     let derivedCounterInputs = [];
+    let dataValueCatalog = [];
+    let dataExposureEdits = [];
+    let dataIntroExpanded = false;
+    let dataUnavailableExpanded = false;
+    const dataExposureFields = ['ha', 'history', 'usable'];
+    function dataExposurePatch(entries) {
+      const patch = {};
+      entries.forEach(entry => {
+        const changes = {};
+        if (entry.ha !== entry.originalHa) changes.publish_ha = entry.ha;
+        if (entry.history !== entry.originalHistory) changes.history = entry.history;
+        if (entry.usable !== entry.originalUsable) changes.usable = entry.usable;
+        if (Object.keys(changes).length) patch[entry.path] = changes;
+      });
+      return patch;
+    }
+    async function loadDataValuesPage() {
+      const status = document.getElementById('dataValuesStatus');
+      const container = document.getElementById('dataValuesList');
+      if (!status || !container) return;
+      status.className = 'config-status';
+      status.textContent = tr('data.loading', 'Chargement…');
+      try {
+        await loadDataValueCatalog();
+        dataExposureEdits = [];
+        container.replaceChildren();
+        const entriesById = new Map();
+        dataValueCatalog.forEach((item) => {
+          const entry = {
+            path: item.config_path,
+            available: item.available === true,
+            ha: item.configured_publish_ha === true,
+            history: item.configured_history === true,
+            usable: item.configured_usable === true,
+            originalHa: item.configured_publish_ha === true,
+            originalHistory: item.configured_history === true,
+            originalUsable: item.configured_usable === true
+          };
+          dataExposureEdits.push(entry);
+          entriesById.set(item.id, entry);
+        });
+        const available = dataValueCatalog.filter((item) => item.available === true);
+        const unavailable = dataValueCatalog.filter((item) => item.available !== true);
+        if (available.length) {
+          container.appendChild(buildDataValuesCard(available, entriesById, {
+            title: tr('data.sectionAvailable', 'Données disponibles'),
+            hint: tr('data.availableHint', 'Valeurs mesurées en direct'),
+            unavailable: false
+          }));
+        }
+        if (unavailable.length) {
+          container.appendChild(buildDataValuesCard(unavailable, entriesById, {
+            title: tr('data.sectionUnavailable', 'Données indisponibles'),
+            hint: tr('data.unavailableHint', 'Entrées configurées sans mesure'),
+            note: tr('data.unavailableNote', 'Ces entrées sont configurées mais ne renvoient aucune mesure. Leur exposition reste modifiable et prendra effet au redémarrage.'),
+            unavailable: true
+          }));
+        }
+        renderDataValuesIntro();
+        renderDataValuesChips();
+        applyDataValuesFilter();
+        updateDataValuesDirtyState();
+        status.textContent = '';
+      } catch (error) {
+        status.className = 'config-status is-error';
+        status.textContent = String(error);
+      }
+      bindDataValuesToolbar();
+    }
+    async function applyDataExposure() {
+      const button = document.getElementById('dataValuesApply');
+      const reload = document.getElementById('dataValuesReload');
+      const status = document.getElementById('dataValuesStatus');
+      const patch = dataExposurePatch(dataExposureEdits);
+      if (!Object.keys(patch).length) {
+        status.className = 'config-status';
+        status.textContent = tr('data.noChanges', 'Aucune modification.');
+        return;
+      }
+      if (button) button.disabled = true;
+      if (reload) reload.disabled = true;
+      const controls = document.querySelectorAll('#dataValuesList .data-values-cap');
+      controls.forEach(control => { control.disabled = true; });
+      try {
+        const response = await fetchJsonResponse('/api/flowcfg/apply', createFormPostOptions({ patch: JSON.stringify(patch) }));
+        if (!response.res.ok || !response.data || !response.data.ok) throw new Error(extractApiErrorMessage(response.data, tr('data.failed', 'Enregistrement échoué')));
+        dataExposureEdits.forEach(entry => { entry.originalHa = entry.ha; entry.originalHistory = entry.history; entry.originalUsable = entry.usable; });
+        status.className = 'config-status is-ok';
+        status.textContent = tr('data.saved', 'Enregistré. Redémarrage requis pour appliquer les capacités des données.');
+      } catch (error) {
+        status.className = 'config-status is-error';
+        status.textContent = String(error);
+      }
+      finally {
+        if (reload) reload.disabled = false;
+        controls.forEach(control => { control.disabled = false; });
+        updateDataValuesDirtyState();
+      }
+    }
+
+    const dataValueCapIcons = {
+      ha: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11 12 4l8 7"/><path d="M6.5 10v9h11v-9"/></svg>',
+      history: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/></svg>',
+      usable: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="12" rx="2"/><path d="M9 20h6M12 17v3"/></svg>'
+    };
+
+    function dataValueBulkLabel(field) {
+      if (field === 'ha') return tr('data.enableAllHa', 'Tout exposer HA');
+      if (field === 'history') return tr('data.enableAllHistory', 'Tout historiser');
+      return tr('data.enableAllInterface', 'Tout rendre utilisable');
+    }
+
+    function dataValueFieldLabel(field) {
+      if (field === 'ha') return tr('data.ha', 'Envoyé dans HA');
+      if (field === 'history') return tr('data.history', 'Historisé');
+      return tr('data.usable', 'Utilisable dans GUI, Web, TFT et valeurs calculées');
+    }
+
+    function dataValueOriginalField(entry, field) {
+      if (field === 'ha') return entry.originalHa;
+      if (field === 'history') return entry.originalHistory;
+      return entry.originalUsable;
+    }
+
+    function formatDataValueDisplay(item) {
+      if (item.available !== true) return null;
+      const raw = item.value;
+      if (raw === null || typeof raw === 'undefined') return null;
+      if (typeof raw === 'number' && Number.isFinite(raw)) {
+        const precision = Number(item.precision);
+        return formatRuntimeFloatValue(raw, Number.isFinite(precision) && precision >= 0 ? precision : null);
+      }
+      return String(raw);
+    }
+
+    function dataValueStateBadge(item) {
+      let tone = null;
+      let label = null;
+      if (item.pending_restart === true) { tone = 'is-restart'; label = tr('data.restart', 'Redémarrage requis'); }
+      else if (item.estimated === true) { tone = 'is-live'; label = tr('data.estimated', 'Estimation'); }
+      if (!tone) return null;
+      const badge = document.createElement('span');
+      badge.className = 'data-value-badge ' + tone;
+      badge.textContent = label;
+      return badge;
+    }
+
+    function buildDataValueCap(item, entry, field) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'data-values-cap';
+      button.innerHTML = dataValueCapIcons[field];
+      const label = dataValueFieldLabel(field);
+      button.setAttribute('title', label);
+      button.setAttribute('aria-label', item.name + ' — ' + label);
+      const sync = () => {
+        const on = entry[field] === true;
+        button.classList.toggle('is-on', on);
+        button.setAttribute('aria-pressed', String(on));
+      };
+      sync();
+      button.addEventListener('click', () => {
+        entry[field] = entry[field] !== true;
+        sync();
+        updateDataValuesDirtyState();
+      });
+      if (!entry.controls) entry.controls = {};
+      entry.controls[field] = { setChecked: (value) => { entry[field] = value; sync(); } };
+      return button;
+    }
+
+    function buildDataValueRow(item, entry) {
+      const row = document.createElement('tr');
+      row.dataset.search = (String(item.name) + ' ' + String(item.reference)).toLowerCase();
+
+      const nameCell = document.createElement('td');
+      nameCell.className = 'data-value-name-cell';
+      const nameWrap = document.createElement('div');
+      nameWrap.className = 'data-value-name';
+      const dot = document.createElement('span');
+      dot.className = 'data-values-dot' + (item.available === true ? ' is-ok' : '');
+      dot.setAttribute('aria-hidden', 'true');
+      nameWrap.appendChild(dot);
+      const texts = document.createElement('span');
+      texts.className = 'data-value-name-texts';
+      const nameText = document.createElement('span');
+      nameText.className = 'data-value-name-text';
+      nameText.textContent = item.name;
+      const refText = document.createElement('span');
+      refText.className = 'data-value-name-ref';
+      refText.textContent = item.reference;
+      texts.appendChild(nameText);
+      texts.appendChild(refText);
+      nameWrap.appendChild(texts);
+      nameCell.appendChild(nameWrap);
+      row.appendChild(nameCell);
+
+      const valueCell = document.createElement('td');
+      valueCell.className = 'data-value-value-cell';
+      const display = formatDataValueDisplay(item);
+      if (display === null) {
+        const unavailable = document.createElement('span');
+        unavailable.className = 'data-value-unavailable';
+        unavailable.textContent = tr('data.unavailable', 'Indisponible');
+        valueCell.appendChild(unavailable);
+      } else {
+        const figure = document.createElement('span');
+        figure.className = 'data-value-figure';
+        const number = document.createElement('span');
+        number.className = 'data-value-number';
+        number.textContent = display;
+        figure.appendChild(number);
+        if (item.unit) {
+          const unit = document.createElement('span');
+          unit.className = 'data-value-unit';
+          unit.textContent = item.unit;
+          figure.appendChild(unit);
+        }
+        valueCell.appendChild(figure);
+      }
+      row.appendChild(valueCell);
+
+      const capsCell = document.createElement('td');
+      capsCell.className = 'data-value-caps-cell';
+      const caps = document.createElement('span');
+      caps.className = 'data-values-caps';
+      dataExposureFields.forEach((field) => caps.appendChild(buildDataValueCap(item, entry, field)));
+      capsCell.appendChild(caps);
+      row.appendChild(capsCell);
+
+      const stateCell = document.createElement('td');
+      stateCell.className = 'data-value-state-cell';
+      const badge = dataValueStateBadge(item);
+      if (badge) stateCell.appendChild(badge);
+      row.appendChild(stateCell);
+      return row;
+    }
+
+    function buildDataValuesCard(items, entriesById, options) {
+      const card = document.createElement('section');
+      card.className = 'data-values-card' + (options.unavailable ? ' is-unavailable' : '');
+
+      const head = document.createElement('div');
+      head.className = 'data-values-card-head';
+      let collapseButton = null;
+      let collapseGlyph = null;
+      if (options.unavailable) {
+        collapseButton = document.createElement('button');
+        collapseButton.type = 'button';
+        collapseButton.className = 'data-values-collapse-btn';
+        collapseButton.setAttribute('aria-label', tr('data.toggleUnavailable', 'Afficher ou masquer les données indisponibles'));
+        collapseButton.setAttribute('aria-expanded', dataUnavailableExpanded ? 'true' : 'false');
+        collapseGlyph = document.createElement('span');
+        collapseGlyph.className = 'data-values-collapse-glyph';
+        collapseGlyph.textContent = dataUnavailableExpanded ? '-' : '+';
+        collapseButton.appendChild(collapseGlyph);
+        head.appendChild(collapseButton);
+        const icon = document.createElement('span');
+        icon.className = 'data-values-card-icon';
+        icon.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5"/><path d="M12 8h.01"/></svg>';
+        head.appendChild(icon);
+      }
+      const title = document.createElement('h2');
+      title.textContent = options.title;
+      head.appendChild(title);
+      const count = document.createElement('span');
+      count.className = 'data-values-card-count';
+      count.textContent = String(items.length);
+      head.appendChild(count);
+      const spacer = document.createElement('span');
+      spacer.className = 'data-values-card-spacer';
+      head.appendChild(spacer);
+      const hint = document.createElement('span');
+      hint.className = 'data-values-card-hint';
+      hint.textContent = options.hint;
+      head.appendChild(hint);
+      card.appendChild(head);
+
+      const wrap = document.createElement('div');
+      wrap.className = 'data-values-table-wrap';
+      const table = document.createElement('table');
+      table.className = 'data-values-table';
+      const thead = document.createElement('thead');
+      const headRow = document.createElement('tr');
+      const nameTh = document.createElement('th');
+      nameTh.textContent = tr('data.name', 'Donnée');
+      headRow.appendChild(nameTh);
+      const valueTh = document.createElement('th');
+      valueTh.textContent = tr('data.value', 'Valeur');
+      headRow.appendChild(valueTh);
+      const capsTh = document.createElement('th');
+      capsTh.className = 'data-values-col-caps';
+      const capsHead = document.createElement('div');
+      capsHead.className = 'data-values-caps-head';
+      const capsLabel = document.createElement('span');
+      capsLabel.className = 'data-values-caps-label';
+      capsLabel.textContent = tr('data.colDiffusion', 'Diffusion');
+      capsHead.appendChild(capsLabel);
+      const capsAll = document.createElement('span');
+      capsAll.className = 'data-values-caps';
+      dataExposureFields.forEach((field) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'data-values-cap-all';
+        button.innerHTML = dataValueCapIcons[field];
+        button.setAttribute('title', dataValueBulkLabel(field));
+        button.setAttribute('aria-label', dataValueBulkLabel(field));
+        button.addEventListener('click', () => setDataValuesExposureAll(field, true));
+        capsAll.appendChild(button);
+      });
+      capsHead.appendChild(capsAll);
+      capsTh.appendChild(capsHead);
+      headRow.appendChild(capsTh);
+      const stateTh = document.createElement('th');
+      stateTh.textContent = tr('data.state', 'État');
+      headRow.appendChild(stateTh);
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      items.forEach((item) => tbody.appendChild(buildDataValueRow(item, entriesById.get(item.id))));
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      card.appendChild(wrap);
+
+      let note = null;
+      if (options.note) {
+        note = document.createElement('div');
+        note.className = 'data-values-note';
+        const noteIcon = document.createElement('span');
+        noteIcon.className = 'data-values-note-icon';
+        noteIcon.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5"/><path d="M12 8h.01"/></svg>';
+        const noteText = document.createElement('span');
+        noteText.textContent = options.note;
+        note.appendChild(noteIcon);
+        note.appendChild(noteText);
+        card.appendChild(note);
+      }
+
+      if (collapseButton) {
+        const applyCollapsed = (collapsed) => {
+          wrap.hidden = collapsed;
+          if (note) note.hidden = collapsed;
+          collapseGlyph.textContent = collapsed ? '+' : '-';
+          collapseButton.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        };
+        applyCollapsed(!dataUnavailableExpanded);
+        collapseButton.addEventListener('click', () => {
+          dataUnavailableExpanded = !dataUnavailableExpanded;
+          applyCollapsed(!dataUnavailableExpanded);
+        });
+      }
+      return card;
+    }
+
+    function renderDataValuesChips() {
+      const host = document.getElementById('dataValuesChips');
+      if (!host) return;
+      host.replaceChildren();
+      const available = dataExposureEdits.filter((entry) => entry.available === true).length;
+      const unavailable = dataExposureEdits.length - available;
+      const countExposed = (field) => dataExposureEdits.filter((entry) => entry.available === true && entry[field] === true).length;
+      const chips = [
+        { label: tr('data.chipAvailable', 'disponibles'), value: available, tone: 'is-ok' },
+        { label: tr('data.chipUnavailable', 'indisponibles'), value: unavailable, tone: 'is-warn' },
+        { label: tr('data.chipHa', 'exposées HA'), value: countExposed('ha'), tone: '' },
+        { label: tr('data.chipHistory', 'historisées'), value: countExposed('history'), tone: '' },
+        { label: tr('data.chipInterface', 'utilisables'), value: countExposed('usable'), tone: '' }
+      ];
+      chips.forEach((chip) => {
+        const node = document.createElement('span');
+        node.className = 'data-values-chip' + (chip.tone ? ' ' + chip.tone : '');
+        const dot = document.createElement('span');
+        dot.className = 'data-values-chip-dot';
+        const value = document.createElement('b');
+        value.textContent = String(chip.value);
+        const label = document.createElement('span');
+        label.textContent = chip.label;
+        node.appendChild(dot);
+        node.appendChild(value);
+        node.appendChild(label);
+        host.appendChild(node);
+      });
+    }
+
+    function renderDataValuesIntro() {
+      const host = document.getElementById('dataValuesIntro');
+      if (!host) return;
+      host.replaceChildren();
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'derived-intro-toggle';
+      toggle.setAttribute('aria-expanded', dataIntroExpanded ? 'true' : 'false');
+      const chevron = document.createElement('span');
+      chevron.className = 'derived-intro-chevron' + (dataIntroExpanded ? ' is-open' : '');
+      chevron.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+      const label = document.createElement('span');
+      label.textContent = dataIntroExpanded
+        ? tr('data.introLess', 'Masquer les détails')
+        : tr('data.introMore', 'Comprendre l’exposition & le redémarrage');
+      toggle.appendChild(chevron);
+      toggle.appendChild(label);
+      host.appendChild(toggle);
+
+      const details = document.createElement('div');
+      details.className = 'derived-intro-details';
+      details.hidden = !dataIntroExpanded;
+      const scope = document.createElement('p');
+      scope.className = 'derived-intro-lead';
+      scope.textContent = tr('data.introScope', 'Home Assistant publie la donnée, l’historique l’enregistre et l’interface la rend sélectionnable dans les champs TFT/Web et les formules. Les trois réglages sont indépendants.');
+      details.appendChild(scope);
+      const list = document.createElement('ul');
+      list.className = 'derived-intro-list';
+      [tr('data.introRestart', 'Les changements d’exposition prennent effet après redémarrage.'),
+       tr('data.introMigration', 'Pour remplacer un ancien montage IOSlot → valeur calculée, sélectionnez la donnée d’origine dans vos champs puis désactivez ici les publications intermédiaires inutiles.')].forEach((text) => {
+        const listItem = document.createElement('li');
+        listItem.textContent = text;
+        list.appendChild(listItem);
+      });
+      details.appendChild(list);
+      host.appendChild(details);
+
+      toggle.addEventListener('click', () => {
+        dataIntroExpanded = !dataIntroExpanded;
+        details.hidden = !dataIntroExpanded;
+        toggle.setAttribute('aria-expanded', dataIntroExpanded ? 'true' : 'false');
+        chevron.classList.toggle('is-open', dataIntroExpanded);
+        label.textContent = dataIntroExpanded
+          ? tr('data.introLess', 'Masquer les détails')
+          : tr('data.introMore', 'Comprendre l’exposition & le redémarrage');
+      });
+    }
+
+    function applyDataValuesFilter() {
+      const search = document.getElementById('dataValuesSearch');
+      const query = search ? String(search.value || '').trim().toLowerCase() : '';
+      document.querySelectorAll('#dataValuesList .data-values-card').forEach((card) => {
+        let visible = 0;
+        card.querySelectorAll('tbody tr').forEach((row) => {
+          const match = query.length === 0 || String(row.dataset.search || '').indexOf(query) !== -1;
+          row.hidden = !match;
+          if (match) visible += 1;
+        });
+        card.hidden = visible === 0;
+      });
+    }
+
+    function dataValuesDirtyCount() {
+      let count = 0;
+      dataExposureEdits.forEach((entry) => {
+        dataExposureFields.forEach((field) => {
+          if (entry[field] !== dataValueOriginalField(entry, field)) count += 1;
+        });
+      });
+      return count;
+    }
+
+    function updateDataValuesDirtyState() {
+      const dirty = document.getElementById('dataValuesDirty');
+      const apply = document.getElementById('dataValuesApply');
+      const count = dataValuesDirtyCount();
+      if (dirty) {
+        dirty.hidden = count === 0;
+        dirty.textContent = count > 0
+          ? count + ' ' + tr(count > 1 ? 'data.changesMany' : 'data.changesOne',
+                              count > 1 ? 'modifications non enregistrées' : 'modification non enregistrée')
+          : '';
+      }
+      if (apply) apply.disabled = count === 0;
+      renderDataValuesChips();
+    }
+
+    function setDataValuesExposureAll(field, value) {
+      dataExposureEdits.forEach((entry) => {
+        entry[field] = value;
+        if (entry.controls && entry.controls[field]) entry.controls[field].setChecked(value);
+      });
+      updateDataValuesDirtyState();
+    }
+
+    function bindDataValuesToolbar() {
+      const search = document.getElementById('dataValuesSearch');
+      if (search) search.oninput = applyDataValuesFilter;
+      const reload = document.getElementById('dataValuesReload');
+      if (reload) reload.onclick = loadDataValuesPage;
+      const apply = document.getElementById('dataValuesApply');
+      if (apply) apply.onclick = applyDataExposure;
+    }
+
+    async function loadDataValueCatalog() {
+      const response = await fetchJsonResponse('/api/data/values', { cache: 'no-store' });
+      if (!response.res.ok || !response.data || !Array.isArray(response.data.values)) throw new Error(tr('data.catalogUnavailable', 'Catalogue des données indisponible'));
+      dataValueCatalog = response.data.values;
+    }
+    function dataReferenceUsable(reference) {
+      const item = dataValueCatalog.find(value => value.reference === reference);
+      return !!item && item.available === true && item.usable === true;
+    }
     const derivedEntityNames = {};
     let derivedIntroExpanded = false;
 
@@ -11747,9 +12340,15 @@
       const analogTokens = [];
       for (let index = 0; index <= derivedValueAnalogMax; ++index) {
         const ref = 'a' + String(index).padStart(2, '0');
+        if (!dataReferenceUsable(ref)) continue;
         analogTokens.push(derivedValueCreateToken(ref, '', () => insert(ref), derivedEntityNames[ref]));
       }
       addGroup(tr('derived.assist.analog', 'Entrées analogiques'), analogTokens);
+
+      const digitalTokens = dataValueCatalog
+        .filter(value => value.kind === 5 && dataReferenceUsable(value.reference))
+        .map(value => derivedValueCreateToken(value.reference, '', () => insert(value.reference), value.name));
+      addGroup(tr('derived.assist.digital', 'Entrées digitales'), digitalTokens);
 
       const counterGroup = document.createElement('div');
       counterGroup.className = 'derived-assist-group';
@@ -11768,6 +12367,8 @@
         counterGrid.className = 'derived-counter-grid';
         derivedCounterInputs.forEach((index) => {
           const ref = 'i' + String(index).padStart(2, '0');
+          const members = ['count', 'rate', 'total', 'flow'].map(member => ref + '.' + member).filter(dataReferenceUsable);
+          if (!members.length) return;
           const token = document.createElement('button');
           token.type = 'button';
           token.className = 'derived-token';
@@ -11780,7 +12381,6 @@
               closeAnchoredPopover();
               return;
             }
-            const members = ['count', 'rate', 'total', 'flow'].map((member) => ref + '.' + member);
             openCounterMemberPopover(token, members, (member) => insert(member));
           });
           counterGrid.appendChild(token);
@@ -11795,9 +12395,61 @@
       counterGroup.appendChild(counterCol);
       assist.appendChild(counterGroup);
 
+      const equipmentGroup = document.createElement('div');
+      equipmentGroup.className = 'derived-assist-group';
+      const equipmentLabel = document.createElement('div');
+      equipmentLabel.className = 'g-label';
+      equipmentLabel.textContent = tr('derived.assist.equipment', 'Données des équipements');
+      const equipmentCol = document.createElement('div');
+      equipmentCol.className = 'derived-counter-col';
+      const equipmentByRef = new Map();
+      dataValueCatalog.forEach((value) => {
+        if ((value.kind !== 3 && value.kind !== 4) || !dataReferenceUsable(value.reference)) return;
+        const match = String(value.reference || '').match(/^(pd\d+)\./);
+        if (!match) return;
+        if (!equipmentByRef.has(match[1])) equipmentByRef.set(match[1], []);
+        equipmentByRef.get(match[1]).push(value.reference);
+      });
+      if (equipmentByRef.size === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'derived-counter-hint';
+        empty.textContent = tr('derived.assist.noEquipment', 'Aucun équipement disponible.');
+        equipmentCol.appendChild(empty);
+      } else {
+        const equipmentGrid = document.createElement('div');
+        equipmentGrid.className = 'derived-counter-grid';
+        equipmentByRef.forEach((members, ref) => {
+          const slot = Number.parseInt(ref.slice(2), 10);
+          const token = document.createElement('button');
+          token.type = 'button';
+          token.className = 'derived-token';
+          derivedValueAppendTokenContent(token, ref, poolLogicDeviceDisplayName(slot));
+          token.setAttribute('aria-haspopup', 'dialog');
+          token.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (isAnchoredPopoverOpenFor(token)) {
+              closeAnchoredPopover();
+              return;
+            }
+            openCounterMemberPopover(token, members, (member) => insert(member));
+          });
+          equipmentGrid.appendChild(token);
+        });
+        equipmentCol.appendChild(equipmentGrid);
+        const equipmentHint = document.createElement('div');
+        equipmentHint.className = 'derived-counter-hint';
+        equipmentHint.textContent = tr('derived.assist.equipmentHint', 'Cliquez un équipement pour choisir le volume restant (.remaining_l) ou le remplissage (.fill_percent).');
+        equipmentCol.appendChild(equipmentHint);
+      }
+      equipmentGroup.appendChild(equipmentLabel);
+      equipmentGroup.appendChild(equipmentCol);
+      assist.appendChild(equipmentGroup);
+
       const derivedTokens = [];
       for (let slot = 0; slot < derivedValueSlotCount; ++slot) {
         const ref = 'v' + String(slot).padStart(2, '0');
+        if (!dataReferenceUsable(ref)) continue;
         derivedTokens.push(derivedValueCreateToken(ref, '', () => insert(ref), derivedEntityNames[ref]));
       }
       addGroup(tr('derived.assist.derived', 'Valeurs calculées'), derivedTokens);
@@ -12265,7 +12917,9 @@
             throw new Error(tr('derived.loadFailed', 'Lecture de configuration échouée.'));
           return derivedValueEntryFromData(slot, response.data.data);
         }));
+        await loadDataValueCatalog();
         await loadDerivedCounterInputs();
+        await loadPoolLogicDeviceSlotLabels(false);
         entries.forEach((entry) => { entry.original = derivedValueSnapshot(entry); });
         derivedValuesState = { entries };
         await loadDerivedEntityNames();
@@ -12345,16 +12999,9 @@
       }
     }
 
-    async function loadTftSensorDerivedValueInfo(moduleName) {
+    async function loadTftSensorDataValueInfo(moduleName) {
       const doc = configDocFor(moduleName, 'runtime_ui_id', []);
-      if (!isTftSensorRuntimeUiDoc(doc) || !Array.isArray(doc._enumOptions)) return;
-      const slots = [];
-      doc._enumOptions.forEach((opt) => {
-        const slot = derivedSlotFromEnumOption(opt);
-        if (slot >= 0 && !slots.includes(slot)) slots.push(slot);
-      });
-      if (slots.length === 0) return;
-      await loadIoDerivedValueInfo(slots);
+      if (isTftSensorRuntimeUiDoc(doc)) await loadDataValueCatalog();
     }
 
     function configEnumOptionsForField(moduleName, key, doc) {
@@ -12888,10 +13535,7 @@
     }
 
     function ioBindingResolutionLabel(row) {
-      const sourceId = Number(row.source_value);
-      const reason = Number.isFinite(sourceId) && sourceId !== 65535
-        ? tr('io.source.internal', 'Valeur interne') + ' [' + sourceId + ']'
-        : tr('io.binding.' + row.binding_reason, row.binding_reason || '-');
+      const reason = tr('io.binding.' + row.binding_reason, row.binding_reason || '-');
       return row.binding_restart_required
         ? reason + ' · ' + tr('io.binding.restartRequired', 'Redémarrage requis')
         : reason;
@@ -13396,7 +14040,7 @@
           valueWrap.classList.add('control-value-wrap-color');
           valueWrap.appendChild(colorControl.input);
           valueWrap.appendChild(colorControl.trigger);
-        } else if (enumOptions && enumOptions.length > 0) {
+        } else if (enumOptions && (enumOptions.length > 0 || isTftSensorRuntimeUiDoc(doc))) {
           const select = document.createElement('select');
           select.className = 'control-input';
           select.dataset.key = key;
@@ -13428,7 +14072,8 @@
             placeholder.value = currentValue;
             placeholder.textContent = isBindingPortField
               ? ('Port inconnu (' + currentValue + ')')
-              : 'Valeur inconnue';
+              : isTftSensorRuntimeUiDoc(doc) ? tr('data.unavailable', 'Indisponible') : 'Valeur inconnue';
+            if (isTftSensorRuntimeUiDoc(doc)) { placeholder.disabled = true; placeholder.hidden = true; }
             placeholder.selected = true;
             select.insertBefore(placeholder, select.firstChild);
           }
@@ -13779,7 +14424,7 @@
         }
         await ensureCfgDocsForModule(m);
         if (m.startsWith('tft/s3/sensors/slot')) {
-          await loadTftSensorDerivedValueInfo(m);
+          await loadTftSensorDataValueInfo(m);
         }
         const pdmModule = flowCfgPdmModuleForIoOutput(m, data.data);
         if (pdmModule) {

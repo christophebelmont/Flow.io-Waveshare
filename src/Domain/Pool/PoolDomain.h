@@ -11,11 +11,8 @@ inline constexpr DomainSlotPreset kDomainSlots[] = {
     {PoolIds::SensorOrp, IO_SLOT_ANALOG_INPUT, "ORP", "ORP", 0, true, 0},
     {PoolIds::SensorPh, IO_SLOT_ANALOG_INPUT, "pH", "pH", 1, true, 0},
     {PoolIds::SensorPsi, IO_SLOT_ANALOG_INPUT, "PSI", "PSI", 2, true, 0},
-    {PoolIds::SensorSpareAnalog, IO_SLOT_ANALOG_INPUT, "Spare", "Spare", 3, true, 0},
     {PoolIds::SensorWaterTemp, IO_SLOT_ANALOG_INPUT, "Water Temperature", "Water Temperature", 4, true, 0},
     {PoolIds::SensorAirTemp, IO_SLOT_ANALOG_INPUT, "Air Temperature", "Air Temperature", 5, true, 0},
-    {PoolIds::SensorCurrent, IO_SLOT_ANALOG_INPUT, "Current", "Current", 6, true, 0},
-    {PoolIds::SensorVoltage, IO_SLOT_ANALOG_INPUT, "Voltage", "Voltage", 7, true, 0},
     {PoolIds::SensorPir, IO_SLOT_DIGITAL_INPUT, "PIR", "PIR", PoolInputSlots::Pir, true, 0},
     {PoolIds::SensorPhLevel, IO_SLOT_DIGITAL_INPUT, "pH Level", "pH Level", PoolInputSlots::PhLevel, true, 0},
     {PoolIds::SensorChlorineLevel, IO_SLOT_DIGITAL_INPUT, "Chlorine Level", "Chlorine Level", PoolInputSlots::ChlorineLevel, true, 0},
@@ -31,15 +28,15 @@ inline constexpr DomainSlotPreset kDomainSlots[] = {
     {PoolIds::ActuatorWaterHeater, IO_SLOT_DIGITAL_OUTPUT, "io_wat_htr", "Water Heater", 7, true, 0},
 };
 
+static_assert(sizeof(kDomainSlots) / sizeof(kDomainSlots[0]) == PoolIds::DomainSlotCount,
+              "Pool domain slot count does not match its declarations");
+
 inline constexpr DomainIoSlotBinding kDomainIoSlots[] = {
     {PoolIds::SensorOrp, analogInputSlot(0)},
     {PoolIds::SensorPh, analogInputSlot(1)},
     {PoolIds::SensorPsi, analogInputSlot(2)},
-    {PoolIds::SensorSpareAnalog, analogInputSlot(3)},
     {PoolIds::SensorWaterTemp, analogInputSlot(4)},
     {PoolIds::SensorAirTemp, analogInputSlot(5)},
-    {PoolIds::SensorCurrent, analogInputSlot(6)},
-    {PoolIds::SensorVoltage, analogInputSlot(7)},
     {PoolIds::SensorPir, digitalInputSlot(PoolInputSlots::Pir)},
     {PoolIds::SensorPhLevel, digitalInputSlot(PoolInputSlots::PhLevel)},
     {PoolIds::SensorChlorineLevel, digitalInputSlot(PoolInputSlots::ChlorineLevel)},

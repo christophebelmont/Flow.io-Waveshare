@@ -4,6 +4,8 @@
  */
 
 #include "PoolDeviceModule.h"
+#include "Core/Values/PoolDeviceValues.h"
+#include "Core/Values/VolumeUnits.h"
 #include "Core/Values/InternalAnalogSources.h"
 static_assert(POOL_DEVICE_MAX <= ValueIds::PoolTankSlots, "Tank source catalog too small");
 #include <esp_timer.h>
@@ -213,7 +215,7 @@ uint8_t PoolDeviceModule::svcWritesEnabledImpl_() const
     return out;
 }
 
-PoolDeviceSvcStatus PoolDeviceModule::svcRefillTankImpl_(uint8_t slot, float remainingMl)
+PoolDeviceSvcStatus PoolDeviceModule::svcRefillTankImpl_(uint8_t slot, float remainingL)
 {
     if (!lockState_()) return POOLDEV_SVC_ERR_NOT_READY;
     if (slot >= POOL_DEVICE_MAX) {
@@ -226,13 +228,13 @@ PoolDeviceSvcStatus PoolDeviceModule::svcRefillTankImpl_(uint8_t slot, float rem
         return POOLDEV_SVC_ERR_UNKNOWN_SLOT;
     }
 
-    float remaining = remainingMl;
+    float remaining = remainingL;
     if (remaining < 0.0f) remaining = 0.0f;
-    if (s.def.tankCapacityMl > 0.0f && remaining > s.def.tankCapacityMl) {
-        remaining = s.def.tankCapacityMl;
+    if (s.def.tankCapacityMl > 0.0f && remaining > VolumeUnits::millilitresToLitres(s.def.tankCapacityMl)) {
+        remaining = VolumeUnits::millilitresToLitres(s.def.tankCapacityMl);
     }
 
-    s.tankRemainingMl = remaining;
+    s.tankRemainingL = remaining;
     s.forceMetricsCommit = true;
     s.persistDirty = true;
     s.persistImmediate = true;
@@ -407,7 +409,8 @@ bool PoolDeviceModule::loadPersistedMetrics_(uint8_t slotIdx, PoolDeviceSlot& sl
     slot.injectedMlWeek = isFiniteNonNegative_(injectedWeek) ? injectedWeek : 0.0f;
     slot.injectedMlMonth = isFiniteNonNegative_(injectedMonth) ? injectedMonth : 0.0f;
     slot.injectedMlTotal = isFiniteNonNegative_(injectedTotal) ? injectedTotal : 0.0f;
-    slot.tankRemainingMl = isFiniteNonNegative_(tank) ? tank : 0.0f;
+    // The v1 blob encodes all volumes in mL; convert at the persistence boundary.
+    slot.tankRemainingL = isFiniteNonNegative_(tank) ? VolumeUnits::millilitresToLitres(tank) : 0.0f;
     slot.dayKey = dayKey;
     slot.weekKey = weekKey;
     slot.monthKey = monthKey;
@@ -430,7 +433,7 @@ bool PoolDeviceModule::persistMetrics_(uint8_t slotIdx, PoolDeviceSlot& slot, ui
     const Fixed3 injectedWeek = fixed3FromMl_(slot.injectedMlWeek);
     const Fixed3 injectedMonth = fixed3FromMl_(slot.injectedMlMonth);
     const Fixed3 injectedTotal = fixed3FromMl_(slot.injectedMlTotal);
-    const Fixed3 tankRemaining = fixed3FromMl_(slot.tankRemainingMl);
+    const Fixed3 tankRemaining = fixed3FromMl_(VolumeUnits::litresToMillilitres(slot.tankRemainingL));
 
     char encoded[sizeof(runtimePersistBuf_[0])] = {0};
     const int wrote = snprintf(
@@ -607,12 +610,12 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
         s.lastTickMs = nowMs;
 
         if (s.def.tankCapacityMl <= 0.0f) {
-            if (s.tankRemainingMl != 0.0f) {
-                s.tankRemainingMl = 0.0f;
+            if (s.tankRemainingL != 0.0f) {
+                s.tankRemainingL = 0.0f;
                 metricsChanged = true;
             }
-        } else if (s.tankRemainingMl > s.def.tankCapacityMl) {
-            s.tankRemainingMl = s.def.tankCapacityMl;
+        } else if (s.tankRemainingL > VolumeUnits::millilitresToLitres(s.def.tankCapacityMl)) {
+            s.tankRemainingL = VolumeUnits::millilitresToLitres(s.def.tankCapacityMl);
             metricsChanged = true;
         }
 
@@ -669,8 +672,8 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
                 s.injectedMlTotal += injectedDelta;
 
                 if (s.def.tankCapacityMl > 0.0f) {
-                    s.tankRemainingMl -= injectedDelta;
-                    if (s.tankRemainingMl < 0.0f) s.tankRemainingMl = 0.0f;
+                    s.tankRemainingL -= VolumeUnits::millilitresToLitres(injectedDelta);
+                    if (s.tankRemainingL < 0.0f) s.tankRemainingL = 0.0f;
                 }
             }
             if ((uint32_t)(nowMs - s.lastRuntimeCommitMs) >= 1000U) {
@@ -744,19 +747,22 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
                 rtMetrics.injectedMlWeek = s.injectedMlWeek;
                 rtMetrics.injectedMlMonth = s.injectedMlMonth;
                 rtMetrics.injectedMlTotal = s.injectedMlTotal;
-                rtMetrics.tankRemainingMl = s.tankRemainingMl;
                 rtMetrics.tsMs = s.metricsTsMs;
                 (void)setPoolDeviceRuntimeMetrics(*dataStore_, i, rtMetrics);
             }
         }
 
-        if (dataStore_ && (metricsChanged || s.lastTankPublishMs == 0 ||
-                          uint32_t(nowMs - s.lastTankPublishMs) >= 1000U)) {
-            InternalAnalogSources::publishTank(dataStore_->values, i, s.tankRemainingMl,
-                s.def.tankCapacityMl, s.def.enabled && s.runtimePublishable && s.driverReady &&
+        if (dataStore_ && (metricsChanged || s.lastEquipmentPublishMs == 0 ||
+                          uint32_t(nowMs - s.lastEquipmentPublishMs) >= 1000U)) {
+            InternalAnalogSources::publishTank(dataStore_->values, i, s.tankRemainingL,
+                VolumeUnits::millilitresToLitres(s.def.tankCapacityMl), s.def.enabled && s.runtimePublishable && s.driverReady &&
                     !s.feedback.error && s.feedback.quality != PoolFeedbackQuality::Stale,
                 uint64_t(esp_timer_get_time()) / 1000ULL);
-            s.lastTankPublishMs = nowMs;
+            PoolDeviceValues::publishUptime(dataStore_->values, i, s.runningMsDay,
+                s.def.enabled && s.runtimePublishable && s.driverReady &&
+                    !s.feedback.error && s.feedback.quality != PoolFeedbackQuality::Stale,
+                uint64_t(esp_timer_get_time()) / 1000ULL);
+            s.lastEquipmentPublishMs = nowMs;
         }
 
         bool shouldPersist = false;

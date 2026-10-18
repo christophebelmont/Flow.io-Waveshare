@@ -26,7 +26,10 @@ struct ConfigStore {
     bool writeRuntimeBlob(const char*, const void*, size_t) { ++writes; return hasVersion = !failWrite; }
 };
 
+struct TestDataStore { ValueRegistry values; };
+
 struct IOModule {
+    TestDataStore* dataStore_ = nullptr;
     static constexpr uint8_t MAX_ANALOG_ENDPOINTS = Limits::Io::AnalogConfigSlots;
     static constexpr uint8_t ANALOG_CFG_SLOTS = MAX_ANALOG_ENDPOINTS;
     static constexpr uint8_t DIGITAL_INPUT_CFG_SLOTS = Limits::Io::DigitalInputConfigSlots;

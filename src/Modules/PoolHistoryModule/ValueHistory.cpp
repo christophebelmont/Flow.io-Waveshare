@@ -81,9 +81,13 @@ void ValueHistory::advance_(ValueId id, uint64_t epoch) {
 }
 void ValueHistory::observe(ValueId id, const ValueMetadata& metadata, const ValueSnapshot& sample,
                             const ValueSnapshot* source) {
-    if (!slots_ || !anchorEpoch_ || id >= ValueIds::Capacity || sample.timestampMs < anchorMono_) return;
-    const uint64_t epoch = anchorEpoch_ + sample.timestampMs - anchorMono_;
+    const uint64_t observedAt = sample.qualityChangedAtMs > sample.timestampMs
+        ? sample.qualityChangedAtMs : sample.timestampMs;
+    if (!slots_ || !anchorEpoch_ || id >= ValueIds::Capacity || observedAt < anchorMono_) return;
+    const uint64_t epoch = anchorEpoch_ + observedAt - anchorMono_;
     auto& s = slots_[id];
+    // Invalid samples close an existing series, but never create a history entry.
+    if (!s.observed && sample.quality != ValueQuality::Valid) return;
     if (!s.observed) { s.integratedUntil = epoch; s.metadata = metadata; s.observed = true; ++used_; }
     const auto previousHour = s.observedEpoch / HourMs;
     advance_(id, epoch);

@@ -1,3 +1,4 @@
+#include "Core/Values/DataValueAvailability.h"
 /**
  * @file PoolHistoryModule.cpp
  * @brief Samples semantic pool values and keeps today plus seven complete days.
@@ -75,7 +76,11 @@ PoolHistoryModule::~PoolHistoryModule()
 bool PoolHistoryModule::serviceReadValue_(void* ctx, uint16_t id, bool daily, uint8_t age, ValueHistoryRecord* out)
 {
     auto* self = static_cast<PoolHistoryModule*>(ctx);
-    if (!out || !self->lockState_()) return false;
+    // Resolve catalog membership and the exposure policy before locking history,
+    // following the observer's lock order. A missing live sample no longer hides
+    // records already stored for a historized value.
+    if (!out || !self->dataStore_ ||
+        !dataValueHistorized(self->dataStore_->values, id) || !self->lockState_()) return false;
     const bool ok = self->valueHistory_.read(id, daily, age, *out);
     self->unlockState_();
     return ok;
@@ -85,6 +90,7 @@ void PoolHistoryModule::observeValue_(void* ctx, ValueId id, const ValueMetadata
                                      const ValueSnapshot& sample, const ValueSnapshot* source)
 {
     auto* self = static_cast<PoolHistoryModule*>(ctx);
+    if (!metadata.history) return;
     // Never acquire the ValueRegistry mutex while holding stateMutex_.
     if (!self->lockState_(portMAX_DELAY)) return;
     self->valueHistory_.observe(id, metadata, sample, source);

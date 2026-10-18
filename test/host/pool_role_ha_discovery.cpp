@@ -7,12 +7,17 @@
 
 struct Capture {
     std::vector<HASensorEntry> sensors;
+    std::vector<HADiscoveryRemovalEntry> removals;
     std::vector<HANumberEntry> numbers;
     std::vector<HAButtonEntry> buttons;
     bool accept = true;
     HAService service() {
         HAService ha{};
         ha.ctx = this;
+        ha.addDiscoveryRemoval = [](void* ctx, const HADiscoveryRemovalEntry* entry) {
+            auto& self = *static_cast<Capture*>(ctx);
+            self.removals.push_back(*entry); return self.accept;
+        };
         ha.addSensor = [](void* ctx, const HASensorEntry* entry) {
             auto& self = *static_cast<Capture*>(ctx);
             self.sensors.push_back(*entry); return self.accept;
@@ -43,8 +48,8 @@ int main() {
     assert(prepare(oldStorage, defaults, 16));
     Capture old;
     assert(registerEntries(old.service(), oldStorage));
-    assert(old.sensors.size() == 7 && old.numbers.size() == 8 && old.buttons.size() == 8);
-    assert(std::strcmp(old.sensors[0].objectSuffix, "pd_chl_pmp_upt") == 0);
+    assert(old.sensors.empty() && old.numbers.size() == 8 && old.buttons.size() == 8);
+    assert(old.removals.empty());
     assert(std::strcmp(old.numbers[0].objectSuffix, "pd0_flow") == 0);
     assert(std::strcmp(old.buttons[0].objectSuffix, "pd_refill_ph") == 0);
 
@@ -70,12 +75,7 @@ int main() {
                 assert(doc["args"]["value"] == (payload == buffers.on));
             }
         }
-        for (size_t i = 0; i < captured.sensors.size(); ++i) {
-            const auto& entry = captured.sensors[i];
-            assert(std::strcmp(entry.objectSuffix, old.sensors[i].objectSuffix) == 0);
-            assert(std::strcmp(entry.name, old.sensors[i].name) == 0);
-            assert(std::string(entry.stateTopicSuffix) == "rt/pdm/metrics/" + id);
-        }
+        assert(captured.sensors.empty());
         for (size_t i = 0; i < captured.numbers.size(); ++i) {
             const auto& entry = captured.numbers[i];
             assert(std::strcmp(entry.objectSuffix, old.numbers[i].objectSuffix) == 0);

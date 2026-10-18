@@ -4,15 +4,13 @@
 
 namespace PoolIds {
 
+// IDs remain stable; retired technical roles leave gaps at 4, 7 and 8.
 enum DomainSlot : DomainSlotId {
     SensorOrp = 1,
     SensorPh = 2,
     SensorPsi = 3,
-    SensorSpareAnalog = 4,
     SensorWaterTemp = 5,
     SensorAirTemp = 6,
-    SensorCurrent = 7,
-    SensorVoltage = 8,
     SensorPir = 9,
     SensorPhLevel = 10,
     SensorChlorineLevel = 11,
@@ -41,8 +39,8 @@ enum Device : PoolDeviceId {
 };
 
 constexpr uint8_t DeviceCount = 8;
-constexpr uint8_t SensorCount = 13;
-constexpr uint8_t DomainSlotCount = 21;
+constexpr uint8_t SensorCount = 10;
+constexpr uint8_t DomainSlotCount = 18;
 
 }  // namespace PoolIds
 

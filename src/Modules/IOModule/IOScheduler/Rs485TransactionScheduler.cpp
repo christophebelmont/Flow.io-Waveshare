@@ -14,6 +14,25 @@
 
 #include "Modules/IOModule/IOProtocols/Modbus/ModbusRtuCodec.h"
 
+namespace {
+const char* resultName(ModbusResultCode result)
+{
+    switch (result) {
+        case MODBUS_RESULT_OK: return "ok";
+        case MODBUS_RESULT_INVALID_ARGUMENT: return "invalid_argument";
+        case MODBUS_RESULT_NOT_READY: return "not_ready";
+        case MODBUS_RESULT_QUEUE_FULL: return "queue_full";
+        case MODBUS_RESULT_UNKNOWN_TRANSACTION: return "unknown_transaction";
+        case MODBUS_RESULT_TIMEOUT: return "timeout";
+        case MODBUS_RESULT_CRC_ERROR: return "crc_error";
+        case MODBUS_RESULT_PROTOCOL_ERROR: return "protocol_error";
+        case MODBUS_RESULT_EXCEPTION: return "exception";
+        case MODBUS_RESULT_IO_ERROR: return "io_error";
+    }
+    return "unknown";
+}
+} // namespace
+
 Rs485TransactionScheduler::Rs485TransactionScheduler(IRs485Transport& bus) : bus_(bus)
 {
     service_ = {
@@ -40,6 +59,8 @@ bool Rs485TransactionScheduler::begin()
     }
     ready_ = mutex_ != nullptr && storage_ != nullptr && bus_.ready();
     statsData_.ready = ready_;
+    LOGD("Modbus init ready=%u bus=%u mutex=%u storage=%u queue_capacity=%u",
+         ready_, bus_.ready(), mutex_ != nullptr, storage_ != nullptr, kQueueCapacity);
     return ready_;
 }
 
@@ -96,7 +117,11 @@ ModbusResultCode Rs485TransactionScheduler::submit_(const ModbusRequest& request
                                           uint16_t& outTransactionId)
 {
     outTransactionId = MODBUS_TRANSACTION_INVALID;
-    if (!validRequest_(request)) return MODBUS_RESULT_INVALID_ARGUMENT;
+    if (!validRequest_(request)) {
+        LOGD("Modbus submit rejected owner=%u slave=%u fc=0x%02X reason=invalid_argument",
+             request.ownerId, request.slaveAddress, request.function);
+        return MODBUS_RESULT_INVALID_ARGUMENT;
+    }
     if (!ready_) return MODBUS_RESULT_NOT_READY;
     if (!lock_()) return MODBUS_RESULT_NOT_READY;
 
@@ -109,6 +134,8 @@ ModbusResultCode Rs485TransactionScheduler::submit_(const ModbusRequest& request
         }
     }
     if (!freeSlot) {
+        LOGD("Modbus submit rejected owner=%u slave=%u reason=queue_full",
+             request.ownerId, request.slaveAddress);
         unlock_();
         return MODBUS_RESULT_QUEUE_FULL;
     }
@@ -127,6 +154,9 @@ ModbusResultCode Rs485TransactionScheduler::submit_(const ModbusRequest& request
     freeSlot->response.transactionId = id;
     outTransactionId = id;
     ++statsData_.submitted;
+    LOGD("Modbus queued id=%u owner=%u slave=%u fc=0x%02X reg=0x%04X count=%u priority=%u",
+         id, request.ownerId, request.slaveAddress, request.function,
+         request.registerAddress, request.registerCount, request.priority);
     unlock_();
     return MODBUS_RESULT_OK;
 }
@@ -180,6 +210,8 @@ void Rs485TransactionScheduler::cancelOwner_(uint8_t ownerId)
     for (uint8_t i = 0U; i < kQueueCapacity; ++i) {
         Slot& slot = storage_->slots[i];
         if (slot.state == SlotState::Free || slot.request.ownerId != ownerId) continue;
+        LOGD("Modbus cancel id=%u owner=%u active=%u",
+             slot.transactionId, ownerId, (int8_t)i == activeIndex_);
         if ((int8_t)i == activeIndex_) {
             // Cancellation never truncates a frame or reconfigures UART from a caller task.
             slot.abandoned = true;
@@ -234,6 +266,7 @@ int8_t Rs485TransactionScheduler::selectNextSlot_(uint32_t nowMs) const
 bool Rs485TransactionScheduler::sendActive_(Slot& slot, uint32_t nowMs, uint32_t nowUs)
 {
     if (!bus_.configureLine(slot.request.line)) {
+        LOGD("Modbus TX id=%u failed stage=configure_line", slot.transactionId);
         finish_(slot, MODBUS_RESULT_IO_ERROR);
         return false;
     }
@@ -250,6 +283,9 @@ bool Rs485TransactionScheduler::sendActive_(Slot& slot, uint32_t nowMs, uint32_t
     }
     slot.state = SlotState::Active;
     slot.sentAtMs = nowMs;
+    LOGD("Modbus TX id=%u bytes=%u attempt=%u/%u timeout_ms=%lu protocol=%u",
+         slot.transactionId, (unsigned)txLength, slot.attempts + 1U, slot.request.retries + 1U,
+         (unsigned long)slot.request.responseTimeoutMs, (unsigned)slot.request.protocol);
     return true;
 }
 
@@ -266,6 +302,9 @@ void Rs485TransactionScheduler::finish_(Slot& slot,
     availableAtMs_ = millis() + slot.request.line.quietMs;
     if (result != MODBUS_RESULT_OK || slot.abandoned)
         availableAtMs_ += slot.request.line.lateResponseGuardMs;
+    LOGD("Modbus done id=%u slave=%u result=%s exception=0x%02X total_ms=%lu abandoned=%u",
+         slot.transactionId, slot.request.slaveAddress, resultName(result),
+         slot.response.exceptionCode, (unsigned long)(millis() - slot.queuedAtMs), slot.abandoned);
     if (slot.abandoned) slot = Slot{};
     else slot.state = SlotState::Finished;
     activeIndex_ = -1;
@@ -279,10 +318,15 @@ void Rs485TransactionScheduler::retryOrFinish_(Slot& slot,
     if (result == MODBUS_RESULT_CRC_ERROR) ++statsData_.crcErrors;
     if (result == MODBUS_RESULT_PROTOCOL_ERROR) ++statsData_.protocolErrors;
     if (result == MODBUS_RESULT_TIMEOUT) ++statsData_.timeouts;
+    LOGD("Modbus failed id=%u result=%s elapsed_ms=%lu",
+         slot.transactionId, resultName(result), (unsigned long)(nowMs - slot.sentAtMs));
     bus_.abort();
     if (accepting_ && !slot.abandoned && result != MODBUS_RESULT_EXCEPTION && slot.attempts < slot.request.retries) {
         ++slot.attempts;
         ++statsData_.retries;
+        LOGD("Modbus retry id=%u next_attempt=%u delay_ms=%lu",
+             slot.transactionId, slot.attempts + 1U,
+             (unsigned long)(slot.request.line.lateResponseGuardMs + slot.request.line.quietMs));
         slot.state = SlotState::Queued;
         slot.order = nextOrder_++;
         activeIndex_ = -1;
@@ -295,6 +339,7 @@ void Rs485TransactionScheduler::retryOrFinish_(Slot& slot,
 void Rs485TransactionScheduler::tick(uint32_t nowMs, uint32_t nowUs, bool enabled)
 {
     if (!ready_ || !lock_(0U)) return;
+    if (accepting_ != enabled) LOGD("Modbus accepting=%u", enabled);
     accepting_ = enabled;
     if (!enabled) {
         for (auto& slot : storage_->slots) if (slot.state == SlotState::Queued) {
@@ -328,6 +373,9 @@ void Rs485TransactionScheduler::tick(uint32_t nowMs, uint32_t nowUs, bool enable
             ModbusResponse response{};
             const ModbusResultCode result = ModbusRtuCodec::decodeResponse(
                 slot.request, storage_->rxFrame, rxLength, response);
+            LOGD("Modbus RX id=%u bytes=%u elapsed_ms=%lu result=%s registers=%u",
+                 slot.transactionId, (unsigned)rxLength,
+                 (unsigned long)(nowMs - slot.sentAtMs), resultName(result), response.registerCount);
             if (result == MODBUS_RESULT_OK || result == MODBUS_RESULT_EXCEPTION) {
                 finish_(slot, result, &response);
             } else {

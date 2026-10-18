@@ -1118,6 +1118,15 @@ const char* IOModule::runtimeSnapshotSuffix(uint8_t idx) const
     return suffix;
 }
 
+uint32_t IOModule::runtimeSnapshotRefreshMs(uint8_t idx) const
+{
+    static constexpr uint8_t ROUTE_ANALOG = 0;
+    uint8_t routeType = 0, slot = 0;
+    return runtimeSnapshotRouteFromIndex_(idx, routeType, slot) &&
+        (routeType == ROUTE_ANALOG || routeType == ROUTE_VALUE)
+        ? Limits::Mqtt::Timing::SensorRefreshMs : 0;
+}
+
 RuntimeRouteClass IOModule::runtimeSnapshotClass(uint8_t idx) const
 {
     static constexpr uint8_t ROUTE_DIGITAL_OUTPUT = 2;
@@ -1396,6 +1405,7 @@ bool IOModule::analogRuntimeRoutePublished_(uint8_t idx) const
 {
     if (idx >= MAX_ANALOG_ENDPOINTS) return false;
     if (!cfgData_.enabled || !analogSlots_[idx].used) return false;
+    if (dataStore_ && !dataStore_->publishHa(ValueIds::Analog + idx)) return false;
 
     uint8_t source = IO_ANALOG_SOURCE_INVALID;
     if (!resolveConfiguredAnalogSource_(idx, source)) return false;
@@ -1412,9 +1422,8 @@ bool IOModule::digitalRuntimeRoutePublished_(uint8_t slotIdx) const
 
     if (slot.kind == DIGITAL_SLOT_INPUT) {
         if (slot.logicalIdx >= MAX_DIGITAL_INPUTS) return false;
-        // Counter-mode inputs stay internal (local web only): never broadcast on MQTT.
-        if (slot.inDef.mode == IO_DIGITAL_INPUT_COUNTER) return false;
-        return slot.binding.port != IO_PORT_INVALID;
+        // Input states and counters are published exclusively by the data catalogue.
+        return false;
     }
     if (slot.kind == DIGITAL_SLOT_OUTPUT) {
         if (slot.logicalIdx >= DIGITAL_CFG_SLOTS) return false;
@@ -1596,6 +1605,8 @@ bool IOModule::processDigitalInputDefinition_(uint8_t slotIdx, uint32_t nowMs)
         // Transition to invalid only once; avoid timestamp churn while input remains unreadable.
         if (slot.lastValid) {
             inputEp->update(false, false, nowMs);
+            if (dataStore_) dataStore_->values.write(ValueIds::DigitalState + slot.logicalIdx, {},
+                esp_timer_get_time() / 1000ULL, ValueQuality::Invalid);
             slot.lastValid = false;
         }
         return false;
@@ -1603,7 +1614,7 @@ bool IOModule::processDigitalInputDefinition_(uint8_t slotIdx, uint32_t nowMs)
 
     if (dataStore_) {
         ValueNumber sample; sample.b = on;
-        dataStore_->values.write(ValueIds::Digital + slot.logicalIdx, sample, esp_timer_get_time() / 1000ULL);
+        dataStore_->values.write(ValueIds::DigitalState + slot.logicalIdx, sample, esp_timer_get_time() / 1000ULL);
     }
     const bool changed = (!slot.lastValid) || (slot.lastValue != on);
     if (changed) {
@@ -1722,6 +1733,7 @@ void IOModule::refreshAnalogConfigState_()
         analogPrecisionLast_[i] = p;
         if (runtimeReady_ && i < MAX_ANALOG_ENDPOINTS && analogSlots_[i].used) {
             analogSlots_[i].def.precision = p;
+            if (dataStore_) dataStore_->values.setPrecision(ValueIds::Analog + i, int8_t(p));
         }
         changedMask |= (uint32_t)(1u << i);
         changed = true;
@@ -2784,12 +2796,18 @@ bool IOModule::configureRuntime_()
     for (auto& address : analogI2cAddresses_) address = 0;
     for (auto& address : expanderI2cAddresses_) address = 0;
     if (!cfgData_.enabled) return false;
+    LOGD("I/O init topology analog=%u digital_in=%u digital_out=%u",
+         (unsigned)MAX_ANALOG_ENDPOINTS, (unsigned)MAX_DIGITAL_INPUTS, (unsigned)MAX_DIGITAL_OUTPUTS);
     if (!validateExpanderTopology_()) {
         LOGE("I/O topology validation failed");
         return false;
     }
 
-    if (!dataStore_) return false;
+    if (!dataStore_) {
+        LOGD("I/O init stopped: DataStore unavailable");
+        return false;
+    }
+    LOGD("I/O init topology valid; loading pulse checkpoint");
     pulseStorageReady_ = loadPulseCheckpoint_();
     if (!pulseStorageReady_) LOGE("Pulse checkpoint unavailable or corrupt; counters disabled");
     bool needAnalogSource[IO_SRC_COUNT] = {false};
@@ -2878,8 +2896,10 @@ bool IOModule::configureRuntime_()
         else needAnalogSource[analogSlots_[i].source] = true;
 
         ValueMetadata analogMeta{};
+        analogMeta.precision = analogSlots_[i].def.precision;
         setValueUnit(analogMeta.displayUnit, internal ? InternalAnalogSources::unit(analogSlots_[i].sourceValue) : analogCfg_[i].unit);
         if (!dataStore_->values.define(ValueIds::Analog + i, analogMeta)) return false;
+        dataStore_->values.setName(ValueIds::Analog + i, analogCfg_[i].name);
         analogSlots_[i].endpoint = allocAnalogEndpoint_(analogSlots_[i].def.id);
         if (!analogSlots_[i].endpoint) continue;
         if (!registry_.add(analogSlots_[i].endpoint, analogSlots_[i].ioId)) {
@@ -3006,8 +3026,9 @@ bool IOModule::configureRuntime_()
                     !dataStore_->values.defineAffine(ValueIds::Total + s.logicalIdx, ValueIds::Digital + s.logicalIdx, scale, 0, AggregationMode::Counter) ||
                     !dataStore_->values.defineAffine(ValueIds::ConvertedRate + s.logicalIdx, ValueIds::PulseRate + s.logicalIdx, scale, 0, AggregationMode::Rate)) return false;
             } else {
-                ValueMetadata stateMeta{}; stateMeta.type = ValueType::Bool;
-                if (!dataStore_->values.define(ValueIds::Digital + s.logicalIdx, stateMeta)) return false;
+                ValueMetadata stateMeta{}; stateMeta.type = ValueType::Bool; stateMeta.maxAgeMs = 5000;
+                if (!dataStore_->values.define(ValueIds::DigitalState + s.logicalIdx, stateMeta)) return false;
+                dataStore_->values.setName(ValueIds::DigitalState + s.logicalIdx, digitalInCfg_[s.logicalIdx].name);
             }
             if (!registry_.add(s.endpoint, s.ioId)) {
                 LOGE("I/O registry full while adding digital input id=%s count=%u capacity=%u",
@@ -3353,7 +3374,7 @@ bool IOModule::configureRuntime_()
     }
     for (ValueId id = ValueIds::Derived; id < ValueIds::Derived + ValueIds::DerivedCapacity; ++id) {
         ValueSnapshot value;
-        if (dataStore_->values.read(id, value)) valueRoutes_[valueRouteCount_++] = id;
+        if (dataStore_->publishHa(id) && dataStore_->values.read(id, value)) valueRoutes_[valueRouteCount_++] = id;
     }
     runtimeReady_ = true;
     LOGI("I/O ready (ads=%ldms ds=%ldms i2c_ai=%s din=%ldms endpoints=%u)",
@@ -3693,7 +3714,9 @@ void IOModule::init(ConfigStore& cfg, ServiceRegistry& services)
     for (uint8_t i = 0; i < ANALOG_CFG_SLOTS; ++i) {
         IOConfigDescriptorStorage::AnalogSlot& vars = configDescriptors_->analog[i];
         const uint8_t branch = analogCfgBranch_(i);
-        cfg.registerVar(vars.sourceValueVar, kCfgModuleId, branch);
+        // Analog inputs always use their physical bindings. Do not register the
+        // former source selector, so persisted internal sources cannot be loaded.
+        analogCfg_[i].sourceValue = VALUE_INVALID;
         cfg.registerVar(vars.nameVar, kCfgModuleId, branch);
         cfg.registerVar(vars.bindingVar, kCfgModuleId, branch);
         cfg.registerVar(vars.secondaryBindingVar, kCfgModuleId, branch);

@@ -87,6 +87,7 @@ void RuntimeProducer::rebuildRoutes()
             route.provider = provider;
             route.snapshotIdx = i;
             route.routeClass = provider->runtimeSnapshotClass(i);
+            route.refreshIntervalMs = provider->runtimeSnapshotRefreshMs(i);
             route.pending = true;
             route.force = true;
             snprintf(route.suffix, sizeof(route.suffix), "%s", suffix);
@@ -152,11 +153,24 @@ void RuntimeProducer::onConnected()
 
     for (uint8_t i = 0; i < routeCount_; ++i) {
         const Route& route = routes_[i];
-        LOGI("route producer=%u type=1 msg=%u snapshot=%u class=%u suffix=%s",
+        LOGD("route producer=%u type=1 msg=%u snapshot=%u class=%u suffix=%s",
              (unsigned)ProducerId, (unsigned)i, (unsigned)route.snapshotIdx,
              (unsigned)route.routeClass, route.suffix);
+        routes_[i].refreshQueued = false;
         markRoutePending_(i, true);
         enqueueRoute_(i);
+    }
+}
+
+void RuntimeProducer::tick(uint32_t nowMs)
+{
+    for (uint8_t i = 0; i < routeCount_; ++i) {
+        Route& route = routes_[i];
+        if (!route.provider || !route.refreshIntervalMs || route.refreshQueued ||
+            uint32_t(nowMs - route.lastPublishMs) < route.refreshIntervalMs) continue;
+        // Force bypasses unchanged-sample suppression without altering the measurement.
+        markRoutePending_(i, true);
+        route.refreshQueued = enqueueRoute_(i);
     }
 }
 
@@ -235,6 +249,7 @@ void RuntimeProducer::onMessagePublished(uint16_t messageId)
     Route& route = routes_[messageId];
     route.lastPublishedTs = route.lastBuiltTs;
     route.lastPublishMs = millis();
+    route.refreshQueued = false;
     route.pending = false;
     route.force = false;
     completeInitialFullSnapshotRoute_((uint8_t)messageId);
@@ -244,5 +259,6 @@ void RuntimeProducer::onMessageDropped(uint16_t messageId)
 {
     if (messageId >= routeCount_) return;
     routes_[messageId].pending = false;
+    routes_[messageId].refreshQueued = false;
     completeInitialFullSnapshotRoute_((uint8_t)messageId);
 }
