@@ -5,9 +5,11 @@ const vm = require('node:vm');
 const root = path.resolve(__dirname, '../..');
 const source = fs.readFileSync(path.join(root, 'data/webinterface/app.js'), 'utf8');
 function extract(name) {
-  const start = source.indexOf('    function ' + name + '(');
+  let start = source.indexOf('    function ' + name + '(');
+  if (start < 0) start = source.indexOf('    async function ' + name + '(');
   assert(start >= 0, name);
-  const end = source.indexOf('\n    function ', start + 1);
+  const next = source.slice(start + 1).search(/\n    (?:async )?function /);
+  const end = next < 0 ? -1 : start + 1 + next;
   assert(end > start, name);
   return source.slice(start, end);
 }
@@ -60,3 +62,35 @@ for (const locale of ['fr', 'en']) {
   assert.equal(catalog.translations[manifest.docs.pdm.label_t], 'PoolDevice');
 }
 console.log('PoolDevice configuration: hidden branch, all 15 valid dependencies, upper mask bits OK.');
+
+
+// Configuration access must survive a driver change and a fresh browser session.
+// The runtime output list is not a configuration-page association.
+async function verifyDriverConfigurationAccess() {
+  for (const name of ['flowCfgIoOutputSlotIndex', 'flowCfgPdmModuleForIoOutput',
+    'loadFlowCfgPdmExtensionData']) vm.runInContext(extract(name), context);
+  const calls = [];
+  context.ensureFlowCfgPoolDeviceOptions = async () => {
+    throw new Error('Configuration access must not depend on physical outputs');
+  };
+  context.fetchWithBusyRetry = async (url) => {
+    calls.push(url);
+    return { ok: true, json: async () => ({
+      ok: true, data: { driver: JSON.stringify({ kind: 3, serial: { address: 7 } }) }
+    }) };
+  };
+  for (let slot = 0; slot < 16; ++slot) {
+    const extension = await context.loadFlowCfgPdmExtensionData(
+      'io/output/d' + String(slot).padStart(2, '0'), {});
+    assert.equal(extension.module, 'pdm/pd' + slot);
+    assert.equal(JSON.parse(extension.data.driver).serial.address, 7);
+    assert.equal(calls.at(-1), '/api/flowcfg/module?name=' + encodeURIComponent('pdm/pd' + slot));
+  }
+  const count = calls.length;
+  assert.equal(await context.loadFlowCfgPdmExtensionData('io/input/a00', {}), null);
+  assert.equal(calls.length, count);
+  context.fetchWithBusyRetry = async () => ({ ok: false, json: async () => ({ ok: false }) });
+  assert.equal(await context.loadFlowCfgPdmExtensionData('io/output/d00', {}), null);
+  console.log('PoolDevice configuration: RS485 access survives restart for all 16 slots.');
+}
+verifyDriverConfigurationAccess().catch(error => { console.error(error); process.exitCode = 1; });

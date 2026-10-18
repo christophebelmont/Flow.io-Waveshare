@@ -14345,11 +14345,9 @@
     }
 
     async function loadFlowCfgPdmExtensionData(moduleName, dataObj) {
-      const output = flowCfgIoOutputSlotIndex(moduleName, dataObj);
-      if (output < 0) return null;
-      const options = await ensureFlowCfgPoolDeviceOptions();
-      const device = options.find((item) => Array.isArray(item.outputs) && item.outputs.includes(output));
-      const pdmModule = device ? 'pdm/pd' + device.value : '';
+      // The configuration tree groups dNN with pdNN, independently of the
+      // driver's physical outputs (RS485 has none; discrete drivers have several).
+      const pdmModule = flowCfgPdmModuleForIoOutput(moduleName, dataObj);
       if (!pdmModule) return null;
       try {
         const res = await fetchWithBusyRetry(
