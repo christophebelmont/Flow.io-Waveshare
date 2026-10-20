@@ -1,7 +1,7 @@
 #pragma once
 #include "ModbusRtuCodec.h"
 
-/** AquaGem RS485 Protocol, tables 8–11. Fixed payloads, CRC high byte first. */
+/** AquaGem RS485 Protocol, tables 8–11. Fixed payloads, CRC low byte first. */
 class AquaGemRtuCodec {
 public:
     static bool validRequest(const ModbusRequest& request);
