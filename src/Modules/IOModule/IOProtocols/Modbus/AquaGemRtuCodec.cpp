@@ -22,7 +22,10 @@ bool AquaGemRtuCodec::encodeRequest(const ModbusRequest& r, uint8_t* frame, size
     writeWord(frame + 2, r.registerAddress);
     // Table 8 leaves these two bytes reserved. Send zero; do not interpret them as a register count.
     writeWord(frame + 4, r.operation == RegisterOperation::Read ? 0 : r.values[0]);
-    writeWord(frame + 6, ModbusRtuCodec::crc16(frame, 6));
+    // AquaGem CRC is transmitted low byte first.
+    const uint16_t crc = ModbusRtuCodec::crc16(frame, 6);
+    frame[6] = static_cast<uint8_t>(crc & 0xFFU);
+    frame[7] = static_cast<uint8_t>(crc >> 8U);
     length = 8;
     return true;
 }
