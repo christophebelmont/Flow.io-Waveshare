@@ -43,7 +43,7 @@ enum ModbusResultCode : uint8_t {
 };
 
 /** Wire dialect is explicit: vendor register frames do not use Modbus exceptions. */
-enum class RegisterWireProtocol : uint8_t { ModbusRtu, VendorRegisterRtu };
+enum class RegisterWireProtocol : uint8_t { ModbusRtu, VendorRegisterRtu, AquaGem };
 enum class RegisterOperation : uint8_t { Read, WriteSingle, WriteMultiple };
 /** Explicit vendor response: slave, function, register (BE), byte count, values, CRC. */
 enum class RegisterResponseLayout : uint8_t { Standard, AddressByteCount };
@@ -52,6 +52,7 @@ struct SerialLineProfile {
     uint32_t baud = 9600;
     uint8_t parity = 0; // 0 none, 1 even, 2 odd
     uint8_t stopBits = 1;
+    uint32_t minimumRequestIntervalMs = 0; // Minimum start-to-start interval on the physical bus.
     uint32_t quietMs = 5;
     uint32_t lateResponseGuardMs = 100;
 };
@@ -74,7 +75,15 @@ struct ModbusRequest {
     uint8_t retries = 1U;
 };
 
+struct AquaGemFeedback {
+    bool valid = false;
+    uint16_t faults = 0;
+    uint8_t status = 0;
+    uint16_t rpm = 0;
+};
+
 struct ModbusResponse {
+    AquaGemFeedback aquaGem{};
     uint16_t transactionId = MODBUS_TRANSACTION_INVALID;
     uint8_t state = MODBUS_TRANSACTION_QUEUED;
     uint8_t result = MODBUS_RESULT_NOT_READY;

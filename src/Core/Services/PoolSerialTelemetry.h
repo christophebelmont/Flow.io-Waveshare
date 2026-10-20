@@ -28,7 +28,7 @@ struct PoolTelemetryField {
     float scale;
 };
 
-/** Register map from the supplied prototype; no assumption about the bits of register 1000. */
+/** Register map from Polytropic external gateway specification v6. */
 inline constexpr PoolTelemetryBlock kHeatPumpPolyBlocks[] = {
     {500, 1, 0}, {503, 1, 1}, {510, 7, 2}, {521, 3, 9}, {1000, 2, 12}
 };
@@ -49,8 +49,8 @@ inline constexpr PoolTelemetryField kHeatPumpPolyFields[] = {
     {"coil", "Coil", "°C", 2, 6, 0, true, .1f},
     {"ambient", "Ambient", "°C", 2, 7, 0, true, .1f},
     {"ipm", "IPM", "°C", 2, 8, 0, true, .1f},
-    {"voltage", "Voltage (raw)", "", 3, 9, 0, false, 1},
-    {"current", "Current (raw)", "", 3, 10, 0, false, 1},
+    {"voltage", "Voltage", "V", 3, 9, 0, false, 1},
+    {"current", "Current", "A", 3, 10, 0, false, 1},
     {"compressor_fault", "Compressor fault", "", 3, 11, 0, false, 1},
     {"control_word", "Control word", "", 4, 12, 0, false, 1},
     {"temperature_setpoint", "Temperature setpoint", "°C", 4, 13, 0, true, .1f}

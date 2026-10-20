@@ -81,5 +81,18 @@ int main() {
         assert(serializePoolDriverConfig(c, encoded, sizeof(encoded)));
         assert(parsePoolDriverConfig(encoded, decoded, error, sizeof(error)));
     }
+
+    for (uint8_t model : {1,2}) {
+        const std::string json = "{\"kind\":3,\"serial\":{\"model\":" + std::to_string(model) + "}}";
+        assert(parsePoolDriverConfig(json.c_str(),c,error,sizeof(error)));
+        assert(uint8_t(c.serial.model) == model);
+        assert(serializePoolDriverConfig(c,encoded,sizeof(encoded)));
+        assert(!strstr(encoded,"function") && !strstr(encoded,"baud") && !strstr(encoded,"maximum"));
+        assert(parsePoolDriverConfig(encoded,decoded,error,sizeof(error)));
+        assert(decoded.serial.model == c.serial.model && decoded.serial.setpoint.function == c.serial.setpoint.function);
+    }
+    for (auto json : {R"({"kind":3,"serial":{"model":0}})", R"({"kind":3,"serial":{"model":3}})",
+                     R"({"kind":3,"serial":{"model":1,"baud":9600}})"})
+        assert(!parsePoolDriverConfig(json,c,error,sizeof(error)));
     puts("pool config tests passed");
 }

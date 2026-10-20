@@ -263,6 +263,7 @@ private:
     bool expanderUsable_(IOExpanderId expanderId) const;
     uint8_t expanderAddress_(IOExpanderId expanderId) const;
     void resolveI2cAddresses_(const bool* needAnalogSource);
+    void awaitI2cStartupReadiness_();
     uint8_t analogI2cAddresses_[IO_SRC_COUNT]{};
     IOPortPresence analogPresence_[IO_SRC_COUNT]{};
     IOPortPresence expanderPresence_[IO_MAX_EXPANDERS]{};

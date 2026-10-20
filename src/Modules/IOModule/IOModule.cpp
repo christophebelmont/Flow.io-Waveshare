@@ -2843,6 +2843,7 @@ bool IOModule::configureRuntime_()
         analogPresence_[IO_SRC_DS18_AIR] = oneWireAirAddrValid_ ? IOPortPresence::Present :
             (oneWireAir_ && oneWireAir_->deviceCount() == 0 ? IOPortPresence::Absent : IOPortPresence::DetectionFailed);
     }
+    if (needI2c) awaitI2cStartupReadiness_();
     resolveBootBindings_();
     validateResolvedResources_();
     for (auto& needed : needAnalogSource) needed = false;

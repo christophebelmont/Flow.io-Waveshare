@@ -64,13 +64,32 @@ const server = http.createServer((req,res)=>{
     // The configuration form must commit a complete serial object on mode change.
     const app=fs.readFileSync(path.join(project,'data/webinterface/app.js'),'utf8');
     const editor=app.slice(app.indexOf('    function buildPoolDriverEditor('),app.indexOf('    function renderConfigFields('));
-    const config=await page.evaluate(code=>{
+    const result=await page.evaluate(code=>{
       const script=document.createElement('script');script.textContent=code;document.body.appendChild(script);
       const view=buildPoolDriverEditor('{"kind":0,"outputs":[0]}');document.body.appendChild(view.element);
       const kind=view.element.querySelector('select');kind.value='3';kind.dispatchEvent(new Event('change'));
-      return JSON.parse(view.input.value);
+      const pending=JSON.parse(view.input.value);
+      const missingModel=!!view.input.dataset.validationError;
+      const selectModel=value=>{
+        const model=view.element.querySelector('select[required]');
+        model.value=value;model.dispatchEvent(new Event('change'));
+        return JSON.parse(view.input.value);
+      };
+      const pump=selectModel('1');
+      const pac=selectModel('2');
+      const restored=buildPoolDriverEditor(JSON.stringify(pac));document.body.appendChild(restored.element);
+      const legacy=buildPoolDriverEditor('{"kind":3,"serial":{"address":170,"protocol":1}}');
+      document.body.appendChild(legacy.element);
+      return {pending,missingModel,pump,pac,labels:Array.from(view.element.querySelectorAll('label')).map(x=>x.firstChild.textContent),
+        restored:restored.element.querySelector('select[required]').value,
+        legacyRequiresSelection:!!legacy.input.dataset.validationError};
     },editor);
-    assert.equal(config.kind,3);assert.equal(config.serial.run.function,6);assert.equal(config.serial.setpoint.address,1);
+    assert.equal(result.pending.kind,3);assert.equal(result.pending.serial.model,0);
+    assert.equal(result.missingModel,true);
+    assert.deepEqual(result.pump,{kind:3,serial:{model:1}});
+    assert.deepEqual(result.pac,{kind:3,serial:{model:2}});
+    assert.equal(result.restored,'2');assert.equal(result.legacyRequiresSelection,true);
+    assert.equal(result.labels.length,4); // command, dependencies, model; no protocol/register controls
     assert.deepEqual(errors,[]);
     console.log('Pool setpoint dialog: discrete, RPM, operating modes, telemetry and configuration editor passed');
   } finally { await browser.close(); await new Promise(resolve=>server.close(resolve)); }

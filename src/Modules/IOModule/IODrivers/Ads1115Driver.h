@@ -39,7 +39,7 @@ public:
     bool readSample(uint8_t channel, IOAnalogSample& out) const override;
 
 private:
-    void requestNext_();
+    void requestNext_(uint32_t nowMs);
     float toVolts_(int16_t raw);
 
     const char* driverId_ = nullptr;
@@ -51,6 +51,7 @@ private:
     uint32_t lastTickMs_ = 0;
 
     bool requested_ = false;
+    uint32_t requestedAtMs_ = 0;
     uint8_t nextSingleCh_ = 0;
     uint8_t nextDiffPair_ = 0;
 

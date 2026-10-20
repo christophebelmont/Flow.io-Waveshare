@@ -17,8 +17,9 @@ inline const char* poolSetpointUnitSymbol(PoolSetpointUnit unit)
     }
     return "";
 }
+enum class PoolSerialModel : uint8_t { Custom, AquaGem, Polytropic };
 enum class PoolSerialControl : uint8_t { SeparateRun, SetpointOrStop };
-enum class PoolRunningSource : uint8_t { StatusMask, FeedbackThreshold };
+enum class PoolRunningSource : uint8_t { StatusMask, FeedbackThreshold, DeviceStatus };
 enum class PoolRegisterValueType : uint8_t { Unsigned16, Signed16 };
 enum class PoolRawRounding : uint8_t { Nearest, Down };
 enum class PoolFeedbackQuality : uint8_t { Unknown, Estimated, Confirmed, Stale };
@@ -49,6 +50,7 @@ struct PoolDeviceFeedback {
     uint32_t observedAtMs = 0;
     uint32_t changedAtMs = 0;
     uint16_t error = 0;
+    uint16_t deviceFaults = 0;
     PoolTelemetryState telemetry{};
 };
 struct PoolDeviceCapabilities {
@@ -69,6 +71,7 @@ struct PoolRegisterOperation {
     RegisterResponseLayout responseLayout = RegisterResponseLayout::Standard;
 };
 struct PoolSerialConfig {
+    PoolSerialModel model = PoolSerialModel::Custom;
     SerialLineProfile line{};
     RegisterWireProtocol protocol = RegisterWireProtocol::ModbusRtu;
     uint8_t address = 1;

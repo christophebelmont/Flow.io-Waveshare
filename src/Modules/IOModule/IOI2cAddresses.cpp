@@ -1,5 +1,6 @@
 #include "IOModule.h"
 #include "Core/I2cAddressSelection.h"
+#include "Core/I2cStartupReadiness.h"
 
 #define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::IOModule)
 #include "Core/ModuleLog.h"
@@ -16,6 +17,53 @@ IOPortPresence presenceForAddress(const I2cAddressSelection& device)
         default: return IOPortPresence::Invalid;
     }
 }
+
+} // namespace
+
+void IOModule::awaitI2cStartupReadiness_()
+{
+    if (!i2cBus_ || !i2cBus_->beginOk()) return;
+    I2cStartupDevice devices[IO_SRC_COUNT + IO_MAX_EXPANDERS]{};
+    for (uint8_t i = 0; i < IO_SRC_COUNT; ++i)
+        devices[i].address = analogI2cAddresses_[i];
+    for (uint8_t i = 0; i < IO_MAX_EXPANDERS; ++i)
+        devices[IO_SRC_COUNT + i].address = expanderI2cAddresses_[i];
+
+    // Discovery can precede other hardware initialization. An ACK at discovery
+    // is not a readiness guarantee when providers are finally initialized.
+    constexpr uint32_t startupBudgetMs = 250;
+    awaitI2cStartupDevices(devices, IO_SRC_COUNT + IO_MAX_EXPANDERS, startupBudgetMs,
+        [this](uint8_t address, uint32_t remainingMs) {
+            const uint32_t startedProbe = millis();
+            if (!i2cBus_->lock(remainingMs)) return I2cProbeResult::Error;
+            const uint32_t elapsed = millis() - startedProbe;
+            I2cProbeResult result = I2cProbeResult::Error;
+            if (elapsed < remainingMs) {
+                TwoWire* wire = i2cBus_->wire();
+                const uint16_t previousTimeout = wire->getTimeOut();
+                const uint32_t available = remainingMs - elapsed;
+                wire->setTimeOut(static_cast<uint16_t>(
+                    available < previousTimeout ? available : previousTimeout));
+                result = i2cBus_->probePresence(address);
+                wire->setTimeOut(previousTimeout);
+            }
+            i2cBus_->unlock();
+            return result;
+        },
+        []() { return static_cast<uint32_t>(millis()); },
+        [](uint32_t remainingMs) { delay(remainingMs < 2U ? remainingMs : 2U); });
+
+    for (size_t i = 0; i < IO_SRC_COUNT + IO_MAX_EXPANDERS; ++i) {
+        const auto& device = devices[i];
+        if (!device.address || device.ready) continue;
+        if (i < IO_SRC_COUNT) {
+            analogI2cAddresses_[i] = 0;
+            analogPresence_[i] = IOPortPresence::DetectionFailed;
+        } else {
+            expanderI2cAddresses_[i - IO_SRC_COUNT] = 0;
+            expanderPresence_[i - IO_SRC_COUNT] = IOPortPresence::DetectionFailed;
+        }
+    }
 }
 
 void IOModule::resolveI2cAddresses_(const bool* needAnalogSource)

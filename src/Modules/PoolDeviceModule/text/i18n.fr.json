@@ -1,5 +1,7 @@
 {
   "translations": {
+    "pool.driver.model": "Modèle d’équipement",
+    "pool.driver.chooseModel": "Choisir un modèle",
     "cfgdocs.pdm.pd0.depends_on_mask.help": "Masque de dépendances inter-appareils.",
     "cfgdocs.pdm.pd0.depends_on_mask.label": "Masque dépendances",
     "cfgdocs.pdm.pd0.enabled.help": "Active ou désactive l'appareil du pool concerne.",

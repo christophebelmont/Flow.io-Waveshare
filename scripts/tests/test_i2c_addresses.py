@@ -10,6 +10,26 @@ ROOT = Path(__file__).resolve().parents[2]
 DRIVERS = ['ads1115_int', 'ads1115_ext', 'sht40', 'bmp280', 'bme680', 'ina226'] + [f'expander{i:02d}' for i in range(4)]
 
 class I2cAddressTests(unittest.TestCase):
+    def test_ads_conversion_recovery(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / 'ads1115'
+            subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
+                            '-fsanitize=address,undefined', '-g',
+                            '-Itest/host/ads1115', '-Itest/host/ina226', '-Isrc',
+                            'src/Modules/IOModule/IODrivers/Ads1115Driver.cpp',
+                            'test/host/ads1115/scenarios.cpp', '-o', str(binary)],
+                           cwd=ROOT, check=True)
+            subprocess.run([str(binary)], check=True)
+
+    def test_startup_readiness(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / 'i2c-startup'
+            subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
+                            '-fsanitize=address,undefined', '-g', '-Isrc',
+                            'test/host/i2c_startup_readiness.cpp', '-o', str(binary)],
+                           cwd=ROOT, check=True)
+            subprocess.run([str(binary)], check=True)
+
     def test_arbitration(self):
         with tempfile.TemporaryDirectory() as directory:
             binary = Path(directory) / 'i2c-addresses'

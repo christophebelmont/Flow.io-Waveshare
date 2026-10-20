@@ -4,10 +4,11 @@
  */
 
 #include "ModbusRtuCodec.h"
+#include "AquaGemRtuCodec.h"
 
 RegisterOperation ModbusRtuCodec::operation(const ModbusRequest& r)
 {
-    if (r.protocol == RegisterWireProtocol::VendorRegisterRtu) return r.operation;
+    if (r.protocol != RegisterWireProtocol::ModbusRtu) return r.operation;
     if (r.function == MODBUS_FC_WRITE_SINGLE_REGISTER) return RegisterOperation::WriteSingle;
     if (r.function == MODBUS_FC_WRITE_MULTIPLE_REGISTERS) return RegisterOperation::WriteMultiple;
     return RegisterOperation::Read;
@@ -15,6 +16,7 @@ RegisterOperation ModbusRtuCodec::operation(const ModbusRequest& r)
 
 bool ModbusRtuCodec::validRequest(const ModbusRequest& r)
 {
+    if (r.protocol == RegisterWireProtocol::AquaGem) return AquaGemRtuCodec::validRequest(r);
     if (r.slaveAddress == 0 || r.slaveAddress > 247 || r.registerCount == 0 ||
         r.registerCount > MODBUS_MAX_REGISTERS_PER_REQUEST ||
         uint32_t(r.registerAddress) + r.registerCount > 65536U ||
@@ -62,6 +64,8 @@ bool ModbusRtuCodec::encodeRequest(const ModbusRequest& request,
                                    size_t capacity,
                                    size_t& outLength)
 {
+    if (request.protocol == RegisterWireProtocol::AquaGem)
+        return AquaGemRtuCodec::encodeRequest(request, outFrame, capacity, outLength);
     outLength = 0U;
     if (!outFrame || !validRequest(request)) return false;
 
@@ -119,6 +123,8 @@ ModbusResultCode ModbusRtuCodec::decodeResponse(const ModbusRequest& request,
                                                 size_t length,
                                                 ModbusResponse& outResponse)
 {
+    if (request.protocol == RegisterWireProtocol::AquaGem)
+        return AquaGemRtuCodec::decodeResponse(request, frame, length, outResponse);
     outResponse = ModbusResponse{};
     outResponse.slaveAddress = request.slaveAddress;
     outResponse.function = request.function;

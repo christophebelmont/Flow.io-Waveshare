@@ -13440,6 +13440,7 @@
     function validateConfigFieldValue(inputEl, options) {
       const opts = options || {};
       if (!inputEl) return true;
+      if (inputEl.dataset.validationError) return setConfigFieldValidationState(inputEl, false, inputEl.dataset.validationError);
       const kind = String(inputEl.dataset.kind || '').trim();
       const displayFormat = String(inputEl.dataset.format || '').trim();
       if ((kind !== 'int' && kind !== 'float') || displayFormat !== 'hex') {
@@ -13455,6 +13456,7 @@
 
     function readConfigFieldValueStrict(inputEl) {
       if (!inputEl) return null;
+      if (inputEl.dataset.validationError) throw new Error(inputEl.dataset.validationError);
       const kind = String(inputEl.dataset.kind || '').trim();
       const displayFormat = String(inputEl.dataset.format || '').trim();
       if ((kind === 'int' || kind === 'float') && displayFormat === 'hex') {
@@ -13857,12 +13859,19 @@
             input.setCustomValidity('');
           } catch (_) { input.setCustomValidity(tr('pool.driver.invalid', 'Valeur invalide')); input.reportValidity(); return; }
           object[key] = typeof fallback === 'boolean' ? next === 1 : next;
-          if (key === 'kind') render(); commit();
+          if (key === 'kind') {
+            if (next === 3 && ![1, 2].includes(config.serial?.model)) config.serial = { model: 0 };
+            if (next !== 3 && !config.outputs) config.outputs = [0];
+            render();
+          }
+          commit();
         });
         row.appendChild(input); controls.appendChild(row);
       };
       const render = () => {
         controls.replaceChildren();
+        stored.setCustomValidity('');
+        delete stored.dataset.validationError;
         add(config, 'kind', tr('pool.driver.kind', 'Commande'), 0,
           [[0,'On/Off'],[1,tr('pool.driver.discrete','Vitesses par sorties')],[2,tr('pool.driver.analog','Sortie analogique')],[3,'RS485']]);
         if (config.kind !== 3) add(config, 'outputs', tr('pool.driver.outputs','Identifiants des sorties'), [0], null, true);
@@ -13870,7 +13879,7 @@
           add(config, 'steps', tr('pool.driver.steps','Consignes des vitesses'), [30,60,100], null, true);
           add(config, 'dead_ms', tr('pool.driver.dead','Temps mort (ms)'), 250);
         }
-        if (config.kind !== 0) {
+        if (config.kind !== 0 && config.kind !== 3) {
           add(config, 'unit', tr('pool.driver.unit','Unité'), 0, [[0,tr('pool.driver.speed','Vitesse (%)')],[1,tr('pool.driver.power','Puissance (%)')],[2,'°C'],[3,'RPM']]);
           add(config, 'minimum', 'Minimum', 0); add(config, 'maximum', 'Maximum', 100);
           add(config, 'startup', tr('pool.driver.startup','Consigne au démarrage'), 100);
@@ -13883,36 +13892,32 @@
           add(config, 'offset', 'Offset', 0); add(config, 'off', tr('pool.driver.off','Valeur à l’arrêt'), 0);
         }
         if (config.kind === 3) {
-          const serial = config.serial || (config.serial = {});
-          add(serial, 'protocol', tr('pool.driver.protocol','Format de trame'), 0, [[0,'Modbus RTU'],[1,'Vendor Register RTU']]);
-          add(serial, 'control', tr('pool.driver.serialControl','Commande série'), 0,
-            [[0,tr('pool.driver.separateRun','Consigne puis marche')],[1,tr('pool.driver.setpointOrStop','Consigne ou arrêt sur le même registre')]]);
-          add(serial, 'raw_step', tr('pool.driver.rawStep','Pas de la valeur envoyée'), 1);
-          add(serial, 'raw_rounding', tr('pool.driver.rounding','Arrondi au pas'), 0,
-            [[0,tr('pool.driver.nearest','Au plus proche')],[1,tr('pool.driver.down','Vers le bas')]]);
-          add(serial, 'running_source', tr('pool.driver.runningSource','Détection de marche'), 0,
-            [[0,tr('pool.driver.statusMask','Masque du registre d’état')],[1,tr('pool.driver.feedbackThreshold','Retour supérieur au seuil')]]);
-          add(serial, 'running_threshold', tr('pool.driver.runningThreshold','Seuil de marche (unité du retour)'), 0);
-          add(serial, 'feedback_type', tr('pool.driver.feedbackType','Encodage du retour'), 0,
-            [[0,tr('pool.driver.unsigned','Entier 16 bits non signé')],[1,tr('pool.driver.signed','Entier 16 bits signé')]]);
-          add(serial, 'run_modes', tr('pool.driver.runModes', 'Modes : [{"label":"Eco","value":120}, …]'), [], null, true);
-          add(serial, 'telemetry_profile', tr('pool.driver.telemetry', 'Télémétrie complémentaire'), 0,
-            [[0,tr('pool.driver.noTelemetry', 'Aucune')],[1,'PAC Poly (500–523, 1000–1001)']]);
-          add(serial, 'telemetry_stale_ms', tr('pool.driver.telemetryStale', 'Péremption de la télémétrie (ms)'), 30000);
-          add(serial, 'bus', 'Bus', 0); add(serial, 'address', tr('pool.driver.address','Adresse'), 1);
-          add(serial, 'baud', 'Baud', 9600);
-          add(serial, 'parity', tr('pool.driver.parity','Parité'), 0, [[0,'None'],[1,'Even'],[2,'Odd']]);
-          add(serial, 'stop_bits', 'Stop bits', 1, [[1,'1'],[2,'2']]);
-          [['quiet_ms',5],['late_guard_ms',100],['timeout_ms',300],['poll_ms',1000],['stale_ms',5000],['retries',1],
-           ['run_value',1],['stop_value',0],['running_mask',1],['raw_per_unit',1],['raw_offset',0],
-           ['feedback_gain',1],['feedback_offset',0]].forEach(([key,fallback]) => add(serial,key,key,fallback));
-          add(serial, 'has_feedback', tr('pool.driver.feedback','Lecture de l’état et de la consigne réelle'), false, [[0,'Non / No'],[1,'Oui / Yes']]);
-          [['run',0,6,1],['setpoint',1,6,1],['status',0,3,0],['feedback',1,3,0]].forEach(([name,address,fn,layout]) => {
-            const op = serial[name] || (serial[name] = { address, function: fn, layout });
-            add(op,'address',name + ' · register',address); add(op,'function',name + ' · function',fn);
-            add(op,'layout',name + ' · format',layout,[[0,'Read registers'],[1,'Write single / echo'],[2,'Write multiple / address + count']]);
-            add(op,'response',name + ' · response',0,[[0,'Standard'],[1,'Register address + byte count + values']]);
+          const row = document.createElement('label');
+          row.textContent = tr('pool.driver.model', 'Modèle d’équipement');
+          const model = document.createElement('select');
+          model.className = 'control-input';
+          model.required = true;
+          const options = [['', tr('pool.driver.chooseModel', 'Choisir un modèle')],
+            [1, 'AquaGem'], [2, 'Polytropic IVS/IVN/IVP/IVR (>2018)']];
+          options.forEach(([value, label]) => {
+            const option = document.createElement('option');
+            option.value = String(value); option.textContent = label; model.appendChild(option);
           });
+          model.value = config.serial?.model ? String(config.serial.model) : '';
+          const validateModel = () => {
+            const error = model.value ? '' : tr('pool.driver.chooseModel', 'Choisir un modèle');
+            stored.dataset.validationError = error;
+            model.setCustomValidity(error);
+          };
+          validateModel();
+          model.addEventListener('change', () => {
+            if (!model.value) { validateModel(); stored.dispatchEvent(new Event('input', { bubbles: true })); return; }
+            config.serial = { model: Number(model.value) };
+            ['unit', 'minimum', 'maximum', 'startup', 'outputs', 'steps', 'dead_ms',
+             'gain', 'offset', 'off', 'flow_curve'].forEach(key => delete config[key]);
+            validateModel(); commit(); render();
+          });
+          row.appendChild(model); controls.appendChild(row);
         }
       };
       render();

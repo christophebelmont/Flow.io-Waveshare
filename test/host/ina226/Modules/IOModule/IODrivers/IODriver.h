@@ -1,6 +1,6 @@
 #pragma once
 #include <stdint.h>
-struct IOAnalogSample { float value = 0; uint32_t seq = 0; bool hasSeq = false; };
+struct IOAnalogSample { float value = 0; uint32_t seq = 0; bool hasSeq = false; int16_t raw = 0; bool hasRaw = false; };
 class IAnalogSourceDriver {
 public:
     virtual ~IAnalogSourceDriver() = default;

@@ -1,6 +1,8 @@
 {
   "locale": "en",
   "translations": {
+    "pool.driver.model": "Device model",
+    "pool.driver.chooseModel": "Choose a model",
     "cfgdocs.pdm.pd0.depends_on_mask.help": "Inter-device dependency mask.",
     "cfgdocs.pdm.pd0.depends_on_mask.label": "Masque dépendances",
     "cfgdocs.pdm.pd0.enabled.help": "Enable or disable appareil of pool concerne.",

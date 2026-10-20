@@ -1,39 +1,4 @@
 {
   "kind": 3,
-  "unit": 2,
-  "minimum": 5,
-  "maximum": 40,
-  "startup": 25,
-  "serial": {
-    "protocol": 0,
-    "bus": 0,
-    "address": 17,
-    "baud": 9600,
-    "parity": 0,
-    "stop_bits": 1,
-    "control": 0,
-    "run": {"address": 1000, "function": 6},
-    "setpoint": {"address": 1001, "function": 6},
-    "stop_value": 0,
-    "raw_per_unit": 10,
-    "has_feedback": false,
-    "feedback": {"address": 1001, "function": 3},
-    "feedback_type": 1,
-    "feedback_gain": 0.1,
-    "run_modes": [
-      {"label": "Heating Smart", "value": 88},
-      {"label": "Heating Boost", "value": 104},
-      {"label": "Heating Eco", "value": 120},
-      {"label": "Cooling Smart", "value": 40},
-      {"label": "Cooling Boost", "value": 56},
-      {"label": "Cooling Eco", "value": 72},
-      {"label": "Auto", "value": 24}
-    ],
-    "telemetry_profile": 1,
-    "telemetry_stale_ms": 30000,
-    "timeout_ms": 500,
-    "poll_ms": 1000,
-    "stale_ms": 8000,
-    "retries": 1
-  }
+  "serial": {"model": 2}
 }

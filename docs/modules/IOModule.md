@@ -24,6 +24,21 @@ La cartographie complète du profil Waveshare est documentée dans
 
 Type: module actif.
 
+## Disponibilité I²C au démarrage
+
+Après la découverte I²C et OneWire, le module revalide les adresses I²C
+sélectionnées avant de créer les bindings et d'initialiser les providers.
+Les sondages d'adresse peuvent être retentés dans un budget commun de 250 ms ;
+une réponse positive termine immédiatement l'attente pour ce périphérique.
+Une adresse qui ne répond toujours pas est marquée `DetectionFailed` pour ce
+démarrage. Cette étape ne modifie ni les adresses NVS ni leur priorité et ne
+rejoue aucune écriture de configuration ou commande de sortie.
+
+Le pilote ADS1115 vérifie séparément le lancement, l'état et la lecture de
+chaque conversion. Une erreur ne produit pas de nouvel échantillon et conserve
+le canal à acquérir. Une conversion bloquée au-delà de 250 ms est relancée au
+cycle suivant, sans bloquer le scheduler.
+
 ## Dépendances
 
 En build Waveshare, les dépendances déclarées sont:

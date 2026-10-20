@@ -14,7 +14,7 @@ class PoolActuatorTests(unittest.TestCase):
             binary = Path(tmp) / "test"
             command = ["c++", "-std=c++17", "-Wall", "-Wextra", "-Werror",
                        "-Itest/host/stubs", "-Isrc", *["-I" + str(p) for p in includes],
-                       "test/host/" + main, *sources, "-o", str(binary)]
+                       "test/host/" + main, *sources, *(["src/Modules/IOModule/IOProtocols/Modbus/AquaGemRtuCodec.cpp"] if CODEC in sources else []), "-o", str(binary)]
             for invocation in (command, [str(binary)]):
                 result = subprocess.run(invocation, cwd=ROOT, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

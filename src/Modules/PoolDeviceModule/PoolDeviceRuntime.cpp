@@ -240,6 +240,7 @@ bool PoolDeviceModule::buildStateSnapshot_(uint8_t slotIdx, char* out, size_t le
     observed["setpoint"] = f.observed.setpoint; observed["ts"] = f.observedAtMs;
     doc["quality"] = uint8_t(f.quality); doc["phase"] = uint8_t(f.phase);
     doc["online"] = f.online; doc["error"] = f.error;
+    doc["device_faults"] = f.deviceFaults;
     writePoolTelemetryJson(doc.as<JsonObject>(), s.driverConfig.serial.telemetryProfile, f.telemetry);
     doc["ts"] = entry.tsMs;
     if (doc.overflowed() || measureJson(doc) >= len) { unlockState_(); return false; }

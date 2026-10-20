@@ -60,5 +60,17 @@ int main() {
     // Reject unsupported buses and malformed wire descriptors before queueing.
     auto bad=request(1,9600);bad.line.busId=1;assert(svc.submit(svc.ctx,&bad,&a)==MODBUS_RESULT_INVALID_ARGUMENT);
     bad.line.busId=0;bad.function=0xC3;assert(svc.submit(svc.ctx,&bad,&a)==MODBUS_RESULT_INVALID_ARGUMENT);
+    // Start-to-start pacing is measured at transmission, not at queue submission.
+    Transport pacedTransport; Rs485TransactionScheduler paced(pacedTransport); assert(paced.begin());
+    auto& pacedService = paced.service();
+    auto pacedRequest = request(1,1200); pacedRequest.line.minimumRequestIntervalMs = 500;
+    pacedRequest.line.quietMs = 50;
+    testNowMs = 0;
+    assert(pacedService.submit(pacedService.ctx,&pacedRequest,&a) == MODBUS_RESULT_OK);
+    tick(paced,1000);
+    assert(pacedService.submit(pacedService.ctx,&pacedRequest,&b) == MODBUS_RESULT_OK);
+    pacedTransport.response = true; tick(paced,1010);
+    tick(paced,1499); assert(pacedTransport.sent.size() == 1);
+    tick(paced,1500); assert(pacedTransport.sent.size() == 2);
     puts("RS485 scheduler tests passed");
 }

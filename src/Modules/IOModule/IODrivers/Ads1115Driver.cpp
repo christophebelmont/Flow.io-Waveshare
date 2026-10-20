@@ -20,7 +20,7 @@ bool Ads1115Driver::begin()
         ads_.setGain(cfg_.gain);
         ads_.setDataRate(cfg_.dataRate);
         ready_ = true;
-        requestNext_();
+        requestNext_(millis());
     }
 
     bus_->unlock();
@@ -35,12 +35,30 @@ void Ads1115Driver::tick(uint32_t nowMs)
 
     if (!bus_->lock(20)) return;
 
-    if (requested_ && ads_.isReady()) {
+    if (!requested_) {
+        requestNext_(nowMs);
+        bus_->unlock();
+        return;
+    }
+
+    (void)ads_.getError();
+    const bool conversionReady = ads_.isReady();
+    const bool statusOk = ads_.getError() == ADS1X15_OK;
+    // The slowest ADS1115 conversion is 125 ms (8 SPS). Allow twice that
+    // duration, then restart the same channel if the conversion never ends.
+    if (!statusOk || (!conversionReady && uint32_t(nowMs - requestedAtMs_) >= 250U)) {
+        requested_ = false;
+    } else if (conversionReady) {
         int16_t raw = ads_.getValue();
+        if (ads_.getError() != ADS1X15_OK) {
+            requested_ = false;
+            bus_->unlock();
+            return;
+        }
         float v = toVolts_(raw);
 
         if (cfg_.differentialPairs) {
-            if (nextDiffPair_ == 0) {
+            if (nextDiffPair_ == 1) {
                 validDiff23_ = true;
                 rawDiff23_ = raw;
                 vDiff23_ = v;
@@ -51,15 +69,16 @@ void Ads1115Driver::tick(uint32_t nowMs)
                 vDiff01_ = v;
                 ++seqDiff01_;
             }
+            nextDiffPair_ ^= 1U;
         } else {
-            uint8_t prevCh = (uint8_t)((nextSingleCh_ + 3) % 4);
-            validSingle_[prevCh] = true;
-            rawSingle_[prevCh] = raw;
-            vSingle_[prevCh] = v;
-            ++seqSingle_[prevCh];
+            validSingle_[nextSingleCh_] = true;
+            rawSingle_[nextSingleCh_] = raw;
+            vSingle_[nextSingleCh_] = v;
+            ++seqSingle_[nextSingleCh_];
+            nextSingleCh_ = (uint8_t)((nextSingleCh_ + 1) % 4);
         }
 
-        requestNext_();
+        requestNext_(nowMs);
     }
 
     bus_->unlock();
@@ -168,22 +187,21 @@ bool Ads1115Driver::readSample(uint8_t channel, IOAnalogSample& out) const
     return true;
 }
 
-void Ads1115Driver::requestNext_()
+void Ads1115Driver::requestNext_(uint32_t nowMs)
 {
+    (void)ads_.getError();
     if (cfg_.differentialPairs) {
         if (nextDiffPair_ == 0) {
             ads_.requestADC_Differential_0_1();
-            nextDiffPair_ = 1;
         } else {
             ads_.requestADC_Differential_2_3();
-            nextDiffPair_ = 0;
         }
     } else {
         ads_.requestADC(nextSingleCh_);
-        nextSingleCh_ = (uint8_t)((nextSingleCh_ + 1) % 4);
     }
 
-    requested_ = true;
+    requested_ = ads_.getError() == ADS1X15_OK;
+    if (requested_) requestedAtMs_ = nowMs;
 }
 
 float Ads1115Driver::toVolts_(int16_t raw)

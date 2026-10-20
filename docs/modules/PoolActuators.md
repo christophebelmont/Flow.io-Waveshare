@@ -53,7 +53,60 @@ Les éléments de `outputs` sont des `IoId`, pas des numéros de GPIO. `0..15` d
 
 Les vitesses sont strictement croissantes. Une consigne doit correspondre exactement à un palier ; pas d'arrondi implicite. À l'arrêt toutes les sorties sont désactivées. Un échec de désactivation interdit l'activation suivante. Une nouvelle consigne pendant le temps mort remplace la précédente.
 
-### Appareil Modbus RTU
+### Modèles RS485 intégrés
+
+Le formulaire expose uniquement **Modèle d’équipement** pour le protocole :
+**AquaGem** ou **Polytropic IVS/IVN/IVP/IVR (>2018)**. Les dépendances métier restent indépendantes.
+La configuration persistée est `{"kind":3,"serial":{"model":1}}` pour AquaGem,
+`{"kind":3,"serial":{"model":2}}` pour Polytropic. Le firmware résout les paramètres
+avec `PoolSerialProfiles.h`. Les surcharges de paramètres série d'un modèle sont refusées.
+Un modèle absent de l'ancien format n'est jamais déduit de l'adresse ou d'un libellé :
+les anciennes configurations restent lisibles au démarrage, mais leur édition Web exige
+un choix explicite. Sélectionner un modèle remplace l'ancien paramétrage série.
+La sélection s'applique après sauvegarde et redémarrage. Les anciens exemples candidats
+ont été remplacés par ces configurations compactes.
+
+**AquaGem**, d'après `RS485 Protocol.pdf`, tables 8–11 :
+
+- Adresse `0xAA`, 1200 bauds, 8N1 ; vitesse 1200–2900 RPM, démarrage 2400 RPM.
+- Lecture `C3`, adresse 2001 ; écriture `D0`, adresse 3001. Arrêt : valeur **1**.
+- Réponse lecture : adresse, fonction, défauts 16 bits, état 8 bits, RPM 16 bits, CRC.
+  Le bit 0 de l'état confirme la marche, indépendamment de la vitesse. Le masque de défauts
+  est exposé par `device_faults` dans le snapshot équipement.
+- Acquittement d'écriture : adresse, fonction, adresse de registre, trois octets réservés, CRC.
+  Il ne confirme pas physiquement la rotation ; la lecture suivante fournit cette confirmation.
+- CRC Modbus calculé sur le contenu, transmis **octet fort puis faible**, conformément à la note du PDF.
+- Deux requêtes du pilote sont espacées d'au moins 500 ms ; silence de 50 ms après réponse.
+  Les réessais du transport respectent une garde de 500 ms après échec.
+
+La valeur des deux octets réservés de la requête de lecture n'est pas spécifiée :
+le codec émet `00 00`. Cette convention et l'ordre du CRC doivent être vérifiés sur banc.
+Aucune détection permissive d'ordre du CRC ou de variante de réponse n'est effectuée.
+Aucun pas de 50 RPM n'est imposé, car il ne figure pas dans cette documentation.
+Exemples de requêtes complètes : lecture `AA C3 07 D1 00 00 4D 0D`,
+1700 RPM `AA D0 0B B9 06 A4 19 08`, arrêt `AA D0 0B B9 00 01 C2 CB`.
+
+**Polytropic**, d'après `Modbus table for IV... (for external Gateway) v6.pdf` :
+
+- Adresse par défaut 17, 9600 bauds, 8N1, Modbus standard `03`/`06`.
+  Le profil intégré suppose l'adresse d'usine (le constructeur permet de la modifier).
+- Registre 1000 : bits 0–3 pour le mode, bit 4 pour ON/OFF, bits 5–15 à zéro.
+  Marche retenue : bit 4 à 1 ; arrêt : mot à zéro. La polarité du bit 4 reste à vérifier
+  sur banc, le tableau indiquant ON/OFF sans détailler les deux valeurs.
+- Modes marche : Auto `0x11`, Cooling Smart/Boost/Eco `0x12`/`0x13`/`0x14`,
+  Heating Smart/Boost/Eco `0x15`/`0x16`/`0x17`. Mode initial : Heating Smart.
+- Consigne 1001 en dixièmes de °C ; domaine documentaire 0–60 °C, démarrage 25 °C.
+  Avant chaque nouvelle consigne de marche, lecture du maximum réel au registre 58
+  (25–60 °C). Une consigne supérieure est refusée sans écriture ; l'arrêt reste possible.
+- Retour critique : registre 1000 pour l'état ON/OFF et 1001 pour la consigne relue.
+  Cela confirme l'état déclaré par la PAC, pas la rotation physique du compresseur.
+- Télémétrie des températures, états, tension en V et courant en A.
+
+Pour les machines produites à partir de 2022, le constructeur exige de déconnecter
+la passerelle Polyconnect, avec perte des services associés. Seules les adresses
+publiées sont utilisées. Aucun scan de registres n'est effectué.
+
+### Ancien format générique Modbus RTU
 
 Exemple de format, **adresses de registres illustratives à remplacer par celles du constructeur** :
 
@@ -146,18 +199,19 @@ Le second format est autorisé uniquement avec `protocol=1`, en lecture ou écri
 
 Le Web propose une liste de modes ; Home Assistant reçoit un `select`. Les unités RPM sont affichées sur le Web et dans le `number` Home Assistant. Pour le rôle chauffage en automatique, `PoolLogic` transmet sa consigne à un équipement déclaré en °C, en conservant le mode sélectionné. Un changement de température en cours de chauffe est transmis sans attendre un arrêt/redémarrage, à cadence bornée. Les relais et les autres unités conservent leur comportement.
 
-`telemetry_profile=1` active la carte de registres PAC Poly du prototype, exclusivement en Modbus standard. Cinq blocs sont lus à basse priorité : `500`, `503`, `510..516`, `521..523`, `1000..1001`. La lecture groupée utilise `0x03`. Les températures sont signées, en dixièmes de degré. Les indicateurs du registre 500 et le dégivrage sont exposés comme booléens. Tension/courant restent en **valeurs brutes**, faute d'échelle constructeur confirmée. Le registre 1000 est publié comme `control_word`, sans interprétation des bits marche/mode contradictoires dans le prototype.
+`telemetry_profile=1` active la carte de registres PAC Poly du prototype, exclusivement en Modbus standard. Cinq blocs sont lus à basse priorité : `500`, `503`, `510..516`, `521..523`, `1000..1001`. La lecture groupée utilise `0x03`. Les températures sont signées, en dixièmes de degré. Les indicateurs du registre 500 et le dégivrage sont exposés comme booléens. Tension et courant sont exprimés en V et A selon la table constructeur v6. Le registre 1000 est également publié comme `control_word` brut.
 
 La télémétrie apparaît dans `rt/pdm/state/pdN.telemetry`, dans le détail Web et dans les attributs du capteur diagnostic Home Assistant. Une mesure absente ou périmée vaut `null`. `telemetry_error` indique le résultat du dernier échange de diagnostic ; les valeurs non disponibles restent `null` même après la réussite d'un autre bloc. Une erreur de diagnostic ne confirme ni n'invalide à elle seule la marche : celle-ci garde son propre retour critique.
 
 Les lectures de diagnostic alternent avec le retour critique. Avec ce profil, `stale_ms` doit couvrir au moins `4 * poll_ms + timeout_ms` et `telemetry_stale_ms` au moins `10 * poll_ms + timeout_ms` (30 secondes par défaut). Ces minima doivent encore être augmentés selon la charge du bus et les réessais. Le gel des écritures gèle également les nouveaux échanges série et laisse les mesures expirer.
 
-### Exemples issus du prototype, à valider sur banc
+### Exemples des profils intégrés
 
-- [Aquagem, candidat](../examples/rs485/aquagem-candidate.json) : 1 200 bauds, adresse 170, registres 2001/3001, RPM par pas de 50. Le candidat suppose **registre + compteur d'octets** dans la réponse de lecture ; le fichier source ne prouve que la longueur de neuf octets et les indices de la valeur. L'acquittement d'écriture reste configuré en écho standard de huit octets ; choisir `response=1` seulement si une capture confirme le format à neuf octets décrit ci-dessus. `stop_value=0` reproduit la valeur réellement envoyée par le prototype, dont l'appel `setPumpSpeedRPM(1)` depuis `powerOFF()` est arrondi à zéro ; la valeur requise par la pompe reste à confirmer et peut être configurée à `1` sans être arrondie.
-- [PAC Poly, candidat](../examples/rs485/heatpump-poly-candidate.json) : 9 600 bauds, adresse 17, commandes 1000/1001 et codes de modes copiés du prototype. Les bornes 5–40 °C sont des exemples, à adapter. Le retour critique est désactivé (`has_feedback=false`) car le masque de marche est incertain : la qualité reste **estimée**, même si la télémétrie est disponible. Activer un retour confirmé uniquement avec un masque vérifié.
+- [AquaGem](../examples/rs485/aquagem-candidate.json)
+- [Polytropic](../examples/rs485/heatpump-poly-candidate.json)
 
-Ces fichiers sont des exemples de configuration ; ils ne sont ni chargés automatiquement ni activés par le profil Waveshare. Aucun câblage, adresse ou paramètre NVS n'est modifié automatiquement. La commutation 1 200/9 600 bauds sur une même paire exige toujours une validation avec les deux équipements raccordés.
+La commutation 1200/9600 bauds sur la même paire exige une validation avec les deux
+équipements raccordés. Ces fichiers ne modifient pas automatiquement la configuration NVS.
 
 Les estimations de débit doivent passer par la courbe calibrée `flow_curve` en **L/h** (le prototype emploie des L/min). Aucune puissance électrique mesurée ni régulation hydraulique réelle n'est déduite des RPM. La boucle bloquante de cinq secondes et la formule de puissance non calibrée du prototype ne sont pas reprises.
 

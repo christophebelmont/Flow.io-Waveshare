@@ -52,7 +52,7 @@ public:
     void applyTarget(const PoolDeviceTarget&, uint32_t revision) override;
     void tick(uint32_t now, bool writesEnabled) override;
 private:
-    enum class Operation : uint8_t { None, Setpoint, Run, Status, Feedback, Telemetry };
+    enum class Operation : uint8_t { None, Setpoint, Run, Status, Feedback, Telemetry, Limits };
     bool submit_(Operation, uint32_t now);
     void consume_(const ModbusResponse&, uint32_t now);
     uint16_t transaction_ = MODBUS_TRANSACTION_INVALID;
@@ -60,6 +60,10 @@ private:
     PoolDeviceTarget sentTarget_{};
     uint32_t sentRevision_ = 0;
     uint32_t speedRevision_ = 0;
+    uint32_t nextRequestAt_ = 0;
+    uint32_t limitRevision_ = 0;
+    bool limitValid_ = false;
+    float maximumTemperature_ = 0;
     uint32_t nextPollAt_ = 0;
     uint32_t statusAt_ = 0;
     uint32_t levelAt_ = 0;

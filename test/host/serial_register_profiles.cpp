@@ -2,6 +2,8 @@
 #include <cmath>
 #include <cstdio>
 #include <vector>
+#include <algorithm>
+#include "Modules/PoolDeviceModule/Drivers/PoolSerialProfiles.h"
 #include "Modules/PoolDeviceModule/Drivers/PoolDeviceDriver.h"
 #include "Modules/IOModule/IOProtocols/Modbus/ModbusRtuCodec.h"
 
@@ -190,7 +192,80 @@ void modesAndTelemetry() {
     s.telemetryStaleMs = 1000; s.modes.options[1].value = s.stopValue;
     assert(!validatePoolDriverConfig(c));
 }
+
+void manufacturerProfiles() {
+    PoolDriverConfig c;
+    assert(applyPoolSerialProfile(PoolSerialModel::AquaGem, c));
+    assert(validatePoolDriverConfig(c));
+    Bus bus; SerialDeviceDriver driver;
+    assert(driver.begin(c, nullptr, &bus.service, 1));
+    driver.applyTarget({true, 1700}, 1); driver.tick(10, true);
+    const auto write = bus.requests.back();
+    uint8_t frame[16]{}; size_t length = 0;
+    assert(ModbusRtuCodec::encodeRequest(write, frame, sizeof(frame), length));
+    const uint8_t expectedWrite[] = {0xAA,0xD0,0x0B,0xB9,0x06,0xA4,0x19,0x08};
+    assert(length == sizeof(expectedWrite) && std::equal(frame, frame + length, expectedWrite));
+    const uint8_t ack[] = {0xAA,0xD0,0x0B,0xB9,0,0,0,0x07,0x82};
+    ModbusResponse response;
+    assert(ModbusRtuCodec::decodeResponse(write, ack, sizeof(ack), response) == MODBUS_RESULT_OK);
+    bus.reply(); driver.tick(11, true);
+    driver.tick(509, true); assert(bus.requests.size() == 1);
+    driver.tick(510, true); assert(bus.requests.size() == 2);
+    const auto read = bus.requests.back();
+    assert(ModbusRtuCodec::encodeRequest(read, frame, sizeof(frame), length));
+    const uint8_t expectedRead[] = {0xAA,0xC3,0x07,0xD1,0,0,0x4D,0x0D};
+    assert(length == sizeof(expectedRead) && std::equal(frame, frame + length, expectedRead));
+    const uint8_t feedback[] = {0xAA,0xC3,0,0x10,1,0x06,0xA4,0x22,0x57};
+    assert(ModbusRtuCodec::decodeResponse(read, feedback, sizeof(feedback), response) == MODBUS_RESULT_OK);
+    assert(response.aquaGem.valid && response.aquaGem.faults == 16 && response.aquaGem.rpm == 1700);
+    bus.reply(); bus.response = response; bus.response.result = MODBUS_RESULT_OK;
+    driver.tick(511, true);
+    assert(driver.readState().observedValid && driver.readState().observed.running);
+    assert(driver.readState().deviceFaults == 16 && driver.readState().observed.setpoint == 1700);
+    // Reject truncated frames, reversed CRC, and valid-CRC replies from a different slave.
+    assert(ModbusRtuCodec::decodeResponse(read, feedback, 8, response) == MODBUS_RESULT_PROTOCOL_ERROR);
+    auto bad = std::vector<uint8_t>(feedback, feedback + sizeof(feedback));
+    std::swap(bad[7], bad[8]);
+    assert(ModbusRtuCodec::decodeResponse(read, bad.data(), bad.size(), response) == MODBUS_RESULT_CRC_ERROR);
+    bad[0] = 0xAB;
+    auto crc = ModbusRtuCodec::crc16(bad.data(), 7); bad[7] = crc >> 8; bad[8] = crc & 255;
+    assert(ModbusRtuCodec::decodeResponse(read, bad.data(), bad.size(), response) == MODBUS_RESULT_PROTOCOL_ERROR);
+    driver.applyTarget({false,1700}, 2); driver.tick(1010,true);
+    assert(bus.requests.back().values[0] == 1 && bus.requests.back().priority == MODBUS_PRIORITY_SAFETY);
+    assert(ModbusRtuCodec::encodeRequest(bus.requests.back(),frame,sizeof(frame),length));
+    const uint8_t expectedStop[] = {0xAA,0xD0,0x0B,0xB9,0,1,0xC2,0xCB};
+    assert(std::equal(frame,frame+length,expectedStop));
+    auto invalid = write; invalid.values[0] = 0; assert(!ModbusRtuCodec::validRequest(invalid));
+    invalid = read; invalid.registerAddress = 2002; assert(!ModbusRtuCodec::validRequest(invalid));
+    // Device status remains authoritative even if measured RPM is zero.
+    driver.tick(1011,true); // wait for stop acknowledgement
+    bus.reply(); driver.tick(1012,true); driver.tick(1510,true);
+    bus.reply(0); bus.response.aquaGem = {true,0,1,0}; driver.tick(1511,true);
+    assert(driver.readState().observedValid && driver.readState().observed.running);
+
+    assert(applyPoolSerialProfile(PoolSerialModel::Polytropic, c));
+    assert(validatePoolDriverConfig(c));
+    Bus poly; SerialDeviceDriver pac;
+    assert(pac.begin(c,nullptr,&poly.service,1));
+    pac.applyTarget({true,28,0},1); pac.tick(1,true);
+    assert(poly.requests.back().registerAddress == 58 && poly.requests.back().function == 3);
+    poly.reply(40); pac.tick(2,true);
+    assert(poly.requests.back().registerAddress == 1001 && poly.requests.back().values[0] == 280);
+    poly.reply(); pac.tick(3,true);
+    assert(poly.requests.back().registerAddress == 1000 && poly.requests.back().values[0] == 0x15);
+    poly.reply(); pac.tick(4,true);
+    assert(poly.requests.back().registerAddress == 1000 && poly.requests.back().function == 3);
+    pac.applyTarget({true,45,2},2); pac.tick(5,true);
+    assert(poly.requests.back().registerAddress == 58);
+    poly.reply(40); pac.tick(6,true);
+    assert(pac.readState().error == MODBUS_RESULT_INVALID_ARGUMENT);
+    assert(poly.requests.back().function == 3); // no out-of-range write
+    pac.applyTarget({false,45,2},3); pac.tick(7,true);
+    assert(poly.requests.back().function == 6 && poly.requests.back().values[0] == 0);
+    for (uint8_t i=0;i<c.serial.modes.count;++i) assert((c.serial.modes.options[i].value & 0xFFE0) == 0);
+}
 int main() {
+    manufacturerProfiles();
     combinedControl(); signedFeedbackAndLimits(); responseLayouts(); modesAndTelemetry();
     puts("serial register profile tests passed");
 }

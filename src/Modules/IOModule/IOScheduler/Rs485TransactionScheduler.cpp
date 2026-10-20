@@ -15,6 +15,12 @@
 #include "Modules/IOModule/IOProtocols/Modbus/ModbusRtuCodec.h"
 
 namespace {
+uint32_t busAvailableAt(const SerialLineProfile& line, uint32_t sentAt, uint32_t now, bool guard)
+{
+    const uint32_t quietUntil = now + line.quietMs + (guard ? line.lateResponseGuardMs : 0);
+    const uint32_t nextStart = sentAt + line.minimumRequestIntervalMs;
+    return int32_t(nextStart - quietUntil) > 0 ? nextStart : quietUntil;
+}
 const char* resultName(ModbusResultCode result)
 {
     switch (result) {
@@ -81,7 +87,7 @@ bool Rs485TransactionScheduler::validRequest_(const ModbusRequest& request)
         request.retries <= 3 && request.line.busId == 0 &&
         request.line.baud >= 1200 && request.line.baud <= 115200 &&
         request.line.parity <= 2 && (request.line.stopBits == 1 || request.line.stopBits == 2) &&
-        request.line.quietMs <= 1000 && request.line.lateResponseGuardMs <= 5000 &&
+        request.line.minimumRequestIntervalMs <= 60000 && request.line.quietMs <= 1000 && request.line.lateResponseGuardMs <= 5000 &&
         ModbusRtuCodec::validRequest(request);
 }
 
@@ -300,9 +306,8 @@ void Rs485TransactionScheduler::finish_(Slot& slot,
     slot.response.state = (result == MODBUS_RESULT_OK)
                               ? MODBUS_TRANSACTION_COMPLETE
                               : MODBUS_TRANSACTION_FAILED;
-    availableAtMs_ = millis() + slot.request.line.quietMs;
-    if (result != MODBUS_RESULT_OK || slot.abandoned)
-        availableAtMs_ += slot.request.line.lateResponseGuardMs;
+    availableAtMs_ = busAvailableAt(slot.request.line, slot.sentAtMs, millis(),
+                                    result != MODBUS_RESULT_OK || slot.abandoned);
     LOGD("Modbus done id=%u slave=%u result=%s exception=0x%02X total_ms=%lu abandoned=%u",
          slot.transactionId, slot.request.slaveAddress, resultName(result),
          slot.response.exceptionCode, (unsigned long)(millis() - slot.queuedAtMs), slot.abandoned);
@@ -331,7 +336,7 @@ void Rs485TransactionScheduler::retryOrFinish_(Slot& slot,
         slot.state = SlotState::Queued;
         slot.order = nextOrder_++;
         activeIndex_ = -1;
-        availableAtMs_ = nowMs + slot.request.line.lateResponseGuardMs + slot.request.line.quietMs;
+        availableAtMs_ = busAvailableAt(slot.request.line, slot.sentAtMs, nowMs, true);
         return;
     }
     finish_(slot, result);
