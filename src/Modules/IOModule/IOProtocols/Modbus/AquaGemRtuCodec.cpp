@@ -35,7 +35,9 @@ ModbusResultCode AquaGemRtuCodec::decodeResponse(const ModbusRequest& r, const u
 {
     out = {};
     if (!validRequest(r) || !frame || length != 9) return MODBUS_RESULT_PROTOCOL_ERROR;
-    if (readWord(frame + 7) != ModbusRtuCodec::crc16(frame, 7)) return MODBUS_RESULT_CRC_ERROR;
+    const uint16_t receivedCrc = uint16_t(frame[7]) | (uint16_t(frame[8]) << 8U);
+    if (receivedCrc != ModbusRtuCodec::crc16(frame, 7))
+       return MODBUS_RESULT_CRC_ERROR;
     if (frame[0] != r.slaveAddress || frame[1] != r.function) return MODBUS_RESULT_PROTOCOL_ERROR;
     out.slaveAddress = r.slaveAddress; out.function = r.function; out.registerAddress = r.registerAddress;
     if (r.operation == RegisterOperation::Read) {
