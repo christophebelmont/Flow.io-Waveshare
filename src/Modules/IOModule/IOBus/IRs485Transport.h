@@ -14,6 +14,9 @@ public:
     virtual void tick(uint32_t nowUs) = 0;
     virtual bool startTransmit(const uint8_t*, size_t length, uint32_t nowUs) = 0;
     virtual bool frameAvailable() const = 0;
+    // Buffered bytes awaiting the inter-frame silence. tick() must either
+    // publish the frame after that silence or abort on receive overflow.
+    virtual bool receivingFrame() const = 0;
     virtual bool takeFrame(uint8_t*, size_t capacity, size_t& length) = 0;
     virtual void abort() = 0;
 };

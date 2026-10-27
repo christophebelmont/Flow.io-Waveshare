@@ -389,7 +389,11 @@ void Rs485TransactionScheduler::tick(uint32_t nowMs, uint32_t nowUs, bool enable
                 retryOrFinish_(slot, result, nowMs);
             }
         }
-    } else if ((uint32_t)(nowMs - slot.sentAtMs) >= slot.request.responseTimeoutMs) {
+    } else if ((uint32_t)(nowMs - slot.sentAtMs) >= slot.request.responseTimeoutMs &&
+               !bus_.receivingFrame()) {
+        // A delayed tick may just have drained a complete response from UART.
+        // Let the transport observe the frame gap before decoding those bytes;
+        // otherwise task latency turns an already received response into a timeout.
         retryOrFinish_(slot, MODBUS_RESULT_TIMEOUT, nowMs);
     }
     unlock_();

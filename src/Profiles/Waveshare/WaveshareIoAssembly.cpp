@@ -429,9 +429,6 @@ void configureIoModule(const AppContext& ctx, ModuleInstances& modules)
         def.binding.primaryPort = spec->bindingPort;
         def.activeHigh = spec->activeHigh;
         def.initialOn = false;
-        def.startupPolicy = spec->retainOnWarmReboot
-            ? IOOutputStartupPolicy::PreserveHardwareState
-            : IOOutputStartupPolicy::ApplyInitial;
         def.retainOnWarmReboot = spec->retainOnWarmReboot;
         def.momentary = spec->momentary;
         def.pulseMs = spec->momentary ? spec->pulseMs : 0;
@@ -445,7 +442,6 @@ void configureIoModule(const AppContext& ctx, ModuleInstances& modules)
         def.binding.primaryPort = FlowIoLayout::PortExio7;
         def.activeHigh = true;
         def.initialOn = false;
-        def.startupPolicy = IOOutputStartupPolicy::ApplyInitial;
         def.retainOnWarmReboot = false;
         def.momentary = false;
         def.pulseMs = 0;
@@ -463,7 +459,6 @@ void configureIoModule(const AppContext& ctx, ModuleInstances& modules)
         def.binding.primaryPort = waveshareCompOutputPort(i);
         def.activeHigh = true;
         def.initialOn = false;
-        def.startupPolicy = IOOutputStartupPolicy::ApplyInitial;
         def.retainOnWarmReboot = false;
         def.momentary = false;
         def.pulseMs = 0;

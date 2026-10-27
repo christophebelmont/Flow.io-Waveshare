@@ -14386,7 +14386,7 @@
         if (!patch[targetModule]) patch[targetModule] = {};
         const modulePatch = patch[targetModule];
         if (kind === 'bool') {
-          modulePatch[key] = !!el.checked;
+          modulePatch[key] = readConfigFieldValueStrict(el);
           return;
         }
         if (kind === 'int') {

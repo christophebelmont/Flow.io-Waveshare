@@ -160,6 +160,21 @@ int main() {
     store.candidateCheck = [](const ConfigCandidate&, void*) { return false; };
     assert(!store.applyJson(R"({"io/value/v00":{"expr":"123","k1":99,"enabled":false}})"));
     assert(!strcmp(expr,"42") && enabled && parameter == 2 && store.writes == before);
+
+    // Digital output boot behavior uses the same persistent bool path in both directions.
+    store.candidateCheck = nullptr;
+    meta[0].module = "io/output/d00";
+    meta[0].name = "retain_on_warm_reboot";
+    meta[0].nvsKey = "io_d00rt";
+    for (bool retain : {false, true, false}) {
+        const unsigned writesBefore = store.writes;
+        const char* patch = retain
+            ? R"({"io/output/d00":{"retain_on_warm_reboot":true}})"
+            : R"({"io/output/d00":{"retain_on_warm_reboot":false}})";
+        assert(store.applyJson(patch));
+        assert(enabled == retain && store.writes == writesBefore + 1);
+        assert(!meta[0].persistencePending);
+    }
 }
 """
 

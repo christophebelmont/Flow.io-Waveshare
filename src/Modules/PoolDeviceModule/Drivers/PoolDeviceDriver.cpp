@@ -269,6 +269,7 @@ void AnalogSetpointDriver::tick(uint32_t now, bool enabled)
 void SerialDeviceDriver::applyTarget(const PoolDeviceTarget& t, uint32_t revision)
 {
     if (revision == revision_) return;
+    stopAcknowledged_ = false;
     // Drop queued obsolete operations. The arbiter drains any active exchange before proceeding.
     if (transaction_ != MODBUS_TRANSACTION_INVALID) {
         bus_->cancelOwner(bus_->ctx, owner_);
@@ -317,7 +318,7 @@ bool SerialDeviceDriver::submit_(Operation op, uint32_t now)
     }
     nextRequestAt_ = now + c.line.minimumRequestIntervalMs;
     operation_ = op; sentTarget_ = target_; sentRevision_ = revision_;
-    if (sentTarget_.running) {
+    if (sentTarget_.running || op == Operation::Setpoint) {
         sentTarget_.setpoint = (poolSerialRawSetpoint(config_, target_.setpoint) - c.rawOffset) / c.rawPerUnit;
     }
     return true;
@@ -341,17 +342,38 @@ void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
         return;
     }
     if (r.result != MODBUS_RESULT_OK) {
+        stopAcknowledged_ = false;
         statusValid_ = levelValid_ = false; failed_(r.result, now); return;
     }
     if (operation_ == Operation::Limits) {
-        limitValid_ = r.registerCount == 1 && r.values[0] >= 25 && r.values[0] <= 60;
+        // Polytropic register 58 uses tenths of a degree, like setpoint 1001.
+        const float maximumCelsius = r.values[0] / 10.0f;
+        limitValid_ = r.registerCount == 1 && maximumCelsius >= 25.0f && maximumCelsius <= 60.0f;
         if (!limitValid_) { failed_(MODBUS_RESULT_PROTOCOL_ERROR, now); return; }
-        maximumTemperature_ = r.values[0]; limitRevision_ = sentRevision_;
+        maximumTemperature_ = maximumCelsius; limitRevision_ = sentRevision_;
     }
     state_.online = true; state_.error = 0;
     switch (operation_) {
-        case Operation::Setpoint: speedRevision_ = sentRevision_; break;
-        case Operation::Run: applied_(sentTarget_, sentRevision_, now); nextPollAt_ = now; break;
+        case Operation::Setpoint:
+            speedRevision_ = sentRevision_;
+            if (!sentTarget_.running) {
+                applied_(sentTarget_, sentRevision_, now);
+                nextPollAt_ = now;
+            }
+            break;
+        case Operation::Run:
+            if (config_.serial.control == PoolSerialControl::SeparateRun && !sentTarget_.running) {
+                // Stop is acknowledged before preparing the independent setpoint.
+                stopAcknowledged_ = true;
+                state_.applied.running = false;
+                state_.appliedValid = false;
+                state_.phase = PoolCommandPhase::Pending;
+                state_.changedAtMs = now;
+            } else {
+                applied_(sentTarget_, sentRevision_, now);
+                nextPollAt_ = now;
+            }
+            break;
         case Operation::Status:
             state_.observed.running = (r.values[0] & config_.serial.runningMask) != 0;
             statusAt_ = now; statusValid_ = true; break;
@@ -408,12 +430,17 @@ void SerialDeviceDriver::tick(uint32_t now, bool enabled)
     }
     if (!writable_(enabled) || transaction_ != MODBUS_TRANSACTION_INVALID || !due(now, retryAt_) || !due(now, nextRequestAt_)) return;
     if (!state_.appliedValid || state_.appliedRevision != revision_) {
-        if (config_.serial.model == PoolSerialModel::Polytropic && target_.running) {
+        const bool separate = config_.serial.control == PoolSerialControl::SeparateRun;
+        if (separate && !target_.running && !stopAcknowledged_) {
+            // Never delay a stop behind a limit read or a setpoint write.
+            submit_(Operation::Run, now);
+            return;
+        }
+        if (config_.serial.model == PoolSerialModel::Polytropic) {
             if (!limitValid_ || limitRevision_ != revision_) { submit_(Operation::Limits, now); return; }
             if (target_.setpoint > maximumTemperature_) { failed_(MODBUS_RESULT_INVALID_ARGUMENT, now); return; }
         }
-        const bool separate = config_.serial.control == PoolSerialControl::SeparateRun;
-        submit_(separate && target_.running && speedRevision_ != revision_ ? Operation::Setpoint : Operation::Run, now);
+        submit_(separate && (!target_.running || speedRevision_ != revision_) ? Operation::Setpoint : Operation::Run, now);
         return;
     }
     state_.phase = PoolCommandPhase::Applied;

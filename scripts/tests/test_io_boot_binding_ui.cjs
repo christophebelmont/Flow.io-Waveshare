@@ -25,3 +25,29 @@ for (const locale of ['fr', 'en']) {
   assert(context.ioBindingResolutionLabel(row).includes(translations['io.binding.restartRequired']));
 }
 console.log('Boot binding configuration and diagnostics: OK');
+
+// Boolean enums must serialize their selected value, just like per-field saves.
+const { loadFunctions } = require('./app_function_test_support.cjs');
+const editor = vm.createContext({ nettoyerNomFlowCfg: (name) => name });
+loadFunctions(source, editor, [
+  'readConfigFieldValue', 'readConfigFieldValueStrict', 'buildPatchJsonFromFields'
+]);
+for (let slot = 0; slot < 16; ++slot) {
+  const moduleName = `io/output/d${String(slot).padStart(2, '0')}`;
+  for (const retain of [true, false]) {
+    const select = {
+      tagName: 'SELECT', value: String(retain),
+      dataset: { key: 'retain_on_warm_reboot', kind: 'bool', module: moduleName }
+    };
+    const checkbox = {
+      tagName: 'INPUT', checked: !retain,
+      dataset: { key: 'initial_on', kind: 'bool', module: moduleName }
+    };
+    const fields = { querySelectorAll: () => [select, checkbox] };
+    const patch = JSON.parse(editor.buildPatchJsonFromFields(fields, moduleName));
+    assert.equal(patch[moduleName].retain_on_warm_reboot, retain);
+    assert.equal(patch[moduleName].initial_on, !retain);
+    assert.equal(patch[moduleName].retain_on_warm_reboot, editor.readConfigFieldValueStrict(select));
+  }
+}
+console.log('Digital output boot behavior saves: OK');

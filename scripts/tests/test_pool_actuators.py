@@ -13,7 +13,7 @@ class PoolActuatorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="flow-actuator-test-") as tmp:
             binary = Path(tmp) / "test"
             command = ["c++", "-std=c++17", "-Wall", "-Wextra", "-Werror",
-                       "-Itest/host/stubs", "-Isrc", *["-I" + str(p) for p in includes],
+                       *["-I" + str(p) for p in includes], "-Itest/host/stubs", "-Isrc",
                        "test/host/" + main, *sources, *(["src/Modules/IOModule/IOProtocols/Modbus/AquaGemRtuCodec.cpp"] if CODEC in sources else []), "-o", str(binary)]
             for invocation in (command, [str(binary)]):
                 result = subprocess.run(invocation, cwd=ROOT, capture_output=True, text=True)
@@ -45,6 +45,12 @@ class PoolActuatorTests(unittest.TestCase):
 
     def test_debug_hex_logging(self):
         self.compile_and_run("log_hex.cpp", ["src/Core/Log.cpp"])
+
+    def test_delayed_uart_receive(self):
+        self.compile_and_run("rs485_receive.cpp", [
+            "src/Modules/IOModule/IOBus/Rs485Bus.cpp",
+            "src/Modules/IOModule/IOScheduler/Rs485TransactionScheduler.cpp",
+            "src/Core/Log.cpp", CODEC], [ROOT / "test/host/rs485_stubs"])
 
     def test_configuration_validation(self):
         self.compile_and_run("pool_config.cpp", [

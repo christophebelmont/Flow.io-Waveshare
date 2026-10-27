@@ -26,16 +26,17 @@ public:
 
     bool begin(const UartSpec& spec);
     void end();
-    bool configureLine(const SerialLineProfile& profile);
-    bool quiet(uint32_t nowUs) const;
-    void tick(uint32_t nowUs);
+    bool configureLine(const SerialLineProfile& profile) override;
+    bool quiet(uint32_t nowUs) const override;
+    void tick(uint32_t nowUs) override;
 
-    bool startTransmit(const uint8_t* frame, size_t length, uint32_t nowUs);
-    bool frameAvailable() const { return frameReady_; }
-    bool takeFrame(uint8_t* out, size_t capacity, size_t& outLength);
-    void abort();
+    bool startTransmit(const uint8_t* frame, size_t length, uint32_t nowUs) override;
+    bool frameAvailable() const override { return frameReady_; }
+    bool receivingFrame() const override { return state_ == State::Receiving && rxLength_ > 0U; }
+    bool takeFrame(uint8_t* out, size_t capacity, size_t& outLength) override;
+    void abort() override;
 
-    bool ready() const { return ready_; }
+    bool ready() const override { return ready_; }
     bool busy() const { return state_ != State::Idle; }
     const Rs485BusStats& stats() const { return stats_; }
 

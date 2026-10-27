@@ -19,6 +19,7 @@ public:
         assert(!active); active=true; sent.emplace_back(data,data+n); return true;
     }
     bool frameAvailable() const override { return response; }
+    bool receivingFrame() const override { return false; }
     bool takeFrame(uint8_t* data, size_t capacity, size_t& n) override {
         assert(response && active); assert(capacity>=8); n=sent.back().size();
         std::memcpy(data,sent.back().data(),n); response=active=false; return true;

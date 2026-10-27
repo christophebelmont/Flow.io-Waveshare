@@ -75,16 +75,17 @@ ont été remplacés par ces configurations compactes.
   est exposé par `device_faults` dans le snapshot équipement.
 - Acquittement d'écriture : adresse, fonction, adresse de registre, trois octets réservés, CRC.
   Il ne confirme pas physiquement la rotation ; la lecture suivante fournit cette confirmation.
-- CRC Modbus calculé sur le contenu, transmis **octet fort puis faible**, conformément à la note du PDF.
+- CRC Modbus calculé sur le contenu, transmis **octet faible puis fort**, conformément aux échanges TX/RX réussis capturés le 27 octobre 2026.
+  Ces captures corrigent l’ordre précédemment retenu à partir de la note du PDF.
 - Deux requêtes du pilote sont espacées d'au moins 500 ms ; silence de 50 ms après réponse.
   Les réessais du transport respectent une garde de 500 ms après échec.
 
 La valeur des deux octets réservés de la requête de lecture n'est pas spécifiée :
-le codec émet `00 00`. Cette convention et l'ordre du CRC doivent être vérifiés sur banc.
+le codec émet `00 00`. Les échanges capturés confirment cette requête avec les octets réservés à zéro.
 Aucune détection permissive d'ordre du CRC ou de variante de réponse n'est effectuée.
 Aucun pas de 50 RPM n'est imposé, car il ne figure pas dans cette documentation.
-Exemples de requêtes complètes : lecture `AA C3 07 D1 00 00 4D 0D`,
-1700 RPM `AA D0 0B B9 06 A4 19 08`, arrêt `AA D0 0B B9 00 01 C2 CB`.
+Exemples de requêtes complètes : lecture `AA C3 07 D1 00 00 0D 4D`,
+1700 RPM `AA D0 0B B9 06 A4 08 19`, arrêt `AA D0 0B B9 00 01 CB C2`.
 
 **Polytropic**, d'après `Modbus table for IV... (for external Gateway) v6.pdf` :
 
@@ -96,8 +97,14 @@ Exemples de requêtes complètes : lecture `AA C3 07 D1 00 00 4D 0D`,
 - Modes marche : Auto `0x11`, Cooling Smart/Boost/Eco `0x12`/`0x13`/`0x14`,
   Heating Smart/Boost/Eco `0x15`/`0x16`/`0x17`. Mode initial : Heating Smart.
 - Consigne 1001 en dixièmes de °C ; domaine documentaire 0–60 °C, démarrage 25 °C.
-  Avant chaque nouvelle consigne de marche, lecture du maximum réel au registre 58
-  (25–60 °C). Une consigne supérieure est refusée sans écriture ; l'arrêt reste possible.
+  Avant chaque nouvelle consigne, lecture du maximum réel au registre 58
+  (250–600 bruts, soit 25–60 °C). Ce registre est également en dixièmes de °C :
+  la réponse capturée `01 40` correspond à 32 °C. Une consigne supérieure est
+  refusée sans écriture ; l'arrêt reste possible.
+  À l'arrêt, le pilote acquitte d'abord l'arrêt au registre 1000, puis vérifie la limite
+  et écrit la consigne au registre 1001 sans commande de marche. La cible complète
+  n'est déclarée appliquée qu'après acquittement de la consigne ; la lecture suivante
+  confirme la valeur réellement retenue par la PAC.
 - Retour critique : registre 1000 pour l'état ON/OFF et 1001 pour la consigne relue.
   Cela confirme l'état déclaré par la PAC, pas la rotation physique du compresseur.
 - Télémétrie des températures, états, tension en V et courant en A.

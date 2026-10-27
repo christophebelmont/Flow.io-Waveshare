@@ -22,7 +22,9 @@ bool AquaGemRtuCodec::encodeRequest(const ModbusRequest& r, uint8_t* frame, size
     writeWord(frame + 2, r.registerAddress);
     // Table 8 leaves these two bytes reserved. Send zero; do not interpret them as a register count.
     writeWord(frame + 4, r.operation == RegisterOperation::Read ? 0 : r.values[0]);
-    writeWord(frame + 6, ModbusRtuCodec::crc16(frame, 6));
+    const uint16_t crc = ModbusRtuCodec::crc16(frame, 6);
+    frame[6] = uint8_t(crc);
+    frame[7] = uint8_t(crc >> 8);
     length = 8;
     return true;
 }
@@ -32,7 +34,8 @@ ModbusResultCode AquaGemRtuCodec::decodeResponse(const ModbusRequest& r, const u
 {
     out = {};
     if (!validRequest(r) || !frame || length != 9) return MODBUS_RESULT_PROTOCOL_ERROR;
-    if (readWord(frame + 7) != ModbusRtuCodec::crc16(frame, 7)) return MODBUS_RESULT_CRC_ERROR;
+    const uint16_t receivedCrc = uint16_t(frame[7]) | (uint16_t(frame[8]) << 8);
+    if (receivedCrc != ModbusRtuCodec::crc16(frame, 7)) return MODBUS_RESULT_CRC_ERROR;
     if (frame[0] != r.slaveAddress || frame[1] != r.function) return MODBUS_RESULT_PROTOCOL_ERROR;
     out.slaveAddress = r.slaveAddress; out.function = r.function; out.registerAddress = r.registerAddress;
     if (r.operation == RegisterOperation::Read) {

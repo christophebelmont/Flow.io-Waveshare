@@ -60,6 +60,7 @@ private:
     PoolDeviceTarget sentTarget_{};
     uint32_t sentRevision_ = 0;
     uint32_t speedRevision_ = 0;
+    bool stopAcknowledged_ = false;
     uint32_t nextRequestAt_ = 0;
     uint32_t limitRevision_ = 0;
     bool limitValid_ = false;

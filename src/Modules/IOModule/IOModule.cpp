@@ -729,7 +729,6 @@ bool IOModule::defineDigitalOutput(const IODigitalOutputDefinition& def)
             digitalCfg_[cfgIdx].binding = def.binding;
             digitalCfg_[cfgIdx].activeHigh = def.activeHigh;
             digitalCfg_[cfgIdx].initialOn = def.initialOn;
-            digitalCfg_[cfgIdx].startupPolicy = def.startupPolicy;
             digitalCfg_[cfgIdx].retainOnWarmReboot = def.retainOnWarmReboot;
             digitalCfg_[cfgIdx].momentary = def.momentary;
             digitalCfg_[cfgIdx].pulseMs = (int32_t)def.pulseMs;
@@ -2918,7 +2917,7 @@ bool IOModule::configureRuntime_()
         if (!slot.used || slot.kind != DIGITAL_SLOT_OUTPUT) continue;
         const auto* port = bindingPortSpec_(slot.binding.port);
         if (port && port->kind == IO_PORT_KIND_TCA9554_OUTPUT &&
-            digitalCfg_[slot.logicalIdx].startupPolicy == IOOutputStartupPolicy::PreserveHardwareState) {
+            digitalCfg_[slot.logicalIdx].retainOnWarmReboot) {
             tcaPreserveStartup[port->expanderId] = true;
         }
     }
@@ -3048,7 +3047,6 @@ bool IOModule::configureRuntime_()
             s.outDef.binding = digitalCfg_[cfgIdx].binding;
             s.outDef.activeHigh = digitalCfg_[cfgIdx].activeHigh;
             s.outDef.initialOn = digitalCfg_[cfgIdx].initialOn;
-            s.outDef.startupPolicy = digitalCfg_[cfgIdx].startupPolicy;
             s.outDef.retainOnWarmReboot = digitalCfg_[cfgIdx].retainOnWarmReboot;
             s.outDef.momentary = digitalCfg_[cfgIdx].momentary;
             int32_t p = digitalCfg_[cfgIdx].pulseMs;
@@ -3143,7 +3141,7 @@ bool IOModule::configureRuntime_()
 
         bool actualOn = s.outDef.initialOn;
         const bool preserveStartup =
-            s.outDef.startupPolicy == IOOutputStartupPolicy::PreserveHardwareState;
+            usesTcaOut && s.outDef.retainOnWarmReboot;
         if (preserveStartup) {
             if (!s.provider.read(actualOn)) {
                 LOGW("Digital output %s startup state adoption failed", s.endpointId);

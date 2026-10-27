@@ -203,9 +203,9 @@ void manufacturerProfiles() {
     const auto write = bus.requests.back();
     uint8_t frame[16]{}; size_t length = 0;
     assert(ModbusRtuCodec::encodeRequest(write, frame, sizeof(frame), length));
-    const uint8_t expectedWrite[] = {0xAA,0xD0,0x0B,0xB9,0x06,0xA4,0x19,0x08};
+    const uint8_t expectedWrite[] = {0xAA,0xD0,0x0B,0xB9,0x06,0xA4,0x08,0x19};
     assert(length == sizeof(expectedWrite) && std::equal(frame, frame + length, expectedWrite));
-    const uint8_t ack[] = {0xAA,0xD0,0x0B,0xB9,0,0,0,0x07,0x82};
+    const uint8_t ack[] = {0xAA,0xD0,0x0B,0xB9,0,0,0,0x82,0x07};
     ModbusResponse response;
     assert(ModbusRtuCodec::decodeResponse(write, ack, sizeof(ack), response) == MODBUS_RESULT_OK);
     bus.reply(); driver.tick(11, true);
@@ -213,9 +213,9 @@ void manufacturerProfiles() {
     driver.tick(510, true); assert(bus.requests.size() == 2);
     const auto read = bus.requests.back();
     assert(ModbusRtuCodec::encodeRequest(read, frame, sizeof(frame), length));
-    const uint8_t expectedRead[] = {0xAA,0xC3,0x07,0xD1,0,0,0x4D,0x0D};
+    const uint8_t expectedRead[] = {0xAA,0xC3,0x07,0xD1,0,0,0x0D,0x4D};
     assert(length == sizeof(expectedRead) && std::equal(frame, frame + length, expectedRead));
-    const uint8_t feedback[] = {0xAA,0xC3,0,0x10,1,0x06,0xA4,0x22,0x57};
+    const uint8_t feedback[] = {0xAA,0xC3,0,0x10,1,0x06,0xA4,0x57,0x22};
     assert(ModbusRtuCodec::decodeResponse(read, feedback, sizeof(feedback), response) == MODBUS_RESULT_OK);
     assert(response.aquaGem.valid && response.aquaGem.faults == 16 && response.aquaGem.rpm == 1700);
     bus.reply(); bus.response = response; bus.response.result = MODBUS_RESULT_OK;
@@ -228,12 +228,12 @@ void manufacturerProfiles() {
     std::swap(bad[7], bad[8]);
     assert(ModbusRtuCodec::decodeResponse(read, bad.data(), bad.size(), response) == MODBUS_RESULT_CRC_ERROR);
     bad[0] = 0xAB;
-    auto crc = ModbusRtuCodec::crc16(bad.data(), 7); bad[7] = crc >> 8; bad[8] = crc & 255;
+    auto crc = ModbusRtuCodec::crc16(bad.data(), 7); bad[7] = crc & 255; bad[8] = crc >> 8;
     assert(ModbusRtuCodec::decodeResponse(read, bad.data(), bad.size(), response) == MODBUS_RESULT_PROTOCOL_ERROR);
     driver.applyTarget({false,1700}, 2); driver.tick(1010,true);
     assert(bus.requests.back().values[0] == 1 && bus.requests.back().priority == MODBUS_PRIORITY_SAFETY);
     assert(ModbusRtuCodec::encodeRequest(bus.requests.back(),frame,sizeof(frame),length));
-    const uint8_t expectedStop[] = {0xAA,0xD0,0x0B,0xB9,0,1,0xC2,0xCB};
+    const uint8_t expectedStop[] = {0xAA,0xD0,0x0B,0xB9,0,1,0xCB,0xC2};
     assert(std::equal(frame,frame+length,expectedStop));
     auto invalid = write; invalid.values[0] = 0; assert(!ModbusRtuCodec::validRequest(invalid));
     invalid = read; invalid.registerAddress = 2002; assert(!ModbusRtuCodec::validRequest(invalid));
@@ -249,7 +249,7 @@ void manufacturerProfiles() {
     assert(pac.begin(c,nullptr,&poly.service,1));
     pac.applyTarget({true,28,0},1); pac.tick(1,true);
     assert(poly.requests.back().registerAddress == 58 && poly.requests.back().function == 3);
-    poly.reply(40); pac.tick(2,true);
+    poly.reply(400); pac.tick(2,true);
     assert(poly.requests.back().registerAddress == 1001 && poly.requests.back().values[0] == 280);
     poly.reply(); pac.tick(3,true);
     assert(poly.requests.back().registerAddress == 1000 && poly.requests.back().values[0] == 0x15);
@@ -257,14 +257,132 @@ void manufacturerProfiles() {
     assert(poly.requests.back().registerAddress == 1000 && poly.requests.back().function == 3);
     pac.applyTarget({true,45,2},2); pac.tick(5,true);
     assert(poly.requests.back().registerAddress == 58);
-    poly.reply(40); pac.tick(6,true);
+    poly.reply(400); pac.tick(6,true);
     assert(pac.readState().error == MODBUS_RESULT_INVALID_ARGUMENT);
     assert(poly.requests.back().function == 3); // no out-of-range write
     pac.applyTarget({false,45,2},3); pac.tick(7,true);
     assert(poly.requests.back().function == 6 && poly.requests.back().values[0] == 0);
     for (uint8_t i=0;i<c.serial.modes.count;++i) assert((c.serial.modes.options[i].value & 0xFFE0) == 0);
 }
+void stoppedHeatPumpSetpoint() {
+    PoolDriverConfig config;
+    assert(applyPoolSerialProfile(PoolSerialModel::Polytropic, config));
+    Bus bus;
+    SerialDeviceDriver driver;
+    assert(driver.begin(config, nullptr, &bus.service, 8));
+    driver.applyTarget({false, 29, 0}, 1);
+    driver.tick(1, true);
+    assert(bus.requests.back().registerAddress == 1000 && bus.requests.back().values[0] == 0);
+    assert(bus.requests.back().priority == MODBUS_PRIORITY_SAFETY);
+    bus.reply(); driver.tick(2, true);
+    assert(driver.readState().phase == PoolCommandPhase::Pending);
+    assert(bus.requests.back().registerAddress == 58);
+    bus.reply(400); driver.tick(3, true);
+    assert(bus.requests.back().function == 6 && bus.requests.back().registerAddress == 1001);
+    assert(bus.requests.back().values[0] == 290);
+    assert(bus.requests.back().priority == MODBUS_PRIORITY_COMMAND);
+    bus.reply(); driver.tick(4, true);
+    assert(driver.readState().phase == PoolCommandPhase::Applied);
+    assert(!driver.readState().applied.running && driver.readState().applied.setpoint == 29);
+    assert(!driver.readState().observedValid); // Acknowledgement is not physical readback.
+    bus.reply(0); driver.tick(5, true); // Status: still off.
+    driver.tick(1005, true);
+    bus.reply(); driver.tick(1006, true); // Telemetry precedes the next feedback read.
+    driver.tick(2005, true);
+    assert(bus.requests.back().registerAddress == 1001 && bus.requests.back().function == 3);
+    bus.reply(290); driver.tick(2006, true);
+    assert(driver.readState().observedValid && !driver.readState().observed.running);
+    assert(driver.readState().observed.setpoint == 29);
+    // An invalid temperature must not prevent the stop, nor be written afterward.
+    driver.applyTarget({false, 45, 0}, 2); driver.tick(2010, true);
+    assert(bus.requests.back().registerAddress == 1000 && bus.requests.back().values[0] == 0);
+    bus.reply(); driver.tick(2011, true);
+    assert(bus.requests.back().registerAddress == 58);
+    const size_t beforeLimit = bus.requests.size();
+    bus.reply(400); driver.tick(2012, true);
+    assert(bus.requests.size() == beforeLimit);
+    assert(driver.readState().phase == PoolCommandPhase::Failed);
+    // A rejected write must not report the new temperature as applied.
+    driver.applyTarget({false, 30, 0}, 3); driver.tick(2020, true);
+    bus.reply(); driver.tick(2021, true);
+    bus.reply(400); driver.tick(2022, true);
+    assert(bus.requests.back().registerAddress == 1001);
+    bus.reply(0, MODBUS_RESULT_EXCEPTION); driver.tick(2023, true);
+    assert(driver.readState().phase == PoolCommandPhase::Failed);
+    assert(!driver.readState().appliedValid);
+    driver.tick(3023, true);
+    assert(bus.requests.back().registerAddress == 1000 && bus.requests.back().values[0] == 0);
+    for (const auto& request : bus.requests) {
+        if (request.function == 6 && request.registerAddress == 1000) assert(request.values[0] == 0);
+    }
+}
+
+void heatPumpLimitWireUnits() {
+    PoolDriverConfig config;
+    assert(applyPoolSerialProfile(PoolSerialModel::Polytropic, config));
+    // Replay the exact register-58 reply from the failing boot, through the codec.
+    for (bool running : {false, true}) {
+        for (float target : {32.0f, 32.1f}) {
+            Bus bus;
+            SerialDeviceDriver driver;
+            assert(driver.begin(config, nullptr, &bus.service, 8));
+            driver.applyTarget({running, target, 0}, 1);
+            driver.tick(1, true);
+            if (!running) {
+                assert(bus.requests.back().registerAddress == 1000 && bus.requests.back().values[0] == 0);
+                bus.reply(); driver.tick(2, true);
+            }
+            assert(bus.requests.back().registerAddress == 58 && bus.requests.back().function == 3);
+            const uint8_t reply[] = {0x11, 0x03, 0x02, 0x01, 0x40, 0x79, 0xE7};
+            assert(ModbusRtuCodec::decodeResponse(bus.requests.back(), reply, sizeof(reply), bus.response) == MODBUS_RESULT_OK);
+            assert(bus.response.registerCount == 1 && bus.response.values[0] == 320);
+            bus.response.result = MODBUS_RESULT_OK;
+            bus.available = true;
+            const size_t beforeLimit = bus.requests.size();
+            driver.tick(3, true);
+            if (target > 32.0f) {
+                assert(bus.requests.size() == beforeLimit);
+                assert(driver.readState().error == MODBUS_RESULT_INVALID_ARGUMENT);
+                continue;
+            }
+            assert(bus.requests.back().registerAddress == 1001 && bus.requests.back().values[0] == 320);
+            bus.reply(); driver.tick(4, true);
+            if (running) {
+                assert(bus.requests.back().registerAddress == 1000 && bus.requests.back().values[0] == 0x15);
+                bus.reply(); driver.tick(5, true);
+            }
+            assert(driver.readState().phase == PoolCommandPhase::Applied);
+            assert(driver.readState().error == 0);
+            assert(driver.readState().applied.running == running);
+            assert(bus.requests.back().function == 3 && bus.requests.back().registerAddress == 1000);
+        }
+    }
+    // Boot with the default stopped target, including boundary and malformed limits.
+    for (uint16_t raw : {0, 40, 249, 250, 320, 600, 601, 65535}) {
+        Bus bus;
+        SerialDeviceDriver driver;
+        assert(driver.begin(config, nullptr, &bus.service, 8));
+        driver.tick(1, true);
+        assert(bus.requests.back().registerAddress == 1000 && bus.requests.back().values[0] == 0);
+        bus.reply(); driver.tick(2, true);
+        assert(bus.requests.back().registerAddress == 58);
+        const size_t beforeLimit = bus.requests.size();
+        bus.reply(raw); driver.tick(3, true);
+        if (raw < 250 || raw > 600) {
+            assert(bus.requests.size() == beforeLimit);
+            assert(driver.readState().error == MODBUS_RESULT_PROTOCOL_ERROR);
+        } else {
+            assert(bus.requests.back().registerAddress == 1001 && bus.requests.back().values[0] == 250);
+            bus.reply(); driver.tick(4, true);
+            assert(driver.readState().phase == PoolCommandPhase::Applied);
+            assert(!driver.readState().applied.running);
+        }
+    }
+}
+
 int main() {
+    heatPumpLimitWireUnits();
+    stoppedHeatPumpSetpoint();
     manufacturerProfiles();
     combinedControl(); signedFeedbackAndLimits(); responseLayouts(); modesAndTelemetry();
     puts("serial register profile tests passed");
