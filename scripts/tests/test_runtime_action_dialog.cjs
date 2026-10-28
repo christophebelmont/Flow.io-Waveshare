@@ -82,7 +82,7 @@ async function main() {
     assert(!(await page.locator('dialog').textContent()).includes('flow.io'), 'The popup has no flow.io logo');
     assert.equal(await resetDevice('COMP08 (pd15)').locator('svg').count(), 1, 'Row actions use the compact reset icon');
     assert.equal(await page.locator('thead th').count(), 7, 'Device, state with optional setpoint, four periods and actions columns');
-    assert.equal(config.buttonText, 'Gérer les équipements');
+    assert.equal(config.buttonText, 'Gérer');
     assert(await row('Filtration (pd0)').getByRole('switch').isChecked());
     assert(!(await row('COMP08 (pd15)').getByRole('switch').isChecked()));
     assert(await row('COMP01 désactivé (pd8)').getByRole('switch').isDisabled());

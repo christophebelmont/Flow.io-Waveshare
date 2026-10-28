@@ -270,6 +270,8 @@ void SerialDeviceDriver::applyTarget(const PoolDeviceTarget& t, uint32_t revisio
 {
     if (revision == revision_) return;
     stopAcknowledged_ = false;
+    confirmation_ = Operation::None;
+    recoveryRound_ = false;
     // Drop queued obsolete operations. The arbiter drains any active exchange before proceeding.
     if (transaction_ != MODBUS_TRANSACTION_INVALID) {
         bus_->cancelOwner(bus_->ctx, owner_);
@@ -301,8 +303,12 @@ bool SerialDeviceDriver::submit_(Operation op, uint32_t now)
     r.responseLayout = wire->responseLayout;
     if (op == Operation::Telemetry) r.registerCount = kHeatPumpPolyBlocks[telemetryBlock_].count;
     r.responseTimeoutMs = c.timeoutMs; r.retries = c.retries;
-    r.priority = op == Operation::Run && !target_.running ? MODBUS_PRIORITY_SAFETY :
-        (op == Operation::Run || op == Operation::Setpoint ? MODBUS_PRIORITY_COMMAND : MODBUS_PRIORITY_BACKGROUND);
+    // A fresh stop (including its transport retries) is always safety priority.
+    // Later recovery rounds must yield to new commands and their confirmations.
+    r.priority = recoveryRound_ ? MODBUS_PRIORITY_NORMAL :
+        op == Operation::Run && !target_.running ? MODBUS_PRIORITY_SAFETY :
+        (op == Operation::Run || op == Operation::Setpoint || op == Operation::Limits ||
+         op == confirmation_ ? MODBUS_PRIORITY_COMMAND : MODBUS_PRIORITY_BACKGROUND);
     if (op == Operation::Run) {
         if (!target_.running) r.values[0] = c.stopValue;
         else if (c.control == PoolSerialControl::SetpointOrStop) r.values[0] = poolSerialRawSetpoint(config_, target_.setpoint);
@@ -323,6 +329,17 @@ bool SerialDeviceDriver::submit_(Operation op, uint32_t now)
     }
     return true;
 }
+void SerialDeviceDriver::commandAcknowledged_(uint32_t now)
+{
+    applied_(sentTarget_, sentRevision_, now);
+    nextPollAt_ = now;
+    if (config_.serial.hasFeedback) {
+        confirmation_ = config_.serial.runningSource == PoolRunningSource::StatusMask
+            ? Operation::Status : Operation::Feedback;
+        state_.phase = PoolCommandPhase::Confirming;
+    }
+}
+
 void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
 {
     if (operation_ == Operation::Telemetry) {
@@ -343,7 +360,16 @@ void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
     }
     if (r.result != MODBUS_RESULT_OK) {
         stopAcknowledged_ = false;
-        statusValid_ = levelValid_ = false; failed_(r.result, now); return;
+        confirmation_ = Operation::None;
+        statusValid_ = levelValid_ = false;
+        failed_(r.result, now);
+        // A transaction already includes the configured wire retries. Space
+        // subsequent rounds so an offline device cannot monopolize the shared
+        // bus with repeated safety writes. New targets still clear retryAt_.
+        if (communicationFailures_ < 4) ++communicationFailures_;
+        recoveryRound_ = true;
+        retryAt_ = now + (1000U << (communicationFailures_ - 1U));
+        return;
     }
     if (operation_ == Operation::Limits) {
         // Polytropic register 58 uses tenths of a degree, like setpoint 1001.
@@ -352,13 +378,14 @@ void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
         if (!limitValid_) { failed_(MODBUS_RESULT_PROTOCOL_ERROR, now); return; }
         maximumTemperature_ = maximumCelsius; limitRevision_ = sentRevision_;
     }
+    communicationFailures_ = 0;
+    recoveryRound_ = false;
     state_.online = true; state_.error = 0;
     switch (operation_) {
         case Operation::Setpoint:
             speedRevision_ = sentRevision_;
             if (!sentTarget_.running) {
-                applied_(sentTarget_, sentRevision_, now);
-                nextPollAt_ = now;
+                commandAcknowledged_(now);
             }
             break;
         case Operation::Run:
@@ -370,8 +397,7 @@ void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
                 state_.phase = PoolCommandPhase::Pending;
                 state_.changedAtMs = now;
             } else {
-                applied_(sentTarget_, sentRevision_, now);
-                nextPollAt_ = now;
+                commandAcknowledged_(now);
             }
             break;
         case Operation::Status:
@@ -394,6 +420,13 @@ void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
             break;
         }
         default: break;
+    }
+    if (operation_ == confirmation_) {
+        confirmation_ = operation_ == Operation::Status ? Operation::Feedback : Operation::None;
+        if (confirmation_ == Operation::None) {
+            state_.phase = PoolCommandPhase::Applied;
+            nextPollAt_ = now + config_.serial.pollMs;
+        }
     }
     state_.changedAtMs = now;
 }
@@ -441,6 +474,11 @@ void SerialDeviceDriver::tick(uint32_t now, bool enabled)
             if (target_.setpoint > maximumTemperature_) { failed_(MODBUS_RESULT_INVALID_ARGUMENT, now); return; }
         }
         submit_(separate && (!target_.running || speedRevision_ != revision_) ? Operation::Setpoint : Operation::Run, now);
+        return;
+    }
+    if (confirmation_ != Operation::None) {
+        state_.phase = PoolCommandPhase::Confirming;
+        submit_(confirmation_, now);
         return;
     }
     state_.phase = PoolCommandPhase::Applied;

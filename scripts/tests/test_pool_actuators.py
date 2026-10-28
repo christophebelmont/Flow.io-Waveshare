@@ -46,6 +46,10 @@ class PoolActuatorTests(unittest.TestCase):
     def test_debug_hex_logging(self):
         self.compile_and_run("log_hex.cpp", ["src/Core/Log.cpp"])
 
+    def test_offline_peer_does_not_starve_confirmation(self):
+        self.compile_and_run("rs485_offline_peer.cpp", [DRIVER, CODEC,
+            "src/Modules/IOModule/IOScheduler/Rs485TransactionScheduler.cpp", "src/Core/Log.cpp"])
+
     def test_delayed_uart_receive(self):
         self.compile_and_run("rs485_receive.cpp", [
             "src/Modules/IOModule/IOBus/Rs485Bus.cpp",

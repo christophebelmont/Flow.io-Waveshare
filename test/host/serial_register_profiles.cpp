@@ -58,16 +58,19 @@ void combinedControl() {
     assert(driver.readState().applied.setpoint == 1700);
     // The next operation reads RPM; there is no fixed run write overwriting the speed.
     assert(bus.requests.size() == 2 && bus.requests.back().registerAddress == 2001);
+    assert(bus.requests.back().priority == MODBUS_PRIORITY_COMMAND);
+    assert(driver.readState().phase == PoolCommandPhase::Confirming);
     assert(bus.requests.back().responseLayout == RegisterResponseLayout::AddressByteCount);
     bus.reply(1700); driver.tick(12, true);
     assert(driver.readState().observedValid && driver.readState().observed.running);
     assert(driver.readState().quality == PoolFeedbackQuality::Confirmed);
+    assert(driver.readState().phase == PoolCommandPhase::Applied);
     driver.applyTarget({false, 1724}, 2); driver.tick(20, true);
     assert(bus.requests.back().values[0] == 1); // stop is never quantized to zero
     assert(bus.requests.back().priority == MODBUS_PRIORITY_SAFETY);
     bus.reply(); driver.tick(21, true); bus.reply(1); driver.tick(22, true);
     assert(driver.readState().observedValid && !driver.readState().observed.running);
-    driver.tick(1021, true); bus.reply(0, MODBUS_RESULT_TIMEOUT); driver.tick(1022, true);
+    driver.tick(1022, true); bus.reply(0, MODBUS_RESULT_TIMEOUT); driver.tick(1023, true);
     assert(!driver.readState().observedValid && driver.readState().error == MODBUS_RESULT_TIMEOUT);
 
     c.serial.hasFeedback = false; Bus refreshBus; SerialDeviceDriver refresh;
@@ -282,15 +285,16 @@ void stoppedHeatPumpSetpoint() {
     assert(bus.requests.back().values[0] == 290);
     assert(bus.requests.back().priority == MODBUS_PRIORITY_COMMAND);
     bus.reply(); driver.tick(4, true);
-    assert(driver.readState().phase == PoolCommandPhase::Applied);
+    assert(driver.readState().phase == PoolCommandPhase::Confirming);
     assert(!driver.readState().applied.running && driver.readState().applied.setpoint == 29);
     assert(!driver.readState().observedValid); // Acknowledgement is not physical readback.
+    assert(bus.requests.back().priority == MODBUS_PRIORITY_COMMAND);
     bus.reply(0); driver.tick(5, true); // Status: still off.
-    driver.tick(1005, true);
-    bus.reply(); driver.tick(1006, true); // Telemetry precedes the next feedback read.
-    driver.tick(2005, true);
+    assert(driver.readState().phase == PoolCommandPhase::Confirming);
+    assert(bus.requests.back().priority == MODBUS_PRIORITY_COMMAND);
     assert(bus.requests.back().registerAddress == 1001 && bus.requests.back().function == 3);
-    bus.reply(290); driver.tick(2006, true);
+    bus.reply(290); driver.tick(6, true);
+    assert(driver.readState().phase == PoolCommandPhase::Applied);
     assert(driver.readState().observedValid && !driver.readState().observed.running);
     assert(driver.readState().observed.setpoint == 29);
     // An invalid temperature must not prevent the stop, nor be written afterward.
@@ -351,7 +355,7 @@ void heatPumpLimitWireUnits() {
                 assert(bus.requests.back().registerAddress == 1000 && bus.requests.back().values[0] == 0x15);
                 bus.reply(); driver.tick(5, true);
             }
-            assert(driver.readState().phase == PoolCommandPhase::Applied);
+            assert(driver.readState().phase == PoolCommandPhase::Confirming);
             assert(driver.readState().error == 0);
             assert(driver.readState().applied.running == running);
             assert(bus.requests.back().function == 3 && bus.requests.back().registerAddress == 1000);
@@ -374,13 +378,80 @@ void heatPumpLimitWireUnits() {
         } else {
             assert(bus.requests.back().registerAddress == 1001 && bus.requests.back().values[0] == 250);
             bus.reply(); driver.tick(4, true);
-            assert(driver.readState().phase == PoolCommandPhase::Applied);
+            assert(driver.readState().phase == PoolCommandPhase::Confirming);
             assert(!driver.readState().applied.running);
         }
     }
 }
 
+void confirmationFailureAndReplacement() {
+    auto config = pump();
+    config.serial.line.minimumRequestIntervalMs = 500;
+    Bus bus;
+    SerialDeviceDriver driver;
+    assert(driver.begin(config, nullptr, &bus.service, 1));
+    driver.applyTarget({true, 1700}, 1); driver.tick(10, true);
+    bus.reply(); driver.tick(11, true);
+    assert(driver.readState().phase == PoolCommandPhase::Confirming);
+    driver.tick(509, true); assert(bus.requests.size() == 1);
+    driver.tick(510, true);
+    assert(bus.requests.back().priority == MODBUS_PRIORITY_COMMAND);
+    bus.reply(0, MODBUS_RESULT_TIMEOUT); driver.tick(511, true);
+    assert(driver.readState().phase == PoolCommandPhase::Failed);
+    assert(!driver.readState().observedValid);
+    driver.applyTarget({true, 1800}, 2); driver.tick(1010, true);
+    bus.reply(); driver.tick(1011, true); driver.tick(1510, true);
+    assert(bus.requests.back().registerAddress == 2001);
+    const auto cancelled = bus.cancellations;
+    driver.applyTarget({false, 1800}, 3);
+    assert(bus.cancellations == cancelled + 1);
+    driver.tick(2010, true);
+    assert(bus.requests.back().priority == MODBUS_PRIORITY_SAFETY);
+    bus.reply(); driver.tick(2011, true);
+    const auto count = bus.requests.size();
+    driver.tick(2510, false); assert(bus.requests.size() == count);
+    driver.tick(2511, true);
+    assert(bus.requests.back().registerAddress == 2001);
+    bus.reply(0); driver.tick(2512, true);
+    assert(driver.readState().phase == PoolCommandPhase::Applied);
+    assert(!driver.readState().observed.running);
+}
+
+void communicationRecoveryBackoff() {
+    Bus bus;
+    SerialDeviceDriver driver;
+    auto config = pump();
+    assert(driver.begin(config, nullptr, &bus.service, 1));
+    driver.applyTarget({true, 2200}, 1);
+    uint32_t now = 10;
+    driver.tick(now, true);
+    for (uint32_t delay : {1000U, 2000U, 4000U, 8000U, 8000U}) {
+        bus.reply(0, MODBUS_RESULT_TIMEOUT); driver.tick(++now, true);
+        const auto count = bus.requests.size();
+        driver.tick(now + delay - 1, true);
+        assert(bus.requests.size() == count);
+        now += delay; driver.tick(now, true);
+        assert(bus.requests.size() == count + 1);
+        assert(bus.requests.back().priority == MODBUS_PRIORITY_NORMAL);
+    }
+    bus.reply(0, MODBUS_RESULT_TIMEOUT); driver.tick(++now, true);
+    const auto count = bus.requests.size();
+    // A new stop bypasses recovery delay and retains safety priority.
+    driver.applyTarget({false, 2200}, 2); driver.tick(++now, true);
+    assert(bus.requests.size() == count + 1 && bus.requests.back().priority == MODBUS_PRIORITY_SAFETY);
+    bus.reply(); driver.tick(++now, true);
+    bus.reply(0); driver.tick(++now, true);
+    assert(driver.readState().phase == PoolCommandPhase::Applied);
+    driver.applyTarget({true, 2300}, 3); driver.tick(++now, true);
+    bus.reply(0, MODBUS_RESULT_TIMEOUT); driver.tick(++now, true);
+    const auto recovered = bus.requests.size();
+    driver.tick(now + 999, true); assert(bus.requests.size() == recovered);
+    driver.tick(now + 1000, true); assert(bus.requests.size() == recovered + 1);
+}
+
 int main() {
+    communicationRecoveryBackoff();
+    confirmationFailureAndReplacement();
     heatPumpLimitWireUnits();
     stoppedHeatPumpSetpoint();
     manufacturerProfiles();

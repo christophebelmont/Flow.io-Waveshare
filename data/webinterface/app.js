@@ -7695,15 +7695,45 @@
         else { input.type = 'number'; input.step = 'any'; input.min = target.minimum; input.max = target.maximum; }
         input.setAttribute('aria-label', column.label + ' — ' + target.label);
         const status = document.createElement('span');
+        status.setAttribute('aria-live', 'polite');
+        let sendingValue = null;
+        let lastCurrent = target;
+        function renderStatus(current) {
+          const suffix = [' %', ' %', ' °C', ' rpm'][current.unit] || '';
+          const observed = current.observedSetpoint == null ? '—' : current.observedSetpoint + suffix;
+          const qualityKeys = ['unknownState', 'estimated', 'confirmed', 'stale'];
+          const qualityFallbacks = ['Indisponible', 'Estimé', 'Confirmé', 'Périmé'];
+          const q = Number(current.quality) || 0;
+          let text = observed + ' · ' + tr('dashboard.action.' + qualityKeys[q], qualityFallbacks[q]);
+          // PoolCommandPhase: Pending=1, Failed=3, Confirming=5. Requested and
+          // observed values stay distinct, including while an HTTP request runs.
+          if (sendingValue !== null || current.phase === 1 || current.phase === 5) {
+            const requested = sendingValue ?? current.setpoint;
+            text = (requested == null ? '—' : requested + suffix) + ' · ' +
+              tr('dashboard.action.confirming', 'Confirmation en cours…') +
+              ' · ' + tr('dashboard.action.lastRead', 'Dernière lecture') + ' : ' + observed;
+          } else if (current.phase === 3) {
+            text = tr('dashboard.action.failed', 'Échec de la commande') + ' · ' + text;
+          }
+          setRuntimeActionText(status, text);
+        }
         const control = { input, target, column, available: false };
         switchControls.push(control);
-        input.addEventListener('change', () => {
+        input.addEventListener('change', async () => {
           if (!control.available || pending || runtimeActionBusyKey || !input.checkValidity()) return;
           const value = Number(input.value);
           if (!Number.isFinite(value)) return;
           const action = actions.find((item) => item.id === column.action);
-          if (action) applyTargetAction(target, action, value, target.value,
-            tr('dashboard.action.setpointAccepted', 'Consigne acceptée'));
+          if (!action) return;
+          sendingValue = value;
+          renderStatus(lastCurrent);
+          try {
+            await applyTargetAction(target, action, value, target.value,
+              tr('dashboard.action.setpointAccepted', 'Consigne acceptée'));
+          } finally {
+            sendingValue = null;
+            renderStatus(lastCurrent);
+          }
         });
         wrapper.append(input, status);
         let modeControl = null;
@@ -7739,8 +7769,9 @@
           wrapper.appendChild(details);
         }
         return { element: wrapper, update: (current) => {
+          lastCurrent = current;
           control.available = current.controllable === true;
-          if (document.activeElement !== input) input.value = String(current.setpoint ?? '');
+          if (sendingValue === null && document.activeElement !== input) input.value = String(current.setpoint ?? '');
           if (modeControl) {
             modeControl.available = control.available;
             if (document.activeElement !== modeControl.input) modeControl.input.value = String(current.mode ?? 0);
@@ -7752,12 +7783,7 @@
               String(reading) + (current.telemetry_units?.[key] ? ' ' + current.telemetry_units[key] : '');
             setRuntimeActionText(value, text);
           });
-          const qualityKeys = ['unknownState', 'estimated', 'confirmed', 'stale'];
-          const qualityFallbacks = ['Indisponible', 'Estimé', 'Confirmé', 'Périmé'];
-          const q = Number(current.quality) || 0;
-          const quality = tr('dashboard.action.' + qualityKeys[q], qualityFallbacks[q]);
-          const suffix = [' %', ' %', ' °C', ' rpm'][current.unit] || '';
-          setRuntimeActionText(status, (current.observedSetpoint == null ? '—' : current.observedSetpoint + suffix) + ' · ' + quality);
+          renderStatus(current);
         } };
       }
 

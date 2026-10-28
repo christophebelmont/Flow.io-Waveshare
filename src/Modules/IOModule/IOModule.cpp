@@ -3892,7 +3892,12 @@ void IOModule::loop()
 const ModuleTaskSpec* IOModule::taskSpecs() const
 {
     taskSpecs_[0] = *singleLoopTaskSpec();
-    taskSpecs_[1] = {"rs485", 3072, 2, taskCore(), &IOModule::serialTask_, const_cast<IOModule*>(this)};
+    // AsyncTCP handlers run at priority 10. Service UART deadlines above them:
+    // a long HTTP serialization must not postpone RX/TX progress. This task
+    // only advances the non-blocking transport and yields every tick.
+    constexpr UBaseType_t serialPriority = 11;
+    static_assert(serialPriority < configMAX_PRIORITIES, "RS485 task priority out of range");
+    taskSpecs_[1] = {"rs485", 3072, serialPriority, taskCore(), &IOModule::serialTask_, const_cast<IOModule*>(this)};
     return taskSpecs_;
 }
 

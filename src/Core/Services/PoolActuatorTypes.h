@@ -23,7 +23,7 @@ enum class PoolRunningSource : uint8_t { StatusMask, FeedbackThreshold, DeviceSt
 enum class PoolRegisterValueType : uint8_t { Unsigned16, Signed16 };
 enum class PoolRawRounding : uint8_t { Nearest, Down };
 enum class PoolFeedbackQuality : uint8_t { Unknown, Estimated, Confirmed, Stale };
-enum class PoolCommandPhase : uint8_t { Idle, Pending, Applied, Failed, Frozen };
+enum class PoolCommandPhase : uint8_t { Idle, Pending, Applied, Failed, Frozen, Confirming };
 
 struct PoolDeviceTarget {
     bool running = false;

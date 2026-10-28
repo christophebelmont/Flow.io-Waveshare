@@ -55,12 +55,16 @@ private:
     enum class Operation : uint8_t { None, Setpoint, Run, Status, Feedback, Telemetry, Limits };
     bool submit_(Operation, uint32_t now);
     void consume_(const ModbusResponse&, uint32_t now);
+    void commandAcknowledged_(uint32_t now);
     uint16_t transaction_ = MODBUS_TRANSACTION_INVALID;
     Operation operation_ = Operation::None;
+    Operation confirmation_ = Operation::None;
     PoolDeviceTarget sentTarget_{};
     uint32_t sentRevision_ = 0;
     uint32_t speedRevision_ = 0;
     bool stopAcknowledged_ = false;
+    uint8_t communicationFailures_ = 0;
+    bool recoveryRound_ = false;
     uint32_t nextRequestAt_ = 0;
     uint32_t limitRevision_ = 0;
     bool limitValid_ = false;
