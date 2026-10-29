@@ -24,6 +24,8 @@ enum class PoolRegisterValueType : uint8_t { Unsigned16, Signed16 };
 enum class PoolRawRounding : uint8_t { Nearest, Down };
 enum class PoolFeedbackQuality : uint8_t { Unknown, Estimated, Confirmed, Stale };
 enum class PoolCommandPhase : uint8_t { Idle, Pending, Applied, Failed, Frozen, Confirming };
+// Confirming: the device acknowledged the command, but fresh feedback has not
+// yet reached its target. Feedback quality describes the reading, not the command.
 
 struct PoolDeviceTarget {
     bool running = false;
@@ -39,6 +41,9 @@ struct PoolRunModes {
     PoolRunMode options[POOL_MAX_RUN_MODES]{};
 };
 struct PoolDeviceFeedback {
+    // For serial devices, this is the wire-normalized, acknowledged target.
+    // With feedback enabled, phase == Applied requires fresh matching feedback.
+    // Without feedback, quality remains Estimated after acknowledgement.
     PoolDeviceTarget applied{};
     PoolDeviceTarget observed{};
     bool appliedValid = false;

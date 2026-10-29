@@ -340,6 +340,18 @@ void SerialDeviceDriver::commandAcknowledged_(uint32_t now)
     }
 }
 
+bool SerialDeviceDriver::observedTargetReached_() const
+{
+    if (!state_.observedValid || state_.observed.running != state_.applied.running) return false;
+    const auto& serial = config_.serial;
+    // A combined stop register reports a stopped speed, not the prepared target.
+    if (!state_.applied.running && serial.control == PoolSerialControl::SetpointOrStop) return true;
+    // Compare with the normalized wire target, within the feedback register's
+    // resolution. An acknowledgement or an old startup RPM is not convergence.
+    return std::fabs(double(state_.observed.setpoint) - state_.applied.setpoint) <=
+        double(serial.feedbackUnitsPerRaw) * 0.5;
+}
+
 void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
 {
     if (operation_ == Operation::Telemetry) {
@@ -424,7 +436,6 @@ void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
     if (operation_ == confirmation_) {
         confirmation_ = operation_ == Operation::Status ? Operation::Feedback : Operation::None;
         if (confirmation_ == Operation::None) {
-            state_.phase = PoolCommandPhase::Applied;
             nextPollAt_ = now + config_.serial.pollMs;
         }
     }
@@ -455,6 +466,11 @@ void SerialDeviceDriver::tick(uint32_t now, bool enabled)
     if (!config_.serial.hasFeedback && uint32_t(now - state_.observedAtMs) >= config_.serial.staleMs) {
         state_.observedValid = false; state_.quality = PoolFeedbackQuality::Stale;
     }
+    if (state_.appliedValid && state_.appliedRevision == revision_) {
+        state_.phase = !config_.serial.hasFeedback ||
+            (confirmation_ == Operation::None && observedTargetReached_())
+            ? PoolCommandPhase::Applied : PoolCommandPhase::Confirming;
+    }
     for (uint8_t i = 0; i < POOL_TELEMETRY_BLOCKS; ++i) {
         auto& t = state_.telemetry;
         if ((t.validBlocks & (1U << i)) && uint32_t(now - t.readAtMs[i]) > config_.serial.telemetryStaleMs) {
@@ -481,7 +497,6 @@ void SerialDeviceDriver::tick(uint32_t now, bool enabled)
         submit_(confirmation_, now);
         return;
     }
-    state_.phase = PoolCommandPhase::Applied;
     if (!config_.serial.hasFeedback && uint32_t(now - state_.observedAtMs) >= config_.serial.pollMs) {
         // Explicit idempotent register writes refresh devices without readback.
         submit_(Operation::Run, now);

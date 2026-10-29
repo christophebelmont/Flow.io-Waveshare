@@ -7198,6 +7198,12 @@ void WebInterfaceModule::startServer_()
             auto steps = deviceDoc.createNestedArray("steps");
             for (uint8_t n = 0; n < devices[idx].capabilities.stepCount; ++n) steps.add(devices[idx].capabilities.steps[n]);
             deviceDoc["setpoint"] = state.desiredSetpoint;
+            // Acceptance is distinct from physical convergence (phase Applied).
+            // In Pending/Failed the previous acknowledgement is not this command.
+            if (state.feedback.appliedValid &&
+                (state.feedback.phase == PoolCommandPhase::Confirming || state.feedback.phase == PoolCommandPhase::Applied)) {
+                deviceDoc["acceptedSetpoint"] = state.feedback.applied.setpoint;
+            }
             deviceDoc["mode"] = devices[idx].guidedTarget.mode;
             auto modes = deviceDoc.createNestedArray("modes");
             for (uint8_t n = 0; n < devices[idx].runModes.count; ++n) modes.add(devices[idx].runModes.options[n].label);

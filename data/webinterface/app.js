@@ -3212,6 +3212,16 @@
       }
     }
 
+    function setUpgradeDetail(text) {
+      const detail = String(text || '').trim();
+      const current = readUpgradeUiSession();
+      if (current) {
+        current.detail = detail;
+        writeUpgradeUiSession(current);
+      }
+      setUpgradeMessage(detail);
+    }
+
     function readUpgradeUiSession() {
       const raw = getStorageValue(sessionStorage, upgradeUiSessionStorageKey);
       if (!raw) return null;
@@ -3660,10 +3670,6 @@
         updateUpgradeUiSession({
           phase: state === 'queued' ? 'target' : 'flash',
           target: 'release',
-          detail: state === 'queued'
-            ? tr('updates.detail.targetSelected', 'Sélection de la cible {target}.')
-              .replace('{target}', upgradeTargetLabel('release'))
-            : tr('updates.phase.flash', 'Mise à jour') + (state === 'done' ? '…' : '.'),
           backendProgress: localReleaseOverallProgress(current, target, progress),
           awaitingReconnect: false,
           reconnectShown: false,
@@ -4591,7 +4597,7 @@
           releaseFilesystemTotal: Number(manifest.filesystem && manifest.filesystem.size) || 0,
           releaseFirmwareTotal: Number(manifest.firmware && manifest.firmware.size) || 0
         });
-        setUpgradeMessage('Préparation de la release ' + manifest.version + '…');
+        setUpgradeDetail('Préparation de la release ' + manifest.version + '…');
         const started = await fetchOkJson('/api/upgrade/begin', {
           method: 'POST',
           cache: 'no-store',
@@ -4604,10 +4610,10 @@
         }
         const query = '?transaction_id=' + encodeURIComponent(String(transactionId));
         await uploadReleaseBlob('/api/upgrade/filesystem' + query, filesystem, (progress) => {
-          setUpgradeMessage('Installation du filesystem : ' + progress + '%');
+          setUpgradeDetail('Installation du filesystem : ' + progress + '%');
         });
         await uploadReleaseBlob('/api/upgrade/firmware' + query, firmware, (progress) => {
-          setUpgradeMessage('Installation du firmware : ' + progress + '%');
+          setUpgradeDetail('Installation du firmware : ' + progress + '%');
         });
         await fetchOkJson('/api/upgrade/commit' + query,
                           { method: 'POST', cache: 'no-store' },
@@ -7116,6 +7122,15 @@
       if (element.disabled !== value) element.disabled = value;
     }
 
+    // Running state of a target, matching the switch column: the actual state
+    // when known, otherwise the desired state. null means the state is unknown.
+    function runtimeTargetRunning(target) {
+      const actual = target && target.actualOn;
+      if (typeof actual === 'boolean') return actual;
+      const desired = target && target.desiredOn;
+      return typeof desired === 'boolean' ? desired : null;
+    }
+
     function buildDashboardManagementButton(onOpen, label) {
       const button = document.createElement('button');
       button.type = 'button';
@@ -7682,78 +7697,197 @@
         const wrapper = document.createElement('div');
         if (!target.kind) {
           wrapper.textContent = '—';
-          return { element: wrapper, update: () => {} };
+          return { element: wrapper, update: () => {}, setPending: () => {} };
         }
         wrapper.className = 'runtime-setpoint';
         const discrete = target.kind === 1;
+        const field = document.createElement('div');
+        field.className = 'runtime-setpoint-field';
+        const border = document.createElement('span');
+        border.className = 'runtime-setpoint-border';
+        border.setAttribute('aria-hidden', 'true');
+        const legend = document.createElement('span');
+        legend.className = 'runtime-setpoint-legend';
+        setRuntimeActionText(legend, column.label);
+        const inner = document.createElement('span');
+        inner.className = 'runtime-setpoint-inner';
+        const prefix = document.createElement('span');
+        prefix.className = 'runtime-setpoint-prefix';
+        const prefixValue = document.createElement('span');
+        const arrow = document.createElement('span');
+        arrow.className = 'runtime-setpoint-arrow';
+        setRuntimeActionText(arrow, '→');
+        prefix.append(prefixValue, arrow);
+        prefix.hidden = true;
         const input = document.createElement(discrete ? 'select' : 'input');
-        input.className = 'control-input';
-        if (discrete) (target.steps || []).forEach((value) => {
-          const option = document.createElement('option');
-          option.value = String(value); option.textContent = String(value); input.appendChild(option);
-        });
-        else { input.type = 'number'; input.step = 'any'; input.min = target.minimum; input.max = target.maximum; }
+        input.className = 'runtime-setpoint-input';
+        if (!discrete) { input.type = 'number'; input.step = 'any'; }
+        input.required = true;
         input.setAttribute('aria-label', column.label + ' — ' + target.label);
-        const status = document.createElement('span');
+        const unit = document.createElement('span');
+        unit.className = 'runtime-setpoint-unit';
+        const applyBtn = document.createElement('button');
+        applyBtn.type = 'button';
+        applyBtn.className = 'runtime-setpoint-apply';
+        applyBtn.setAttribute('aria-label', tr('dashboard.action.applySetpoint', 'Appliquer la consigne'));
+        applyBtn.appendChild(buildRuntimeActionIcon('check'));
+        applyBtn.hidden = true;
+        inner.append(prefix, input, unit, applyBtn);
+        field.append(border, legend, inner);
+        wrapper.appendChild(field);
+        const status = document.createElement('small');
+        status.id = 'runtime-setpoint-status-' + entry.id + '-' + target.value + '-' + column.action;
         status.setAttribute('aria-live', 'polite');
-        let sendingValue = null;
-        let lastCurrent = target;
-        function renderStatus(current) {
-          const suffix = [' %', ' %', ' °C', ' rpm'][current.unit] || '';
-          const observed = current.observedSetpoint == null ? '—' : current.observedSetpoint + suffix;
-          const qualityKeys = ['unknownState', 'estimated', 'confirmed', 'stale'];
-          const qualityFallbacks = ['Indisponible', 'Estimé', 'Confirmé', 'Périmé'];
-          const q = Number(current.quality) || 0;
-          let text = observed + ' · ' + tr('dashboard.action.' + qualityKeys[q], qualityFallbacks[q]);
-          // PoolCommandPhase: Pending=1, Failed=3, Confirming=5. Requested and
-          // observed values stay distinct, including while an HTTP request runs.
-          if (sendingValue !== null || current.phase === 1 || current.phase === 5) {
-            const requested = sendingValue ?? current.setpoint;
-            text = (requested == null ? '—' : requested + suffix) + ' · ' +
-              tr('dashboard.action.confirming', 'Confirmation en cours…') +
-              ' · ' + tr('dashboard.action.lastRead', 'Dernière lecture') + ' : ' + observed;
-          } else if (current.phase === 3) {
-            text = tr('dashboard.action.failed', 'Échec de la commande') + ' · ' + text;
-          }
-          setRuntimeActionText(status, text);
-        }
+        status.setAttribute('aria-atomic', 'true');
+        input.setAttribute('aria-describedby', status.id);
+        wrapper.appendChild(status);
         const control = { input, target, column, available: false };
-        switchControls.push(control);
-        input.addEventListener('change', async () => {
-          if (!control.available || pending || runtimeActionBusyKey || !input.checkValidity()) return;
-          const value = Number(input.value);
+        const applyControl = { input: applyBtn, target, column, available: false };
+        switchControls.push(control, applyControl);
+        // A local submission survives HTTP completion until the runtime snapshot
+        // contains it. The server then owns its acceptance/convergence status.
+        let submission = null;
+        let editing = false;
+        let commandPending = false;
+        let lastCurrent = target;
+        let validationRequested = false;
+        // Keep controls mounted and preserve drafts when capabilities change.
+        function updateOptions(select, options) {
+          const unchanged = select.options.length === options.length && options.every((option, index) =>
+            select.options[index].value === String(option.value) && select.options[index].textContent === option.label);
+          if (unchanged) return;
+          const previousValue = select.value;
+          select.replaceChildren(...options.map(({ value, label }) => {
+            const option = document.createElement('option');
+            option.value = String(value);
+            option.textContent = label;
+            return option;
+          }));
+          select.value = previousValue;
+        }
+        function renderStatus(current) {
+          const suffix = ([' %', ' %', ' °C', ' rpm'][current.unit] || '').trim();
+          const observed = current.observedSetpoint == null ? null : current.observedSetpoint;
+          setRuntimeActionText(unit, suffix);
+          const phase = Number(current.phase) || 0;
+          if (submission?.state === 'accepted' && current.setpoint === submission.value) submission = null;
+          const transmitting = submission?.state === 'sending' || commandPending;
+          const awaitingSnapshot = submission?.state === 'accepted';
+          const rejected = submission?.state === 'rejected';
+          const awaitingApplication = phase === 5 && !submission;
+          const waiting = transmitting || awaitingSnapshot || phase === 1 || phase === 5;
+          const failed = rejected || phase === 3;
+          const confirmed = phase === 2 && Number(current.quality) === 2;
+          const display = submission ? submission.value
+            : (waiting || failed || phase === 4) ? current.setpoint
+            : (observed ?? current.setpoint);
+          if (!editing) input.value = String(display ?? '');
+          const off = runtimeTargetRunning(current) === false;
+          control.available = current.controllable === true && !off;
+          applyControl.available = control.available;
+          let state = 'neutral';
+          if (transmitting) state = 'pending';
+          else if (off) state = 'disabled';
+          else if (editing) state = 'editing';
+          else if (failed) state = 'error';
+          else if (waiting) state = 'pending';
+          else if (confirmed) state = 'confirmed';
+          setRuntimeActionAttribute(field, 'class', 'runtime-setpoint-field is-' + state);
+          // Show the last reading (left value) only during a transition, when it
+          // differs from the value currently displayed in the field.
+          const showPrefix = !discrete && observed != null && (waiting || failed || editing)
+            && (input.value === '' || observed !== input.valueAsNumber);
+          prefix.hidden = !showPrefix;
+          if (showPrefix) setRuntimeActionText(prefixValue, String(observed));
+          // An acknowledged device may accept a replacement while still settling.
+          applyBtn.hidden = !((editing || rejected) && !transmitting && !off);
+          const blocked = pending || (loading && !backgroundLoading);
+          setRuntimeActionDisabled(input, blocked || !control.available);
+          setRuntimeActionDisabled(applyBtn, blocked || !control.available);
+          const invalid = validationRequested && !input.validity.valid;
+          setRuntimeActionAttribute(input, 'aria-invalid', String(invalid));
+          let statusText;
+          let visible = false;
+          if (invalid) {
+            statusText = input.validationMessage;
+            visible = true;
+          } else if (transmitting) {
+            statusText = tr('dashboard.action.confirming', 'Confirmation en cours…');
+          } else if (editing) {
+            statusText = tr('dashboard.action.setpointDraft', 'Modification non appliquée');
+            visible = true;
+          } else if (failed) {
+            statusText = rejected ? submission.error : tr('dashboard.action.failed', 'Échec de la commande');
+            visible = true;
+          } else if (awaitingApplication) {
+            statusText = tr('dashboard.action.awaitingApplication', 'Commande acceptée · Application en attente');
+            visible = true;
+          } else if (waiting) {
+            statusText = tr('dashboard.action.confirming', 'Confirmation en cours…');
+          } else if (phase === 4) {
+            statusText = tr('dashboard.action.setpointFrozen', 'Application suspendue');
+            visible = true;
+          } else if (off) {
+            statusText = tr('dashboard.action.setpointOff', 'Consigne désactivée à l’arrêt');
+          } else if (confirmed && current.acceptedSetpoint != null && current.setpoint !== current.acceptedSetpoint) {
+            statusText = tr('dashboard.action.setpointAdjusted', 'Demandé : {requested} · Retenu : {accepted}')
+              .replace('{requested}', String(current.setpoint) + ' ' + suffix)
+              .replace('{accepted}', String(current.acceptedSetpoint) + ' ' + suffix);
+            visible = true;
+          } else {
+            const qualityKeys = ['unknownState', 'estimated', 'confirmed', 'stale'];
+            const qualityFallbacks = ['État indisponible', 'Valeur estimée', 'Confirmé', 'Dernière lecture périmée'];
+            const quality = Number(current.quality) || 0;
+            statusText = tr('dashboard.action.' + (qualityKeys[quality] || qualityKeys[0]),
+              qualityFallbacks[quality] || qualityFallbacks[0]);
+            visible = quality !== 2;
+          }
+          setRuntimeActionAttribute(status, 'class', 'runtime-setpoint-status' + (visible ? '' : ' visually-hidden'));
+          setRuntimeActionText(status, statusText);
+        }
+        async function applySetpoint() {
+          if (!control.available || pending || runtimeActionBusyKey) return;
+          validationRequested = true;
+          renderStatus(lastCurrent);
+          if (!input.reportValidity()) return;
+          const value = discrete ? Number(input.value) : input.valueAsNumber;
           if (!Number.isFinite(value)) return;
           const action = actions.find((item) => item.id === column.action);
           if (!action) return;
-          sendingValue = value;
+          submission = { value, state: 'sending', error: '' };
+          editing = false;
+          validationRequested = false;
           renderStatus(lastCurrent);
           try {
-            await applyTargetAction(target, action, value, target.value,
+            const result = await applyTargetAction(target, action, value, target.value,
               tr('dashboard.action.setpointAccepted', 'Consigne acceptée'));
+            submission.state = result.ok ? 'accepted' : 'rejected';
+            submission.error = result.error;
+          } catch (error) {
+            submission.state = 'rejected';
+            submission.error = error.message || tr('dashboard.action.error', 'Commande refusée');
           } finally {
-            sendingValue = null;
             renderStatus(lastCurrent);
           }
-        });
-        wrapper.append(input, status);
-        let modeControl = null;
-        if (target.modes && target.modes.length) {
-          const mode = document.createElement('select');
-          mode.className = 'control-input';
-          mode.setAttribute('aria-label', tr('pool.driver.runMode', 'Mode de fonctionnement') + ' — ' + target.label);
-          target.modes.forEach((label, index) => {
-            const option = document.createElement('option'); option.value = index; option.textContent = label; mode.appendChild(option);
-          });
-          modeControl = { input: mode, target, column, available: false };
-          switchControls.push(modeControl);
-          mode.addEventListener('change', () => {
-            if (!modeControl.available || pending || runtimeActionBusyKey) return;
-            const action = actions.find(item => item.id === 'mode');
-            if (action) applyTargetAction(target, action, Number(mode.value), target.value,
-              tr('pool.driver.modeAccepted', 'Mode accepté'));
-          });
-          wrapper.appendChild(mode);
         }
+        input.addEventListener('input', () => {
+          editing = true;
+          if (submission?.state === 'rejected') submission = null;
+          renderStatus(lastCurrent);
+        });
+        applyBtn.addEventListener('click', () => { applySetpoint(); });
+        const mode = document.createElement('select');
+        mode.className = 'control-input';
+        mode.setAttribute('aria-label', tr('pool.driver.runMode', 'Mode de fonctionnement') + ' — ' + target.label);
+        const modeControl = { input: mode, target, column, available: false };
+        switchControls.push(modeControl);
+        mode.addEventListener('change', () => {
+          if (!modeControl.available || pending || runtimeActionBusyKey) return;
+          const action = actions.find(item => item.id === 'mode');
+          if (action) applyTargetAction(target, action, Number(mode.value), target.value,
+            tr('pool.driver.modeAccepted', 'Mode accepté'));
+        });
+        wrapper.appendChild(mode);
         const telemetryRows = [];
         if (target.telemetry) {
           const details = document.createElement('details');
@@ -7770,12 +7904,18 @@
         }
         return { element: wrapper, update: (current) => {
           lastCurrent = current;
-          control.available = current.controllable === true;
-          if (sendingValue === null && document.activeElement !== input) input.value = String(current.setpoint ?? '');
-          if (modeControl) {
-            modeControl.available = control.available;
-            if (document.activeElement !== modeControl.input) modeControl.input.value = String(current.mode ?? 0);
+          control.available = current.controllable === true && runtimeTargetRunning(current) !== false;
+          if (discrete) {
+            updateOptions(input, (current.steps || []).map(value => ({ value, label: String(value) })));
+          } else {
+            setRuntimeActionAttribute(input, 'min', String(current.minimum));
+            setRuntimeActionAttribute(input, 'max', String(current.maximum));
           }
+          const modes = current.modes || [];
+          updateOptions(mode, modes.map((label, value) => ({ value, label })));
+          mode.hidden = !modes.length;
+          modeControl.available = control.available && modes.length > 0;
+          if (document.activeElement !== mode) mode.value = String(current.mode ?? 0);
           telemetryRows.forEach(({ key, value }) => {
             const reading = current.telemetry && current.telemetry[key];
             const text = reading == null ? '—' : typeof reading === 'boolean' ?
@@ -7784,7 +7924,7 @@
             setRuntimeActionText(value, text);
           });
           renderStatus(current);
-        } };
+        }, setPending: (active) => { commandPending = active; renderStatus(lastCurrent); } };
       }
 
       function buildOverrideControls(target) {
@@ -7936,8 +8076,12 @@
             switchView.update({ checked: state === true });
             if (!available || pending || (loading && !backgroundLoading) || runtimeActionBusyKey) return;
             clearConfirmation(false);
+            // Switching the device also runs through the setpoint field: show it
+            // as applying so the on/off command is reflected on the border.
+            if (setpoint) setpoint.setPending(true);
             applyTargetAction(target, action, requested, runtimeCounterValue(target, column.targetKey),
-              tr('dashboard.action.stateUpdated', 'État de {target} actualisé').replace('{target}', target.label));
+              tr('dashboard.action.stateUpdated', 'État de {target} actualisé').replace('{target}', target.label))
+              .finally(() => { if (setpoint) setpoint.setPending(false); });
           }
         });
         const input = switchView.input;
@@ -8059,6 +8203,7 @@
             feedback.textContent = failure ? failure.message : tr('dashboard.action.error', 'Commande refusée');
             feedback.classList.add('is-error');
           }
+          return { ok, error: ok ? '' : feedback.textContent };
         } finally {
           pending = false;
           completeCommand();

@@ -56,6 +56,7 @@ private:
     bool submit_(Operation, uint32_t now);
     void consume_(const ModbusResponse&, uint32_t now);
     void commandAcknowledged_(uint32_t now);
+    bool observedTargetReached_() const;
     uint16_t transaction_ = MODBUS_TRANSACTION_INVALID;
     Operation operation_ = Operation::None;
     Operation confirmation_ = Operation::None;

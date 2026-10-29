@@ -449,7 +449,141 @@ void communicationRecoveryBackoff() {
     driver.tick(now + 1000, true); assert(bus.requests.size() == recovered + 1);
 }
 
+void delayedPumpApplication() {
+    PoolDriverConfig config;
+    assert(applyPoolSerialProfile(PoolSerialModel::AquaGem, config));
+    Bus bus;
+    SerialDeviceDriver driver;
+    assert(driver.begin(config, nullptr, &bus.service, 1));
+    driver.applyTarget({true, 1800}, 1);
+    const uint32_t startedAt = 100;
+    uint16_t acceptedRpm = 0;
+    unsigned writes = 0;
+    size_t handled = 0;
+    for (uint32_t now = startedAt; now < startedAt + 62000; ++now) {
+        // A second setpoint must replace the pending command without restarting
+        // the equipment's fixed 60-second startup period or resending the first.
+        if (now == startedAt + 30000) driver.applyTarget({true, 2000}, 2);
+        if (handled < bus.requests.size()) {
+            const auto& request = bus.requests[handled++];
+            if (request.operation == RegisterOperation::WriteSingle) {
+                acceptedRpm = request.values[0];
+                ++writes;
+                bus.reply();
+            } else {
+                const uint16_t actual = now < startedAt + 60000 ? 2900 : acceptedRpm;
+                bus.reply(actual);
+                bus.response.aquaGem = {true, 0, 1, actual};
+            }
+        }
+        driver.tick(now, true);
+        const auto& state = driver.readState();
+        if (now > startedAt + 1000 && now < startedAt + 60000) {
+            assert(state.observedValid && state.observed.setpoint == 2900);
+            assert(state.quality == PoolFeedbackQuality::Confirmed);
+            assert(state.phase == PoolCommandPhase::Pending || state.phase == PoolCommandPhase::Confirming);
+            assert(state.error == 0);
+        }
+    }
+    assert(writes == 2);
+    assert(driver.readState().phase == PoolCommandPhase::Applied);
+    assert(driver.readState().appliedRevision == 2);
+    assert(driver.readState().applied.setpoint == 2000);
+    assert(driver.readState().observed.setpoint == 2000);
+    // A later deviation is still a valid reading, but no longer convergence.
+    driver.tick(startedAt + 63000, true);
+    bus.reply(2900); bus.response.aquaGem = {true, 0, 1, 2900};
+    driver.tick(startedAt + 63001, true);
+    assert(driver.readState().quality == PoolFeedbackQuality::Confirmed);
+    assert(driver.readState().phase == PoolCommandPhase::Confirming);
+    assert(writes == 2);
+}
+
+void stoppedSeparateSetpointMustConverge() {
+    PoolDriverConfig config;
+    assert(applyPoolSerialProfile(PoolSerialModel::Polytropic, config));
+    Bus bus;
+    SerialDeviceDriver driver;
+    assert(driver.begin(config, nullptr, &bus.service, 1));
+    driver.applyTarget({false, 29}, 1);
+    driver.tick(1, true);
+    bus.reply(); driver.tick(2, true); // stop acknowledged
+    bus.reply(400); driver.tick(3, true); // temperature limit
+    bus.reply(); driver.tick(4, true); // setpoint acknowledged
+    bus.reply(0); driver.tick(5, true); // stopped status
+    bus.reply(280); driver.tick(6, true); // old setpoint is still reported
+    assert(driver.readState().quality == PoolFeedbackQuality::Confirmed);
+    assert(driver.readState().phase == PoolCommandPhase::Confirming);
+    size_t handled = bus.requests.size();
+    for (uint32_t now = 7; now < 5000; ++now) {
+        if (handled < bus.requests.size()) {
+            const auto& request = bus.requests[handled++];
+            assert(request.operation == RegisterOperation::Read);
+            bus.reply(request.registerAddress == 1001 ? 290 : 0);
+            bus.response.registerCount = request.registerCount;
+        }
+        driver.tick(now, true);
+    }
+    assert(driver.readState().phase == PoolCommandPhase::Applied);
+    assert(driver.readState().observed.setpoint == 29);
+}
+
+void heatPumpEcoRestartAndElectricalTelemetry() {
+    PoolDriverConfig config;
+    assert(applyPoolSerialProfile(PoolSerialModel::Polytropic, config));
+    Bus bus;
+    SerialDeviceDriver driver;
+    assert(driver.begin(config, nullptr, &bus.service, 1));
+    uint32_t now = 1;
+    for (uint32_t revision = 1; revision <= 3; ++revision) {
+        const bool running = revision != 2;
+        driver.applyTarget({running, 28, 2}, revision); // Heating Eco, including restart.
+        driver.tick(now++, true);
+        if (!running) {
+            assert(bus.requests.back().registerAddress == 1000 && bus.requests.back().values[0] == 0);
+            bus.reply(); driver.tick(now++, true);
+        }
+        assert(bus.requests.back().registerAddress == 58);
+        bus.reply(400); driver.tick(now++, true);
+        assert(bus.requests.back().registerAddress == 1001 && bus.requests.back().values[0] == 280);
+        bus.reply(); driver.tick(now++, true);
+        if (running) {
+            assert(bus.requests.back().registerAddress == 1000 && bus.requests.back().values[0] == 23);
+            bus.reply(); driver.tick(now++, true);
+        }
+        bus.reply(running ? 23 : 0); driver.tick(now++, true);
+        bus.reply(280); driver.tick(now++, true);
+        assert(driver.readState().phase == PoolCommandPhase::Applied);
+        assert(driver.readState().observed.running == running);
+    }
+    size_t handled = bus.requests.size();
+    bool electricalRead = false;
+    for (; now < 12000 && !electricalRead; ++now) {
+        if (handled < bus.requests.size()) {
+            const auto request = bus.requests[handled++];
+            assert(request.operation == RegisterOperation::Read);
+            bus.reply(request.registerAddress == 1000 ? 23 : 280);
+            bus.response.registerCount = request.registerCount;
+            if (request.registerAddress == 521) {
+                bus.response.values[0] = 230;
+                bus.response.values[1] = 45;
+                bus.response.values[2] = 0;
+                electricalRead = true;
+            }
+        }
+        driver.tick(now, true);
+    }
+    assert(electricalRead);
+    const auto telemetry = driver.readState().telemetry;
+    assert(telemetry.raw[10] == 45); // Preserve wire data for diagnostics.
+    assert(poolTelemetryValue(telemetry, kHeatPumpPolyFields[16]) == 230);
+    assert(std::fabs(poolTelemetryValue(telemetry, kHeatPumpPolyFields[17]) - 4.5f) < .001f);
+}
+
 int main() {
+    heatPumpEcoRestartAndElectricalTelemetry();
+    delayedPumpApplication();
+    stoppedSeparateSetpointMustConverge();
     communicationRecoveryBackoff();
     confirmationFailureAndReplacement();
     heatPumpLimitWireUnits();

@@ -1266,8 +1266,34 @@ body.web-icons-disabled .control-field-apply{font-size:15px;font-weight:800;lett
 .pool-driver-editor { display: grid; gap: .6rem; width: 100%; }
 .pool-driver-editor > div { display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
 .pool-driver-editor label { display: grid; gap: .3rem; font-size: .8rem; }
-.runtime-setpoint { display: grid; gap: .25rem; min-width: 100px; }
-.runtime-setpoint span { font-size: .7rem; opacity: .8; }
+.runtime-setpoint { display: grid; gap: 10px; min-width: 0; }
+.runtime-setpoint-status { max-width: 200px; color: var(--text-muted); font-size: 11px; line-height: 1.35; }
+.runtime-setpoint-field { position: relative; width: 200px; height: 46px; }
+.runtime-setpoint-border { position: absolute; inset: 0; border-radius: var(--radius); overflow: hidden; background: var(--border); }
+.runtime-setpoint-inner { position: absolute; inset: 2px; border-radius: 8px; background: var(--surface); display: flex; align-items: center; justify-content: center; gap: 5px; padding: 0 10px; }
+.runtime-setpoint-legend { position: absolute; top: -8px; left: 11px; z-index: 3; padding: 0 6px; background: var(--surface); color: var(--text-muted); font-size: 11.5px; font-weight: 400; line-height: 1.25; white-space: nowrap; }
+.runtime-setpoint-input { width: 52px; min-width: 0; border: 0; background: transparent; padding: 0; margin: 0; font-family: inherit; font-size: 14px; font-weight: 800; color: var(--text); text-align: right; font-variant-numeric: tabular-nums; outline: none; -moz-appearance: textfield; }
+.runtime-setpoint-input::-webkit-outer-spin-button, .runtime-setpoint-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+select.runtime-setpoint-input { width: auto; max-width: 120px; text-align: left; }
+.runtime-setpoint-unit { font-size: 11px; font-weight: 700; color: var(--text-muted); }
+.runtime-setpoint-prefix { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 14px; font-weight: 700; }
+.runtime-setpoint-prefix[hidden] { display: none; }
+.runtime-setpoint-arrow { font-weight: 800; color: var(--warning); }
+.runtime-setpoint-apply { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); z-index: 4; width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--success); background: var(--success); color: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.runtime-setpoint-apply svg { width: 16px; height: 16px; }
+.runtime-setpoint-apply[hidden] { display: none; }
+.runtime-setpoint-apply:disabled { opacity: .5; cursor: not-allowed; }
+.runtime-setpoint-apply:hover:not(:disabled) { background: #0f8a4c; border-color: #0f8a4c; }
+.runtime-setpoint-inner:has(.runtime-setpoint-apply:not([hidden])) { padding-right: 40px; }
+.runtime-setpoint-field.is-confirmed .runtime-setpoint-border { background: var(--success); }
+.runtime-setpoint-field.is-error .runtime-setpoint-border { background: var(--danger); }
+.runtime-setpoint-field.is-disabled .runtime-setpoint-border { background: var(--border); }
+.runtime-setpoint-field.is-disabled .runtime-setpoint-input { color: var(--text-muted); }
+.runtime-setpoint-field.is-disabled .runtime-setpoint-unit { opacity: .65; }
+.runtime-setpoint-field.is-pending .runtime-setpoint-border { background: rgba(240,138,0,.22); }
+.runtime-setpoint-field.is-pending .runtime-setpoint-border::before { content: ""; position: absolute; inset: -60%; background: conic-gradient(from 0deg, transparent 0 40%, rgba(245,158,11,.55) 54%, #f59e0b 66%, #ffd79a 74%, #fff1cf 79%, #f59e0b 86%, transparent 100%); filter: drop-shadow(0 0 3px rgba(240,138,0,.55)); animation: runtime-setpoint-snake 1.7s linear infinite; }
+@keyframes runtime-setpoint-snake { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .runtime-setpoint-field.is-pending .runtime-setpoint-border::before { animation: none; } }
 
 /* History tables stay scrollable on narrow screens; missing values remain explicit. */
 .history-card { margin-bottom: 18px; min-width: 0; }

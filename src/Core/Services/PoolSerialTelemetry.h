@@ -50,7 +50,7 @@ inline constexpr PoolTelemetryField kHeatPumpPolyFields[] = {
     {"ambient", "Ambient", "°C", 2, 7, 0, true, .1f},
     {"ipm", "IPM", "°C", 2, 8, 0, true, .1f},
     {"voltage", "Voltage", "V", 3, 9, 0, false, 1},
-    {"current", "Current", "A", 3, 10, 0, false, 1},
+    {"current", "Current", "A", 3, 10, 0, false, .1f},
     {"compressor_fault", "Compressor fault", "", 3, 11, 0, false, 1},
     {"control_word", "Control word", "", 4, 12, 0, false, 1},
     {"temperature_setpoint", "Temperature setpoint", "°C", 4, 13, 0, true, .1f}

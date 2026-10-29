@@ -284,7 +284,7 @@
     "pool.telemetry.ambient": "Ambient",
     "pool.telemetry.ipm": "IPM",
     "pool.telemetry.voltage": "Voltage (raw)",
-    "pool.telemetry.current": "Current (raw)",
+    "pool.telemetry.current": "Current",
     "pool.telemetry.compressor_fault": "Compressor fault code",
     "pool.telemetry.control_word": "Control word",
     "pool.telemetry.temperature_setpoint": "Temperature setpoint"

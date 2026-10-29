@@ -283,7 +283,7 @@
     "pool.telemetry.ambient": "Ambiante",
     "pool.telemetry.ipm": "IPM",
     "pool.telemetry.voltage": "Tension (valeur brute)",
-    "pool.telemetry.current": "Courant (valeur brute)",
+    "pool.telemetry.current": "Courant",
     "pool.telemetry.compressor_fault": "Code défaut compresseur",
     "pool.telemetry.control_word": "Mot de commande",
     "pool.telemetry.temperature_setpoint": "Consigne de température"

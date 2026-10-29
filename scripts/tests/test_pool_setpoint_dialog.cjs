@@ -13,7 +13,7 @@ const devices = [
   { value:2, kind:3, unit:3, name:'Pompe RS485', label:'Pompe RS485', deviceId:'pd2', minimum:1200, maximum:2900, setpoint:1700, observedSetpoint:1700 },
   { value:3, kind:3, unit:2, name:'PAC', label:'PAC', deviceId:'pd3', minimum:5, maximum:40, setpoint:25, observedSetpoint:25,
     mode:0, modes:['Heating Eco','Heating Smart'], telemetry:{water_in:21,ambient:null,defrost:false}, telemetry_units:{water_in:'°C',ambient:'°C'} }
-].map(x=>({...x, actualOn:false, desiredOn:false, controllable:true, quality:1,
+].map(x=>({...x, actualOn:true, desiredOn:true, controllable:true, quality:1,
   running:{day_s:0,week_s:0,month_s:0,total_s:0},injected:{day_ml:0,week_ml:0,month_ml:0,total_ml:0}}));
 const server = http.createServer((req,res)=>{
   res.setHeader('Content-Type','application/json');
@@ -45,17 +45,19 @@ const server = http.createServer((req,res)=>{
     const steps=page.locator('.runtime-setpoint select').first();
     assert.deepEqual(await steps.locator('option').allTextContents(),['30','60','100']);
     await steps.selectOption('100');
+    await steps.locator('xpath=ancestor::div[contains(@class,"runtime-setpoint-field")]').locator('button').click();
     await page.waitForFunction(()=>!document.querySelector('.runtime-setpoint select').disabled);
     assert.equal(commands[0].action_id,'setpoint');assert.equal(commands[0].target,'1');assert.equal(commands[0].input,'100');
     const continuous=page.locator('.runtime-setpoint input').first();
     await continuous.fill('1724');await continuous.dispatchEvent('change');
+    await continuous.locator('xpath=ancestor::div[contains(@class,"runtime-setpoint-field")]').locator('button').click();
     await page.waitForFunction(()=>!document.querySelector('.runtime-setpoint input').disabled);
     assert.equal(commands[1].target,'2');assert.equal(commands[1].input,'1724');
-    assert.match(await continuous.locator('..').textContent(), /1700 rpm/);
+    assert.equal(await continuous.locator('..').locator('.runtime-setpoint-prefix').textContent(), '1700→');
     const mode=page.locator('.runtime-setpoint select').last();
     assert.deepEqual(await mode.locator('option').allTextContents(),['Heating Eco','Heating Smart']);
     await mode.selectOption('1');
-    await page.waitForFunction(()=>Array.from(document.querySelectorAll('.runtime-setpoint select')).every(input=>!input.disabled));
+    await page.waitForFunction(()=>Array.from(document.querySelectorAll('.runtime-setpoint select:not([hidden])')).every(input=>!input.disabled));
     assert.equal(commands[2].action_id,'mode');assert.equal(commands[2].target,'3');assert.equal(commands[2].input,'1');
     const telemetry=page.locator('.runtime-setpoint details');
     await telemetry.locator('summary').click();
