@@ -17,6 +17,7 @@ struct Program {
 struct Number { double previous = 0, current = 0, delta = 0; };
 // Digital references in the expression language are pulse counters, never states.
 inline bool validSourceType(ValueId id, ValueType type) {
+    if (ValueIds::isEquipment(id)) return true;
     if (ValueIds::isDigitalState(id)) return type == ValueType::Bool;
     return id >= ValueIds::Digital && id < ValueIds::PulseRate
         ? type == ValueType::UInt64 : type != ValueType::Bool;

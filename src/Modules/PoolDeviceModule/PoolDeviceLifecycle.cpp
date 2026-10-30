@@ -1,3 +1,4 @@
+#include "Core/Values/SerialEquipmentValues.h"
 /**
  * @file PoolDeviceLifecycle.cpp
  * @brief Lifecycle entry points and integration wiring for PoolDeviceModule.
@@ -304,6 +305,26 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
                              nullptr);
     LOGI("PoolDevice module ready (devices=%u)", (unsigned)count);
     (void)logHub_;
+}
+
+void PoolDeviceModule::onConfigPrepared(ConfigStore&, ServiceRegistry&)
+{
+    if (!slots_ || !dataStore_) return;
+    const size_t internalBefore = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const size_t bytesBefore = dataStore_->values.allocatedBytes();
+    const auto valuesBefore = dataStore_->values.used();
+    for (uint8_t slot = 0; slot < POOL_DEVICE_MAX; ++slot) {
+        auto& device = slots_[slot];
+        if (!device.used || !device.def.enabled) continue;
+        if (!parsePoolDriverConfig(device.driverJson, device.driverConfig, device.driverError, sizeof(device.driverError))) continue;
+        if (!SerialEquipmentValues::define(*dataStore_, slot, device.def.label, device.driverConfig))
+            LOGE("Serial equipment value declaration failed slot=%u", unsigned(slot));
+    }
+    LOGI("Serial catalog values=%u value_psram_bytes=%u internal_delta=%ld internal_largest=%u",
+        unsigned(dataStore_->values.used() - valuesBefore),
+        unsigned(dataStore_->values.allocatedBytes() - bytesBefore),
+        long(internalBefore) - long(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+        unsigned(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
 }
 
 void PoolDeviceModule::onConfigLoaded(ConfigStore&, ServiceRegistry& services)

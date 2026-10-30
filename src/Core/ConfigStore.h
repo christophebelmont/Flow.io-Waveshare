@@ -78,6 +78,7 @@ public:
 
     /** @brief Load persistent values from NVS into registered variables. */
     void loadPersistent();
+    bool canRegister(size_t count) { return count <= MAX_CONFIG_VARS - _metaCount && ensureMetaStorage_(_metaCount + count); }
     /** @brief Load a single persistent variable from NVS immediately. */
     template<typename T, size_t H>
     void loadPersistentVar(ConfigVariable<T, H>& var);
@@ -143,9 +144,10 @@ private:
     EventBus* _eventBus = nullptr;
     ConfigMeta* _meta = nullptr;
     uint16_t _metaCount = 0;
+    size_t _metaCapacity = 0;
     bool _metaNearCapacityWarned = false;
 
-    bool ensureMetaStorage_();
+    bool ensureMetaStorage_(size_t required = 0);
     void notifyChanged(const char* nvsKey, const char* moduleName, uint8_t moduleId, uint8_t localBranchId);
     bool writePersistent(const ConfigMeta& m);
     void recordNvsWrite_(size_t bytesWritten);
@@ -200,7 +202,7 @@ void ConfigStore::registerVar(ConfigVariable<T, H>& var)
     ConfigMeta& m = _meta[_metaCount++];
     BufferUsageTracker::note(TrackedBufferId::ConfigMetaTable,
                              (size_t)_metaCount * sizeof(ConfigMeta),
-                             MAX_CONFIG_VARS * sizeof(ConfigMeta),
+                             _metaCapacity * sizeof(ConfigMeta),
                              var.moduleName,
                              var.jsonName);
 

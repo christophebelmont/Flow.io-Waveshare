@@ -12,8 +12,9 @@
  *
  * 1. `init()`
  * 2. `ConfigStore::loadPersistent()`
- * 3. `onConfigLoaded()`
- * 4. non-blocking startup sequencing:
+ * 3. `onConfigPrepared()` declares configuration-dependent sources
+ * 4. `onConfigLoaded()` resolves consumers after all declarations
+ * 5. non-blocking startup sequencing:
  *    - wait until `startDelayMs()` has elapsed relative to the startup epoch
  *    - ensure every declared dependency has already been released
  *    - call `onStart()`

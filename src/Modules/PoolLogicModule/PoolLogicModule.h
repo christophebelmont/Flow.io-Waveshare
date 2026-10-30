@@ -50,11 +50,11 @@ public:
     uint32_t startDelayMs() const override {
         return 8000U;
     }
-    uint8_t runtimeSnapshotCount() const override;
-    const char* runtimeSnapshotSuffix(uint8_t idx) const override;
-    RuntimeRouteClass runtimeSnapshotClass(uint8_t idx) const override;
-    bool runtimeSnapshotAffectsKey(uint8_t idx, DataKey key) const override;
-    bool buildRuntimeSnapshot(uint8_t idx, char* out, size_t len, uint32_t& maxTsOut) const override;
+    uint16_t runtimeSnapshotCount() const override;
+    const char* runtimeSnapshotSuffix(uint16_t idx) const override;
+    RuntimeRouteClass runtimeSnapshotClass(uint16_t idx) const override;
+    bool runtimeSnapshotAffectsKey(uint16_t idx, DataKey key) const override;
+    bool buildRuntimeSnapshot(uint16_t idx, char* out, size_t len, uint32_t& maxTsOut) const override;
     bool writeRuntimeUiValue(uint8_t valueId, IRuntimeUiWriter& writer) const override;
     static MqttBuildResult buildCfgBaseStatic_(void* ctx, uint16_t messageId, MqttBuildContext& buildCtx);
 

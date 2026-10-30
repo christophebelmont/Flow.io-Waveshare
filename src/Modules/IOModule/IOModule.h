@@ -110,12 +110,12 @@ public:
     const char* endpointLabel(IoId id) const;
     bool buildInputSnapshot(char* out, size_t len, uint32_t& maxTsOut) const;
     bool buildOutputSnapshot(char* out, size_t len, uint32_t& maxTsOut) const;
-    uint8_t runtimeSnapshotCount() const override;
-    const char* runtimeSnapshotSuffix(uint8_t idx) const override;
-    uint32_t runtimeSnapshotRefreshMs(uint8_t idx) const override;
-    RuntimeRouteClass runtimeSnapshotClass(uint8_t idx) const override;
-    bool runtimeSnapshotAffectsKey(uint8_t idx, DataKey key) const override;
-    bool buildRuntimeSnapshot(uint8_t idx, char* out, size_t len, uint32_t& maxTsOut) const override;
+    uint16_t runtimeSnapshotCount() const override;
+    const char* runtimeSnapshotSuffix(uint16_t idx) const override;
+    uint32_t runtimeSnapshotRefreshMs(uint16_t idx) const override;
+    RuntimeRouteClass runtimeSnapshotClass(uint16_t idx) const override;
+    bool runtimeSnapshotAffectsKey(uint16_t idx, DataKey key) const override;
+    bool buildRuntimeSnapshot(uint16_t idx, char* out, size_t len, uint32_t& maxTsOut) const override;
     bool writeRuntimeUiValue(uint8_t valueId, IRuntimeUiWriter& writer) const override;
 
     IORegistry& registry() { return registry_; }
@@ -205,7 +205,7 @@ private:
                                       bool& usesTcaOut,
                                       bool& usesMcpOut) const;
     bool resolveDsBusAddress_(OneWireBus* bus, const char* runtimeKey, uint8_t outAddr[8]);
-    bool runtimeSnapshotRouteFromIndex_(uint8_t snapshotIdx, uint8_t& routeTypeOut, uint8_t& slotIdxOut) const;
+    bool runtimeSnapshotRouteFromIndex_(uint16_t snapshotIdx, uint8_t& routeTypeOut, uint8_t& slotIdxOut) const;
     bool buildEndpointSnapshot_(IOEndpoint* ep, char* out, size_t len, uint32_t& maxTsOut, bool invalidAsUndefined = false) const;
     bool buildGroupSnapshot_(char* out, size_t len, bool inputGroup, uint32_t& maxTsOut) const;
     const IOAnalogProvider* analogProviderForSource_(uint8_t source) const;

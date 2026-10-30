@@ -22,15 +22,22 @@ void ValueHistoryRecord::merge(const ValueHistoryRecord& other) {
     delta += other.delta; rawDelta += other.rawDelta;
     weightedSum += other.weightedSum; durationMs += other.durationMs;
 }
-size_t ValueHistory::bytes(uint8_t hours, uint8_t days) {
-    return sizeof(Slot) * ValueIds::Capacity + sizeof(ValueHistoryRecord) * ValueIds::Capacity * (hours + days);
+size_t ValueHistory::bytes(uint8_t hours, uint8_t days, uint16_t count) {
+    constexpr size_t indexBytes = (sizeof(ValueId) * ValueIds::Capacity + alignof(Slot) - 1) / alignof(Slot) * alignof(Slot);
+    return indexBytes + sizeof(Slot) * count + sizeof(ValueHistoryRecord) * count * (hours + days);
 }
-void ValueHistory::initialize(void* memory, uint8_t hours, uint8_t days) {
-    slots_ = static_cast<Slot*>(memory); hourCount_ = hours; dayCount_ = days;
-    hours_ = reinterpret_cast<ValueHistoryRecord*>(slots_ + ValueIds::Capacity);
-    days_ = hours_ + ValueIds::Capacity * hours;
-    for (uint16_t i = 0; i < ValueIds::Capacity; ++i) new (&slots_[i]) Slot{};
-    for (size_t i = 0; i < size_t(ValueIds::Capacity) * (hours + days); ++i) new (&hours_[i]) ValueHistoryRecord{};
+void ValueHistory::initialize(void* memory, uint8_t hours, uint8_t days, const ValueId* ids, uint16_t count) {
+    constexpr size_t indexBytes = (sizeof(ValueId) * ValueIds::Capacity + alignof(Slot) - 1) / alignof(Slot) * alignof(Slot);
+    index_ = static_cast<ValueId*>(memory);
+    for (ValueId id = 0; id < ValueIds::Capacity; ++id) index_[id] = VALUE_INVALID;
+    count_ = count;
+    for (uint16_t i = 0; i < count; ++i) index_[ids ? ids[i] : i] = i;
+    slots_ = reinterpret_cast<Slot*>(static_cast<char*>(memory) + indexBytes);
+    hourCount_ = hours; dayCount_ = days;
+    hours_ = reinterpret_cast<ValueHistoryRecord*>(slots_ + count_);
+    days_ = hours_ + count_ * hours;
+    for (uint16_t i = 0; i < count_; ++i) new (&slots_[i]) Slot{};
+    for (size_t i = 0; i < size_t(count_) * (hours + days); ++i) new (&hours_[i]) ValueHistoryRecord{};
 }
 void ValueHistory::clock(uint64_t mono, uint64_t epoch) {
     if (!slots_) return;
@@ -38,7 +45,7 @@ void ValueHistory::clock(uint64_t mono, uint64_t epoch) {
         const uint64_t expected = anchorEpoch_ + (mono - anchorMono_);
         const uint64_t drift = expected > epoch ? expected - epoch : epoch - expected;
         if (drift < 2000) return; // Keep fractional monotonic timing across second-resolution clock reads.
-        for (uint16_t i = 0; i < ValueIds::Capacity; ++i) {
+        for (uint16_t i = 0; i < count_; ++i) {
             auto& s = slots_[i];
             s.previous.quality = ValueQuality::Unknown;
             s.integratedUntil = epoch; ++s.hour.discontinuities;
@@ -84,6 +91,8 @@ void ValueHistory::observe(ValueId id, const ValueMetadata& metadata, const Valu
     const uint64_t observedAt = sample.qualityChangedAtMs > sample.timestampMs
         ? sample.qualityChangedAtMs : sample.timestampMs;
     if (!slots_ || !anchorEpoch_ || id >= ValueIds::Capacity || observedAt < anchorMono_) return;
+    id = index_[id];
+    if (id == VALUE_INVALID) return;
     const uint64_t epoch = anchorEpoch_ + observedAt - anchorMono_;
     auto& s = slots_[id];
     // Invalid samples close an existing series, but never create a history entry.
@@ -133,10 +142,12 @@ void ValueHistory::observe(ValueId id, const ValueMetadata& metadata, const Valu
 void ValueHistory::tick(uint64_t mono) {
     if (!slots_ || !anchorEpoch_ || mono < anchorMono_) return;
     const uint64_t epoch = anchorEpoch_ + mono - anchorMono_;
-    for (ValueId id = 0; id < ValueIds::Capacity; ++id) if (slots_[id].observed) advance_(id, epoch);
+    for (ValueId id = 0; id < count_; ++id) if (slots_[id].observed) advance_(id, epoch);
 }
 bool ValueHistory::read(ValueId id, bool daily, uint8_t age, ValueHistoryRecord& out) const {
-    if (!slots_ || id >= ValueIds::Capacity || !slots_[id].observed) return false;
+    if (!slots_ || id >= ValueIds::Capacity) return false;
+    id = index_[id];
+    if (id == VALUE_INVALID || !slots_[id].observed) return false;
     const auto& s = slots_[id];
     if (!age) {
         out = daily ? s.day : s.hour;

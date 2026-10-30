@@ -5,10 +5,10 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
-/** Direct index storage. Definitions are assembled before producers start.
+/** Sparse payload storage with a stable identity index. Definitions are assembled before producers start.
  * Observer runs synchronously under the task mutex, never in ISR context, and
  * must not call back into this registry. This preserves every observation even
- * when the EventBus notification queue is full. One fixed allocation at boot; no runtime allocation. */
+ * when the EventBus notification queue is full. Payloads are allocated in PSRAM during definition; no allocation during sampling. */
 class ValueRegistry {
 public:
     using Observer = void (*)(void*, ValueId, const ValueMetadata&, const ValueSnapshot&,
@@ -18,6 +18,7 @@ public:
     bool begin();
     bool storageInPsram() const { return storageInPsram_; }
     static size_t storageBytes();
+    size_t allocatedBytes() const;
     ValueRegistry(const ValueRegistry&) = delete;
     ValueRegistry& operator=(const ValueRegistry&) = delete;
     bool define(ValueId id, const ValueMetadata& metadata);
@@ -39,6 +40,7 @@ public:
         notification_ = callback; notificationContext_ = context;
     }
     uint16_t used() const;
+    uint16_t historizedCount() const;
     void expire(uint64_t nowMs);
     void setPrecision(ValueId id, int8_t precision);
     void setName(ValueId id, const char* name);
@@ -67,7 +69,14 @@ private:
     void propagate_(ValueId changedId, uint64_t timestampMs, ValueId force = VALUE_INVALID);
     void notify_(ValueId id);
     struct Storage {
-        Slot slots[ValueIds::Capacity]{};
+        struct Slots {
+            Slot* entries[ValueIds::Capacity]{};
+            Slot absent{};
+            ~Slots();
+            bool ensure(ValueId id);
+            Slot& operator[](ValueId id) { return entries[id] ? *entries[id] : absent; }
+            const Slot& operator[](ValueId id) const { return entries[id] ? *entries[id] : absent; }
+        } slots;
         Transform programs[ProgramCapacity]{};
         ValueId transforms[ProgramCapacity]{};
         bool historyDisabled[ValueIds::Capacity]{};

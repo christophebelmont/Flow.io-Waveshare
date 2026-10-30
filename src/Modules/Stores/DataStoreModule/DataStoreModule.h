@@ -16,6 +16,7 @@ struct DataExposureConfig;
  */
 class DataStoreModule : public ModulePassive, public IRuntimeSnapshotProvider {
 public:
+    ~DataStoreModule() override;
     /** @brief Module id. */
     ModuleId moduleId() const override { return ModuleId::DataStore; }
 
@@ -30,14 +31,16 @@ public:
     void init(ConfigStore& cfg, ServiceRegistry& services) override;
 
     void onConfigLoaded(ConfigStore&, ServiceRegistry&) override;
-    uint8_t runtimeSnapshotCount() const override;
-    const char* runtimeSnapshotSuffix(uint8_t idx) const override;
-    uint32_t runtimeSnapshotRefreshMs(uint8_t) const override { return Limits::Mqtt::Timing::SensorRefreshMs; }
-    RuntimeRouteClass runtimeSnapshotClass(uint8_t) const override { return RuntimeRouteClass::NumericThrottled; }
-    bool runtimeSnapshotAffectsKey(uint8_t idx, DataKey key) const override;
-    bool buildRuntimeSnapshot(uint8_t idx, char* out, size_t len, uint32_t& maxTsOut) const override;
+    uint16_t runtimeSnapshotCount() const override;
+    const char* runtimeSnapshotSuffix(uint16_t idx) const override;
+    uint32_t runtimeSnapshotRefreshMs(uint16_t) const override { return Limits::Mqtt::Timing::SensorRefreshMs; }
+    RuntimeRouteClass runtimeSnapshotClass(uint16_t) const override { return RuntimeRouteClass::NumericThrottled; }
+    bool runtimeSnapshotAffectsKey(uint16_t idx, DataKey key) const override;
+    bool buildRuntimeSnapshot(uint16_t idx, char* out, size_t len, uint32_t& maxTsOut) const override;
 private:
-    const DataValueDescriptor* route_(uint8_t idx) const;
+    const DataValueDescriptor* route_(uint16_t idx) const;
+    const DataValueDescriptor** routes_ = nullptr;
+    uint16_t routeCount_ = 0;
     DataExposureConfig* exposure_ = nullptr;
     DataStore _store;
     DataStoreService _svc{ &_store };

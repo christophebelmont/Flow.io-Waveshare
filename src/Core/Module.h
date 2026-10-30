@@ -42,6 +42,8 @@ public:
     /** @brief Initialize module and register services/config. */
     virtual void init(ConfigStore& cfg, ServiceRegistry& services) = 0;
     /** @brief Called once all persistent config values are loaded. */
+    // Declare configuration-dependent sources before consumers compile expressions.
+    virtual void onConfigPrepared(ConfigStore&, ServiceRegistry&) {}
     virtual void onConfigLoaded(ConfigStore&, ServiceRegistry&) {}
     /** @brief Return whether the startup sequencer may release the module now. */
     virtual bool canStart(ConfigStore&, ServiceRegistry&) { return true; }

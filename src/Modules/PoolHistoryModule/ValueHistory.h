@@ -16,14 +16,14 @@ struct ValueHistoryRecord {
 };
 
 /** Memory supplied once by PoolHistoryModule; no allocation in observation path.
- * The caller serializes observe/tick/read. Values are addressed directly by ID. */
+ * The caller serializes observe/tick/read. Stable IDs are mapped to densely allocated selected series. */
 class ValueHistory {
 public:
     static constexpr uint8_t PsramHours = 24, PsramDays = 7;
     static constexpr uint8_t InternalHours = 2, InternalDays = 1;
     static constexpr uint64_t HourMs = 3600000, MaximumAgeMs = 900000;
-    static size_t bytes(uint8_t hours, uint8_t days);
-    void initialize(void* memory, uint8_t hours, uint8_t days);
+    static size_t bytes(uint8_t hours, uint8_t days, uint16_t count = ValueIds::Capacity);
+    void initialize(void* memory, uint8_t hours, uint8_t days, const ValueId* ids = nullptr, uint16_t count = ValueIds::Capacity);
     void clock(uint64_t monotonicMs, uint64_t epochMs);
     void observe(ValueId id, const ValueMetadata& metadata, const ValueSnapshot& sample,
                  const ValueSnapshot* source);
@@ -40,6 +40,8 @@ private:
     };
     void advance_(ValueId id, uint64_t epochMs);
     void rotate_(ValueId id, uint64_t hour);
+    ValueId* index_ = nullptr;
+    uint16_t count_ = 0;
     Slot* slots_ = nullptr;
     ValueHistoryRecord* hours_ = nullptr;
     ValueHistoryRecord* days_ = nullptr;

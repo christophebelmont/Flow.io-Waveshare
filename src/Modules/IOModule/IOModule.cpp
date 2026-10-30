@@ -944,7 +944,7 @@ bool IOModule::writeRuntimeUiValue(uint8_t valueId, IRuntimeUiWriter& writer) co
     return writer.writeF32(runtimeId, value.value.f);
 }
 
-uint8_t IOModule::runtimeSnapshotCount() const
+uint16_t IOModule::runtimeSnapshotCount() const
 {
     if (!cfgData_.enabled) return 0;
 
@@ -959,7 +959,7 @@ uint8_t IOModule::runtimeSnapshotCount() const
     return count + valueRouteCount_;
 }
 
-bool IOModule::runtimeSnapshotRouteFromIndex_(uint8_t snapshotIdx, uint8_t& routeTypeOut, uint8_t& slotIdxOut) const
+bool IOModule::runtimeSnapshotRouteFromIndex_(uint16_t snapshotIdx, uint8_t& routeTypeOut, uint8_t& slotIdxOut) const
 {
     static constexpr uint8_t ROUTE_ANALOG = 0;
     static constexpr uint8_t ROUTE_DIGITAL_INPUT = 1;
@@ -1086,7 +1086,7 @@ bool IOModule::buildEndpointSnapshot_(IOEndpoint* ep, char* out, size_t len, uin
     return true;
 }
 
-const char* IOModule::runtimeSnapshotSuffix(uint8_t idx) const
+const char* IOModule::runtimeSnapshotSuffix(uint16_t idx) const
 {
     static constexpr uint8_t ROUTE_ANALOG = 0;
     static constexpr uint8_t ROUTE_DIGITAL_INPUT = 1;
@@ -1117,7 +1117,7 @@ const char* IOModule::runtimeSnapshotSuffix(uint8_t idx) const
     return suffix;
 }
 
-uint32_t IOModule::runtimeSnapshotRefreshMs(uint8_t idx) const
+uint32_t IOModule::runtimeSnapshotRefreshMs(uint16_t idx) const
 {
     static constexpr uint8_t ROUTE_ANALOG = 0;
     uint8_t routeType = 0, slot = 0;
@@ -1126,7 +1126,7 @@ uint32_t IOModule::runtimeSnapshotRefreshMs(uint8_t idx) const
         ? Limits::Mqtt::Timing::SensorRefreshMs : 0;
 }
 
-RuntimeRouteClass IOModule::runtimeSnapshotClass(uint8_t idx) const
+RuntimeRouteClass IOModule::runtimeSnapshotClass(uint16_t idx) const
 {
     static constexpr uint8_t ROUTE_DIGITAL_OUTPUT = 2;
 
@@ -1141,7 +1141,7 @@ RuntimeRouteClass IOModule::runtimeSnapshotClass(uint8_t idx) const
         : RuntimeRouteClass::NumericThrottled;
 }
 
-bool IOModule::runtimeSnapshotAffectsKey(uint8_t idx, DataKey key) const
+bool IOModule::runtimeSnapshotAffectsKey(uint16_t idx, DataKey key) const
 {
 
     static constexpr uint8_t ROUTE_ANALOG = 0;
@@ -1178,7 +1178,7 @@ bool IOModule::runtimeSnapshotAffectsKey(uint8_t idx, DataKey key) const
     return key == (DataKey)(DATAKEY_IO_BASE + endpointIdx);
 }
 
-bool IOModule::buildRuntimeSnapshot(uint8_t idx, char* out, size_t len, uint32_t& maxTsOut) const
+bool IOModule::buildRuntimeSnapshot(uint16_t idx, char* out, size_t len, uint32_t& maxTsOut) const
 {
     static constexpr uint8_t ROUTE_ANALOG = 0;
     static constexpr uint8_t ROUTE_DIGITAL_INPUT = 1;

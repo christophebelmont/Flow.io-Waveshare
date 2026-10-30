@@ -16,7 +16,7 @@ class DataCatalogResponseTests(unittest.TestCase):
         route = source[start:end]
         self.assertNotIn('beginResponseStream', route)
         self.assertIn('sendBufferedJson(request, body)', route)
-        start = route.index('        auto body =')
+        start = route.index('        size_t count =')
         build = route[start:route.index('        sendBufferedJson(request, body);')]
         harness = (ROOT / 'test/host/data_catalog_response.cpp').read_text()
         harness = harness.replace('// PRODUCTION_BUFFER', buffer).replace('// PRODUCTION_BUILD', build)

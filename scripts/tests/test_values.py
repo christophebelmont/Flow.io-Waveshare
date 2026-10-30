@@ -6,6 +6,16 @@ import tempfile
 import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 class ValueTests(unittest.TestCase):
+    def test_sparse_serial_equipment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = pathlib.Path(tmp) / 'serial-values'
+            subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
+                '-fsanitize=undefined,address', '-Itest/host/value_stubs', '-Itest/host/stubs', '-Isrc', '-Iinclude',
+                'test/host/serial_equipment_values.cpp', 'src/Core/Values/ValueRegistry.cpp',
+                'src/Core/Values/ValueExpression.cpp', 'src/Modules/PoolHistoryModule/ValueHistory.cpp',
+                '-o', str(binary)], cwd=ROOT, check=True)
+            subprocess.run([str(binary)], cwd=ROOT, check=True)
+
     def test_data_value_catalog(self):
         with tempfile.TemporaryDirectory() as tmp:
             binary = pathlib.Path(tmp) / 'data-value-catalog'

@@ -141,7 +141,7 @@ MqttBuildResult PoolLogicModule::buildCfgBase_(MqttBuildContext& buildCtx)
     return MqttBuildResult::Ready;
 }
 
-uint8_t PoolLogicModule::runtimeSnapshotCount() const
+uint16_t PoolLogicModule::runtimeSnapshotCount() const
 {
     return 6;
 }
@@ -164,7 +164,7 @@ bool PoolLogicModule::writeRuntimeUiValue(uint8_t valueId, IRuntimeUiWriter& wri
     }
 }
 
-const char* PoolLogicModule::runtimeSnapshotSuffix(uint8_t idx) const
+const char* PoolLogicModule::runtimeSnapshotSuffix(uint16_t idx) const
 {
     if (idx == 0) return "rt/poollogic/ph";
     if (idx == 1) return "rt/poollogic/orp";
@@ -175,12 +175,12 @@ const char* PoolLogicModule::runtimeSnapshotSuffix(uint8_t idx) const
     return nullptr;
 }
 
-RuntimeRouteClass PoolLogicModule::runtimeSnapshotClass(uint8_t idx) const
+RuntimeRouteClass PoolLogicModule::runtimeSnapshotClass(uint16_t idx) const
 {
     return idx >= 4 ? RuntimeRouteClass::ActuatorImmediate : RuntimeRouteClass::NumericThrottled;
 }
 
-bool PoolLogicModule::runtimeSnapshotAffectsKey(uint8_t idx, DataKey key) const
+bool PoolLogicModule::runtimeSnapshotAffectsKey(uint16_t idx, DataKey key) const
 {
     if (idx > 5) return false;
     if (idx >= 4 && key == DataKeys::PoolDeviceOverrides) return true;
@@ -190,7 +190,7 @@ bool PoolLogicModule::runtimeSnapshotAffectsKey(uint8_t idx, DataKey key) const
     return false;
 }
 
-bool PoolLogicModule::buildRuntimeSnapshot(uint8_t idx, char* out, size_t len, uint32_t& maxTsOut) const
+bool PoolLogicModule::buildRuntimeSnapshot(uint16_t idx, char* out, size_t len, uint32_t& maxTsOut) const
 {
     if (!out || len == 0) return false;
     if (idx == 4 || idx == 5) return buildOverrideSnapshot_(idx - 4, out, len, maxTsOut);

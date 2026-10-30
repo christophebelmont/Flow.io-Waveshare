@@ -160,21 +160,8 @@ void PoolHistoryModule::init(ConfigStore& cfg, ServiceRegistry& services)
     if (storageMemory) {
         storage_ = new (storageMemory) Storage{};
     }
-    uint8_t hours = ValueHistory::PsramHours, days = ValueHistory::PsramDays;
-    valueHistoryMemory_ = heap_caps_malloc(ValueHistory::bytes(hours, days), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    const bool valueHistoryPsram = valueHistoryMemory_ != nullptr;
-    if (!valueHistoryMemory_) {
-        hours = ValueHistory::InternalHours; days = ValueHistory::InternalDays;
-        valueHistoryMemory_ = heap_caps_malloc(ValueHistory::bytes(hours, days), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    }
-    if (valueHistoryMemory_) valueHistory_.initialize(valueHistoryMemory_, hours, days);
     auto* dataService = services.get<DataStoreService>(ServiceId::DataStore);
     dataStore_ = dataService ? dataService->store : nullptr;
-    if (dataStore_ && stateMutex_ && valueHistoryMemory_)
-        dataStore_->values.setObserver(&PoolHistoryModule::observeValue_, this);
-    LOGI("Value history bytes=%u psram=%u hours=%u days=%u ready=%u",
-         unsigned(ValueHistory::bytes(hours, days)), unsigned(valueHistoryPsram),
-         unsigned(hours), unsigned(days), unsigned(valueHistoryMemory_ != nullptr));
     configService_ = services.get<ConfigStoreService>(ServiceId::ConfigStore);
     timeService_ = services.get<TimeService>(ServiceId::Time);
     domainStatusService_ = services.get<DomainStatusService>(ServiceId::DomainStatus);
@@ -203,6 +190,22 @@ void PoolHistoryModule::init(ConfigStore& cfg, ServiceRegistry& services)
 
 void PoolHistoryModule::onConfigLoaded(ConfigStore& cfg, ServiceRegistry&)
 {
+    // All producers have declared their values and exposure has been loaded.
+    ValueId selected[ValueIds::Capacity];
+    uint16_t count = 0;
+    if (dataStore_) for (const auto& descriptor : kDataValues) {
+        ValueSnapshot sample{}; ValueMetadata metadata{};
+        if (dataStore_->values.read(descriptor.id, sample, &metadata) && metadata.history)
+            selected[count++] = descriptor.id;
+    }
+    const auto bytes = ValueHistory::bytes(ValueHistory::PsramHours, ValueHistory::PsramDays, count);
+    valueHistoryMemory_ = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (valueHistoryMemory_) {
+        valueHistory_.initialize(valueHistoryMemory_, ValueHistory::PsramHours, ValueHistory::PsramDays, selected, count);
+        if (dataStore_ && stateMutex_) dataStore_->values.setObserver(&PoolHistoryModule::observeValue_, this);
+    }
+    LOGI("Selected value history series=%u psram_bytes=%u ready=%u", unsigned(count), unsigned(bytes), unsigned(valueHistoryMemory_ != nullptr));
+
     if (daytimeStartHour_ > 23U || daytimeEndHour_ > 23U ||
         daytimeStartHour_ == daytimeEndHour_) {
         LOGW("Invalid daytime period %u-%u, using %u-%u",

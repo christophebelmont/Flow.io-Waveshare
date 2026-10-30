@@ -1,3 +1,5 @@
+#include <esp_heap_caps.h>
+#include <algorithm>
 /**
  * @file HAModule.cpp
  * @brief Implementation file.
@@ -214,32 +216,24 @@ static bool buildHaNumberRangeField(char* out, size_t outLen, float minValue, fl
     );
 }
 
+namespace {
+template<typename T>
+bool reserveDiscoveryEntries(T*& entries, uint16_t& capacity, uint16_t required, uint16_t limit) {
+    if (required <= capacity) return true;
+    if (required > limit) return false;
+    const uint16_t next = std::min<uint16_t>(limit, ((required + 15) / 16) * 16);
+    auto* memory = static_cast<T*>(heap_caps_realloc(entries, sizeof(T) * next, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!memory) return false;
+    for (uint16_t i = capacity; i < next; ++i) new (&memory[i]) T{};
+    entries = memory; capacity = next;
+    return true;
+}
+}
 bool HAModule::ensureStorage_()
 {
-#if FLOW_HA_ONESHOT_DISCOVERY
     if (oneShotResourcesReleased_) return false;
-    if (sensors_ && binarySensors_ && switches_ && numbers_ && buttons_ && selects_ && pendingBits_) return true;
-
-    if (!sensors_) sensors_ = new (std::nothrow) HASensorEntry[MAX_HA_SENSORS]{};
-    if (!binarySensors_) binarySensors_ = new (std::nothrow) HABinarySensorEntry[MAX_HA_BINARY_SENSORS]{};
-    if (!switches_) switches_ = new (std::nothrow) HASwitchEntry[MAX_HA_SWITCHES]{};
-    if (!numbers_) numbers_ = new (std::nothrow) HANumberEntry[MAX_HA_NUMBERS]{};
-    if (!buttons_) buttons_ = new (std::nothrow) HAButtonEntry[MAX_HA_BUTTONS]{};
-    if (!selects_) selects_ = new (std::nothrow) HASelectEntry[MAX_HA_SELECTS]{};
-    if (!pendingBits_) pendingBits_ = new (std::nothrow) uint32_t[HA_PENDING_WORDS]{};
-
-    if (sensors_ && binarySensors_ && switches_ && numbers_ && buttons_ && selects_ && pendingBits_) {
-        HA_BOOT_TRACE_D("ha boot trace: oneshot storage ready table_cap=%u pending_bytes=%u",
-                        (unsigned)entityTableCapacityBytes_(),
-                        (unsigned)(sizeof(uint32_t) * HA_PENDING_WORDS));
-        return true;
-    }
-    HA_BOOT_TRACE_I("ha boot trace: oneshot storage allocation failed, releasing partial storage");
-    releaseOneShotResources_();
-    return false;
-#else
-    return true;
-#endif
+    if (!pendingBits_) pendingBits_ = static_cast<uint32_t*>(heap_caps_calloc(HA_PENDING_WORDS, sizeof(uint32_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    return pendingBits_ != nullptr;
 }
 
 size_t HAModule::entityTableUsedBytes_() const
@@ -254,12 +248,12 @@ size_t HAModule::entityTableUsedBytes_() const
 
 size_t HAModule::entityTableCapacityBytes_() const
 {
-    return (size_t)MAX_HA_SENSORS * sizeof(HASensorEntry) +
-           (size_t)MAX_HA_BINARY_SENSORS * sizeof(HABinarySensorEntry) +
-           (size_t)MAX_HA_SWITCHES * sizeof(HASwitchEntry) +
-           (size_t)MAX_HA_NUMBERS * sizeof(HANumberEntry) +
-           (size_t)MAX_HA_BUTTONS * sizeof(HAButtonEntry) +
-           (size_t)MAX_HA_SELECTS * sizeof(HASelectEntry);
+    return (size_t)sensorCapacity_ * sizeof(HASensorEntry) +
+           (size_t)binarySensorCapacity_ * sizeof(HABinarySensorEntry) +
+           (size_t)switchCapacity_ * sizeof(HASwitchEntry) +
+           (size_t)numberCapacity_ * sizeof(HANumberEntry) +
+           (size_t)buttonCapacity_ * sizeof(HAButtonEntry) +
+           (size_t)selectCapacity_ * sizeof(HASelectEntry);
 }
 
 void HAModule::releaseOneShotResources_()
@@ -269,13 +263,14 @@ void HAModule::releaseOneShotResources_()
     const size_t releasedEntityUsedBytes = entityTableUsedBytes_();
     const size_t releasedEntityCapBytes = entityTableCapacityBytes_();
     const size_t releasedPendingBytes = sizeof(uint32_t) * HA_PENDING_WORDS;
-    delete[] sensors_;
-    delete[] binarySensors_;
-    delete[] switches_;
-    delete[] numbers_;
-    delete[] buttons_;
-    delete[] selects_;
-    delete[] pendingBits_;
+    heap_caps_free(sensors_);
+    heap_caps_free(binarySensors_);
+    heap_caps_free(switches_);
+    heap_caps_free(numbers_);
+    heap_caps_free(buttons_);
+    heap_caps_free(selects_);
+    heap_caps_free(pendingBits_);
+    heap_caps_free(removals_); removals_ = nullptr; removalCount_ = removalCapacity_ = 0;
     sensors_ = nullptr;
     binarySensors_ = nullptr;
     switches_ = nullptr;
@@ -308,7 +303,7 @@ bool HAModule::addSensorEntry(const HASensorEntry& entry)
         return false;
     }
 
-    for (uint8_t i = 0; i < sensorCount_; ++i) {
+    for (uint16_t i = 0; i < sensorCount_; ++i) {
         if (strcmp(sensors_[i].ownerId, entry.ownerId) == 0 &&
             strcmp(sensors_[i].objectSuffix, entry.objectSuffix) == 0) {
             sensors_[i] = entry;
@@ -317,7 +312,7 @@ bool HAModule::addSensorEntry(const HASensorEntry& entry)
         }
     }
 
-    if (sensorCount_ >= MAX_HA_SENSORS) return false;
+    if (!reserveDiscoveryEntries(sensors_, sensorCapacity_, sensorCount_ + 1, MAX_HA_SENSORS)) return false;
     sensors_[sensorCount_++] = entry;
     BufferUsageTracker::note(TrackedBufferId::HaEntityTables,
                              entityTableUsedBytes_(),
@@ -335,7 +330,7 @@ bool HAModule::addBinarySensorEntry(const HABinarySensorEntry& entry)
         return false;
     }
 
-    for (uint8_t i = 0; i < binarySensorCount_; ++i) {
+    for (uint16_t i = 0; i < binarySensorCount_; ++i) {
         if (strcmp(binarySensors_[i].ownerId, entry.ownerId) == 0 &&
             strcmp(binarySensors_[i].objectSuffix, entry.objectSuffix) == 0) {
             binarySensors_[i] = entry;
@@ -344,7 +339,7 @@ bool HAModule::addBinarySensorEntry(const HABinarySensorEntry& entry)
         }
     }
 
-    if (binarySensorCount_ >= MAX_HA_BINARY_SENSORS) return false;
+    if (!reserveDiscoveryEntries(binarySensors_, binarySensorCapacity_, binarySensorCount_ + 1, MAX_HA_BINARY_SENSORS)) return false;
     binarySensors_[binarySensorCount_++] = entry;
     BufferUsageTracker::note(TrackedBufferId::HaEntityTables,
                              entityTableUsedBytes_(),
@@ -363,7 +358,7 @@ bool HAModule::addSwitchEntry(const HASwitchEntry& entry)
         return false;
     }
 
-    for (uint8_t i = 0; i < switchCount_; ++i) {
+    for (uint16_t i = 0; i < switchCount_; ++i) {
         if (strcmp(switches_[i].ownerId, entry.ownerId) == 0 &&
             strcmp(switches_[i].objectSuffix, entry.objectSuffix) == 0) {
             switches_[i] = entry;
@@ -372,7 +367,7 @@ bool HAModule::addSwitchEntry(const HASwitchEntry& entry)
         }
     }
 
-    if (switchCount_ >= MAX_HA_SWITCHES) return false;
+    if (!reserveDiscoveryEntries(switches_, switchCapacity_, switchCount_ + 1, MAX_HA_SWITCHES)) return false;
     switches_[switchCount_++] = entry;
     BufferUsageTracker::note(TrackedBufferId::HaEntityTables,
                              entityTableUsedBytes_(),
@@ -391,7 +386,7 @@ bool HAModule::addNumberEntry(const HANumberEntry& entry)
         return false;
     }
 
-    for (uint8_t i = 0; i < numberCount_; ++i) {
+    for (uint16_t i = 0; i < numberCount_; ++i) {
         if (strcmp(numbers_[i].ownerId, entry.ownerId) == 0 &&
             strcmp(numbers_[i].objectSuffix, entry.objectSuffix) == 0) {
             numbers_[i] = entry;
@@ -400,8 +395,8 @@ bool HAModule::addNumberEntry(const HANumberEntry& entry)
         }
     }
 
-    if (numberCount_ >= MAX_HA_NUMBERS) {
-        LOGW("HA number table full (%u/%u) reject=%s/%s",
+    if (!reserveDiscoveryEntries(numbers_, numberCapacity_, numberCount_ + 1, MAX_HA_NUMBERS)) {
+        LOGW("HA number storage unavailable (%u/%u) reject=%s/%s",
              (unsigned)numberCount_,
              (unsigned)MAX_HA_NUMBERS,
              entry.ownerId ? entry.ownerId : "?",
@@ -425,7 +420,7 @@ bool HAModule::addButtonEntry(const HAButtonEntry& entry)
         return false;
     }
 
-    for (uint8_t i = 0; i < buttonCount_; ++i) {
+    for (uint16_t i = 0; i < buttonCount_; ++i) {
         if (strcmp(buttons_[i].ownerId, entry.ownerId) == 0 &&
             strcmp(buttons_[i].objectSuffix, entry.objectSuffix) == 0) {
             buttons_[i] = entry;
@@ -434,8 +429,8 @@ bool HAModule::addButtonEntry(const HAButtonEntry& entry)
         }
     }
 
-    if (buttonCount_ >= MAX_HA_BUTTONS) {
-        LOGW("HA button table full (%u/%u) reject=%s/%s",
+    if (!reserveDiscoveryEntries(buttons_, buttonCapacity_, buttonCount_ + 1, MAX_HA_BUTTONS)) {
+        LOGW("HA button storage unavailable (%u/%u) reject=%s/%s",
              (unsigned)buttonCount_,
              (unsigned)MAX_HA_BUTTONS,
              entry.ownerId ? entry.ownerId : "?",
@@ -461,7 +456,7 @@ bool HAModule::addSelectEntry(const HASelectEntry& entry)
         return false;
     }
 
-    for (uint8_t i = 0; i < selectCount_; ++i) {
+    for (uint16_t i = 0; i < selectCount_; ++i) {
         if (strcmp(selects_[i].ownerId, entry.ownerId) == 0 &&
             strcmp(selects_[i].objectSuffix, entry.objectSuffix) == 0) {
             selects_[i] = entry;
@@ -470,8 +465,8 @@ bool HAModule::addSelectEntry(const HASelectEntry& entry)
         }
     }
 
-    if (selectCount_ >= MAX_HA_SELECTS) {
-        LOGW("HA select table full (%u/%u) reject=%s/%s",
+    if (!reserveDiscoveryEntries(selects_, selectCapacity_, selectCount_ + 1, MAX_HA_SELECTS)) {
+        LOGW("HA select storage unavailable (%u/%u) reject=%s/%s",
              (unsigned)selectCount_,
              (unsigned)MAX_HA_SELECTS,
              entry.ownerId ? entry.ownerId : "?",
@@ -835,11 +830,11 @@ bool HAModule::addDiscoveryRemovalSvc_(const HADiscoveryRemovalEntry* entry)
 {
     if (!entry || !entry->component || !entry->objectSuffix || oneShotCompleted_) return false;
     if (!ensureStorage_()) return false;
-    for (uint8_t i = 0; i < removalCount_; ++i) {
+    for (uint16_t i = 0; i < removalCount_; ++i) {
         if (strcmp(removals_[i].component, entry->component) == 0 &&
             strcmp(removals_[i].objectSuffix, entry->objectSuffix) == 0) return true;
     }
-    if (removalCount_ >= MAX_HA_REMOVALS) return false;
+    if (!reserveDiscoveryEntries(removals_, removalCapacity_, removalCount_ + 1, MAX_HA_REMOVALS)) return false;
     removals_[removalCount_++] = *entry;
     requestAutoconfigRefresh();
     return true;
@@ -1051,7 +1046,7 @@ void HAModule::producerDroppedStatic_(void* ctx, uint16_t messageId)
 
 bool HAModule::buildEntityMessage_(uint16_t messageId, MqttBuildContext& buildCtx)
 {
-    if (!sensors_ || !binarySensors_ || !switches_ || !numbers_ || !buttons_ || !selects_) return false;
+    // Registration allocates each nonempty table. Unused entity types have no storage.
     bool ok = false;
     uint16_t cursor = 0;
 

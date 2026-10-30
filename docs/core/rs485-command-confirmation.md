@@ -22,6 +22,9 @@ consigne préparée. Un registre de consigne indépendant reste comparé, même 
 l'arrêt. Sans retour de lecture, l'acquittement conserve la qualité `Estimated`.
 
 Le démarrage AquaGem à 2900 rpm pendant 60 secondes est géré par l'équipement.
+Le profil Flow.io initialise également sa consigne à 2900 rpm. L'état marche
+est confirmé dès la première lecture valide du bit `Pump On`, indépendamment
+de la convergence de la vitesse. Une consigne choisie ensuite reste conservée.
 Flow.io conserve la commande acquittée et poursuit ses lectures habituelles,
 sans temporisation JavaScript ni réémission automatique liée à l'écart de vitesse.
 Une nouvelle demande remplace la précédente sans séquence arrêt/redémarrage.
@@ -37,6 +40,9 @@ La fenêtre de détail reconstruit donc une attente même après réouverture.
 Dans l'interface, un brouillon n'est envoyé que par le bouton. Pendant l'attente,
 la dernière lecture apparaît à gauche de la cible, accompagnée du snake orange
 et de « Commande acceptée · Application en attente ». Une nouvelle saisie reste
+possible lorsque l'équipement tourne. Si la lecture confirme déjà la marche
+demandée, le message devient « Marche confirmée · Consigne en attente » :
+l'attente concerne la consigne et non la mise en marche. Une nouvelle saisie reste
 possible lorsque l'équipement tourne. Une requête HTTP refusée conserve sa
 valeur et son erreur locale, sans réutiliser la confirmation verte précédente.
 Après convergence, une normalisation différente de la demande est expliquée

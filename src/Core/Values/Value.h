@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <math.h>
+#include "Core/Generated/EquipmentMetric_Generated.h"
 
 using ValueId = uint16_t;
 constexpr ValueId VALUE_INVALID = UINT16_MAX;
@@ -14,8 +15,12 @@ constexpr ValueId PoolTank = 112;
 constexpr uint8_t PoolTankSlots = 16;
 constexpr ValueId PoolUptime = PoolTank + 2 * PoolTankSlots;
 constexpr ValueId DigitalState = PoolUptime + PoolTankSlots;
-constexpr uint16_t Capacity = DigitalState + 16;
-constexpr bool isDigitalState(ValueId id) { return id >= DigitalState && id < Capacity; }
+constexpr ValueId Equipment = EquipmentValueBase;
+static_assert(Equipment == DigitalState + 16, "Existing value identities must remain stable");
+constexpr uint8_t EquipmentStride = EquipmentValueStride;
+constexpr uint16_t Capacity = Equipment + EquipmentValueSlots * EquipmentStride;
+constexpr bool isEquipment(ValueId id) { return id >= Equipment && id < Capacity; }
+constexpr bool isDigitalState(ValueId id) { return id >= DigitalState && id < Equipment; }
 constexpr bool isDerived(ValueId id) { return id >= Derived && id < Derived + DerivedCapacity; }
 }
 enum class ValueType : uint8_t { Bool, Int32, UInt32, UInt64, Float, Double };

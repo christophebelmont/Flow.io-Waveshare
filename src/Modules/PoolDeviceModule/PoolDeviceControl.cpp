@@ -1,3 +1,4 @@
+#include "Core/Values/SerialEquipmentValues.h"
 /**
  * @file PoolDeviceControl.cpp
  * @brief Service adapter, counter rollover and control-loop logic for pool devices.
@@ -645,6 +646,9 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
             s.feedback = s.driver.get().readState();
             if (s.feedback.error) s.blockReason = POOL_DEVICE_BLOCK_IO_ERROR;
         }
+        if (dataStore_) SerialEquipmentValues::publish(dataStore_->values, i, s.driverConfig,
+            s.desired, s.feedback, s.def.enabled && s.driverReady,
+            nowMs, uint64_t(esp_timer_get_time()) / 1000ULL);
         s.actualOn = s.feedback.observedValid && s.feedback.observed.running;
         if (s.actualOn != wasActualOn && dataStore_) dataStore_->notifyChanged(DataKeys::PoolDeviceOverrides);
         if (s.actualOn != wasActualOn || s.actualOnSinceMs == 0U) {

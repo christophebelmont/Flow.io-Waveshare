@@ -30,7 +30,7 @@ constexpr size_t JsonConfigApplyBuf = JsonCfgBuf;
  *  Sized for the Waveshare profile with additional headroom for local TFT
  *  sensor/alarm slots, dashboard/LCD and PoolLogic extensions while staying bounded. */
 // Dual boot bindings add 92 descriptors in the Waveshare profile. Metadata lives in PSRAM.
-constexpr size_t MaxConfigVars = 1536;
+constexpr size_t MaxConfigVars = 3072;
 /** @brief Maximum NVS key length (without null terminator) enforced by `ConfigTypes::NVS_KEY`. */
 constexpr size_t MaxNvsKeyLen = 15;
 /** @brief FreeRTOS log queue length used by `LogHub` (`LogHubModule::init`).
@@ -225,7 +225,7 @@ constexpr uint8_t JitterPct = 15;
 
 }  // namespace Mqtt
 /** @brief Maximum number of runtime MQTT routes stored in the runtime mux (`RuntimeProducer`). */
-constexpr uint8_t MaxRuntimeRoutes = 240;
+constexpr uint16_t MaxRuntimeRoutes = 768;
 /** @brief Default momentary digital output pulse duration in ms (`IOModule`). */
 constexpr uint16_t MomentaryPulseMs = 500;
 /** @brief Default periodic trace interval for ORP/pH/PSI calc logs (`IOModule`, `trace_period_ms`). */

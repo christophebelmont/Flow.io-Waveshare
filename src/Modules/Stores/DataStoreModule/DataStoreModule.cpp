@@ -11,6 +11,11 @@
 #define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::DataStoreModule)
 #include "Core/ModuleLog.h"
 
+DataStoreModule::~DataStoreModule() {
+    if (exposure_) { exposure_->~DataExposureConfig(); heap_caps_free(exposure_); }
+    heap_caps_free(routes_);
+}
+
 void DataStoreModule::init(ConfigStore& cfg, ServiceRegistry& services)
 {
     if (!_store.values.begin()) {
@@ -36,27 +41,27 @@ void DataStoreModule::init(ConfigStore& cfg, ServiceRegistry& services)
 
 void DataStoreModule::onConfigLoaded(ConfigStore&, ServiceRegistry&) {
     if (exposure_) exposure_->apply(_store);
+    auto selected = [this](const DataValueDescriptor& d) {
+        return d.kind != DataValueKind::Analog && d.kind != DataValueKind::Derived && _store.publishHa(d.id);
+    };
+    uint16_t count = 0;
+    for (const auto& d : kDataValues) if (selected(d)) ++count;
+    if (!count) return;
+    routes_ = static_cast<const DataValueDescriptor**>(heap_caps_malloc(count * sizeof(*routes_), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!routes_) { LOGE("Data value routes allocation failed count=%u", unsigned(count)); return; }
+    for (const auto& d : kDataValues) if (selected(d)) routes_[routeCount_++] = &d;
 }
-const DataValueDescriptor* DataStoreModule::route_(uint8_t idx) const {
-    for (const auto& d : kDataValues) {
-        // Physical inputs and derived values retain their existing MQTT topics/providers.
-        if (d.kind == DataValueKind::Analog || d.kind == DataValueKind::Derived || !_store.publishHa(d.id)) continue;
-        if (idx-- == 0) return &d;
-    }
-    return nullptr;
+const DataValueDescriptor* DataStoreModule::route_(uint16_t idx) const {
+    return idx < routeCount_ ? routes_[idx] : nullptr;
 }
-uint8_t DataStoreModule::runtimeSnapshotCount() const {
-    uint8_t count = 0;
-    while (route_(count)) ++count;
-    return count;
-}
-const char* DataStoreModule::runtimeSnapshotSuffix(uint8_t idx) const {
+uint16_t DataStoreModule::runtimeSnapshotCount() const { return routeCount_; }
+const char* DataStoreModule::runtimeSnapshotSuffix(uint16_t idx) const {
     const auto* d = route_(idx); return d ? d->topic : nullptr;
 }
-bool DataStoreModule::runtimeSnapshotAffectsKey(uint8_t idx, DataKey key) const {
+bool DataStoreModule::runtimeSnapshotAffectsKey(uint16_t idx, DataKey key) const {
     const auto* d = route_(idx); return d && key == DataKeys::ValueBase + d->id;
 }
-bool DataStoreModule::buildRuntimeSnapshot(uint8_t idx, char* out, size_t len, uint32_t& stamp) const {
+bool DataStoreModule::buildRuntimeSnapshot(uint16_t idx, char* out, size_t len, uint32_t& stamp) const {
     const auto* d = route_(idx);
     ValueSnapshot value{}; ValueMetadata meta{};
     if (!d || !_store.values.read(d->id, value, &meta)) return false;

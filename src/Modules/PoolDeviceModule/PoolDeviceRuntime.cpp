@@ -106,7 +106,7 @@ const char* PoolDeviceModule::blockReasonStr_(uint8_t reason)
     return "none";
 }
 
-uint8_t PoolDeviceModule::runtimeSnapshotCount() const
+uint16_t PoolDeviceModule::runtimeSnapshotCount() const
 {
     return (uint8_t)(2U + activeCount_() * 2U);
 }
@@ -299,7 +299,7 @@ bool PoolDeviceModule::buildMetricsSnapshot_(uint8_t slotIdx, char* out, size_t 
     return true;
 }
 
-const char* PoolDeviceModule::runtimeSnapshotSuffix(uint8_t idx) const
+const char* PoolDeviceModule::runtimeSnapshotSuffix(uint16_t idx) const
 {
     if (idx < 2) return idx == 0 ? "rt/pdm/override/selected" : "rt/pdm/override/all";
     uint8_t slotIdx = 0xFF;
@@ -316,7 +316,7 @@ const char* PoolDeviceModule::runtimeSnapshotSuffix(uint8_t idx) const
     return suffix;
 }
 
-RuntimeRouteClass PoolDeviceModule::runtimeSnapshotClass(uint8_t idx) const
+RuntimeRouteClass PoolDeviceModule::runtimeSnapshotClass(uint16_t idx) const
 {
     if (idx < 2) return RuntimeRouteClass::ActuatorImmediate;
     uint8_t slotIdx = 0xFF;
@@ -330,7 +330,7 @@ RuntimeRouteClass PoolDeviceModule::runtimeSnapshotClass(uint8_t idx) const
     return metrics ? RuntimeRouteClass::NumericThrottled : RuntimeRouteClass::ActuatorImmediate;
 }
 
-bool PoolDeviceModule::runtimeSnapshotAffectsKey(uint8_t idx, DataKey key) const
+bool PoolDeviceModule::runtimeSnapshotAffectsKey(uint16_t idx, DataKey key) const
 {
     if (idx < 2) return key == DataKeys::PoolDeviceOverrides;
     // Reject unrelated events before taking the device mutex or scanning slots.
@@ -346,7 +346,7 @@ bool PoolDeviceModule::runtimeSnapshotAffectsKey(uint8_t idx, DataKey key) const
     return key == expected && slotRuntimePublishable_(slotIdx);
 }
 
-bool PoolDeviceModule::buildRuntimeSnapshot(uint8_t idx, char* out, size_t len, uint32_t& maxTsOut) const
+bool PoolDeviceModule::buildRuntimeSnapshot(uint16_t idx, char* out, size_t len, uint32_t& maxTsOut) const
 {
     if (idx < 2) return buildOverrideSnapshot_(idx == 1, out, len, maxTsOut);
     uint8_t slotIdx = 0xFF;

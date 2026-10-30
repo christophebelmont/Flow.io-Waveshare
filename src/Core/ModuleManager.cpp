@@ -187,6 +187,8 @@ bool ModuleManager::initAll(ConfigStore& cfg, ServiceRegistry& services) {
     /// Load persistent config after all modules registered their variables.
     cfg.loadPersistent();
 
+    for (uint8_t i = 0; i < orderedCount; ++i) ordered[i]->onConfigPrepared(cfg, services);
+
     for (uint8_t i = 0; i < orderedCount; ++i) {
         ordered[i]->onConfigLoaded(cfg, services);
     }

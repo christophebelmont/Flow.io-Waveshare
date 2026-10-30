@@ -13,7 +13,7 @@ template <typename T>
 T* allocPsramArray_(size_t count)
 {
     void* mem = heap_caps_malloc(sizeof(T) * count, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!mem) mem = heap_caps_malloc(sizeof(T) * count, MALLOC_CAP_8BIT);
+
     if (!mem) return nullptr;
 
     T* out = static_cast<T*>(mem);
@@ -26,16 +26,20 @@ T* allocPsramArray_(size_t count)
 bool* allocPsramBoolArray_(size_t count)
 {
     void* mem = heap_caps_calloc(count, sizeof(bool), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!mem) mem = heap_caps_calloc(count, sizeof(bool), MALLOC_CAP_8BIT);
+
     return static_cast<bool*>(mem);
 }
 } // namespace
 
-bool RuntimeProducer::ensureStorage_()
+bool RuntimeProducer::ensureStorage_(uint16_t count)
 {
-    if (!routes_) routes_ = allocPsramArray_<Route>(Limits::MaxRuntimeRoutes);
-    if (!initialFullSnapshotDone_) initialFullSnapshotDone_ = allocPsramBoolArray_(Limits::MaxRuntimeRoutes);
-    return routes_ && initialFullSnapshotDone_;
+    if (count <= storageCapacity_) return true;
+    auto* routes = allocPsramArray_<Route>(count);
+    auto* done = allocPsramBoolArray_(count);
+    if (!routes || !done) { heap_caps_free(routes); heap_caps_free(done); return false; }
+    heap_caps_free(routes_); heap_caps_free(initialFullSnapshotDone_);
+    routes_ = routes; initialFullSnapshotDone_ = done; storageCapacity_ = count;
+    return true;
 }
 
 void RuntimeProducer::configure(const MqttService* mqttSvc,
@@ -45,12 +49,10 @@ void RuntimeProducer::configure(const MqttService* mqttSvc,
     mqttSvc_ = mqttSvc;
     initialFullSnapshotCb_ = initialFullSnapshotCb;
     initialFullSnapshotCtx_ = initialFullSnapshotCtx;
-    (void)ensureStorage_();
 }
 
 bool RuntimeProducer::registerProvider(const IRuntimeSnapshotProvider* provider)
 {
-    if (!ensureStorage_()) return false;
     if (!provider) return false;
     if (providerCount_ >= MaxProviders) return false;
 
@@ -65,7 +67,10 @@ bool RuntimeProducer::registerProvider(const IRuntimeSnapshotProvider* provider)
 
 void RuntimeProducer::rebuildRoutes()
 {
-    if (!ensureStorage_()) {
+    uint16_t count = 0;
+    for (uint8_t p = 0; p < providerCount_; ++p) count += providers_[p]->runtimeSnapshotCount();
+    if (count > Limits::MaxRuntimeRoutes || !ensureStorage_(count)) {
+        LOGE("Runtime route allocation failed count=%u", unsigned(count));
         routeCount_ = 0;
         return;
     }
@@ -75,9 +80,8 @@ void RuntimeProducer::rebuildRoutes()
         const IRuntimeSnapshotProvider* provider = providers_[p];
         if (!provider) continue;
 
-        const uint8_t count = provider->runtimeSnapshotCount();
-        for (uint8_t i = 0; i < count; ++i) {
-            if (routeCount_ >= Limits::MaxRuntimeRoutes) return;
+        const uint16_t count = provider->runtimeSnapshotCount();
+        for (uint16_t i = 0; i < count; ++i) {
 
             const char* suffix = provider->runtimeSnapshotSuffix(i);
             if (!suffix || suffix[0] == '\0') continue;
@@ -96,7 +100,7 @@ void RuntimeProducer::rebuildRoutes()
     }
 }
 
-void RuntimeProducer::markRoutePending_(uint8_t idx, bool force)
+void RuntimeProducer::markRoutePending_(uint16_t idx, bool force)
 {
     if (idx >= routeCount_) return;
     Route& route = routes_[idx];
@@ -104,7 +108,7 @@ void RuntimeProducer::markRoutePending_(uint8_t idx, bool force)
     route.force = route.force || force;
 }
 
-bool RuntimeProducer::enqueueRoute_(uint8_t idx)
+bool RuntimeProducer::enqueueRoute_(uint16_t idx)
 {
     if (!mqttSvc_ || !mqttSvc_->enqueue) return false;
     if (idx >= routeCount_) return false;
@@ -117,7 +121,7 @@ bool RuntimeProducer::enqueueRoute_(uint8_t idx)
     return mqttSvc_->enqueue(mqttSvc_->ctx, ProducerId, idx, (uint8_t)prio, 0);
 }
 
-void RuntimeProducer::completeInitialFullSnapshotRoute_(uint8_t idx)
+void RuntimeProducer::completeInitialFullSnapshotRoute_(uint16_t idx)
 {
     if (!initialFullSnapshotActive_) return;
     if (idx >= routeCount_) return;
@@ -142,8 +146,8 @@ void RuntimeProducer::notifyInitialFullSnapshotComplete_()
 
 void RuntimeProducer::onConnected()
 {
-    if (!ensureStorage_()) return;
-    memset(initialFullSnapshotDone_, 0, sizeof(bool) * Limits::MaxRuntimeRoutes);
+    if (!ensureStorage_(routeCount_)) return;
+    if (initialFullSnapshotDone_) memset(initialFullSnapshotDone_, 0, sizeof(bool) * storageCapacity_);
     initialFullSnapshotRemaining_ = routeCount_;
     initialFullSnapshotActive_ = true;
     if (routeCount_ == 0U) {
@@ -151,7 +155,7 @@ void RuntimeProducer::onConnected()
         return;
     }
 
-    for (uint8_t i = 0; i < routeCount_; ++i) {
+    for (uint16_t i = 0; i < routeCount_; ++i) {
         const Route& route = routes_[i];
         LOGD("route producer=%u type=1 msg=%u snapshot=%u class=%u suffix=%s",
              (unsigned)ProducerId, (unsigned)i, (unsigned)route.snapshotIdx,
@@ -164,7 +168,7 @@ void RuntimeProducer::onConnected()
 
 void RuntimeProducer::tick(uint32_t nowMs)
 {
-    for (uint8_t i = 0; i < routeCount_; ++i) {
+    for (uint16_t i = 0; i < routeCount_; ++i) {
         Route& route = routes_[i];
         if (!route.provider || !route.refreshIntervalMs || route.refreshQueued ||
             uint32_t(nowMs - route.lastPublishMs) < route.refreshIntervalMs) continue;
@@ -178,7 +182,7 @@ RuntimeProducer::DataChangeStats RuntimeProducer::onDataChanged(DataKey key)
 {
     DataChangeStats stats{};
     stats.routeCount = routeCount_;
-    for (uint8_t i = 0; i < routeCount_; ++i) {
+    for (uint16_t i = 0; i < routeCount_; ++i) {
         Route& route = routes_[i];
         if (!route.provider) continue;
         ++stats.checked;
@@ -252,7 +256,7 @@ void RuntimeProducer::onMessagePublished(uint16_t messageId)
     route.refreshQueued = false;
     route.pending = false;
     route.force = false;
-    completeInitialFullSnapshotRoute_((uint8_t)messageId);
+    completeInitialFullSnapshotRoute_(messageId);
 }
 
 void RuntimeProducer::onMessageDropped(uint16_t messageId)
@@ -260,5 +264,5 @@ void RuntimeProducer::onMessageDropped(uint16_t messageId)
     if (messageId >= routeCount_) return;
     routes_[messageId].pending = false;
     routes_[messageId].refreshQueued = false;
-    completeInitialFullSnapshotRoute_((uint8_t)messageId);
+    completeInitialFullSnapshotRoute_(messageId);
 }

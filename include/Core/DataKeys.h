@@ -1,4 +1,5 @@
 #pragma once
+#include "Core/Values/Value.h"
 /**
  * @file DataKeys.h
  * @brief Central registry and reserved ranges for DataStore keys.
@@ -67,7 +68,7 @@ constexpr DataKey PoolDeviceMetricsEndExclusive = PoolDeviceMetricsBase + PoolDe
 
 /** @brief Upper bound for currently reserved keys. */
 constexpr DataKey ValueBase = PoolDeviceMetricsEndExclusive;
-constexpr DataKey ValueReservedCount = 176;
+constexpr DataKey ValueReservedCount = ValueIds::Capacity;
 constexpr DataKey ReservedMax = ValueBase + ValueReservedCount - 1;
 
 static_assert(WifiReady < TimeReady, "DataKey ordering invariant broken");

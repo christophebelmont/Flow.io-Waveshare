@@ -1,4 +1,5 @@
 #pragma once
+#include "Core/Generated/DataValueCatalog_Generated.h"
 /**
  * @file HAModule.h
  * @brief Home Assistant discovery producer.
@@ -62,15 +63,15 @@ private:
     static constexpr uint8_t ProducerId = 32;
     static constexpr uint8_t ProducerIdCfg = 49;
 
-    static constexpr uint8_t MAX_HA_SENSORS = Limits::Ha::Capacity::MaxSensors;
-    static constexpr uint8_t MAX_HA_BINARY_SENSORS = Limits::Ha::Capacity::MaxBinarySensors;
+    static constexpr uint16_t MAX_HA_SENSORS = Limits::Ha::Capacity::MaxSensors + kDataValueCount;
+    static constexpr uint16_t MAX_HA_BINARY_SENSORS = Limits::Ha::Capacity::MaxBinarySensors + kDataValueCount;
     static constexpr uint8_t MAX_HA_SWITCHES = Limits::Ha::Capacity::MaxSwitches;
     static constexpr uint8_t MAX_HA_NUMBERS = Limits::Ha::Capacity::MaxNumbers;
     static constexpr uint8_t MAX_HA_BUTTONS = Limits::Ha::Capacity::MaxButtons;
     static constexpr uint8_t MAX_HA_SELECTS = Limits::Ha::Capacity::MaxSelects;
     static constexpr uint16_t MAX_HA_ENTITIES =
         MAX_HA_SENSORS + MAX_HA_BINARY_SENSORS + MAX_HA_SWITCHES + MAX_HA_NUMBERS + MAX_HA_BUTTONS + MAX_HA_SELECTS;
-    static constexpr uint16_t MAX_HA_REMOVALS = 192; // Cleanup capacity also covers retained entities from previous firmware.
+    static constexpr uint16_t MAX_HA_REMOVALS = kDataValueCount + 64; // Cleanup capacity also covers retained entities from previous firmware.
     static constexpr uint16_t MAX_HA_MESSAGES = MAX_HA_ENTITIES + MAX_HA_REMOVALS;
     static constexpr uint16_t HA_PENDING_WORDS = (MAX_HA_MESSAGES + 31U) / 32U;
 
@@ -106,7 +107,6 @@ private:
     char objectIdBuf_[96] = {0};
     char commandTopicBuf_[96] = {0};
 
-#if FLOW_HA_ONESHOT_DISCOVERY
     HASensorEntry* sensors_ = nullptr;
     HABinarySensorEntry* binarySensors_ = nullptr;
     HASwitchEntry* switches_ = nullptr;
@@ -114,23 +114,14 @@ private:
     HAButtonEntry* buttons_ = nullptr;
     HASelectEntry* selects_ = nullptr;
     uint32_t* pendingBits_ = nullptr;
-#else
-    HASensorEntry sensors_[MAX_HA_SENSORS]{};
-    HABinarySensorEntry binarySensors_[MAX_HA_BINARY_SENSORS]{};
-    HASwitchEntry switches_[MAX_HA_SWITCHES]{};
-    HANumberEntry numbers_[MAX_HA_NUMBERS]{};
-    HAButtonEntry buttons_[MAX_HA_BUTTONS]{};
-    HASelectEntry selects_[MAX_HA_SELECTS]{};
-    uint32_t pendingBits_[HA_PENDING_WORDS] = {0};
-#endif
-    HADiscoveryRemovalEntry removals_[MAX_HA_REMOVALS]{};
-    uint8_t removalCount_ = 0;
-    uint8_t sensorCount_ = 0;
-    uint8_t binarySensorCount_ = 0;
-    uint8_t switchCount_ = 0;
-    uint8_t numberCount_ = 0;
-    uint8_t buttonCount_ = 0;
-    uint8_t selectCount_ = 0;
+    HADiscoveryRemovalEntry* removals_ = nullptr;
+    uint16_t removalCount_ = 0, removalCapacity_ = 0;
+    uint16_t sensorCount_ = 0, sensorCapacity_ = 0;
+    uint16_t binarySensorCount_ = 0, binarySensorCapacity_ = 0;
+    uint16_t switchCount_ = 0, switchCapacity_ = 0;
+    uint16_t numberCount_ = 0, numberCapacity_ = 0;
+    uint16_t buttonCount_ = 0, buttonCapacity_ = 0;
+    uint16_t selectCount_ = 0, selectCapacity_ = 0;
 
     MqttPublishProducer producer_{};
     MqttConfigRouteProducer* cfgMqttPub_ = nullptr;

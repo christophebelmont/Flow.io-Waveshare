@@ -137,9 +137,9 @@ static void allocationTests() {
         ValueRegistry registry;
         assert(!registry.read(0, snapshot));
         assert(registry.begin() && registry.storageInPsram());
-        const auto allocations = fakeHeapAllocations;
         assert(registry.begin());
         assert(registry.define(0, metadata));
+        const auto allocations = fakeHeapAllocations;
         assert(registry.write(0, ValueNumber{}, 1));
         assert(registry.read(0, snapshot));
         assert(fakeHeapAllocations == allocations);
@@ -147,7 +147,7 @@ static void allocationTests() {
     fakePsramAvailable = false;
     {
         ValueRegistry registry;
-        assert(registry.begin() && !registry.storageInPsram());
+        assert(!registry.begin());
     }
     fakeInternalAvailable = false;
     {
@@ -161,7 +161,7 @@ static void allocationTests() {
         assert(registry.used() == 0);
     }
     fakePsramAvailable = fakeInternalAvailable = true;
-    puts("registry allocation: PSRAM, internal fallback, exhaustion, no runtime allocations OK");
+    puts("registry allocation: PSRAM required, exhaustion, no runtime allocations OK");
 }
 static void startupNotificationTests() {
     PendingDataKeys changes;

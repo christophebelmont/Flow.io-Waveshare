@@ -1,0 +1,175 @@
+{
+  "base": 176,
+  "stride": 32,
+  "slots": 16,
+  "metrics": [
+    {
+      "id": 0,
+      "key": "requested",
+      "label": "Consigne demandée",
+      "unit": "",
+      "type": "float"
+    },
+    {
+      "id": 1,
+      "key": "observed",
+      "label": "Valeur relue",
+      "unit": "",
+      "type": "float"
+    },
+    {
+      "id": 2,
+      "key": "running",
+      "label": "Marche confirmée",
+      "unit": "",
+      "type": "bool"
+    },
+    {
+      "id": 8,
+      "key": "high_pressure",
+      "label": "Haute pression",
+      "unit": "",
+      "type": "bool"
+    },
+    {
+      "id": 9,
+      "key": "low_pressure",
+      "label": "Basse pression",
+      "unit": "",
+      "type": "bool"
+    },
+    {
+      "id": 10,
+      "key": "water_flow",
+      "label": "Circulation d’eau",
+      "unit": "",
+      "type": "bool"
+    },
+    {
+      "id": 11,
+      "key": "water_pump",
+      "label": "Pompe à eau",
+      "unit": "",
+      "type": "bool"
+    },
+    {
+      "id": 12,
+      "key": "electric_heater",
+      "label": "Résistance électrique",
+      "unit": "",
+      "type": "bool"
+    },
+    {
+      "id": 13,
+      "key": "four_way_valve",
+      "label": "Vanne quatre voies",
+      "unit": "",
+      "type": "bool"
+    },
+    {
+      "id": 14,
+      "key": "bottom_plate",
+      "label": "Plaque inférieure",
+      "unit": "",
+      "type": "bool"
+    },
+    {
+      "id": 15,
+      "key": "compressor_heater",
+      "label": "Chauffage compresseur",
+      "unit": "",
+      "type": "bool"
+    },
+    {
+      "id": 16,
+      "key": "defrost",
+      "label": "Dégivrage",
+      "unit": "",
+      "type": "bool"
+    },
+    {
+      "id": 17,
+      "key": "compressor_out",
+      "label": "Sortie compresseur",
+      "unit": "°C",
+      "type": "float"
+    },
+    {
+      "id": 18,
+      "key": "compressor_in",
+      "label": "Entrée compresseur",
+      "unit": "°C",
+      "type": "float"
+    },
+    {
+      "id": 19,
+      "key": "water_in",
+      "label": "Température entrée eau",
+      "unit": "°C",
+      "type": "float"
+    },
+    {
+      "id": 20,
+      "key": "water_out",
+      "label": "Température sortie eau",
+      "unit": "°C",
+      "type": "float"
+    },
+    {
+      "id": 21,
+      "key": "coil",
+      "label": "Échangeur",
+      "unit": "°C",
+      "type": "float"
+    },
+    {
+      "id": 22,
+      "key": "ambient",
+      "label": "Température ambiante",
+      "unit": "°C",
+      "type": "float"
+    },
+    {
+      "id": 23,
+      "key": "ipm",
+      "label": "IPM",
+      "unit": "°C",
+      "type": "float"
+    },
+    {
+      "id": 24,
+      "key": "voltage",
+      "label": "Tension brute",
+      "unit": "V",
+      "type": "float"
+    },
+    {
+      "id": 25,
+      "key": "current",
+      "label": "Courant",
+      "unit": "A",
+      "type": "float"
+    },
+    {
+      "id": 26,
+      "key": "compressor_fault",
+      "label": "Code défaut compresseur",
+      "unit": "",
+      "type": "float"
+    },
+    {
+      "id": 27,
+      "key": "control_word",
+      "label": "Mot de commande",
+      "unit": "",
+      "type": "float"
+    },
+    {
+      "id": 28,
+      "key": "temperature_setpoint",
+      "label": "Consigne de température",
+      "unit": "°C",
+      "type": "float"
+    }
+  ]
+}

@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <new>
 /**
  * @file ConfigStore.cpp
  * @brief Implementation file.
@@ -60,38 +62,18 @@ void reportApplyJsonDocPeak_(size_t usedBytes, size_t capacityBytes)
 }
 }  // namespace
 
-bool ConfigStore::ensureMetaStorage_()
+bool ConfigStore::ensureMetaStorage_(size_t required)
 {
-    if (_meta) return true;
-
-    const size_t bytes = MAX_CONFIG_VARS * sizeof(ConfigMeta);
-    void* mem = nullptr;
-    if (psramFound()) {
-        mem = heap_caps_calloc(MAX_CONFIG_VARS, sizeof(ConfigMeta), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (mem) {
-            Log::info(LOG_MODULE_ID,
-                      "Config meta table allocated in PSRAM bytes=%lu vars=%u",
-                      (unsigned long)bytes,
-                      (unsigned)MAX_CONFIG_VARS);
-        }
-    }
-    if (!mem) {
-        mem = heap_caps_calloc(MAX_CONFIG_VARS, sizeof(ConfigMeta), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-        if (mem) {
-            Log::info(LOG_MODULE_ID,
-                      "Config meta table allocated in internal heap bytes=%lu vars=%u",
-                      (unsigned long)bytes,
-                      (unsigned)MAX_CONFIG_VARS);
-        }
-    }
-    _meta = static_cast<ConfigMeta*>(mem);
-    if (!_meta) {
-        Log::error(LOG_MODULE_ID,
-                   "Config meta table allocation failed bytes=%lu vars=%u",
-                   (unsigned long)bytes,
-                   (unsigned)MAX_CONFIG_VARS);
-    }
-    return _meta != nullptr;
+    if (!required) required = _metaCount + 1;
+    if (required > MAX_CONFIG_VARS) return false;
+    if (required <= _metaCapacity) return true;
+    const size_t capacity = std::min(MAX_CONFIG_VARS, ((required + 63) / 64) * 64);
+    void* memory = heap_caps_realloc(_meta, capacity * sizeof(ConfigMeta), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!memory) return false;
+    _meta = static_cast<ConfigMeta*>(memory);
+    for (size_t i = _metaCapacity; i < capacity; ++i) new (&_meta[i]) ConfigMeta{};
+    _metaCapacity = capacity;
+    return true;
 }
 
 void ConfigStore::ensureMutex_()

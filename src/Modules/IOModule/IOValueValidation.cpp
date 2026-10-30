@@ -21,6 +21,12 @@ bool IOModule::validateValueConfig_(const ConfigCandidate& candidate) const
     bool ioEnabled;
     if (!candidate.read(enabledVar_, cfgData_.enabled, ioEnabled)) return false;
     return valueConfig_->validateCandidate(candidate, [&](ValueId id, ValueType& type) {
+        if (ValueIds::isEquipment(id)) {
+            ValueSnapshot sample{}; ValueMetadata metadata{};
+            if (!dataStore_ || !dataStore_->values.read(id, sample, &metadata)) return false;
+            type = metadata.type;
+            return metadata.usable;
+        }
         if (PoolDeviceValues::isUptime(id)) { type = ValueType::UInt64; return true; }
         if (InternalAnalogSources::contains(id)) { type = ValueType::Float; return true; }
         if (!ioEnabled) return false;

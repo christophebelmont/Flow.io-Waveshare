@@ -3,6 +3,7 @@
 #include "Core/Values/InternalAnalogSources.h"
 #include "Core/Values/PoolDeviceValues.h"
 #include <cassert>
+#include <esp_heap_caps.h>
 #include <cstring>
 #include <set>
 #include <string>
@@ -12,9 +13,10 @@ struct TestStore {
     bool publishHa(ValueId id) const { return enabled[id]; }
 };
 struct ModuleInstances { TestStore* ioDataStore; HAService* haService; int ioModule=0; };
-struct DiscoveryHeap {
-    char dataNames[kDataValueCount][64]{};
-    char dataUnits[kDataValueCount][UnitTextCapacity]{};
+struct FlowIoDiscoveryHeap {
+    struct DataLabel { char name[64]{}; char unit[UnitTextCapacity]{}; ValueId id=VALUE_INVALID; DataLabel* next=nullptr; };
+    DataLabel* dataLabels=nullptr;
+    ~FlowIoDiscoveryHeap() { while(dataLabels) { auto* next=dataLabels->next; heap_caps_free(dataLabels);dataLabels=next; } }
     char analogValueTpl[32][128]{};
 } heap;
 auto* gDiscoveryHeap=&heap;

@@ -6,6 +6,8 @@
 #include <stdint.h>
 #include "PendingDataKeys.h"
 #include <string.h>
+#include <esp_heap_caps.h>
+#include <new>
 
 #include "Core/DataModel.h"
 #include "Core/EventBus/EventBus.h"
@@ -21,6 +23,9 @@ class DataStore {
 public:
     /** @brief Construct an empty data store. */
     DataStore() = default;
+    ~DataStore() { if (exposure_) { exposure_->~ExposureStorage(); heap_caps_free(exposure_); } }
+    DataStore(const DataStore&) = delete;
+    DataStore& operator=(const DataStore&) = delete;
 
     /** @brief Inject EventBus dependency for notifications. */
     void setEventBus(EventBus* bus) {
@@ -34,14 +39,20 @@ public:
 
     ValueRegistry values;
     // Exposure policy is loaded once per boot, independently of value production.
-    void setPublishHa(ValueId id, bool enabled) { if (id < ValueIds::Capacity) publishHa_[id] = enabled; }
-    bool publishHa(ValueId id) const { return id < ValueIds::Capacity && publishHa_[id]; }
-    void bindExposureConfig(ValueId id, const bool* ha, const bool* history, const bool* usable) {
-        if (id < ValueIds::Capacity) { configuredHa_[id] = ha; configuredHistory_[id] = history; configuredUsable_[id] = usable; }
+    using RegisterExposure = bool (*)(void*, ValueId);
+    void setExposureRegistrar(RegisterExposure callback, void* context) { exposureRegistrar_ = callback; exposureContext_ = context; }
+    bool defineDataValue(ValueId id, const ValueMetadata& metadata) {
+        return exposureRegistrar_ && exposureRegistrar_(exposureContext_, id) && values.define(id, metadata);
     }
-    bool configuredPublishHa(ValueId id) const { return id < ValueIds::Capacity && configuredHa_[id] ? *configuredHa_[id] : publishHa(id); }
-    bool configuredUsable(ValueId id) const { return id < ValueIds::Capacity && configuredUsable_[id] ? *configuredUsable_[id] : values.usable(id); }
-    bool configuredHistory(ValueId id) const { return id < ValueIds::Capacity && configuredHistory_[id] ? *configuredHistory_[id] : true; }
+    void setPublishHa(ValueId id, bool enabled) { if (ensureExposure_() && id < ValueIds::Capacity) exposure_->publishHa[id] = enabled; }
+    bool publishHa(ValueId id) const { return exposure_ && id < ValueIds::Capacity && exposure_->publishHa[id]; }
+    bool bindExposureConfig(ValueId id, const bool* ha, const bool* history, const bool* usable) {
+        if (ensureExposure_() && id < ValueIds::Capacity) { exposure_->ha[id] = ha; exposure_->history[id] = history; exposure_->usable[id] = usable; return true; }
+        return false;
+    }
+    bool configuredPublishHa(ValueId id) const { return exposure_ && id < ValueIds::Capacity && exposure_->ha[id] ? *exposure_->ha[id] : publishHa(id); }
+    bool configuredUsable(ValueId id) const { return exposure_ && id < ValueIds::Capacity && exposure_->usable[id] ? *exposure_->usable[id] : values.usable(id); }
+    bool configuredHistory(ValueId id) const { return exposure_ && id < ValueIds::Capacity && exposure_->history[id] ? *exposure_->history[id] : values.history(id); }
     static_assert(ValueIds::Capacity <= DataKeys::ValueReservedCount, "Value DataKey capacity");
 
     /** @brief Safe read access to the full runtime model. */
@@ -55,10 +66,21 @@ public:
     void flushPendingChanges(uint16_t budget);
 
 private:
-    bool publishHa_[ValueIds::Capacity]{};
-    const bool* configuredHa_[ValueIds::Capacity]{};
-    const bool* configuredHistory_[ValueIds::Capacity]{};
-    const bool* configuredUsable_[ValueIds::Capacity]{};
+    struct ExposureStorage {
+        bool publishHa[ValueIds::Capacity]{};
+        const bool* ha[ValueIds::Capacity]{};
+        const bool* history[ValueIds::Capacity]{};
+        const bool* usable[ValueIds::Capacity]{};
+    };
+    bool ensureExposure_() {
+        if (exposure_) return true;
+        void* memory = heap_caps_malloc(sizeof(ExposureStorage), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (memory) exposure_ = new (memory) ExposureStorage{};
+        return exposure_ != nullptr;
+    }
+    ExposureStorage* exposure_ = nullptr;
+    RegisterExposure exposureRegistrar_ = nullptr;
+    void* exposureContext_ = nullptr;
     PendingDataKeys pendingChanges_;
     RuntimeData _rt{};
     EventBus* _bus = nullptr;

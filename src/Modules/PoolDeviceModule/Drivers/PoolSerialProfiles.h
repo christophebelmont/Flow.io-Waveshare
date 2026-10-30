@@ -14,7 +14,7 @@ inline bool applyPoolSerialProfile(PoolSerialModel model, PoolDriverConfig& c)
     s.hasFeedback = true;
     if (model == PoolSerialModel::AquaGem) {
         c.capabilities.unit = PoolSetpointUnit::Rpm;
-        c.capabilities.minimum = 1200; c.capabilities.maximum = 2900; c.capabilities.startup = 2400;
+        c.capabilities.minimum = 1200; c.capabilities.maximum = 2900; c.capabilities.startup = 2900;
         s.protocol = RegisterWireProtocol::AquaGem;
         s.address = 0xAA; s.line.baud = 1200; s.line.quietMs = 50;
         s.control = PoolSerialControl::SetpointOrStop;

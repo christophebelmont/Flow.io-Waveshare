@@ -68,7 +68,7 @@ ont été remplacés par ces configurations compactes.
 
 **AquaGem**, d'après `RS485 Protocol.pdf`, tables 8–11 :
 
-- Adresse `0xAA`, 1200 bauds, 8N1 ; vitesse 1200–2900 RPM, démarrage 2400 RPM.
+- Adresse `0xAA`, 1200 bauds, 8N1 ; vitesse 1200–2900 RPM, consigne initiale 2900 RPM.
 - Lecture `C3`, adresse 2001 ; écriture `D0`, adresse 3001. Arrêt : valeur **1**.
 - Réponse lecture : adresse, fonction, défauts 16 bits, état 8 bits, RPM 16 bits, CRC.
   Le bit 0 de l'état confirme la marche, indépendamment de la vitesse. Le masque de défauts

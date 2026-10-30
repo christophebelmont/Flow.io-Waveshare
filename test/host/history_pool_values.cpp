@@ -25,12 +25,13 @@ struct Print {
 };
 // PRODUCTION_BUFFER
 struct TestRegistry {
+    size_t historizedCount() const { return kDataValueCount; }
     bool history(ValueId id) const { return id != 10U; }
     bool read(ValueId id, ValueSnapshot& value, ValueMetadata* meta) const {
         if (id == 5U) return false; // Configured but never produced.
         const auto* descriptor = dataValueDescriptor(id);
         memset(meta->name, '\x01', sizeof(meta->name) - 1); // Worst-case label escaping.
-        meta->type = (descriptor && descriptor->kind == DataValueKind::Digital) ? ValueType::Bool
+        meta->type = (descriptor && dataValueIsBinary(*descriptor)) ? ValueType::Bool
                      : (descriptor && descriptor->kind == DataValueKind::Counter &&
                         descriptor->id >= ValueIds::Digital && descriptor->id < ValueIds::PulseRate)
                          ? ValueType::UInt64 : ValueType::Float;
@@ -97,7 +98,7 @@ int main() {
         received.append(reinterpret_cast<char*>(chunk), n); index += n;
     }
     assert(body->fillAt(chunk, sizeof(chunk), body->length()) == 0);
-    DynamicJsonDocument json(384 * 1024);
+    DynamicJsonDocument json(2048 * 1024);
     assert(!deserializeJson(json, received));
     JsonArray values = json["values"].as<JsonArray>();
     // Only historized values with a currently valid sample; disabled (10), undefined (5) and invalid (6) are absent.

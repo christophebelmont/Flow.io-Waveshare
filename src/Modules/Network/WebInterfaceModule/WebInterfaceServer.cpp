@@ -6942,7 +6942,7 @@ void WebInterfaceModule::startServer_()
         // Bounded PSRAM transport: fixed day summaries plus one entry per catalog value,
         // each carrying its eight daily records.
         constexpr size_t kDayBytes = 24U * 1024U, kValueBytes = 1536U;
-        auto body = std::make_shared<WebJsonBuffer>(kDayBytes + kDataValueCount * kValueBytes);
+        auto body = std::make_shared<WebJsonBuffer>(kDayBytes + (store && store->store ? store->store->values.historizedCount() : 0) * kValueBytes);
         SpiRamJsonDocument doc(4096);
         if (!body->valid() || doc.capacity() < 4096) {
             snapshot->~PoolHistorySnapshot(); heap_caps_free(memory);
@@ -6996,13 +6996,19 @@ void WebInterfaceModule::startServer_()
     server_.on("/api/data/values", HTTP_GET, [this, sendBufferedJson](AsyncWebServerRequest* request) {
         // Reserve once: AsyncResponseStream grows and copies on individual JSON writes.
         // Budget includes JSON escaping of each descriptor and runtime label.
-        auto body = std::make_shared<WebJsonBuffer>(32U + kDataValueCount * 1568U);
+        size_t count = 0;
+        for (const auto& descriptor : kDataValues) {
+            ValueSnapshot sample{};
+            if (!dataValueIsEquipment(descriptor) || (dataStore_ && dataStore_->values.read(descriptor.id, sample))) ++count;
+        }
+        auto body = std::make_shared<WebJsonBuffer>(32U + count * 1568U);
         if (!body->valid()) { sendTinyBusyJson_(request, "data_values_memory"); return; }
         body->print("{\"ok\":true,\"values\":[");
         bool first = true;
         for (const auto& descriptor : kDataValues) {
             ValueSnapshot value{}; ValueMetadata meta{};
             const bool defined = dataStore_ && dataStore_->values.read(descriptor.id, value, &meta) && dataValueCompatible(descriptor, meta);
+            if (dataValueIsEquipment(descriptor) && !defined) continue;
             if (!first) body->print(',');
             first = false;
             StaticJsonDocument<896> item;
@@ -7015,6 +7021,8 @@ void WebInterfaceModule::startServer_()
             item["name"] = dataValueLabel(descriptor.id, meta);
             item["group"] = descriptor.group;
             item["kind"] = uint8_t(descriptor.kind);
+            if (dataValueIsEquipment(descriptor) || descriptor.kind == DataValueKind::Tank || descriptor.kind == DataValueKind::Uptime)
+                item["equipment_slot"] = descriptor.slot;
             item["unit"] = defined ? meta.displayUnit : descriptor.unit;
             item["defined"] = defined;
             item["available"] = defined && value.quality == ValueQuality::Valid;

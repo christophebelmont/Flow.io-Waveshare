@@ -39,8 +39,8 @@ static constexpr uint8_t kFlowIoAnalogHaSlots = Limits::Io::MaxAnalogEndpoints;
 
 struct FlowIoDiscoveryHeap {
     char analogValueTpl[kFlowIoAnalogHaSlots][128]{};
-    char dataNames[kDataValueCount][64]{};
-    char dataUnits[kDataValueCount][UnitTextCapacity]{};
+    struct DataLabel { char name[64]{}; char unit[UnitTextCapacity]{}; ValueId id = VALUE_INVALID; DataLabel* next = nullptr; };
+    DataLabel* dataLabels = nullptr;
     PoolRoleHaDiscovery::Storage poolRoles{};
 };
 
@@ -77,6 +77,11 @@ void releaseDiscoveryHeapIfReady(ModuleInstances& modules)
             gDiscoveryHeapReleaseWaitLogged = true;
         }
         return;
+    }
+    while (gDiscoveryHeap->dataLabels) {
+        auto* label = gDiscoveryHeap->dataLabels;
+        gDiscoveryHeap->dataLabels = label->next;
+        heap_caps_free(label);
     }
     heap_caps_free(gDiscoveryHeap);
     gDiscoveryHeap = nullptr;
@@ -269,19 +274,28 @@ void syncDataSensors(ModuleInstances& modules)
         const auto& d = kDataValues[index];
         ValueSnapshot value{}; ValueMetadata meta{};
         const bool defined = modules.ioDataStore->values.read(d.id, value, &meta) && dataValueCompatible(d, meta);
-        if (!modules.ioDataStore->publishHa(d.id)) {
+        if (!modules.ioDataStore->publishHa(d.id) || !defined) {
             if (modules.haService->addDiscoveryRemoval) {
-                const HADiscoveryRemovalEntry removal{d.kind == DataValueKind::Digital ? "binary_sensor" : "sensor", d.haSuffix};
+                const HADiscoveryRemovalEntry removal{dataValueIsBinary(d) ? "binary_sensor" : "sensor", d.haSuffix};
                 reportDiscoveryResult(modules.haService->addDiscoveryRemoval(modules.haService->ctx, &removal), d.haSuffix);
             }
             continue;
         }
         if (!defined) continue;
-        auto& name = gDiscoveryHeap->dataNames[index];
-        auto& unit = gDiscoveryHeap->dataUnits[index];
+        auto* label = gDiscoveryHeap->dataLabels;
+        while (label && label->id != d.id) label = label->next;
+        if (!label) {
+            label = static_cast<FlowIoDiscoveryHeap::DataLabel*>(heap_caps_calloc(1, sizeof(FlowIoDiscoveryHeap::DataLabel), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+            if (!reportDiscoveryResult(label != nullptr, "data label allocation")) return;
+            label->id = d.id;
+            label->next = gDiscoveryHeap->dataLabels;
+            gDiscoveryHeap->dataLabels = label;
+        }
+        auto& name = label->name;
+        auto& unit = label->unit;
         snprintf(name, sizeof(name), "%s", dataValueLabel(d.id, meta));
         snprintf(unit, sizeof(unit), "%s", meta.displayUnit);
-        if (d.kind == DataValueKind::Digital) {
+        if (dataValueIsBinary(d)) {
             if (!modules.haService->addBinarySensor) continue;
             const HABinarySensorEntry entry{"io", d.haSuffix, name, d.topic,
                 "{{ 'True' if value_json.value else 'False' }}", nullptr, nullptr,

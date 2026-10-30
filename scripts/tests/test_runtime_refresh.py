@@ -29,8 +29,8 @@ uint32_t millis() { return nowMs; }
 struct Provider {
     uint32_t sequence=1;
     const char* payload="{\"value\":700,\"available\":true}";
-    const char* runtimeSnapshotSuffix(uint8_t) const { return "state"; }
-    bool buildRuntimeSnapshot(uint8_t,char* out,size_t len,uint32_t& ts) const {
+    const char* runtimeSnapshotSuffix(uint16_t) const { return "state"; }
+    bool buildRuntimeSnapshot(uint16_t,char* out,size_t len,uint32_t& ts) const {
         snprintf(out,len,"%s",payload); ts=sequence; return true;
     }
 };
@@ -40,19 +40,20 @@ struct MqttService { void* ctx{};
     };
 };
 struct RuntimeProducer {
-    struct Route { Provider* provider{}; uint8_t snapshotIdx{};
+    struct Route { Provider* provider{}; uint16_t snapshotIdx{};
         RuntimeRouteClass routeClass=RuntimeRouteClass::NumericThrottled;
         bool pending=true,force=true,refreshQueued=false;
         uint32_t refreshIntervalMs=120000,lastPublishMs{},lastPublishedTs{},lastBuiltTs{};
         char suffix[32]="state";
-    } routes_[3];
-    uint8_t routeCount_=3;
+    } routes_[300];
+    uint16_t routeCount_=300;
     static constexpr uint32_t NumericThrottleMs=10000;
     const MqttService* mqttSvc_{};
-    unsigned attempts[3]{}; bool accept=true;
-    bool enqueueRoute_(uint8_t i) { ++attempts[i]; return accept; }
-    void completeInitialFullSnapshotRoute_(uint8_t) {}
-    void markRoutePending_(uint8_t,bool);
+    unsigned attempts[300]{}; bool accept=true;
+    bool enqueueRoute_(uint16_t i) { ++attempts[i]; return accept; }
+    uint16_t completed=0;
+    void completeInitialFullSnapshotRoute_(uint16_t id) { completed=id; }
+    void markRoutePending_(uint16_t,bool);
     void tick(uint32_t);
     void onMessagePublished(uint16_t);
     void onMessageDropped(uint16_t);
@@ -105,6 +106,16 @@ int main() {
     producer.tick(59998); assert(producer.attempts[0]==3);
     producer.tick(59999); assert(producer.attempts[0]==4);
     assert(producer.attempts[2]==0);
+    producer.routes_[299].provider=&providers[0];
+    producer.routes_[299].snapshotIdx=299;
+    producer.tick(120000);
+    assert(producer.attempts[299]==1 && producer.attempts[43]==0);
+    nowMs=120000;
+    assert(producer.buildMessage(299,ctx)==MqttBuildResult::Ready);
+    producer.onMessagePublished(299);
+    assert(producer.completed==299);
+    producer.onMessageDropped(299);
+    assert(producer.completed==299);
 }
 
 '''

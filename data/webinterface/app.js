@@ -7820,7 +7820,11 @@
             statusText = rejected ? submission.error : tr('dashboard.action.failed', 'Échec de la commande');
             visible = true;
           } else if (awaitingApplication) {
-            statusText = tr('dashboard.action.awaitingApplication', 'Commande acceptée · Application en attente');
+            const runningConfirmed = current.actualOn === true && current.desiredOn === true
+              && Number(current.quality) === 2;
+            statusText = runningConfirmed
+              ? tr('dashboard.action.runningAwaitingSetpoint', 'Marche confirmée · Consigne en attente')
+              : tr('dashboard.action.awaitingApplication', 'Commande acceptée · Application en attente');
             visible = true;
           } else if (waiting) {
             statusText = tr('dashboard.action.confirming', 'Confirmation en cours…');
@@ -11912,13 +11916,19 @@
         });
         const available = dataValueCatalog.filter((item) => item.available === true);
         const unavailable = dataValueCatalog.filter((item) => item.available !== true);
-        if (available.length) {
-          container.appendChild(buildDataValuesCard(available, entriesById, {
-            title: tr('data.sectionAvailable', 'Données disponibles'),
+        const groups = new Map();
+        available.forEach((item) => {
+          const key = Number.isInteger(item.equipment_slot) ? item.equipment_slot : null;
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key).push(item);
+        });
+        groups.forEach((items, slot) => {
+          container.appendChild(buildDataValuesCard(items, entriesById, {
+            title: slot === null ? tr('data.sectionAvailable', 'Données disponibles') : items[0].group,
             hint: tr('data.availableHint', 'Valeurs mesurées en direct'),
             unavailable: false
           }));
-        }
+        });
         if (unavailable.length) {
           container.appendChild(buildDataValuesCard(unavailable, entriesById, {
             title: tr('data.sectionUnavailable', 'Données indisponibles'),
@@ -12575,11 +12585,10 @@
       equipmentCol.className = 'derived-counter-col';
       const equipmentByRef = new Map();
       dataValueCatalog.forEach((value) => {
-        if ((value.kind !== 3 && value.kind !== 4) || !dataReferenceUsable(value.reference)) return;
-        const match = String(value.reference || '').match(/^(pd\d+)\./);
-        if (!match) return;
-        if (!equipmentByRef.has(match[1])) equipmentByRef.set(match[1], []);
-        equipmentByRef.get(match[1]).push(value.reference);
+        if (!Number.isInteger(value.equipment_slot) || !dataReferenceUsable(value.reference)) return;
+        const slot = value.equipment_slot;
+        if (!equipmentByRef.has(slot)) equipmentByRef.set(slot, []);
+        equipmentByRef.get(slot).push(value.reference);
       });
       if (equipmentByRef.size === 0) {
         const empty = document.createElement('div');
@@ -12589,8 +12598,8 @@
       } else {
         const equipmentGrid = document.createElement('div');
         equipmentGrid.className = 'derived-counter-grid';
-        equipmentByRef.forEach((members, ref) => {
-          const slot = Number.parseInt(ref.slice(2), 10);
+        equipmentByRef.forEach((members, slot) => {
+          const ref = 'pd' + slot;
           const token = document.createElement('button');
           token.type = 'button';
           token.className = 'derived-token';
@@ -12610,7 +12619,7 @@
         equipmentCol.appendChild(equipmentGrid);
         const equipmentHint = document.createElement('div');
         equipmentHint.className = 'derived-counter-hint';
-        equipmentHint.textContent = tr('derived.assist.equipmentHint', 'Cliquez un équipement pour choisir le volume restant (.remaining_l) ou le remplissage (.fill_percent).');
+        equipmentHint.textContent = tr('derived.assist.equipmentHint', 'Cliquez un équipement pour choisir une de ses mesures.');
         equipmentCol.appendChild(equipmentHint);
       }
       equipmentGroup.appendChild(equipmentLabel);

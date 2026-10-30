@@ -10,12 +10,12 @@ public:
     using InitialFullSnapshotCallback = void (*)(void* ctx);
 
     struct DataChangeStats {
-        uint8_t routeCount = 0;
-        uint8_t checked = 0;
-        uint8_t matched = 0;
-        uint8_t enqueueOk = 0;
-        uint8_t enqueueFail = 0;
-        uint8_t pendingAlready = 0;
+        uint16_t routeCount = 0;
+        uint16_t checked = 0;
+        uint16_t matched = 0;
+        uint16_t enqueueOk = 0;
+        uint16_t enqueueFail = 0;
+        uint16_t pendingAlready = 0;
         uint32_t enqueueUs = 0;
     };
 
@@ -24,7 +24,7 @@ public:
                    void* initialFullSnapshotCtx = nullptr);
     bool registerProvider(const IRuntimeSnapshotProvider* provider);
     void rebuildRoutes();
-    uint8_t routeCount() const { return routeCount_; }
+    uint16_t routeCount() const { return routeCount_; }
 
     void onConnected();
     /** Called by the MQTT task while connected. Deadlines use successful sends only. */
@@ -41,7 +41,7 @@ private:
 
     struct Route {
         const IRuntimeSnapshotProvider* provider = nullptr;
-        uint8_t snapshotIdx = 0;
+        uint16_t snapshotIdx = 0;
         RuntimeRouteClass routeClass = RuntimeRouteClass::NumericThrottled;
         char suffix[Limits::TopicBuf] = {0};
         uint32_t refreshIntervalMs = 0;
@@ -59,16 +59,17 @@ private:
     uint8_t providerCount_ = 0;
 
     Route* routes_ = nullptr;
-    uint8_t routeCount_ = 0;
+    uint16_t routeCount_ = 0;
     bool initialFullSnapshotActive_ = false;
     bool* initialFullSnapshotDone_ = nullptr;
-    uint8_t initialFullSnapshotRemaining_ = 0;
+    uint16_t initialFullSnapshotRemaining_ = 0;
     InitialFullSnapshotCallback initialFullSnapshotCb_ = nullptr;
     void* initialFullSnapshotCtx_ = nullptr;
 
-    bool ensureStorage_();
-    void markRoutePending_(uint8_t idx, bool force);
-    bool enqueueRoute_(uint8_t idx);
-    void completeInitialFullSnapshotRoute_(uint8_t idx);
+    bool ensureStorage_(uint16_t count);
+    uint16_t storageCapacity_ = 0;
+    void markRoutePending_(uint16_t idx, bool force);
+    bool enqueueRoute_(uint16_t idx);
+    void completeInitialFullSnapshotRoute_(uint16_t idx);
     void notifyInitialFullSnapshotComplete_();
 };
