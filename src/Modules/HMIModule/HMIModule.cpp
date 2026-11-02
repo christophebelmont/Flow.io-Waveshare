@@ -13,6 +13,7 @@
 #include "Core/AlarmIds.h"
 #include "Core/Generated/RuntimeUiAlarmText_Generated.h"
 #include "Core/SystemLimits.h"
+#include "Core/Values/DataValueView.h"
 #include "Domain/Pool/PoolIds.h"
 #include "Domain/Pool/PoolDefaults.h"
 #include "Modules/IOModule/IORuntime.h"
@@ -40,6 +41,20 @@ namespace {
 #define TFT_FIRMW "0.0.0"
 #endif
 static constexpr bool kConfigMenuEnabled = (FLOW_HMI_CONFIG_MENU_ENABLED != 0);
+
+static bool readSharedAnalogValue_(const DataStore* store, IoId ioId, float& out)
+{
+    if (!store || ioId < IO_ID_AI_BASE || ioId >= IO_ID_AO_BASE) return false;
+    const ValueId valueId = (ValueId)(ValueIds::Analog + (ioId - IO_ID_AI_BASE));
+    DataValuePresentation presentation{};
+    ValueMetadata metadata{};
+    if (!presentDataValueById(store->values, valueId, presentation, metadata, false) ||
+        !presentation.available || presentation.wireType != RuntimeUiWireType::Float64) {
+        return false;
+    }
+    out = (float)presentation.f64Value;
+    return true;
+}
 static constexpr const char* kHmiModulePrefix = "hmi/";
 static constexpr const char* kPoolLogicSensorsModule = "poollogic/sensors";
 static constexpr const char* kPoolLogicDeviceModule = "poollogic/devices";
@@ -1232,7 +1247,6 @@ bool HMIModule::publishHomeText_(HmiHomeTextField field)
     if (!driver_) return false;
 
     IoId ioId = IO_ID_INVALID;
-    uint8_t runtimeIndex = kInvalidRuntimeIndex;
     char value[32]{};
     if (field == HmiHomeTextField::ErrorMessage) {
         snprintf(value, sizeof(value), "%s", homeErrorMessage_);
@@ -1279,32 +1293,23 @@ bool HMIModule::publishHomeText_(HmiHomeTextField field)
     switch (field) {
         case HmiHomeTextField::WaterTemp:
             ioId = waterTempIoId_;
-            runtimeIndex = waterTempRuntimeIndex_;
             break;
         case HmiHomeTextField::AirTemp:
             ioId = airTempIoId_;
-            runtimeIndex = airTempRuntimeIndex_;
             break;
         case HmiHomeTextField::Ph:
             ioId = phIoId_;
-            runtimeIndex = phRuntimeIndex_;
             break;
         case HmiHomeTextField::Orp:
             ioId = orpIoId_;
-            runtimeIndex = orpRuntimeIndex_;
             break;
         default:
             return false;
     }
 
-    bool hasValue = false;
     float rawValue = 0.0f;
-    if (ioSvc_ && ioSvc_->readAnalog && ioId != IO_ID_INVALID) {
-        hasValue = (ioSvc_->readAnalog(ioSvc_->ctx, ioId, &rawValue, nullptr, nullptr) == IO_OK);
-    }
-    if (!hasValue && dsSvc_ && dsSvc_->store && runtimeIndex != kInvalidRuntimeIndex) {
-        hasValue = ioEndpointFloat(*dsSvc_->store, runtimeIndex, rawValue);
-    }
+    const bool hasValue = dsSvc_ && dsSvc_->store &&
+        readSharedAnalogValue_(dsSvc_->store, ioId, rawValue);
 
     switch (field) {
         case HmiHomeTextField::WaterTemp:
@@ -1335,7 +1340,6 @@ bool HMIModule::publishHomeGaugePercent_(HmiHomeGaugeField field)
     if (!driver_) return false;
 
     IoId ioId = IO_ID_INVALID;
-    uint8_t runtimeIndex = kInvalidRuntimeIndex;
     float setpoint = 0.0f;
     float phSetpoint = 0.0f;
     float orpSetpoint = 0.0f;
@@ -1344,26 +1348,19 @@ bool HMIModule::publishHomeGaugePercent_(HmiHomeGaugeField field)
     switch (field) {
         case HmiHomeGaugeField::PhPercent:
             ioId = phIoId_;
-            runtimeIndex = phRuntimeIndex_;
             setpoint = phSetpoint;
             break;
         case HmiHomeGaugeField::OrpPercent:
             ioId = orpIoId_;
-            runtimeIndex = orpRuntimeIndex_;
             setpoint = orpSetpoint;
             break;
         default:
             return false;
     }
 
-    bool hasValue = false;
     float rawValue = 0.0f;
-    if (ioSvc_ && ioSvc_->readAnalog && ioId != IO_ID_INVALID) {
-        hasValue = (ioSvc_->readAnalog(ioSvc_->ctx, ioId, &rawValue, nullptr, nullptr) == IO_OK);
-    }
-    if (!hasValue && dsSvc_ && dsSvc_->store && runtimeIndex != kInvalidRuntimeIndex) {
-        hasValue = ioEndpointFloat(*dsSvc_->store, runtimeIndex, rawValue);
-    }
+    const bool hasValue = dsSvc_ && dsSvc_->store &&
+        readSharedAnalogValue_(dsSvc_->store, ioId, rawValue);
 
     const uint16_t percent = hasValue ? gaugePercentFromSetpoint_(rawValue, setpoint) : 140U;
     return driver_->publishHomeGaugePercent(field, percent);

@@ -6,9 +6,12 @@
 #include "Core/LogModuleIds.h"
 #include <stdarg.h>
 #include <stdio.h>
+#include <time.h>
+#include <atomic>
 
 namespace {
     const LogHubService* g_hub = nullptr;
+    std::atomic<bool> g_wallClockValid{false};
 
     void logVaModule(LogLevel lvl, LogModuleId moduleId, const char* fmt, va_list ap) {
         if (!g_hub || !g_hub->enqueue || !fmt) return;
@@ -16,6 +19,13 @@ namespace {
 
         LogEntry e{};
         e.ts_ms = millis();
+        if (g_wallClockValid.load(std::memory_order_relaxed)) {
+            const time_t epoch = time(nullptr);
+            if (epoch > 1609459200 && (uint64_t)epoch <= UINT32_MAX) {
+                e.wallEpochSeconds = (uint32_t)epoch;
+                e.wallTimeValid = true;
+            }
+        }
         e.lvl = lvl;
         e.moduleId = moduleId;
 
@@ -29,6 +39,10 @@ namespace {
 
 void Log::setHub(const LogHubService* hub) {
     g_hub = hub;
+}
+
+void Log::setWallClockValid(bool valid) {
+    g_wallClockValid.store(valid, std::memory_order_relaxed);
 }
 
 const LogHubService* Log::hub() {

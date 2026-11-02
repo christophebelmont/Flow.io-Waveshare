@@ -259,6 +259,8 @@
     "terminal.inactive": "inactive",
     "terminal.source.aria": "Log source",
     "terminal.source.title": "Displayed log source",
+    "terminal.mode.aria": "Log display mode",
+    "terminal.runtime": "Runtime",
     "terminal.source.flowio": "flow.io (wserial)",
     "terminal.bootLogs": "Show boot logs",
     "terminal.boot": "Boot",

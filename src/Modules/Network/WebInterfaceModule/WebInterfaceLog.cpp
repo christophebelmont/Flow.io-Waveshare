@@ -64,10 +64,35 @@ void WebInterfaceModule::formatUptime_(char* out, size_t outSize, uint32_t ms)
              (unsigned long)mmm);
 }
 
-void WebInterfaceModule::formatTimestamp_(WebInterfaceModule* self, const LogEntry& e, char* out, size_t outSize)
+void WebInterfaceModule::formatTimestamp_(WebInterfaceModule* self,
+                                          const LogEntry& e,
+                                          char* out,
+                                          size_t outSize,
+                                          bool bootCaptureEntry)
 {
     if (!out || outSize == 0) return;
     out[0] = '\0';
+
+    if (bootCaptureEntry && e.wallTimeValid && e.wallEpochSeconds > 1609459200U) {
+        const time_t eventTime = (time_t)e.wallEpochSeconds;
+        struct tm eventTm{};
+        if (localtime_r(&eventTime, &eventTm)) {
+            snprintf(out, outSize,
+                     "%04d-%02d-%02d %02d:%02d:%02d.%03u",
+                     eventTm.tm_year + 1900,
+                     eventTm.tm_mon + 1,
+                     eventTm.tm_mday,
+                     eventTm.tm_hour,
+                     eventTm.tm_min,
+                     eventTm.tm_sec,
+                     (unsigned)(e.ts_ms % 1000U));
+            return;
+        }
+    }
+    if (bootCaptureEntry) {
+        formatUptime_(out, outSize, e.ts_ms);
+        return;
+    }
 
     bool timeFromService = false;
     if (self) {
@@ -113,7 +138,8 @@ void WebInterfaceModule::formatLogEntryLine_(WebInterfaceModule* self,
                                              const LogEntry& e,
                                              char* out,
                                              size_t outSize,
-                                             bool colorize)
+                                             bool colorize,
+                                             bool bootCaptureEntry)
 {
     if (!out || outSize == 0U) return;
     out[0] = '\0';
@@ -129,7 +155,7 @@ void WebInterfaceModule::formatLogEntryLine_(WebInterfaceModule* self,
     }
 
     char ts[48] = {0};
-    formatTimestamp_(self, e, ts, sizeof(ts));
+    formatTimestamp_(self, e, ts, sizeof(ts), bootCaptureEntry);
 
     const char* color = colorize ? levelColor_(e.lvl) : "";
     const char* reset = colorize ? colorReset_() : "";
@@ -156,7 +182,9 @@ void WebInterfaceModule::formatLogEntryLine_(WebInterfaceModule* self,
 void WebInterfaceModule::onLocalLogSinkWrite_(void* ctx, const LogEntry& e)
 {
     WebInterfaceModule* self = static_cast<WebInterfaceModule*>(ctx);
-    if (!self || !self->localLogQueue_) return;
+    if (!self) return;
+    self->appendRuntimeLogHistory_(e);
+    if (!self->localLogQueue_) return;
 
     char line[kLocalLogLineMax] = {0};
     formatLogEntryLine_(self, e, line, sizeof(line), true);
@@ -240,7 +268,7 @@ void WebInterfaceModule::flushLocalLogQueue_()
         }
         const AsyncWebSocket::SendStatus status = wsLog_.textAll(text);
         if (status == AsyncWebSocket::ENQUEUED) {
-            ++wsLogSentCount_;
+            ++wsLogEnqueuedCount_;
             noteWsActivity_();
             return true;
         }

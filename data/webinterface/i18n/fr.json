@@ -259,6 +259,8 @@
     "terminal.inactive": "inactif",
     "terminal.source.aria": "Source des journaux",
     "terminal.source.title": "Source des journaux affichés",
+    "terminal.mode.aria": "Mode d’affichage des journaux",
+    "terminal.runtime": "Runtime",
     "terminal.source.flowio": "flow.io (wserial)",
     "terminal.bootLogs": "Afficher les logs de boot",
     "terminal.boot": "Boot",

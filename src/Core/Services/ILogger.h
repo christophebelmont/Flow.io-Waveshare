@@ -20,8 +20,10 @@ constexpr int LOG_MODULE_NAME_MAX = 24;
 /** @brief Fixed-size log entry. */
 struct LogEntry {
     uint32_t ts_ms;
+    uint32_t wallEpochSeconds;
     LogLevel lvl;
     LogModuleId moduleId;
+    bool wallTimeValid;
     char msg[LOG_MSG_MAX];
 };
 

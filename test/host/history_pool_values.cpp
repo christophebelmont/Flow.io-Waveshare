@@ -8,9 +8,14 @@
 #include <memory>
 #include <string>
 constexpr unsigned MALLOC_CAP_SPIRAM = 1, MALLOC_CAP_8BIT = 2;
+using portMUX_TYPE = int;
+#define portMUX_INITIALIZER_UNLOCKED 0
+#define portENTER_CRITICAL(mux) ((void)(mux))
+#define portEXIT_CRITICAL(mux) ((void)(mux))
 static bool failAllocation = false;
 static size_t allocations = 0;
 bool psramFound() { return true; }
+size_t heap_caps_get_free_size(unsigned) { return 8U * 1024U * 1024U; }
 void* heap_caps_malloc(size_t size, unsigned caps) {
     assert(caps == (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     ++allocations; return failAllocation ? nullptr : malloc(size);

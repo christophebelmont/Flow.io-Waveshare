@@ -116,7 +116,8 @@ static void printJsonEscaped_(Print& out, const char* s)
             case '\t': out.print("\\t"); break;
             default:
                 if ((uint8_t)*p < 0x20U) {
-                    out.print('?');
+                    if ((uint8_t)*p == 0x1BU) out.print("\\u001b");
+                    else out.print('?');
                 } else {
                     out.print(*p);
                 }
@@ -463,19 +464,60 @@ static int32_t requestIntParam_(AsyncWebServerRequest* request,
     return (int32_t)parsed;
 }
 
+static constexpr size_t kWebResponseBudgetBytes = 1024U * 1024U;
+static portMUX_TYPE gWebResponseBudgetMux = portMUX_INITIALIZER_UNLOCKED;
+static size_t gWebResponseBytesReserved = 0U;
+[[maybe_unused]] static uint32_t gWebResponseRejectCount = 0U;
+[[maybe_unused]] static uint32_t gWebResponseRejectLastLogMs = 0U;
+
+static bool reserveWebResponseBytes_(size_t bytes)
+{
+    bool reserved = false;
+    portENTER_CRITICAL(&gWebResponseBudgetMux);
+    if (gWebResponseBytesReserved <= kWebResponseBudgetBytes &&
+        bytes <= kWebResponseBudgetBytes - gWebResponseBytesReserved) {
+        gWebResponseBytesReserved += bytes;
+        reserved = true;
+    }
+    portEXIT_CRITICAL(&gWebResponseBudgetMux);
+    return reserved;
+}
+
+static void releaseWebResponseBytes_(size_t bytes)
+{
+    portENTER_CRITICAL(&gWebResponseBudgetMux);
+    gWebResponseBytesReserved = bytes <= gWebResponseBytesReserved
+        ? gWebResponseBytesReserved - bytes
+        : 0U;
+    portEXIT_CRITICAL(&gWebResponseBudgetMux);
+}
+
 struct WebJsonBuffer final : public Print {
     explicit WebJsonBuffer(size_t requestedCapacity)
         : capacity_(requestedCapacity)
     {
-        if (capacity_ == 0U || !psramFound()) return;
+        if (capacity_ == 0U || !psramFound() || !reserveWebResponseBytes_(capacity_)) return;
+        reserved_ = true;
+        constexpr uint32_t kWebPsramReserveBytes = 512U * 1024U;
+        const uint32_t freePsram = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (freePsram < capacity_ || freePsram - (uint32_t)capacity_ < kWebPsramReserveBytes) {
+            releaseWebResponseBytes_(capacity_);
+            reserved_ = false;
+            return;
+        }
         data_ = static_cast<char*>(
             heap_caps_malloc(capacity_, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
         );
+        if (!data_) {
+            releaseWebResponseBytes_(capacity_);
+            reserved_ = false;
+        }
     }
 
     ~WebJsonBuffer() override
     {
         if (data_) heap_caps_free(data_);
+        if (reserved_) releaseWebResponseBytes_(capacity_);
     }
 
     WebJsonBuffer(const WebJsonBuffer&) = delete;
@@ -531,6 +573,7 @@ private:
     size_t capacity_ = 0U;
     size_t length_ = 0U;
     bool overflow_ = false;
+    bool reserved_ = false;
 };
 
 template <size_t N>
@@ -596,6 +639,14 @@ struct BootLogJsonPageCtx {
     Print* response = nullptr;
     bool first = true;
     uint16_t count = 0;
+};
+
+struct RuntimeLogJsonPageCtx {
+    WebInterfaceModule* self = nullptr;
+    Print* response = nullptr;
+    bool first = true;
+    uint16_t count = 0U;
+    uint64_t lastSequence = 0U;
 };
 
 static const char* activityDomainName_(uint8_t domain)
@@ -760,6 +811,7 @@ struct ActivityLogChunkState {
     ~ActivityLogChunkState()
     {
         if (events) heap_caps_free(events);
+        if (reservedBytes) releaseWebResponseBytes_(reservedBytes);
     }
 
     bool begin(const ActivityLogService* activityLog,
@@ -781,6 +833,11 @@ struct ActivityLogChunkState {
         const uint16_t remaining = (uint16_t)(stats.count - offset);
         capacity = (limit < remaining) ? limit : remaining;
         const size_t bytes = (size_t)capacity * sizeof(ActivityEvent);
+        if (!reserveWebResponseBytes_(bytes)) return false;
+        reservedBytes = bytes;
+        constexpr size_t kActivitySnapshotPsramReserve = 512U * 1024U;
+        const size_t freePsram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (freePsram < bytes || freePsram - bytes < kActivitySnapshotPsramReserve) return false;
 
         events = static_cast<ActivityEvent*>(
             heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
@@ -953,6 +1010,7 @@ private:
     ActivityEvent* events = nullptr;
     uint16_t capacity = 0U;
     uint16_t count = 0U;
+    size_t reservedBytes = 0U;
     uint16_t offset = 0U;
     uint16_t limit = 0U;
     uint16_t eventIndex = 0U;
@@ -1263,6 +1321,25 @@ void releaseAssetBuildSlot_()
 void sendTinyBusyJson_(AsyncWebServerRequest* request, const char* reason)
 {
     if (!request) return;
+    uint32_t rejected = 0U;
+    size_t reservedBytes = 0U;
+    const uint32_t nowMs = millis();
+    bool logRejection = false;
+    portENTER_CRITICAL(&gWebResponseBudgetMux);
+    rejected = ++gWebResponseRejectCount;
+    reservedBytes = gWebResponseBytesReserved;
+    if ((uint32_t)(nowMs - gWebResponseRejectLastLogMs) >= 2000U) {
+        gWebResponseRejectLastLogMs = nowMs;
+        logRejection = true;
+    }
+    portEXIT_CRITICAL(&gWebResponseBudgetMux);
+    if (logRejection) {
+        LOGW("web request refused count=%lu reason=%s psram=%lu web_reserved=%u",
+             (unsigned long)rejected,
+             reason ? reason : "busy",
+             (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+             (unsigned)reservedBytes);
+    }
     AsyncWebServerResponse* response =
         request->beginResponse(503, "application/json", "{\"ok\":false,\"err\":{\"code\":\"Busy\"}}");
     if (!response) {
@@ -4300,6 +4377,7 @@ static const char kWebSerialLogPage[] PROGMEM = R"HTML(
     <div class="status" id="status">Connexion...</div>
     <div class="actions">
       <button id="bootlog" type="button">Boot</button>
+      <button id="runtimelog" type="button">Runtime</button>
       <button id="pause" type="button">Pause</button>
       <button id="clear" type="button">Clear</button>
       <a href="/webinterface">Retour UI</a>
@@ -4311,6 +4389,7 @@ static const char kWebSerialLogPage[] PROGMEM = R"HTML(
   const out = document.getElementById('out');
   const status = document.getElementById('status');
   const bootlogBtn = document.getElementById('bootlog');
+  const runtimeLogBtn = document.getElementById('runtimelog');
   const pauseBtn = document.getElementById('pause');
   const clearBtn = document.getElementById('clear');
   let paused = false;
@@ -4413,6 +4492,9 @@ static const char kWebSerialLogPage[] PROGMEM = R"HTML(
     let entries = 0;
     let dropped = 0;
     let state = "unknown";
+    out.textContent = "";
+    paused = true;
+    pauseBtn.textContent = "Reprendre";
     bootlogBtn.disabled = true;
     status.textContent = "Boot logs : chargement...";
     try {
@@ -4454,6 +4536,41 @@ static const char kWebSerialLogPage[] PROGMEM = R"HTML(
   bootlogBtn.addEventListener('click', () => {
     loadBootLogs();
   });
+  runtimeLogBtn.addEventListener('click', async () => {
+    let after = 0;
+    let loaded = 0;
+    let newest = 0;
+    out.textContent = "";
+    paused = true;
+    pauseBtn.textContent = "Reprendre";
+    runtimeLogBtn.disabled = true;
+    status.textContent = 'Runtime : chargement de l’historique...';
+    try {
+      while (true) {
+        const throughParam = newest ? `&through=${encodeURIComponent(newest)}` : '';
+        const response = await fetch(`/api/logs/runtime?after=${encodeURIComponent(after)}&limit=64${throughParam}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const page = await response.json();
+        if (!newest) newest = Number(page.newest) || 0;
+        const lost = Number(page.lost) || 0;
+        if (lost > 0) append(`===== ${lost} logs écrasés avant lecture; historique borné à ${page.capacity} entrées =====`, true);
+        const lines = Array.isArray(page.lines) ? page.lines : [];
+        for (const entry of lines) append(String(entry && entry.line ? entry.line : ''), true);
+        loaded += Number(page.count) || lines.length;
+        const next = Number(page.next);
+        status.textContent = `Runtime : ${loaded} lignes lues, curseur ${after}/${newest}, pertes=${page.dropped || 0}`;
+        if (page.complete || !Number.isFinite(next) || next <= after) break;
+        after = next;
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+    } catch (err) {
+      const msg = `Impossible de charger les logs runtime : ${err && err.message ? err.message : String(err)}`;
+      append(msg, true);
+      status.textContent = msg;
+    } finally {
+      runtimeLogBtn.disabled = false;
+    }
+  });
   clearBtn.addEventListener('click', () => { out.textContent = ""; });
 
   open();
@@ -4481,6 +4598,7 @@ WebInterfaceModule::WebInterfaceModule(const BoardSpec& board)
 WebInterfaceModule::~WebInterfaceModule()
 {
     freeLocalLogQueue_();
+    freeRuntimeLogHistory_();
     if (ioResponseSnapshot_) heap_caps_free(ioResponseSnapshot_);
 }
 
@@ -4658,6 +4776,7 @@ bool WebInterfaceModule::initLocalLogQueue_()
         localLogQueueStatic_ = (localLogQueue_ != nullptr);
     }
 
+    (void)initRuntimeLogHistory_();
     if (localLogQueue_) {
         LOGI(localLogQueueStorageInPsram_
                  ? "wslog queue allocated in PSRAM lines=%u bytes=%u"
@@ -4692,6 +4811,59 @@ bool WebInterfaceModule::initLocalLogQueue_()
     return false;
 }
 
+bool WebInterfaceModule::initRuntimeLogHistory_()
+{
+    if (runtimeLogHistory_) return true;
+    if (!psramFound()) return false;
+    const size_t bytes = (size_t)kRuntimeLogHistoryCapacity * sizeof(RuntimeLogRecord);
+    constexpr size_t kRuntimeLogPsramReserve = 1024U * 1024U;
+    const size_t freePsram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (freePsram < bytes || freePsram - bytes < kRuntimeLogPsramReserve) {
+        LOGW("runtime log history skipped to preserve PSRAM reserve bytes=%u free=%u reserve=%u",
+             (unsigned)bytes, (unsigned)freePsram, (unsigned)kRuntimeLogPsramReserve);
+        return false;
+    }
+    runtimeLogHistory_ = static_cast<RuntimeLogRecord*>(
+        heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!runtimeLogHistory_) {
+        LOGW("runtime log history PSRAM allocation failed entries=%u bytes=%u",
+             (unsigned)kRuntimeLogHistoryCapacity, (unsigned)bytes);
+        return false;
+    }
+    memset(runtimeLogHistory_, 0, bytes);
+    LOGI("runtime log history ready entries=%u bytes=%u memory=psram",
+         (unsigned)kRuntimeLogHistoryCapacity, (unsigned)bytes);
+    return true;
+}
+
+void WebInterfaceModule::freeRuntimeLogHistory_()
+{
+    if (runtimeLogHistory_) heap_caps_free(runtimeLogHistory_);
+    runtimeLogHistory_ = nullptr;
+    runtimeLogHistoryHead_ = 0U;
+    runtimeLogHistoryCount_ = 0U;
+    runtimeLogHistoryNextSequence_ = 1U;
+    runtimeLogHistoryDropped_ = 0U;
+}
+
+void WebInterfaceModule::appendRuntimeLogHistory_(const LogEntry& entry)
+{
+    if (!runtimeLogHistory_) return;
+    portENTER_CRITICAL(&runtimeLogHistoryMux_);
+    uint16_t index = 0U;
+    if (runtimeLogHistoryCount_ < kRuntimeLogHistoryCapacity) {
+        index = (uint16_t)((runtimeLogHistoryHead_ + runtimeLogHistoryCount_) % kRuntimeLogHistoryCapacity);
+        ++runtimeLogHistoryCount_;
+    } else {
+        index = runtimeLogHistoryHead_;
+        runtimeLogHistoryHead_ = (uint16_t)((runtimeLogHistoryHead_ + 1U) % kRuntimeLogHistoryCapacity);
+        ++runtimeLogHistoryDropped_;
+    }
+    runtimeLogHistory_[index].sequence = runtimeLogHistoryNextSequence_++;
+    runtimeLogHistory_[index].entry = entry;
+    portEXIT_CRITICAL(&runtimeLogHistoryMux_);
+}
+
 void WebInterfaceModule::freeLocalLogQueue_()
 {
     if (localLogQueue_) {
@@ -4719,7 +4891,7 @@ bool WebInterfaceModule::writeBootLogJsonLine_(void* writerCtx,
     if (!ctx || !ctx->self || !ctx->response) return false;
 
     char line[kLocalLogLineMax] = {0};
-    formatLogEntryLine_(ctx->self, e, line, sizeof(line), false);
+    formatLogEntryLine_(ctx->self, e, line, sizeof(line), true, true);
     if (line[0] == '\0') return true;
 
     if (!ctx->first) {
@@ -4729,6 +4901,139 @@ bool WebInterfaceModule::writeBootLogJsonLine_(void* writerCtx,
     printJsonEscaped_(*ctx->response, line);
     ++ctx->count;
     return true;
+}
+
+bool WebInterfaceModule::writeRuntimeLogJsonLine_(void* writerCtx,
+                                                  const LogEntry& e,
+                                                  uint64_t sequence)
+{
+    RuntimeLogJsonPageCtx* ctx = static_cast<RuntimeLogJsonPageCtx*>(writerCtx);
+    if (!ctx || !ctx->self || !ctx->response) return false;
+    char line[kLocalLogLineMax] = {0};
+    formatLogEntryLine_(ctx->self, e, line, sizeof(line), true);
+    if (line[0] == '\0') return true;
+    if (!ctx->first) ctx->response->print(',');
+    ctx->first = false;
+    ctx->response->printf("{\"seq\":%llu,\"line\":", (unsigned long long)sequence);
+    printJsonEscaped_(*ctx->response, line);
+    ctx->response->print('}');
+    ++ctx->count;
+    ctx->lastSequence = sequence;
+    return true;
+}
+
+void WebInterfaceModule::sendRuntimeLogHttpResponse_(AsyncWebServerRequest* request)
+{
+    if (!request) return;
+    noteHttpActivity_();
+    if (!runtimeLogHistory_) {
+        request->send(503, "application/json",
+                      "{\"ok\":false,\"err\":{\"code\":\"Unavailable\",\"where\":\"runtime.logs\"}}");
+        return;
+    }
+
+    char cursorText[24] = {0};
+    copyRequestParamValue_(request, "after", false, cursorText, sizeof(cursorText), "0");
+    char* cursorEnd = nullptr;
+    const unsigned long long parsedCursor = strtoull(cursorText, &cursorEnd, 10);
+    const uint64_t after = (cursorEnd && cursorEnd != cursorText)
+        ? (uint64_t)parsedCursor
+        : 0U;
+    char throughText[24] = {0};
+    const bool hasThrough = copyRequestParamValue_(request, "through", false,
+                                                    throughText, sizeof(throughText), nullptr);
+    char* throughEnd = nullptr;
+    const uint64_t through = hasThrough
+        ? (uint64_t)strtoull(throughText, &throughEnd, 10)
+        : 0U;
+    int32_t requestedLimit = requestIntParam_(request, "limit", 64);
+    if (requestedLimit <= 0) requestedLimit = 64;
+    if (requestedLimit > 64) requestedLimit = 64;
+    const uint16_t limit = (uint16_t)requestedLimit;
+
+    uint16_t count = 0U;
+    uint16_t head = 0U;
+    uint64_t oldest = 1U;
+    uint64_t newest = 0U;
+    uint32_t dropped = 0U;
+    portENTER_CRITICAL(&runtimeLogHistoryMux_);
+    count = runtimeLogHistoryCount_;
+    head = runtimeLogHistoryHead_;
+    dropped = runtimeLogHistoryDropped_;
+    newest = runtimeLogHistoryNextSequence_ - 1U;
+    oldest = count ? (uint64_t)(runtimeLogHistoryNextSequence_ - count) : runtimeLogHistoryNextSequence_;
+    portEXIT_CRITICAL(&runtimeLogHistoryMux_);
+    if (hasThrough && throughEnd && throughEnd != throughText && through < newest) {
+        newest = through;
+    }
+
+    uint64_t lost = 0U;
+    uint64_t firstSequence = after + 1U;
+    if (count && firstSequence < oldest) {
+        lost = oldest - firstSequence;
+        firstSequence = oldest;
+    }
+    if (firstSequence == 0U && count) {
+        lost = 1U;
+        firstSequence = oldest;
+    }
+    uint64_t available = 0U;
+    if (count && firstSequence <= newest) available = newest - firstSequence + 1U;
+    const uint16_t pageCount = (available < limit) ? (uint16_t)available : limit;
+    const size_t responseCapacity = 512U + (size_t)pageCount * (6U * (kLocalLogLineMax - 1U) + 48U);
+    auto response = std::make_shared<WebJsonBuffer>(responseCapacity);
+    if (!response || !response->valid()) {
+        sendTinyBusyJson_(request, "runtime_log_memory");
+        return;
+    }
+    response->printf("{\"capacity\":%u,\"entries\":%u,\"dropped\":%lu,\"oldest\":%llu,\"newest\":%llu,"
+                     "\"after\":%llu,\"lines\":[",
+                     (unsigned)kRuntimeLogHistoryCapacity, (unsigned)count,
+                     (unsigned long)dropped, (unsigned long long)oldest, (unsigned long long)newest,
+                     (unsigned long long)after);
+
+    RuntimeLogJsonPageCtx ctx{this, response.get(), true, 0U, after};
+    for (uint16_t i = 0U; i < pageCount; ++i) {
+        const uint64_t sequence = firstSequence + i;
+        ctx.lastSequence = sequence;
+        const uint64_t oldestAtRead = oldest;
+        if (sequence < oldestAtRead || sequence > newest) break;
+        const uint16_t index = (uint16_t)((head + (sequence - oldestAtRead)) % kRuntimeLogHistoryCapacity);
+        RuntimeLogRecord record{};
+        bool copied = false;
+        portENTER_CRITICAL(&runtimeLogHistoryMux_);
+        if (runtimeLogHistory_[index].sequence == sequence) {
+            record = runtimeLogHistory_[index];
+            copied = true;
+        }
+        portEXIT_CRITICAL(&runtimeLogHistoryMux_);
+        if (!copied) {
+            ++lost;
+            continue;
+        }
+        if (!writeRuntimeLogJsonLine_(&ctx, record.entry, record.sequence)) break;
+    }
+    const uint64_t next = ctx.lastSequence;
+    const bool complete = next >= newest;
+    response->printf("],\"count\":%u,\"next\":%llu,\"lost\":%llu,\"complete\":%s}",
+                     (unsigned)ctx.count, (unsigned long long)next,
+                     (unsigned long long)lost,
+                     complete ? "true" : "false");
+    if (!response->finish()) {
+        sendTinyBusyJson_(request, "runtime_log_capacity");
+        return;
+    }
+    AsyncWebServerResponse* httpResponse = request->beginResponse(
+        "application/json", response->length(),
+        [response](uint8_t* buffer, size_t maxLen, size_t index) {
+            return response->fillAt(buffer, maxLen, index);
+        });
+    if (!httpResponse) {
+        sendTinyBusyJson_(request, "runtime_log_response");
+        return;
+    }
+    addNoCacheHeaders_(httpResponse);
+    request->send(httpResponse);
 }
 
 void WebInterfaceModule::sendBootLogHttpResponse_(AsyncWebServerRequest* request, bool statusOnly)
@@ -5065,8 +5370,9 @@ void WebInterfaceModule::startLocalRuntime_()
     // bridge to read, especially now that USB CDC on boot is disabled.
     bridgeUartEnabled_ = false;
 
-    if (!initLocalLogQueue_()) return;
-    if (!localLogSinkRegistered_ && localLogQueue_ && logSinkReg_ && logSinkReg_->add) {
+    (void)initLocalLogQueue_();
+    if (!localLogQueue_ && !runtimeLogHistory_) return;
+    if (!localLogSinkRegistered_ && logSinkReg_ && logSinkReg_->add) {
         const LogSinkService sink{&WebInterfaceModule::onLocalLogSinkWrite_, this};
         if (logSinkReg_->add(logSinkReg_->ctx, sink)) {
             localLogSinkRegistered_ = true;
@@ -5567,6 +5873,10 @@ void WebInterfaceModule::startServer_()
     server_.on("/api/logs/boot", HTTP_GET, [this](AsyncWebServerRequest* request) {
         HttpLatencyScope latency(request, "/api/logs/boot");
         sendBootLogHttpResponse_(request, false);
+    });
+    server_.on("/api/logs/runtime", HTTP_GET, [this](AsyncWebServerRequest* request) {
+        HttpLatencyScope latency(request, "/api/logs/runtime");
+        sendRuntimeLogHttpResponse_(request);
     });
     server_.on("/api/activity/status", HTTP_GET, [this](AsyncWebServerRequest* request) {
         HttpLatencyScope latency(request, "/api/activity/status");

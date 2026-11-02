@@ -9,6 +9,8 @@ ROOT = Path(__file__).resolve().parents[2]
 class DataCatalogResponseTests(unittest.TestCase):
     def test_catalog_serialization_and_transport(self):
         source = (ROOT / 'src/Modules/Network/WebInterfaceModule/WebInterfaceServer.cpp').read_text()
+        budget_start = source.index('static constexpr size_t kWebResponseBudgetBytes')
+        budget = source[budget_start:source.index('\nstruct WebJsonBuffer final', budget_start)]
         start = source.index('struct WebJsonBuffer final')
         buffer = source[start:source.index('\n};', start) + 3]
         start = source.index('    server_.on("/api/data/values"')
@@ -19,7 +21,7 @@ class DataCatalogResponseTests(unittest.TestCase):
         start = route.index('        size_t count =')
         build = route[start:route.index('        sendBufferedJson(request, body);')]
         harness = (ROOT / 'test/host/data_catalog_response.cpp').read_text()
-        harness = harness.replace('// PRODUCTION_BUFFER', buffer).replace('// PRODUCTION_BUILD', build)
+        harness = harness.replace('// PRODUCTION_BUFFER', budget + '\n' + buffer).replace('// PRODUCTION_BUILD', build)
         with tempfile.TemporaryDirectory() as tmp:
             cpp = Path(tmp) / 'response.cpp'
             exe = Path(tmp) / 'response'

@@ -15,6 +15,8 @@ def function(source, signature):
 class MemoryBufferTests(unittest.TestCase):
     def test_allocation_and_async_lifetime(self):
         web = (ROOT / 'src/Modules/Network/WebInterfaceModule/WebInterfaceServer.cpp').read_text()
+        budget_start = web.index('static constexpr size_t kWebResponseBudgetBytes')
+        budget = web[budget_start:web.index('\nstruct WebJsonBuffer final', budget_start)]
         mqtt = ROOT / 'src/Modules/Network/MQTTModule'
         header = (mqtt / 'MqttConfigRouteProducer.h').read_text()
         source = (mqtt / 'MqttConfigRouteProducer.cpp').read_text()
@@ -32,9 +34,14 @@ class MemoryBufferTests(unittest.TestCase):
 #include <new>
 #include <vector>
 constexpr unsigned MALLOC_CAP_SPIRAM=1, MALLOC_CAP_INTERNAL=2, MALLOC_CAP_8BIT=4;
+using portMUX_TYPE=int;
+#define portMUX_INITIALIZER_UNLOCKED 0
+#define portENTER_CRITICAL(mux) ((void)(mux))
+#define portEXIT_CRITICAL(mux) ((void)(mux))
 bool psram=true, fail=false;
 unsigned allocations=0, frees=0, lastCaps=0;
 size_t heap_caps_get_total_size(unsigned) { return psram ? 1024 : 0; }
+size_t heap_caps_get_free_size(unsigned) { return 2U * 1024U * 1024U; }
 bool psramFound() { return psram; }
 void* heap_caps_malloc(size_t size, unsigned caps) {
     ++allocations; lastCaps=caps; return fail ? nullptr : malloc(size);
@@ -100,12 +107,23 @@ int main() {
         small.reset();
         assert(small.write(uint8_t('x'))==1 && small.finish());
     }
+    {
+        WebJsonBuffer oversized(1024U * 1024U + 1U);
+        assert(!oversized.valid());
+        auto first = std::make_shared<WebJsonBuffer>(800U * 1024U);
+        assert(first->valid());
+        auto rejected = std::make_shared<WebJsonBuffer>(256U * 1024U);
+        assert(!rejected->valid()); // In-flight response buffers share a hard global budget.
+        first.reset();
+        auto admitted = std::make_shared<WebJsonBuffer>(256U * 1024U);
+        assert(admitted->valid()); // Reservation is released with the async owner's last reference.
+    }
     fail=true;
     WebJsonBuffer absent(100);
     assert(!absent.valid() && !absent.finish());
 }
 '''
-        code = harness.replace('// STATE', state) + buffer + production + scenarios
+        code = harness.replace('// STATE', state) + budget + buffer + production + scenarios
         with tempfile.TemporaryDirectory() as tmp:
             cpp = Path(tmp) / 'memory.cpp'
             cpp.write_text(code)

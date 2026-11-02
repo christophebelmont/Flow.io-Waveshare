@@ -142,7 +142,10 @@ void WebInterfaceModule::onWsLogEvent_(AsyncWebSocket*,
                      (unsigned)wsLog_.count());
                 return;
             }
-            client->setCloseClientOnQueueFull(true);
+            // Keep the socket open and drop only the nonessential live log event;
+            // closing here can trigger a browser reconnect loop while the client
+            // remains slow. The paged runtime history is the recovery path.
+            client->setCloseClientOnQueueFull(false);
             client->keepAlivePeriod(15);
             const bool flowSource = (wsActiveSource_() == 1U);
             client->text(flowSource
@@ -175,11 +178,11 @@ void WebInterfaceModule::onWsLogEvent_(AsyncWebSocket*,
         if (wsLog_.count() == 0U) {
             setWsActiveSource_(0U);
         }
-        LOGW("wslog disconnect id=%lu clients=%u disconnects=%lu sent=%lu dropped=%lu partial=%lu discarded=%lu coalesced=%lu heap=%lu",
+        LOGW("wslog disconnect id=%lu clients=%u disconnects=%lu enqueued=%lu dropped=%lu partial=%lu discarded=%lu coalesced=%lu heap=%lu",
              (unsigned long)(client ? client->id() : 0U),
              (unsigned)wsLog_.count(),
              (unsigned long)wsLogDisconnectCount_,
-             (unsigned long)wsLogSentCount_,
+             (unsigned long)wsLogEnqueuedCount_,
              (unsigned long)wsLogDropCount_,
              (unsigned long)wsLogPartialCount_,
              (unsigned long)wsLogDiscardCount_,
@@ -266,7 +269,7 @@ void WebInterfaceModule::flushLine_(bool force)
 
     const AsyncWebSocket::SendStatus status = wsLog_.textAll(lineBuf_);
     if (status == AsyncWebSocket::ENQUEUED) {
-        ++wsFlowSentCount_;
+        ++wsFlowEnqueuedCount_;
         noteWsActivity_();
     } else {
         ++wsFlowDropCount_;
@@ -294,10 +297,10 @@ void WebInterfaceModule::logWsFlowPressure_(const char* reason)
     const uint32_t nowMs = millis();
     if ((nowMs - wsFlowLastPressureLogMs_) < 2000U) return;
     wsFlowLastPressureLogMs_ = nowMs;
-    LOGW("wsflow pressure reason=%s clients=%u sent=%lu dropped=%lu partial=%lu discarded=%lu heap=%lu",
+    LOGW("wsflow pressure reason=%s clients=%u enqueued=%lu dropped=%lu partial=%lu discarded=%lu heap=%lu",
          reason ? reason : "unknown",
          (unsigned)wsLog_.count(),
-         (unsigned long)wsFlowSentCount_,
+         (unsigned long)wsFlowEnqueuedCount_,
          (unsigned long)wsFlowDropCount_,
          (unsigned long)wsFlowPartialCount_,
          (unsigned long)wsFlowDiscardCount_,
@@ -309,10 +312,10 @@ void WebInterfaceModule::logWsLogPressure_(const char* reason)
     const uint32_t nowMs = millis();
     if ((nowMs - wsLogLastPressureLogMs_) < 2000U) return;
     wsLogLastPressureLogMs_ = nowMs;
-    LOGW("wslog pressure reason=%s clients=%u sent=%lu dropped=%lu partial=%lu discarded=%lu coalesced=%lu heap=%lu",
+    LOGW("wslog pressure reason=%s clients=%u enqueued=%lu dropped=%lu partial=%lu discarded=%lu coalesced=%lu heap=%lu",
          reason ? reason : "unknown",
          (unsigned)wsLog_.count(),
-         (unsigned long)wsLogSentCount_,
+         (unsigned long)wsLogEnqueuedCount_,
          (unsigned long)wsLogDropCount_,
          (unsigned long)wsLogPartialCount_,
          (unsigned long)wsLogDiscardCount_,

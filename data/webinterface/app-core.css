@@ -120,8 +120,10 @@ body.menu-icons-disabled:not(.web-icons-disabled) .menu-item{gap:0;}
 .log-source-select{width:auto;min-width:172px;max-width:220px;height:30px;padding:0 30px 0 10px;border-radius:999px;border:1px solid #D4DFE9;font-size:12px;line-height:30px;font-weight:600;background:#F7FAFC;color:#5D7288;}
 .logs-overlay .status-chip,.logs-overlay .autoscroll-chip,.logs-overlay .log-source-select{height:30px;min-height:30px;box-sizing:border-box;}
 .logs-overlay .autoscroll-chip{padding-top:0;padding-bottom:0;}
-.logs-overlay #bootLogDumpBtn{height:30px;min-height:30px;width:auto;min-width:0;padding:0 9px;border-radius:999px;gap:4px;font-size:12px;line-height:1;box-sizing:border-box;}
-.logs-overlay #bootLogDumpBtn .ui-msr{font-size:16px;}
+.log-mode-switch{display:inline-flex;align-items:center;padding:3px;border:1px solid #D4DFE9;border-radius:999px;background:#F7FAFC;gap:2px;}
+.logs-overlay .log-mode-switch button{height:26px;min-height:26px;min-width:74px;padding:0 11px;border:0;border-radius:999px;background:transparent;color:#5D7288;font-size:12px;font-weight:600;line-height:1;box-shadow:none;}
+.logs-overlay .log-mode-switch button.is-selected{background:var(--primary);color:#fff;}
+.logs-overlay .log-mode-switch button:focus-visible{outline:2px solid var(--primary);outline-offset:2px;}
 .status-grid{margin-top:10px;display:grid;gap:10px;grid-template-columns:repeat(2,minmax(0,1fr));}
 .status-card{border:1px solid var(--panel-frame-border);border-radius:var(--radius);padding:14px;background:var(--panel-card-bg);box-shadow:var(--shadow);}
 .info-card-stack{display:grid;gap:18px;grid-template-columns:minmax(0,1fr) minmax(300px,360px);align-items:start;}

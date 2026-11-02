@@ -18,6 +18,9 @@ namespace Log {
      */
     const LogHubService* hub();
 
+    /** @brief Mark whether the current system wall clock has a trusted source. */
+    void setWallClockValid(bool valid);
+
     /**
      * @brief Register or update a module name for a numeric module id.
      */

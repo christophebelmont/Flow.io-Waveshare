@@ -114,19 +114,28 @@ private:
     static const char* colorReset_();
     static bool isSystemTimeValid_();
     static void formatUptime_(char* out, size_t outSize, uint32_t ms);
-    static void formatTimestamp_(WebInterfaceModule* self, const LogEntry& e, char* out, size_t outSize);
+    static void formatTimestamp_(WebInterfaceModule* self,
+                                 const LogEntry& e,
+                                 char* out,
+                                 size_t outSize,
+                                 bool bootCaptureEntry = false);
     static void formatLogEntryLine_(WebInterfaceModule* self,
                                     const LogEntry& e,
                                     char* out,
                                     size_t outSize,
-                                    bool colorize);
+                                    bool colorize,
+                                    bool bootCaptureEntry = false);
     static void onLocalLogSinkWrite_(void* ctx, const LogEntry& e);
     static bool writeBootLogJsonLine_(void* writerCtx,
                                       const LogEntry& e,
                                       uint16_t index,
                                       uint16_t total);
+    static bool writeRuntimeLogJsonLine_(void* writerCtx,
+                                         const LogEntry& e,
+                                         uint64_t sequence);
     void dumpBootLogCapture_(AsyncWebSocketClient* client);
     void sendBootLogHttpResponse_(AsyncWebServerRequest* request, bool statusOnly);
+    void sendRuntimeLogHttpResponse_(AsyncWebServerRequest* request);
     void sendActivityLogHttpResponse_(AsyncWebServerRequest* request, bool statusOnly);
     void emitConfigActivity_(const char* contextLabel,
                              const char* modulesLabel,
@@ -136,6 +145,9 @@ private:
     bool resolveRequestActor_(AsyncWebServerRequest* request, Actor& out);
     bool initLocalLogQueue_();
     void freeLocalLogQueue_();
+    bool initRuntimeLogHistory_();
+    void freeRuntimeLogHistory_();
+    void appendRuntimeLogHistory_(const LogEntry& entry);
 
     // Lifecycle and service surface
     bool setPaused_(bool paused);
@@ -210,20 +222,31 @@ private:
     uint8_t* localLogQueueStorage_ = nullptr;
     bool localLogQueueStatic_ = false;
     bool localLogQueueStorageInPsram_ = false;
+    static constexpr uint16_t kRuntimeLogHistoryCapacity = 4096U;
+    struct RuntimeLogRecord {
+        uint64_t sequence = 0U;
+        LogEntry entry{};
+    };
+    RuntimeLogRecord* runtimeLogHistory_ = nullptr;
+    uint16_t runtimeLogHistoryHead_ = 0U;
+    uint16_t runtimeLogHistoryCount_ = 0U;
+    uint64_t runtimeLogHistoryNextSequence_ = 1U;
+    uint32_t runtimeLogHistoryDropped_ = 0U;
+    portMUX_TYPE runtimeLogHistoryMux_ = portMUX_INITIALIZER_UNLOCKED;
     static constexpr uint8_t kWsLogFlushBurstMax = 4U;
 
     char lineBuf_[kLineBufferSize] = {0};
     size_t lineLen_ = 0;
     uint32_t wsFlowConnectCount_ = 0;
     uint32_t wsFlowDisconnectCount_ = 0;
-    uint32_t wsFlowSentCount_ = 0;
+    uint32_t wsFlowEnqueuedCount_ = 0;
     uint32_t wsFlowDropCount_ = 0;
     uint32_t wsFlowPartialCount_ = 0;
     uint32_t wsFlowDiscardCount_ = 0;
     uint32_t wsFlowLastPressureLogMs_ = 0;
     uint32_t wsLogConnectCount_ = 0;
     uint32_t wsLogDisconnectCount_ = 0;
-    uint32_t wsLogSentCount_ = 0;
+    uint32_t wsLogEnqueuedCount_ = 0;
     uint32_t wsLogDropCount_ = 0;
     uint32_t wsLogPartialCount_ = 0;
     uint32_t wsLogDiscardCount_ = 0;

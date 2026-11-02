@@ -2191,6 +2191,7 @@
     const wsStatus = document.getElementById('wsStatus');
     const logSourceSelect = document.getElementById('logSourceSelect');
     const bootLogDumpBtn = document.getElementById('bootLogDumpBtn');
+    const runtimeLogModeBtn = document.getElementById('runtimeLogModeBtn');
     const toggleAutoscrollInput = document.getElementById('toggleAutoscroll');
     const logsOverlay = document.getElementById('logsOverlay');
     const openLogsOverlayBtn = document.getElementById('openLogsOverlay');
@@ -2205,6 +2206,8 @@
     const activityFilterBtns = Array.from(document.querySelectorAll('[data-activity-filter]'));
     let autoScrollEnabled = true;
     let logsOverlayOpen = false;
+    let logViewMode = 'runtime';
+    let bootLogRequestToken = 0;
     let activityFilter = 'all';
     let activityWindowShiftHours = 0;
     let activityRequestToken = 0;
@@ -2700,9 +2703,9 @@
     }
 
     function connectLogSocket() {
-      if (!logsOverlayOpen || document.hidden) {
+      if (!logsOverlayOpen || document.hidden || logViewMode !== 'runtime') {
         closeLogSocket();
-        setWsStatusText(tr('terminal.inactive', 'inactif'));
+        setWsStatusText(logViewMode === 'boot' ? 'Mode boot' : tr('terminal.inactive', 'inactif'));
         return;
       }
       closeLogSocket();
@@ -2752,6 +2755,11 @@
     }
 
     async function requestBootLogDump() {
+      logViewMode = 'boot';
+      const requestToken = ++bootLogRequestToken;
+      closeLogSocket();
+      if (term) term.textContent = '';
+      updateLogModeUi();
       const limit = 64;
       let offset = 0;
       let loaded = 0;
@@ -2764,10 +2772,12 @@
       try {
         while (true) {
           const response = await fetch('/api/logs/boot?offset=' + encodeURIComponent(offset) + '&limit=' + limit);
+          if (requestToken !== bootLogRequestToken || logViewMode !== 'boot' || !logsOverlayOpen) return;
           if (!response.ok) {
             throw new Error('HTTP ' + response.status);
           }
           const page = await response.json();
+          if (requestToken !== bootLogRequestToken || logViewMode !== 'boot' || !logsOverlayOpen) return;
           const lines = Array.isArray(page.lines) ? page.lines : [];
           entries = Number(page.entries) || 0;
           dropped = Number(page.dropped) || 0;
@@ -2780,7 +2790,7 @@
             );
           }
           for (const line of lines) {
-            appendTerminalLine(String(line || ''), false);
+            appendTerminalLine(String(line || ''), true);
           }
 
           loaded += Number(page.count) || lines.length;
@@ -2798,12 +2808,13 @@
         appendTerminalLine('===== BOOT LOGS END - ' + loaded + '/' + entries + ' lignes affichees =====', false);
         setWsStatusText('Boot logs : ' + loaded + '/' + entries + ' lignes affichees, ' + dropped + ' perdues, etat=' + state);
       } catch (err) {
+        if (requestToken !== bootLogRequestToken || logViewMode !== 'boot' || !logsOverlayOpen) return;
         const msg = 'Impossible de charger les logs de boot : ' + (err && err.message ? err.message : String(err));
         appendTerminalLine(msg, false);
         setWsStatusText(msg);
         console.error(err);
       } finally {
-        if (bootLogDumpBtn) bootLogDumpBtn.disabled = false;
+        if (requestToken === bootLogRequestToken && bootLogDumpBtn) bootLogDumpBtn.disabled = false;
       }
     }
 
@@ -2813,12 +2824,17 @@
       logsOverlay.setAttribute('aria-hidden', 'false');
       logsOverlayOpen = true;
       if (term) term.textContent = '';
+      if (logViewMode === 'boot') {
+        requestBootLogDump();
+        return;
+      }
       connectLogSocket();
     }
 
     function closeLogsOverlay() {
       if (!logsOverlay) return;
       logsOverlayOpen = false;
+      ++bootLogRequestToken;
       closeLogSocket();
       logsOverlay.hidden = true;
       logsOverlay.setAttribute('aria-hidden', 'true');
@@ -3093,8 +3109,10 @@
         logSourceSelect.value = logSource;
       }
       if (logsOverlayOpen) {
-        if (term) term.textContent = '';
-        connectLogSocket();
+        if (logViewMode === 'runtime') {
+          if (term) term.textContent = '';
+          connectLogSocket();
+        }
       } else {
         setWsStatusText(tr('terminal.inactive', 'inactif'));
       }
@@ -3140,6 +3158,26 @@
     }
     if (bootLogDumpBtn) {
       bootLogDumpBtn.addEventListener('click', requestBootLogDump);
+    }
+    function updateLogModeUi() {
+      const runtimeSelected = logViewMode === 'runtime';
+      if (runtimeLogModeBtn) {
+        runtimeLogModeBtn.classList.toggle('is-selected', runtimeSelected);
+        runtimeLogModeBtn.setAttribute('aria-pressed', runtimeSelected ? 'true' : 'false');
+      }
+      if (bootLogDumpBtn) {
+        bootLogDumpBtn.classList.toggle('is-selected', !runtimeSelected);
+        bootLogDumpBtn.setAttribute('aria-pressed', runtimeSelected ? 'false' : 'true');
+      }
+    }
+    if (runtimeLogModeBtn) {
+      runtimeLogModeBtn.addEventListener('click', () => {
+        logViewMode = 'runtime';
+        ++bootLogRequestToken;
+        if (term) term.textContent = '';
+        updateLogModeUi();
+        connectLogSocket();
+      });
     }
     if (openLogsOverlayBtn) {
       openLogsOverlayBtn.addEventListener('click', openLogsOverlay);

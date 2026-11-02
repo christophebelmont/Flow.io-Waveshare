@@ -700,14 +700,11 @@
       <div class="logs-overlay-head">
         <h2 id="logsOverlayTitle" class="ui-heading-inline"><span class="ui-msr" aria-hidden="true">terminal</span><span>Logs système</span></h2>
         <div class="logs-overlay-actions">
-          <select id="logSourceSelect" class="log-source-select" aria-label="Source des journaux" title="Source des journaux affichés" data-i18n-aria-label="terminal.source.aria" data-i18n-title="terminal.source.title">
-            <option value="local" data-i18n="terminal.source.local">flow.io (local)</option>
-            <option value="flowio" data-i18n="terminal.source.flowio">flow.io (wserial)</option>
-          </select>
+          <div class="log-mode-switch" role="group" aria-label="Mode d’affichage des journaux" data-i18n-aria-label="terminal.mode.aria">
+            <button id="runtimeLogModeBtn" class="secondary btn-compact is-selected" type="button" aria-pressed="true" data-i18n="terminal.runtime">Runtime</button>
+            <button id="bootLogDumpBtn" class="secondary btn-compact" type="button" aria-pressed="false" data-i18n="terminal.boot">Boot</button>
+          </div>
           <span id="wsStatus" class="status-chip">inactif</span>
-          <button id="bootLogDumpBtn" class="secondary btn-compact" type="button" title="Afficher les logs de boot" aria-label="Afficher les logs de boot" data-i18n-title="terminal.bootLogs" data-i18n-aria-label="terminal.bootLogs">
-            <span class="ui-msr ui-msr-sm" aria-hidden="true">history</span><span data-i18n="terminal.boot">Boot</span>
-          </button>
           <label class="autoscroll-chip" for="toggleAutoscroll" title="Défilement automatique des journaux" data-i18n-title="terminal.autoscroll.title">
             <span class="autoscroll-label" data-i18n="terminal.autoscroll">Scroll</span>
             <span class="md3-switch md3-switch-compact">

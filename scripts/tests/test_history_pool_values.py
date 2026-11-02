@@ -9,6 +9,8 @@ ROOT = Path(__file__).resolve().parents[2]
 class HistoryPoolValuesTests(unittest.TestCase):
     def test_history_value_list(self):
         source = (ROOT / 'src/Modules/Network/WebInterfaceModule/WebInterfaceServer.cpp').read_text()
+        budget_start = source.index('static constexpr size_t kWebResponseBudgetBytes')
+        budget = source[budget_start:source.index('\nstruct WebJsonBuffer final', budget_start)]
         start = source.index('struct WebJsonBuffer final')
         buffer = source[start:source.index('\n};', start) + 3]
         route_start = source.index('    server_.on("/api/history/pool"')
@@ -20,7 +22,7 @@ class HistoryPoolValuesTests(unittest.TestCase):
         values_start = route.index('        bool first = true;')
         values = route[values_start:route.index('        body->print("]}");', values_start)]
         harness = (ROOT / 'test/host/history_pool_values.cpp').read_text()
-        harness = harness.replace('// PRODUCTION_BUFFER', buffer).replace(
+        harness = harness.replace('// PRODUCTION_BUFFER', budget + '\n' + buffer).replace(
             '// PRODUCTION_ALLOC', alloc).replace('// PRODUCTION_VALUES', values)
         with tempfile.TemporaryDirectory() as tmp:
             cpp = Path(tmp) / 'history_pool_values.cpp'

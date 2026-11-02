@@ -674,6 +674,7 @@ bool TimeModule::setRtcEpoch_(uint64_t epochSec, TimeSource source, TimeQuality 
     if (settimeofday(&tv, nullptr) != 0) {
         return false;
     }
+    Log::setWallClockValid(true);
 
     _retryCount = 0;
     _retryDelayMs = 2000;
@@ -1248,6 +1249,7 @@ void TimeModule::applySystemSlots_(SchedulerSlotRuntime* slots, size_t count) co
 }
 
 void TimeModule::init(ConfigStore& cfg, ServiceRegistry& services) {
+    Log::setWallClockValid(false);
     constexpr uint8_t kCfgModuleId = (uint8_t)ConfigModuleId::Time;
     constexpr uint8_t kCfgBranchId = kTimeCfgBranch;
     constexpr uint8_t kSchedCfgBranchId = kTimeSchedulerCfgBranch;
@@ -1425,11 +1427,14 @@ void TimeModule::loop() {
 
         struct tm timeinfo;
         if (getLocalTime(&timeinfo, 4000)) {
+            const uint64_t ntpEpoch = (uint64_t)nowEpoch_();
+            if (isTimePlausible_(ntpEpoch)) {
+                Log::setWallClockValid(true);
+            }
             char buf[32];
             formatLocalTime_(buf, sizeof(buf));
             LOGI("Synced ok: %s", buf);
 
-            const uint64_t ntpEpoch = (uint64_t)nowEpoch_();
             if (!setRtcEpoch_(ntpEpoch, TimeSource::Ntp, TimeQuality::NtpSynced, "ntp")) {
                 LOGW("NTP time rejected epoch=%llu", (unsigned long long)ntpEpoch);
                 recordSource_(TimeSource::Ntp, true, false, 0ULL, millis());
