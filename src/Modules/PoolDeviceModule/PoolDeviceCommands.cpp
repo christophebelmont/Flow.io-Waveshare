@@ -575,6 +575,7 @@ bool PoolDeviceModule::resetUptimeSlot_(uint8_t slot)
     const bool hasKeys = currentPeriodKeys_(keys);
 
     s.runningMsDay = 0;
+    s.unconfirmedMsDay = 0;
     s.runningMsWeek = 0;
     s.runningMsMonth = 0;
     s.injectedMlDay = 0.0f;

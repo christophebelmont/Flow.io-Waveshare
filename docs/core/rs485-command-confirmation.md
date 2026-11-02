@@ -70,6 +70,10 @@ l'AquaGem peut continuer à converger après confirmation de marche. Une demande
 expirée exige une nouvelle action. Les sondages continuent pendant la panne,
 avec des intervalles de récupération de 1, 2, 4 puis 8 secondes.
 
+Quand une limite quotidienne est configurée, la durée série sans observation
+valide est imputée au budget de sécurité et persistée séparément du temps
+de marche mesuré. Les anciens compteurs sont repris avec un budget inconnu nul.
+
 La file réserve une place à la surveillance et une à l'arrêt. L'échéance d'une
 transaction couvre la file, la transmission et les tentatives. Les journaux
 IOModule indiquent l'attente avant chaque transmission et le temps de réponse.

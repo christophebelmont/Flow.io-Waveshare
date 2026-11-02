@@ -103,7 +103,7 @@ private:
     static constexpr uint8_t RESET_PENDING_MONTH = (1u << 2);
     static constexpr uint32_t RUNTIME_PERSIST_INTERVAL_MS = 60000U;
     static constexpr uint32_t MIN_VALID_EPOCH_SEC = 1609459200U; // 2021-01-01
-    static constexpr size_t RUNTIME_PERSIST_BUF_LEN = 192U;
+    static constexpr size_t RUNTIME_PERSIST_BUF_LEN = 216U;
 
     struct PoolDeviceSlot {
         bool used = false;
@@ -148,6 +148,7 @@ private:
 
         uint32_t lastTickMs = 0;
         uint64_t runningMsDay = 0;
+        uint64_t unconfirmedMsDay = 0; // Safety budget only, never published as measured uptime.
         uint64_t runningMsWeek = 0;
         uint64_t runningMsMonth = 0;
         uint64_t runningMsTotal = 0;

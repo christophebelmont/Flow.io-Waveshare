@@ -348,7 +348,8 @@ bool PoolDeviceModule::loadPersistedMetrics_(uint8_t slotIdx, PoolDeviceSlot& sl
     auto nextTok = [&save](char* s) -> char* { return strtok_r(s, ",", &save); };
 
     char* tok = nextTok(parseBuf);
-    if (!tok || strcmp(tok, "v1") != 0) {
+    const bool hasSafetyBudget = tok && strcmp(tok, "v2") == 0;
+    if (!hasSafetyBudget && (!tok || strcmp(tok, "v1") != 0)) {
         LOGW("Pool device %s runtime blob invalid header", slot.id);
         return false;
     }
@@ -404,12 +405,15 @@ bool PoolDeviceModule::loadPersistedMetrics_(uint8_t slotIdx, PoolDeviceSlot& sl
         return false;
     }
 
+    uint64_t unconfirmedDay = 0;
+    if (hasSafetyBudget && !parseU64(unconfirmedDay)) return false;
     if (nextTok(nullptr) != nullptr) {
         LOGW("Pool device %s runtime blob has trailing fields", slot.id);
         return false;
     }
 
     slot.runningMsDay = runningDay;
+    slot.unconfirmedMsDay = unconfirmedDay;
     slot.runningMsWeek = runningWeek;
     slot.runningMsMonth = runningMonth;
     slot.runningMsTotal = runningTotal;
@@ -446,7 +450,7 @@ bool PoolDeviceModule::persistMetrics_(uint8_t slotIdx, PoolDeviceSlot& slot, ui
     char encoded[sizeof(runtimePersistBuf_[0])] = {0};
     const int wrote = snprintf(
         encoded, sizeof(encoded),
-        "v1,%llu,%llu,%llu,%llu,%llu.%03u,%llu.%03u,%llu.%03u,%llu.%03u,%llu.%03u,%lu,%lu,%lu",
+        "v2,%llu,%llu,%llu,%llu,%llu.%03u,%llu.%03u,%llu.%03u,%llu.%03u,%llu.%03u,%lu,%lu,%lu,%llu",
         (unsigned long long)slot.runningMsDay,
         (unsigned long long)slot.runningMsWeek,
         (unsigned long long)slot.runningMsMonth,
@@ -463,7 +467,8 @@ bool PoolDeviceModule::persistMetrics_(uint8_t slotIdx, PoolDeviceSlot& slot, ui
         tankRemaining.frac,
         (unsigned long)slot.dayKey,
         (unsigned long)slot.weekKey,
-        (unsigned long)slot.monthKey);
+        (unsigned long)slot.monthKey,
+        (unsigned long long)slot.unconfirmedMsDay);
     if (wrote <= 0 || (size_t)wrote >= sizeof(encoded)) {
         LOGW("Pool device %s runtime persist failed", slot.id);
         return false;
@@ -505,6 +510,7 @@ bool PoolDeviceModule::reconcilePeriodCountersFromClock_()
             changed = true;
         } else if (s.dayKey != keys.day) {
             s.runningMsDay = 0;
+            s.unconfirmedMsDay = 0;
             s.injectedMlDay = 0.0f;
             s.dayKey = keys.day;
             changed = true;
@@ -546,6 +552,7 @@ void PoolDeviceModule::resetDailyCounters_()
         PoolDeviceSlot& s = slots_[i];
         if (!s.used) continue;
         s.runningMsDay = 0;
+        s.unconfirmedMsDay = 0;
         s.injectedMlDay = 0.0f;
         if (hasKeys) s.dayKey = keys.day;
         s.forceMetricsCommit = true;
@@ -628,6 +635,12 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
         }
 
         const auto previous = s.feedback;
+        if (s.driverConfig.capabilities.kind == PoolControlKind::Rs485 && s.def.maxUptimeDaySec > 0 &&
+            !previous.observedValid && !maxUptimeReached_(s)) {
+            s.unconfirmedMsDay += deltaMs;
+            if (maxUptimeReached_(s) || nowMs - s.lastPersistMs >= RUNTIME_PERSIST_INTERVAL_MS)
+                s.persistDirty = true;
+        }
         const bool dependenciesReady = dependenciesSatisfied_(i, s.effective.running);
         s.interlockState = updatePoolInterlockState(s.interlockState, dependenciesReady,
                                                     s.desiredOn || s.effective.running || s.actualOn ||
@@ -877,7 +890,7 @@ bool PoolDeviceModule::maxUptimeReached_(const PoolDeviceSlot& slot)
 {
     if (slot.def.maxUptimeDaySec <= 0) return false;
     const uint64_t limitMs = (uint64_t)(uint32_t)slot.def.maxUptimeDaySec * 1000ULL;
-    return slot.runningMsDay >= limitMs;
+    return slot.runningMsDay >= limitMs || slot.unconfirmedMsDay >= limitMs - slot.runningMsDay;
 }
 
 uint32_t PoolDeviceModule::toSeconds_(uint64_t ms)
