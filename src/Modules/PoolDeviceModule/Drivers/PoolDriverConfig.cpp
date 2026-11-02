@@ -45,6 +45,7 @@ bool parsePoolDriverConfig(const char* json, PoolDriverConfig& out, char* error,
     if (!field(obj, "minimum", caps.minimum) || !field(obj, "maximum", caps.maximum) ||
         !field(obj, "startup", caps.startup) || !field(obj, "dead_ms", c.breakBeforeMakeMs) ||
         !field(obj, "off", c.analogOff) || !field(obj, "gain", c.analogGain) || !field(obj, "offset", c.analogOffset) ||
+        !field(obj, "verified_flow_grace_ms", c.verifiedFlowGraceMs) ||
         !field(obj, "dependency_minimum", c.dependencyMinimum) ||
         !field(obj, "dependency_confirmed", c.requireConfirmedDependency)) return fail("invalid control parameters");
     if (caps.kind != PoolControlKind::Rs485) {
@@ -140,6 +141,7 @@ bool serializePoolDriverConfig(const PoolDriverConfig& c, char* out, size_t size
     doc["minimum"] = c.capabilities.minimum; doc["maximum"] = c.capabilities.maximum;
     doc["startup"] = c.capabilities.startup;
     doc["dependency_minimum"] = c.dependencyMinimum; doc["dependency_confirmed"] = c.requireConfirmedDependency;
+    if (c.verifiedFlowGraceMs) doc["verified_flow_grace_ms"] = c.verifiedFlowGraceMs;
     if (c.flowPointCount) {
         auto curve = doc.createNestedArray("flow_curve");
         for (uint8_t i = 0; i < c.flowPointCount; ++i) {

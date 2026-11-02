@@ -33,6 +33,7 @@ const char* resultName(ModbusResultCode result)
         case MODBUS_RESULT_CRC_ERROR: return "crc_error";
         case MODBUS_RESULT_PROTOCOL_ERROR: return "protocol_error";
         case MODBUS_RESULT_EXCEPTION: return "exception";
+        case MODBUS_RESULT_EXPIRED: return "expired";
         case MODBUS_RESULT_IO_ERROR: return "io_error";
     }
     return "unknown";
@@ -83,6 +84,7 @@ void Rs485TransactionScheduler::unlock_() const
 bool Rs485TransactionScheduler::validRequest_(const ModbusRequest& request)
 {
     return request.ownerId != 0 && request.priority <= MODBUS_PRIORITY_SAFETY &&
+        request.transactionBudgetMs > 0 && request.transactionBudgetMs <= 120000 &&
         request.responseTimeoutMs >= 10 && request.responseTimeoutMs <= 5000 &&
         request.retries <= 3 && request.line.busId == 0 &&
         request.line.baud >= 1200 && request.line.baud <= 115200 &&
@@ -139,7 +141,13 @@ ModbusResultCode Rs485TransactionScheduler::submit_(const ModbusRequest& request
             break;
         }
     }
-    if (!freeSlot) {
+    // Leave capacity for monitoring reads and an urgent stop even during
+    // a burst of writes. Serial drivers keep at most one request per owner.
+    unsigned freeCount = 0;
+    for (const auto& slot : storage_->slots) if (slot.state == SlotState::Free) ++freeCount;
+    const unsigned reserved = request.priority == MODBUS_PRIORITY_SAFETY ? 0 :
+        request.operation == RegisterOperation::Read ? 1 : 2;
+    if (!freeSlot || freeCount <= reserved) {
         LOGD("Modbus submit rejected owner=%u slave=%u reason=queue_full",
              request.ownerId, request.slaveAddress);
         unlock_();
@@ -156,6 +164,7 @@ ModbusResultCode Rs485TransactionScheduler::submit_(const ModbusRequest& request
     freeSlot->transactionId = id;
     freeSlot->order = nextOrder_++;
     freeSlot->queuedAtMs = millis();
+    freeSlot->enqueuedAttemptAtMs = freeSlot->queuedAtMs;
     freeSlot->request = request;
     freeSlot->response.transactionId = id;
     outTransactionId = id;
@@ -212,7 +221,9 @@ ModbusResultCode Rs485TransactionScheduler::poll_(uint16_t transactionId,
 
 void Rs485TransactionScheduler::cancelOwner_(uint8_t ownerId)
 {
-    if (ownerId == 0U || !storage_ || !lock_()) return;
+    // Cancellation may not silently fail and leave an obsolete ON in the queue.
+    // The mutex protects scheduler bookkeeping; it is never held awaiting a reply.
+    if (ownerId == 0U || !storage_ || !lock_(portMAX_DELAY)) return;
     for (uint8_t i = 0U; i < kQueueCapacity; ++i) {
         Slot& slot = storage_->slots[i];
         if (slot.state == SlotState::Free || slot.request.ownerId != ownerId) continue;
@@ -287,6 +298,8 @@ bool Rs485TransactionScheduler::sendActive_(Slot& slot, uint32_t nowMs, uint32_t
         finish_(slot, MODBUS_RESULT_IO_ERROR);
         return false;
     }
+    LOGD("Modbus dispatch id=%u slave=%u queue_ms=%lu", slot.transactionId,
+         slot.request.slaveAddress, (unsigned long)(nowMs - slot.enqueuedAttemptAtMs));
     LOGD_HEX("Modbus TX", slot.transactionId, storage_->txFrame, txLength);
     slot.state = SlotState::Active;
     slot.sentAtMs = nowMs;
@@ -334,6 +347,7 @@ void Rs485TransactionScheduler::retryOrFinish_(Slot& slot,
              slot.transactionId, slot.attempts + 1U,
              (unsigned long)(slot.request.line.lateResponseGuardMs + slot.request.line.quietMs));
         slot.state = SlotState::Queued;
+        slot.enqueuedAttemptAtMs = nowMs;
         slot.order = nextOrder_++;
         activeIndex_ = -1;
         availableAtMs_ = busAvailableAt(slot.request.line, slot.sentAtMs, nowMs, true);
@@ -355,12 +369,23 @@ void Rs485TransactionScheduler::tick(uint32_t nowMs, uint32_t nowUs, bool enable
         }
     }
     bus_.tick(nowUs);
+    for (auto& slot : storage_->slots) {
+        if (slot.state == SlotState::Queued &&
+            nowMs - slot.queuedAtMs >= slot.request.transactionBudgetMs) {
+            slot.response.result = MODBUS_RESULT_EXPIRED;
+            slot.response.state = MODBUS_TRANSACTION_FAILED;
+            slot.state = SlotState::Finished;
+            LOGD("Modbus queue expired id=%u slave=%u wait_ms=%lu", slot.transactionId,
+                 slot.request.slaveAddress, (unsigned long)(nowMs - slot.queuedAtMs));
+        }
+    }
 
     if (activeIndex_ < 0) {
-        if (int32_t(nowMs - availableAtMs_) < 0 || !bus_.quiet(nowUs)) {
+        if ((availableAtMs_ && int32_t(nowMs - availableAtMs_) < 0) || !bus_.quiet(nowUs)) {
             unlock_();
             return;
         }
+        availableAtMs_ = 0;
         activeIndex_ = selectNextSlot_(nowMs);
         if (activeIndex_ >= 0) {
             Slot& slot = storage_->slots[(uint8_t)activeIndex_];
@@ -389,6 +414,9 @@ void Rs485TransactionScheduler::tick(uint32_t nowMs, uint32_t nowUs, bool enable
                 retryOrFinish_(slot, result, nowMs);
             }
         }
+    } else if (nowMs - slot.queuedAtMs >= slot.request.transactionBudgetMs) {
+        bus_.abort();
+        finish_(slot, MODBUS_RESULT_EXPIRED);
     } else if ((uint32_t)(nowMs - slot.sentAtMs) >= slot.request.responseTimeoutMs &&
                !bus_.receivingFrame()) {
         // A delayed tick may just have drained a complete response from UART.

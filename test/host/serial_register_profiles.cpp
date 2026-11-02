@@ -200,6 +200,18 @@ void manufacturerProfiles() {
     PoolDriverConfig c;
     assert(applyPoolSerialProfile(PoolSerialModel::AquaGem, c));
     assert(validatePoolDriverConfig(c));
+    assert(c.capabilities.startup == 2900);
+    Bus startupBus; SerialDeviceDriver startupDriver;
+    assert(startupDriver.begin(c, nullptr, &startupBus.service, 1));
+    startupDriver.applyTarget({true, c.capabilities.startup}, 1);
+    startupDriver.tick(10, true);
+    assert(startupBus.requests.back().values[0] == 2900);
+    startupBus.reply(); startupDriver.tick(11, true);
+    startupDriver.tick(510, true);
+    startupBus.reply(2900); startupBus.response.aquaGem = {true, 0, 1, 2900};
+    startupDriver.tick(511, true);
+    assert(startupDriver.readState().observedValid && startupDriver.readState().observed.running);
+    assert(startupDriver.readState().phase == PoolCommandPhase::Applied);
     Bus bus; SerialDeviceDriver driver;
     assert(driver.begin(c, nullptr, &bus.service, 1));
     driver.applyTarget({true, 1700}, 1); driver.tick(10, true);
@@ -397,11 +409,12 @@ void confirmationFailureAndReplacement() {
     driver.tick(510, true);
     assert(bus.requests.back().priority == MODBUS_PRIORITY_COMMAND);
     bus.reply(0, MODBUS_RESULT_TIMEOUT); driver.tick(511, true);
-    assert(driver.readState().phase == PoolCommandPhase::Failed);
+    assert(driver.readState().communicationDegraded && driver.readState().phase == PoolCommandPhase::Confirming);
     assert(!driver.readState().observedValid);
     driver.applyTarget({true, 1800}, 2); driver.tick(1010, true);
+    assert(bus.requests.back().registerAddress == 2001); // Reconnect read before changing RPM.
     bus.reply(); driver.tick(1011, true); driver.tick(1510, true);
-    assert(bus.requests.back().registerAddress == 2001);
+    assert(bus.requests.back().values[0] == 1800);
     const auto cancelled = bus.cancellations;
     driver.applyTarget({false, 1800}, 3);
     assert(bus.cancellations == cancelled + 1);
@@ -436,6 +449,7 @@ void communicationRecoveryBackoff() {
     }
     bus.reply(0, MODBUS_RESULT_TIMEOUT); driver.tick(++now, true);
     const auto count = bus.requests.size();
+    assert(driver.readState().phase == PoolCommandPhase::Expired);
     // A new stop bypasses recovery delay and retains safety priority.
     driver.applyTarget({false, 2200}, 2); driver.tick(++now, true);
     assert(bus.requests.size() == count + 1 && bus.requests.back().priority == MODBUS_PRIORITY_SAFETY);
@@ -480,6 +494,7 @@ void delayedPumpApplication() {
         const auto& state = driver.readState();
         if (now > startedAt + 1000 && now < startedAt + 60000) {
             assert(state.observedValid && state.observed.setpoint == 2900);
+            assert(state.observed.running); // ON is confirmed before RPM convergence.
             assert(state.quality == PoolFeedbackQuality::Confirmed);
             assert(state.phase == PoolCommandPhase::Pending || state.phase == PoolCommandPhase::Confirming);
             assert(state.error == 0);
@@ -580,7 +595,69 @@ void heatPumpEcoRestartAndElectricalTelemetry() {
     assert(std::fabs(poolTelemetryValue(telemetry, kHeatPumpPolyFields[17]) - 4.5f) < .001f);
 }
 
+void lostAckAndStopWhileDisconnected() {
+    PoolDriverConfig config;
+    assert(applyPoolSerialProfile(PoolSerialModel::AquaGem, config));
+    Bus bus;
+    SerialDeviceDriver driver;
+    assert(driver.begin(config, nullptr, &bus.service, 1));
+    driver.applyTarget({true, 2000}, 1); driver.tick(1, true);
+    assert(bus.requests.back().operation == RegisterOperation::WriteSingle && bus.requests.back().retries == 0);
+    bus.reply(0, MODBUS_RESULT_TIMEOUT); driver.tick(2, true);
+    driver.tick(1002, true);
+    assert(bus.requests.back().operation == RegisterOperation::Read);
+    bus.reply(2000); bus.response.aquaGem = {true, 0, 1, 2000}; driver.tick(1003, true);
+    driver.tick(1502, true);
+    bus.reply(2000); bus.response.aquaGem = {true, 0, 1, 2000}; driver.tick(1503, true);
+    assert(driver.readState().phase == PoolCommandPhase::Applied);
+    driver.tick(2003, true);
+    bus.reply(0, MODBUS_RESULT_CRC_ERROR); driver.tick(2004, true);
+    assert(driver.readState().communicationDegraded && !driver.readState().observedValid);
+    assert(driver.readState().observed.running && driver.readState().observedAtMs == 1503);
+    driver.tick(3004, true);
+    bus.reply(2000); bus.response.aquaGem = {true, 0, 1, 2000}; driver.tick(3005, true);
+    assert(driver.readState().observedValid && driver.readState().phase == PoolCommandPhase::Applied);
+    for (size_t i = 1; i < bus.requests.size(); ++i) assert(bus.requests[i].operation == RegisterOperation::Read);
+
+    // A new speed write is ambiguous, then OFF supersedes its recovery probe.
+    driver.applyTarget({true, 2100}, 2); driver.tick(3504, true);
+    assert(bus.requests.back().values[0] == 2100);
+    bus.reply(0, MODBUS_RESULT_TIMEOUT); driver.tick(3505, true);
+    driver.tick(4505, true);
+    assert(bus.requests.back().operation == RegisterOperation::Read);
+    driver.applyTarget({false, 2100}, 3); driver.tick(5005, true);
+    const size_t stop = bus.requests.size() - 1;
+    assert(bus.requests[stop].values[0] == 1 && bus.requests[stop].priority == MODBUS_PRIORITY_SAFETY);
+    bus.reply(0, MODBUS_RESULT_TIMEOUT); driver.tick(5006, true);
+    driver.tick(7006, true);
+    assert(bus.requests.back().operation == RegisterOperation::Read);
+    bus.reply(0); bus.response.aquaGem = {true, 0, 0, 0}; driver.tick(7007, true);
+    driver.tick(7506, true);
+    bus.reply(0); bus.response.aquaGem = {true, 0, 0, 0}; driver.tick(7507, true);
+    assert(driver.readState().phase == PoolCommandPhase::Applied && !driver.readState().observed.running);
+    for (size_t i = stop + 1; i < bus.requests.size(); ++i) assert(bus.requests[i].operation == RegisterOperation::Read);
+}
+
+void wrongHeatModeNotConfirmed() {
+    PoolDriverConfig config;
+    assert(applyPoolSerialProfile(PoolSerialModel::Polytropic, config));
+    Bus bus;
+    SerialDeviceDriver driver;
+    assert(driver.begin(config, nullptr, &bus.service, 8));
+    driver.applyTarget({true, 28, 2}, 1); driver.tick(1, true);
+    bus.reply(320); driver.tick(2, true);
+    bus.reply(); driver.tick(3, true);
+    assert(bus.requests.back().values[0] == 23);
+    bus.reply(); driver.tick(4, true);
+    bus.reply(17); driver.tick(5, true);
+    bus.reply(280); driver.tick(6, true);
+    assert(driver.readState().observedValid && driver.readState().observed.running);
+    assert(driver.readState().phase == PoolCommandPhase::Confirming);
+}
+
 int main() {
+    lostAckAndStopWhileDisconnected();
+    wrongHeatModeNotConfirmed();
     heatPumpEcoRestartAndElectricalTelemetry();
     delayedPumpApplication();
     stoppedSeparateSetpointMustConverge();

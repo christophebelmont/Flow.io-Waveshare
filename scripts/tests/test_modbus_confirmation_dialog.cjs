@@ -124,6 +124,39 @@ const { loadDialog, installDialog } = require('./runtime_action_dialog_test_supp
       assert.match(await field.getAttribute('class'), /is-pending/);
       assert.match(await status.textContent(), /Application en attente/);
     }
+    await page.evaluate(async () => {
+      testState.option.desiredOn = true;
+      await runtimeActionDialogRefresh.refresh();
+    });
+    assert.match(await status.textContent(), /Marche confirmée · Consigne en attente/);
+    assert.match(await field.getAttribute('class'), /is-pending/);
+    assert.equal(await input.inputValue(), '1800');
+    await page.evaluate(async () => {
+      Object.assign(testState.option, { observedSetpoint: 1800, phase: 2 });
+      await runtimeActionDialogRefresh.refresh();
+    });
+    assert.match(await field.getAttribute('class'), /is-confirmed/);
+    // A stale reading must never confirm that the equipment is running.
+    await page.evaluate(async () => {
+      Object.assign(testState.option, { observedSetpoint: null, actualOn: null, quality: 3, phase: 5 });
+      await runtimeActionDialogRefresh.refresh();
+    });
+    assert.doesNotMatch(await status.textContent(), /Marche confirmée/);
+    await page.evaluate(async () => {
+      Object.assign(testState.option, { communicationDegraded: true, observationAgeMs: 5200, phase: 7 });
+      await runtimeActionDialogRefresh.refresh();
+    });
+    assert.match(await status.textContent(), /Vérification de la commande.*5 s/);
+    await page.evaluate(async () => {
+      testState.option.desiredOn = false;
+      await runtimeActionDialogRefresh.refresh();
+    });
+    assert.match(await status.textContent(), /Arrêt demandé.*5 s/);
+    await page.evaluate(async () => {
+      Object.assign(testState.option, { desiredOn: true, phase: 6 });
+      await runtimeActionDialogRefresh.refresh();
+    });
+    assert.match(await status.textContent(), /Délai de commande dépassé/);
     console.log('MODBUS confirmation dialog tests passed');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

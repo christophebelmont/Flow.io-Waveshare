@@ -57,6 +57,22 @@ private:
     void consume_(const ModbusResponse&, uint32_t now);
     void commandAcknowledged_(uint32_t now);
     bool observedTargetReached_() const;
+    void reconcileWrite_(uint32_t now);
+    void finishReconnectRead_(bool moreReads, uint32_t now);
+    bool modeMatches_(uint16_t status, const PoolDeviceTarget& target) const;
+    void linkFailure_(uint8_t result, uint32_t now);
+    // After a read outage renew both critical observations before reconciling.
+    Operation reconnectRead_ = Operation::None;
+    Operation firstRead_() const;
+    Operation uncertainWrite_ = Operation::None;
+    static constexpr uint32_t DeliveryBudgetMs = 15000;
+    bool runVerified_ = false;
+    uint8_t stopRepeats_ = 0;
+    uint32_t stopRetryAt_ = 0;
+    bool deliveryExpired_ = false;
+    bool deliveryStarted_ = false;
+    uint32_t deliveryAt_ = 0;
+    uint16_t lastStatusWord_ = 0;
     uint16_t transaction_ = MODBUS_TRANSACTION_INVALID;
     Operation operation_ = Operation::None;
     Operation confirmation_ = Operation::None;

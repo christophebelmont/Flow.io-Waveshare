@@ -125,6 +125,7 @@ private:
         char haModeCommand[1024]{};
         char haModeOptions[512]{};
         char haTelemetrySuffix[32]{};
+        bool retryExpiredCommand = false;
         bool driverReady = false;
         PoolDeviceTarget desired{};
         PoolDeviceTarget effective{};
@@ -226,7 +227,7 @@ private:
     bool reconcilePeriodCountersFromClock_();
     bool loadPersistedMetrics_(uint8_t slotIdx, PoolDeviceSlot& slot);
     bool persistMetrics_(uint8_t slotIdx, PoolDeviceSlot& slot, uint32_t nowMs);
-    bool dependenciesSatisfied_(uint8_t slotIdx) const;
+    bool dependenciesSatisfied_(uint8_t slotIdx, bool continuing = false) const;
     void logStartInterlock_(uint8_t slotIdx, uint8_t reason) const;
     static bool maxUptimeReached_(const PoolDeviceSlot& slot);
     PoolDeviceSvcStatus svcSetTargetImpl_(uint8_t slot, const PoolDeviceTarget* target);

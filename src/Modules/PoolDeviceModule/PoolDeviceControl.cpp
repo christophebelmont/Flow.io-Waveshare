@@ -5,6 +5,7 @@
  */
 
 #include "PoolDeviceModule.h"
+#include "Core/Services/PoolDeviceSafety.h"
 #include "Core/Values/PoolDeviceValues.h"
 #include "Core/Values/VolumeUnits.h"
 #include "Core/Values/InternalAnalogSources.h"
@@ -160,7 +161,9 @@ PoolDeviceSvcStatus PoolDeviceModule::setTarget_(uint8_t slot, const PoolDeviceT
     if (target->running) {
         if (!s.def.enabled) return finish(POOLDEV_SVC_ERR_DISABLED);
         if (maxUptimeReached_(s)) return finish(POOLDEV_SVC_ERR_MAX_UPTIME);
-        if (!dependenciesSatisfied_(slot)) {
+        if (s.driverConfig.serial.model == PoolSerialModel::Polytropic && poolFlowProtectionActive(s.feedback.telemetry))
+            return finish(POOLDEV_SVC_ERR_INTERLOCK);
+        if (!dependenciesSatisfied_(slot, s.effective.running)) {
             s.interlockState = PoolInterlockState::StartRejected;
             tickDevices_(millis(), false);
             return finish(POOLDEV_SVC_ERR_INTERLOCK);
@@ -171,6 +174,10 @@ PoolDeviceSvcStatus PoolDeviceModule::setTarget_(uint8_t slot, const PoolDeviceT
         return finish(POOLDEV_SVC_ERR_IO);
     }
     s.interlockState = PoolInterlockState::Ready;
+    s.retryExpiredCommand = manual && target->running && s.feedback.phase == PoolCommandPhase::Expired;
+    if (s.desired.running != target->running || s.retryExpiredCommand)
+        LOGI("Request slot=%u source=%s run=%u revision=%lu", slot, manual ? "manual" : "controller",
+             target->running, (unsigned long)s.revision);
     s.desired = *target;
     s.desiredOn = target->running;
     tickDevices_(millis(), false);
@@ -621,7 +628,7 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
         }
 
         const auto previous = s.feedback;
-        const bool dependenciesReady = dependenciesSatisfied_(i);
+        const bool dependenciesReady = dependenciesSatisfied_(i, s.effective.running);
         s.interlockState = updatePoolInterlockState(s.interlockState, dependenciesReady,
                                                     s.desiredOn || s.effective.running || s.actualOn ||
                                                     (s.overrideTimer.active() && s.overrideTimer.state(0).value));
@@ -629,27 +636,37 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
             !s.driverReady ? POOL_DEVICE_BLOCK_UNBOUND :
             maxUptimeReached_(s) ? POOL_DEVICE_BLOCK_MAX_UPTIME :
             poolInterlockBlocked(s.interlockState) ? POOL_DEVICE_BLOCK_INTERLOCK : POOL_DEVICE_BLOCK_NONE;
-        if (s.blockReason != POOL_DEVICE_BLOCK_NONE || s.feedback.error ||
-            s.feedback.quality == PoolFeedbackQuality::Stale) s.desiredOn = s.desired.running = false;
+        const bool serial = s.driverConfig.capabilities.kind == PoolControlKind::Rs485;
+        const bool unsafeFeedback = poolFeedbackInhibitsRun(s.driverConfig.capabilities.kind, s.feedback);
+        if (s.driverConfig.serial.model == PoolSerialModel::Polytropic &&
+            poolFlowProtectionActive(s.feedback.telemetry)) s.blockReason = POOL_DEVICE_BLOCK_NO_FLOW;
+        if (s.blockReason != POOL_DEVICE_BLOCK_NONE || unsafeFeedback)
+            s.desiredOn = s.desired.running = false;
         PoolDeviceTarget effective = s.desired;
         const bool safe = dependenciesReady && s.blockReason == POOL_DEVICE_BLOCK_NONE &&
-            !s.feedback.error && s.feedback.quality != PoolFeedbackQuality::Stale;
+            !unsafeFeedback;
         effective.running = resolveOverride_(i, safe, uint64_t(esp_timer_get_time()) / 1000) && safe;
         if (s.driverReady) {
-            if (!s.revision || effective.running != s.effective.running || effective.setpoint != s.effective.setpoint ||
+            if (s.retryExpiredCommand || !s.revision || effective.running != s.effective.running || effective.setpoint != s.effective.setpoint ||
                 effective.mode != s.effective.mode) {
+                LOGI("Target slot=%u run=%u previous=%u desired=%u reason=%s device_error=%u", i,
+                     effective.running, s.effective.running, s.desiredOn, blockReasonStr_(s.blockReason), s.feedback.error);
+                s.retryExpiredCommand = false;
                 s.effective = effective;
                 if (++s.revision == 0) ++s.revision;
                 s.driver.get().applyTarget(effective, s.revision);
             }
             s.driver.get().tick(nowMs, writesEnabled_);
             s.feedback = s.driver.get().readState();
-            if (s.feedback.error) s.blockReason = POOL_DEVICE_BLOCK_IO_ERROR;
+            if (s.feedback.error && !s.feedback.communicationDegraded && s.blockReason == POOL_DEVICE_BLOCK_NONE) s.blockReason = POOL_DEVICE_BLOCK_IO_ERROR;
         }
         if (dataStore_) SerialEquipmentValues::publish(dataStore_->values, i, s.driverConfig,
             s.desired, s.feedback, s.def.enabled && s.driverReady,
             nowMs, uint64_t(esp_timer_get_time()) / 1000ULL);
         s.actualOn = s.feedback.observedValid && s.feedback.observed.running;
+        if (s.feedback.observedValid && (s.actualOn != wasActualOn || !previous.observedValid) && serial)
+            LOGI("Readback slot=%u confirmed_run=%u requested_run=%u revision=%lu", i,
+                 s.actualOn, s.effective.running, (unsigned long)s.revision);
         if (s.actualOn != wasActualOn && dataStore_) dataStore_->notifyChanged(DataKeys::PoolDeviceOverrides);
         if (s.actualOn != wasActualOn || s.actualOnSinceMs == 0U) {
             s.actualOnSinceMs = nowMs;
@@ -785,12 +802,17 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
     }
 }
 
-bool PoolDeviceModule::dependenciesSatisfied_(uint8_t slotIdx) const
+bool PoolDeviceModule::dependenciesSatisfied_(uint8_t slotIdx, bool continuing) const
 {
     if (slotIdx >= POOL_DEVICE_MAX) return false;
     const PoolDeviceSlot& s = slots_[slotIdx];
     if (!s.used) return false;
-    if (s.def.dependsOnMask == 0) return true;
+    const bool heater = s.driverConfig.serial.model == PoolSerialModel::Polytropic;
+    const bool continuingHeat = continuing && heater && s.feedback.hasObservation &&
+        s.feedback.appliedValid && s.feedback.applied.running && s.feedback.observed.running;
+    const uint32_t now = millis();
+    if (s.def.dependsOnMask == 0)
+        return !heater || poolLocalFlowPermitsHeat(s.driverConfig, s.feedback, continuingHeat, now);
     const uint32_t validMask = (1UL << POOL_DEVICE_MAX) - 1UL;
     if (s.def.dependsOnMask & ~validMask) return false;
     uint16_t reachable = s.def.dependsOnMask;
@@ -807,9 +829,10 @@ bool PoolDeviceModule::dependenciesSatisfied_(uint8_t slotIdx) const
         if ((s.def.dependsOnMask & (uint16_t)(1u << i)) == 0) continue;
         if (i == slotIdx) continue;
         const PoolDeviceSlot& dep = slots_[i];
-        if (!dep.used || !dep.driverReady || !dep.feedback.observedValid || !dep.actualOn) return false;
-        if (s.driverConfig.requireConfirmedDependency && dep.feedback.quality != PoolFeedbackQuality::Confirmed) return false;
-        if (dep.feedback.observed.setpoint < s.driverConfig.dependencyMinimum) return false;
+        if (!dep.used || !dep.def.enabled || !dep.driverReady ||
+            dep.blockReason != POOL_DEVICE_BLOCK_NONE) return false;
+        if (!poolDependencyPermitsRun(s.driverConfig, dep.feedback, dep.effective.running, continuingHeat, now))
+            return false;
     }
     return true;
 }

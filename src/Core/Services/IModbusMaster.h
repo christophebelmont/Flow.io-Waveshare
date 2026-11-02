@@ -39,7 +39,8 @@ enum ModbusResultCode : uint8_t {
     MODBUS_RESULT_CRC_ERROR = 6,
     MODBUS_RESULT_PROTOCOL_ERROR = 7,
     MODBUS_RESULT_EXCEPTION = 8,
-    MODBUS_RESULT_IO_ERROR = 9
+    MODBUS_RESULT_IO_ERROR = 9,
+    MODBUS_RESULT_EXPIRED = 10
 };
 
 /** Wire dialect is explicit: vendor register frames do not use Modbus exceptions. */
@@ -71,6 +72,7 @@ struct ModbusRequest {
     uint16_t registerAddress = 0U;
     uint16_t registerCount = 1U;
     uint16_t values[MODBUS_MAX_REGISTERS_PER_REQUEST]{};
+    uint32_t transactionBudgetMs = 5000; // Queue, attempts and receive time combined.
     uint32_t responseTimeoutMs = 500U;
     uint8_t retries = 1U;
 };

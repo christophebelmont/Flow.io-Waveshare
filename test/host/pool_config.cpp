@@ -94,5 +94,11 @@ int main() {
     for (auto json : {R"({"kind":3,"serial":{"model":0}})", R"({"kind":3,"serial":{"model":3}})",
                      R"({"kind":3,"serial":{"model":1,"baud":9600}})"})
         assert(!parsePoolDriverConfig(json,c,error,sizeof(error)));
+    assert(parsePoolDriverConfig(R"({"kind":3,"verified_flow_grace_ms":5000,"serial":{"model":2}})",c,error,sizeof(error)));
+    assert(serializePoolDriverConfig(c,encoded,sizeof(encoded)));
+    assert(parsePoolDriverConfig(encoded,decoded,error,sizeof(error)) && decoded.verifiedFlowGraceMs == 5000);
+    for (const auto json : {R"({"kind":3,"verified_flow_grace_ms":60001,"serial":{"model":2}})",
+                            R"({"kind":3,"verified_flow_grace_ms":5000,"serial":{"model":1}})"})
+        assert(!parsePoolDriverConfig(json,c,error,sizeof(error)));
     puts("pool config tests passed");
 }

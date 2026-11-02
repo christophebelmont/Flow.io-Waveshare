@@ -7775,8 +7775,8 @@
           const awaitingSnapshot = submission?.state === 'accepted';
           const rejected = submission?.state === 'rejected';
           const awaitingApplication = phase === 5 && !submission;
-          const waiting = transmitting || awaitingSnapshot || phase === 1 || phase === 5;
-          const failed = rejected || phase === 3;
+          const waiting = transmitting || awaitingSnapshot || phase === 1 || phase === 5 || phase === 7;
+          const failed = rejected || phase === 3 || phase === 6;
           const confirmed = phase === 2 && Number(current.quality) === 2;
           const display = submission ? submission.value
             : (waiting || failed || phase === 4) ? current.setpoint
@@ -7817,7 +7817,19 @@
             statusText = tr('dashboard.action.setpointDraft', 'Modification non appliquée');
             visible = true;
           } else if (failed) {
-            statusText = rejected ? submission.error : tr('dashboard.action.failed', 'Échec de la commande');
+            statusText = phase === 6 && !rejected
+              ? tr('dashboard.action.deliveryExpired', 'Délai de commande dépassé · Nouvelle demande nécessaire')
+              : rejected ? submission.error : tr('dashboard.action.failed', 'Échec de la commande');
+            visible = true;
+          } else if (current.communicationDegraded) {
+            statusText = current.desiredOn === false
+              ? tr('dashboard.action.stopUnconfirmed', 'Arrêt demandé · confirmation en attente')
+              : phase === 7
+                ? tr('dashboard.action.verifyingWrite', 'Communication dégradée · Vérification de la commande')
+                : tr('dashboard.action.linkDegraded', 'Communication dégradée');
+            if (current.observationAgeMs != null)
+              statusText += ' · ' + tr('dashboard.action.readAge', 'Dernière mesure il y a {s} s')
+                .replace('{s}', Math.floor(current.observationAgeMs / 1000));
             visible = true;
           } else if (awaitingApplication) {
             const runningConfirmed = current.actualOn === true && current.desiredOn === true
@@ -8194,12 +8206,12 @@
         feedback.classList.remove('is-error');
         feedback.textContent = tr('dashboard.action.pending', 'Application…');
         try {
-          // A background read can coexist with a click; finish it before the
-          // command so its earlier snapshot cannot overwrite the action read.
-          if (tableRefreshPromise) await tableRefreshPromise;
+          // Dispatch immediately. Order only the snapshots, so a slow dashboard
+          // read cannot delay the operator's command or overwrite its final state.
           const ok = await executeRuntimeAction(entry, action, value, targetValue);
           if (ok) {
             feedback.textContent = success;
+            if (tableRefreshPromise) await tableRefreshPromise;
             const refreshed = await refreshTable(updatedSlots);
             if (!refreshed) feedback.textContent = success + ' ' + feedback.textContent;
           } else {
@@ -14040,6 +14052,7 @@
           } catch (_) { input.setCustomValidity(tr('pool.driver.invalid', 'Valeur invalide')); input.reportValidity(); return; }
           object[key] = typeof fallback === 'boolean' ? next === 1 : next;
           if (key === 'kind') {
+            delete config.verified_flow_grace_ms;
             if (next === 3 && ![1, 2].includes(config.serial?.model)) config.serial = { model: 0 };
             if (next !== 3 && !config.outputs) config.outputs = [0];
             render();
@@ -14083,6 +14096,8 @@
             const option = document.createElement('option');
             option.value = String(value); option.textContent = label; model.appendChild(option);
           });
+          if (config.serial?.model === 2)
+            add(config, 'verified_flow_grace_ms', tr('pool.driver.flowGrace', 'Maintien avec protection débit vérifiée (ms, 0 = désactivé)'), 0);
           model.value = config.serial?.model ? String(config.serial.model) : '';
           const validateModel = () => {
             const error = model.value ? '' : tr('pool.driver.chooseModel', 'Choisir un modèle');
@@ -14093,6 +14108,7 @@
           model.addEventListener('change', () => {
             if (!model.value) { validateModel(); stored.dispatchEvent(new Event('input', { bubbles: true })); return; }
             config.serial = { model: Number(model.value) };
+            delete config.verified_flow_grace_ms;
             ['unit', 'minimum', 'maximum', 'startup', 'outputs', 'steps', 'dead_ms',
              'gain', 'offset', 'off', 'flow_curve'].forEach(key => delete config[key]);
             validateModel(); commit(); render();

@@ -4,7 +4,12 @@
 #include <cstring>
 
 namespace {
-bool due(uint32_t now, uint32_t deadline) { return int32_t(now - deadline) >= 0; }
+bool transientModbusException(uint8_t code)
+{
+    // Acknowledge (processing), busy, gateway unavailable, or target silent.
+    return code == 0x05 || code == 0x06 || code == 0x0A || code == 0x0B;
+}
+bool due(uint32_t now, uint32_t deadline) { return deadline == 0 || int32_t(now - deadline) >= 0; }
 double firstRawStep(const PoolDriverConfig& c)
 {
     return std::ceil((double(c.capabilities.minimum) * c.serial.rawPerUnit + c.serial.rawOffset) / c.serial.rawStep);
@@ -67,6 +72,8 @@ bool validatePoolDriverConfig(const PoolDriverConfig& c)
                  (i && p.steps[i] <= p.steps[i-1]))) return false;
         }
     }
+    if (c.verifiedFlowGraceMs && (p.kind != PoolControlKind::Rs485 ||
+        c.serial.model != PoolSerialModel::Polytropic || c.verifiedFlowGraceMs > 60000)) return false;
     if (p.kind == PoolControlKind::Analog)
         return std::isfinite(c.analogGain) && c.analogGain != 0 &&
             std::isfinite(c.analogOffset) && std::isfinite(c.analogOff) &&
@@ -189,6 +196,7 @@ void PoolDriverBase::applied_(const PoolDeviceTarget& t, uint32_t revision, uint
 }
 void PoolDriverBase::failed_(uint16_t error, uint32_t now)
 {
+    state_.communicationDegraded = false;
     state_.error = error; state_.phase = PoolCommandPhase::Failed;
     state_.appliedValid = false;
     state_.online = false; state_.observedValid = false;
@@ -269,6 +277,14 @@ void AnalogSetpointDriver::tick(uint32_t now, bool enabled)
 void SerialDeviceDriver::applyTarget(const PoolDeviceTarget& t, uint32_t revision)
 {
     if (revision == revision_) return;
+    uncertainWrite_ = Operation::None;
+    reconnectRead_ = t.running && state_.communicationDegraded && config_.serial.hasFeedback
+        ? firstRead_() : Operation::None;
+    runVerified_ = false;
+    stopRepeats_ = 0;
+    stopRetryAt_ = 0;
+    deliveryExpired_ = false;
+    deliveryStarted_ = false;
     stopAcknowledged_ = false;
     confirmation_ = Operation::None;
     recoveryRound_ = false;
@@ -302,8 +318,15 @@ bool SerialDeviceDriver::submit_(Operation op, uint32_t now)
     r.function = wire->function; r.operation = wire->operation; r.registerAddress = wire->address;
     r.responseLayout = wire->responseLayout;
     if (op == Operation::Telemetry) r.registerCount = kHeatPumpPolyBlocks[telemetryBlock_].count;
-    r.responseTimeoutMs = c.timeoutMs; r.retries = c.retries;
-    // A fresh stop (including its transport retries) is always safety priority.
+    r.responseTimeoutMs = c.timeoutMs;
+    r.retries = wire->operation == RegisterOperation::Read || !c.hasFeedback ? c.retries : 0;
+    r.transactionBudgetMs = 3000U + c.timeoutMs * (1U + r.retries) + c.line.lateResponseGuardMs * r.retries;
+    if (target_.running && deliveryStarted_ && !deliveryExpired_ &&
+        (!state_.appliedValid || state_.appliedRevision != revision_)) {
+        const auto remaining = DeliveryBudgetMs - (now - deliveryAt_);
+        if (remaining < r.transactionBudgetMs) r.transactionBudgetMs = remaining;
+    }
+    // A fresh stop is always safety priority.
     // Later recovery rounds must yield to new commands and their confirmations.
     r.priority = recoveryRound_ ? MODBUS_PRIORITY_NORMAL :
         op == Operation::Run && !target_.running ? MODBUS_PRIORITY_SAFETY :
@@ -319,12 +342,13 @@ bool SerialDeviceDriver::submit_(Operation op, uint32_t now)
     const auto result = bus_->submit(bus_->ctx, &r, &transaction_);
     if (result != MODBUS_RESULT_OK) {
         transaction_ = MODBUS_TRANSACTION_INVALID;
-        if (result != MODBUS_RESULT_QUEUE_FULL) failed_(result, now);
+        if (result == MODBUS_RESULT_INVALID_ARGUMENT) failed_(result, now);
+        else linkFailure_(result, now);
         return false;
     }
     nextRequestAt_ = now + c.line.minimumRequestIntervalMs;
     operation_ = op; sentTarget_ = target_; sentRevision_ = revision_;
-    if (sentTarget_.running || op == Operation::Setpoint) {
+    if (sentTarget_.running || op == Operation::Setpoint || uncertainWrite_ == Operation::Setpoint) {
         sentTarget_.setpoint = (poolSerialRawSetpoint(config_, target_.setpoint) - c.rawOffset) / c.rawPerUnit;
     }
     return true;
@@ -333,16 +357,44 @@ void SerialDeviceDriver::commandAcknowledged_(uint32_t now)
 {
     applied_(sentTarget_, sentRevision_, now);
     nextPollAt_ = now;
+    runVerified_ = !config_.serial.hasFeedback;
+    if (!sentTarget_.running && config_.serial.hasFeedback) {
+        stopRetryAt_ = now + (1000U << stopRepeats_);
+    }
     if (config_.serial.hasFeedback) {
-        confirmation_ = config_.serial.runningSource == PoolRunningSource::StatusMask
-            ? Operation::Status : Operation::Feedback;
+        confirmation_ = firstRead_();
         state_.phase = PoolCommandPhase::Confirming;
     }
+}
+
+void SerialDeviceDriver::linkFailure_(uint8_t result, uint32_t now)
+{
+    state_.communicationDegraded = true;
+    state_.observedValid = false;
+    state_.quality = state_.hasObservation ? PoolFeedbackQuality::Stale : PoolFeedbackQuality::Unknown;
+    state_.online = false;
+    state_.error = result;
+    state_.changedAtMs = now;
+    if (communicationFailures_ < 4) ++communicationFailures_;
+    recoveryRound_ = true;
+    retryAt_ = now + (1000U << (communicationFailures_ - 1U));
+}
+
+SerialDeviceDriver::Operation SerialDeviceDriver::firstRead_() const
+{
+    return config_.serial.runningSource == PoolRunningSource::StatusMask ? Operation::Status : Operation::Feedback;
+}
+
+bool SerialDeviceDriver::modeMatches_(uint16_t status, const PoolDeviceTarget& target) const
+{
+    if (config_.serial.model != PoolSerialModel::Polytropic || !target.running) return true;
+    return (status & 0x0FU) == (config_.serial.modes.options[target.mode].value & 0x0FU);
 }
 
 bool SerialDeviceDriver::observedTargetReached_() const
 {
     if (!state_.observedValid || state_.observed.running != state_.applied.running) return false;
+    if (!modeMatches_(lastStatusWord_, state_.applied)) return false;
     const auto& serial = config_.serial;
     // A combined stop register reports a stopped speed, not the prepared target.
     if (!state_.applied.running && serial.control == PoolSerialControl::SetpointOrStop) return true;
@@ -350,6 +402,49 @@ bool SerialDeviceDriver::observedTargetReached_() const
     // resolution. An acknowledgement or an old startup RPM is not convergence.
     return std::fabs(double(state_.observed.setpoint) - state_.applied.setpoint) <=
         double(serial.feedbackUnitsPerRaw) * 0.5;
+}
+
+void SerialDeviceDriver::reconcileWrite_(uint32_t now)
+{
+    // Only this revision can reach here: applyTarget cancels obsolete probes.
+    const auto write = uncertainWrite_;
+    uncertainWrite_ = Operation::None;
+    const bool speedMatches = std::fabs(state_.observed.setpoint - sentTarget_.setpoint) <=
+        config_.serial.feedbackUnitsPerRaw * 0.5f;
+    if (write == Operation::Setpoint && speedMatches) {
+        speedRevision_ = revision_;
+        if (!target_.running) commandAcknowledged_(now);
+    } else if (write == Operation::Run && state_.observed.running == target_.running &&
+               modeMatches_(lastStatusWord_, target_) &&
+               (!target_.running || config_.serial.control != PoolSerialControl::SetpointOrStop || speedMatches)) {
+        if (!target_.running && config_.serial.control == PoolSerialControl::SeparateRun)
+            stopAcknowledged_ = true;
+        else commandAcknowledged_(now);
+    }
+    // A mismatch leaves this write pending; only the current target is eligible.
+    state_.changedAtMs = now;
+}
+
+void SerialDeviceDriver::finishReconnectRead_(bool moreReads, uint32_t now)
+{
+    reconnectRead_ = moreReads ? Operation::Feedback : Operation::None;
+    if (!moreReads && state_.appliedValid && state_.appliedRevision == revision_) {
+        const bool runningMatches = state_.observed.running == target_.running && modeMatches_(lastStatusWord_, target_);
+        const bool setpointMatches = config_.serial.control == PoolSerialControl::SetpointOrStop ||
+            std::fabs(state_.observed.setpoint - state_.applied.setpoint) <= config_.serial.feedbackUnitsPerRaw * 0.5f;
+        if (!runningMatches || !setpointMatches) {
+            // The device lost its settings during the outage. Give PoolDevice
+            // a full control tick to re-evaluate interlocks before any write.
+            state_.appliedValid = false;
+            stopAcknowledged_ = false;
+            runVerified_ = false;
+            speedRevision_ = 0;
+            limitValid_ = false;
+            confirmation_ = Operation::None;
+            deliveryAt_ = now;
+            retryAt_ = now + 1;
+        }
+    }
 }
 
 void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
@@ -371,16 +466,21 @@ void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
         return;
     }
     if (r.result != MODBUS_RESULT_OK) {
-        stopAcknowledged_ = false;
-        confirmation_ = Operation::None;
-        statusValid_ = levelValid_ = false;
-        failed_(r.result, now);
-        // A transaction already includes the configured wire retries. Space
-        // subsequent rounds so an offline device cannot monopolize the shared
-        // bus with repeated safety writes. New targets still clear retryAt_.
-        if (communicationFailures_ < 4) ++communicationFailures_;
-        recoveryRound_ = true;
-        retryAt_ = now + (1000U << (communicationFailures_ - 1U));
+        if ((r.result == MODBUS_RESULT_EXCEPTION && !transientModbusException(r.exceptionCode)) ||
+            r.result == MODBUS_RESULT_INVALID_ARGUMENT) {
+            uncertainWrite_ = Operation::None;
+            stopAcknowledged_ = false;
+            confirmation_ = Operation::None;
+            state_.communicationDegraded = false;
+            failed_(r.result, now);
+        } else {
+            if (config_.serial.hasFeedback && (operation_ == Operation::Run || operation_ == Operation::Setpoint))
+                uncertainWrite_ = operation_;
+            else if (config_.serial.hasFeedback && uncertainWrite_ == Operation::None &&
+                     (operation_ == Operation::Feedback || operation_ == Operation::Status))
+                reconnectRead_ = firstRead_();
+            linkFailure_(r.result, now);
+        }
         return;
     }
     if (operation_ == Operation::Limits) {
@@ -390,9 +490,14 @@ void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
         if (!limitValid_) { failed_(MODBUS_RESULT_PROTOCOL_ERROR, now); return; }
         maximumTemperature_ = maximumCelsius; limitRevision_ = sentRevision_;
     }
-    communicationFailures_ = 0;
-    recoveryRound_ = false;
-    state_.online = true; state_.error = 0;
+    const bool moreReads = reconnectRead_ == Operation::Status;
+    if (!moreReads) {
+        communicationFailures_ = 0;
+        recoveryRound_ = false;
+        state_.communicationDegraded = false;
+    }
+    state_.online = true;
+    if (!moreReads) state_.error = 0;
     switch (operation_) {
         case Operation::Setpoint:
             speedRevision_ = sentRevision_;
@@ -413,6 +518,7 @@ void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
             }
             break;
         case Operation::Status:
+            lastStatusWord_ = r.values[0];
             state_.observed.running = (r.values[0] & config_.serial.runningMask) != 0;
             statusAt_ = now; statusValid_ = true; break;
         case Operation::Feedback: {
@@ -433,6 +539,15 @@ void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
         }
         default: break;
     }
+    const bool readRun = operation_ == firstRead_();
+    if (readRun && state_.appliedValid && state_.appliedRevision == revision_ &&
+        state_.observed.running == target_.running && modeMatches_(lastStatusWord_, target_))
+        runVerified_ = true;
+    if (uncertainWrite_ != Operation::None) {
+        reconcileWrite_(now);
+        return;
+    }
+    if (reconnectRead_ != Operation::None) finishReconnectRead_(moreReads, now);
     if (operation_ == confirmation_) {
         confirmation_ = operation_ == Operation::Status ? Operation::Feedback : Operation::None;
         if (confirmation_ == Operation::None) {
@@ -443,6 +558,19 @@ void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
 }
 void SerialDeviceDriver::tick(uint32_t now, bool enabled)
 {
+    if (enabled && !deliveryStarted_) {
+        deliveryStarted_ = true;
+        deliveryAt_ = now;
+    }
+    if (enabled && target_.running && !runVerified_ &&
+        now - deliveryAt_ >= DeliveryBudgetMs && !deliveryExpired_) {
+        if (transaction_ != MODBUS_TRANSACTION_INVALID) bus_->cancelOwner(bus_->ctx, owner_);
+        transaction_ = MODBUS_TRANSACTION_INVALID;
+        operation_ = confirmation_ = uncertainWrite_ = reconnectRead_ = Operation::None;
+        deliveryExpired_ = true;
+        state_.phase = PoolCommandPhase::Expired;
+        state_.changedAtMs = now;
+    }
     if (!enabled && !frozen_) {
         bus_->cancelOwner(bus_->ctx, owner_); transaction_ = MODBUS_TRANSACTION_INVALID;
     }
@@ -457,16 +585,21 @@ void SerialDeviceDriver::tick(uint32_t now, bool enabled)
         }
     }
     if (config_.serial.hasFeedback) {
-        state_.observedValid = statusValid_ && levelValid_ &&
+        state_.observedValid = !state_.communicationDegraded && statusValid_ && levelValid_ &&
             uint32_t(now - statusAt_) <= config_.serial.staleMs && uint32_t(now - levelAt_) <= config_.serial.staleMs;
         state_.quality = state_.observedValid ? PoolFeedbackQuality::Confirmed :
             (statusValid_ || levelValid_ ? PoolFeedbackQuality::Stale : PoolFeedbackQuality::Unknown);
-        state_.observedAtMs = uint32_t(now - statusAt_) > uint32_t(now - levelAt_) ? statusAt_ : levelAt_;
+        if (statusValid_ && levelValid_) {
+            state_.hasObservation = true;
+            state_.observedAtMs = uint32_t(now - statusAt_) > uint32_t(now - levelAt_) ? statusAt_ : levelAt_;
+        }
     }
     if (!config_.serial.hasFeedback && uint32_t(now - state_.observedAtMs) >= config_.serial.staleMs) {
         state_.observedValid = false; state_.quality = PoolFeedbackQuality::Stale;
     }
-    if (state_.appliedValid && state_.appliedRevision == revision_) {
+    if (deliveryExpired_) state_.phase = PoolCommandPhase::Expired;
+    else if (uncertainWrite_ != Operation::None) state_.phase = PoolCommandPhase::VerifyingWrite;
+    else if (state_.appliedValid && state_.appliedRevision == revision_) {
         state_.phase = !config_.serial.hasFeedback ||
             (confirmation_ == Operation::None && observedTargetReached_())
             ? PoolCommandPhase::Applied : PoolCommandPhase::Confirming;
@@ -478,7 +611,28 @@ void SerialDeviceDriver::tick(uint32_t now, bool enabled)
         }
     }
     if (!writable_(enabled) || transaction_ != MODBUS_TRANSACTION_INVALID || !due(now, retryAt_) || !due(now, nextRequestAt_)) return;
-    if (!state_.appliedValid || state_.appliedRevision != revision_) {
+    retryAt_ = 0;
+    if (!target_.running && state_.appliedValid && state_.appliedRevision == revision_ &&
+        state_.observedValid && state_.observed.running && confirmation_ == Operation::None &&
+        due(now, stopRetryAt_)) {
+        // OFF remains pending until physically confirmed. Reissue paced stops
+        // without taking the priority reserved for a new safety request.
+        if (stopRepeats_ < 3) ++stopRepeats_;
+        state_.appliedValid = false;
+        stopAcknowledged_ = false;
+        recoveryRound_ = true;
+    }
+    if (reconnectRead_ != Operation::None) {
+        submit_(reconnectRead_, now);
+        return;
+    }
+    if (uncertainWrite_ != Operation::None) {
+        const bool status = uncertainWrite_ == Operation::Run &&
+            config_.serial.runningSource == PoolRunningSource::StatusMask;
+        submit_(status ? Operation::Status : Operation::Feedback, now);
+        return;
+    }
+    if (!deliveryExpired_ && (!state_.appliedValid || state_.appliedRevision != revision_)) {
         const bool separate = config_.serial.control == PoolSerialControl::SeparateRun;
         if (separate && !target_.running && !stopAcknowledged_) {
             // Never delay a stop behind a limit read or a setpoint write.
@@ -497,7 +651,7 @@ void SerialDeviceDriver::tick(uint32_t now, bool enabled)
         submit_(confirmation_, now);
         return;
     }
-    if (!config_.serial.hasFeedback && uint32_t(now - state_.observedAtMs) >= config_.serial.pollMs) {
+    if (!config_.serial.hasFeedback && !deliveryExpired_ && uint32_t(now - state_.observedAtMs) >= config_.serial.pollMs) {
         // Explicit idempotent register writes refresh devices without readback.
         submit_(Operation::Run, now);
     } else if ((config_.serial.hasFeedback || config_.serial.telemetryProfile != PoolTelemetryProfile::None) &&

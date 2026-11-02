@@ -26,6 +26,7 @@ private:
     struct Slot {
         bool abandoned = false;
         uint32_t queuedAtMs = 0;
+        uint32_t enqueuedAttemptAtMs = 0;
         SlotState state = SlotState::Free;
         uint16_t transactionId = MODBUS_TRANSACTION_INVALID;
         uint32_t order = 0U;

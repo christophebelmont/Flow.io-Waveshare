@@ -39,8 +39,7 @@ La fenêtre de détail reconstruit donc une attente même après réouverture.
 
 Dans l'interface, un brouillon n'est envoyé que par le bouton. Pendant l'attente,
 la dernière lecture apparaît à gauche de la cible, accompagnée du snake orange
-et de « Commande acceptée · Application en attente ». Une nouvelle saisie reste
-possible lorsque l'équipement tourne. Si la lecture confirme déjà la marche
+et de « Commande acceptée · Application en attente ». Si la lecture confirme déjà la marche
 demandée, le message devient « Marche confirmée · Consigne en attente » :
 l'attente concerne la consigne et non la mise en marche. Une nouvelle saisie reste
 possible lorsque l'équipement tourne. Une requête HTTP refusée conserve sa
@@ -53,3 +52,39 @@ une demande de remplacement à mi-parcours, les lectures divergentes et les
 arrêts avec consigne indépendante. `test_modbus_confirmation_dialog.cjs` couvre
 les rafraîchissements, les remplacements, les refus, les snapshots retardés et
 la réouverture de la fenêtre.
+
+## Incident de communication
+
+Une erreur de transport conserve la demande et la dernière mesure horodatée.
+La mesure devient indisponible pour le pilotage. Le dialogue affiche la qualité
+de communication et l'âge de la dernière observation. L'arrêt opérateur remplace
+la révision en cours, annule les requêtes obsolètes et reste demandé jusqu'à
+confirmation. Une trame déjà émise termine son échange avant le suivant.
+
+Pour les profils avec retour, une écriture sans acquittement déclenche une
+lecture avant toute réémission. Après une panne de lecture, le pilote relit
+l'état et la consigne utiles et ne réapplique que la demande encore autorisée.
+La confirmation Polytropic compare également le mode du registre 1000.
+Une demande ON qui ne peut être confirmée sous 15 s expire. La vitesse de
+l'AquaGem peut continuer à converger après confirmation de marche. Une demande
+expirée exige une nouvelle action. Les sondages continuent pendant la panne,
+avec des intervalles de récupération de 1, 2, 4 puis 8 secondes.
+
+La file réserve une place à la surveillance et une à l'arrêt. L'échéance d'une
+transaction couvre la file, la transmission et les tentatives. Les journaux
+IOModule indiquent l'attente avant chaque transmission et le temps de réponse.
+Les journaux PoolDevice identifient la source de la demande, la révision, le
+motif d'inhibition et la marche effectivement relue.
+
+La PAC utilise les dépendances de filtration configurées ou, en leur absence,
+le contact de débit du registre 500. Un défaut FLO (501, bit 14) inhibe le
+chauffage jusqu'à sa disparition constatée. Une nouvelle chauffe exige une
+preuve actuelle de circulation. Le paramètre Polytropic
+`verified_flow_grace_ms` vaut 0 par défaut. Après vérification sur site de la
+protection locale de débit, une valeur de 1 à 60 000 ms permet de maintenir
+une chauffe déjà engagée jusqu'à cet âge de la dernière preuve. Un arrêt
+demandé à la pompe, un débit insuffisant confirmé ou FLO l'emportent sur ce
+délai. Contrôler cette politique sur installation avant d'autoriser le maintien.
+
+Le profil Waveshare expose un port RS485 isolé. Les deux machines partagent
+ce port et un défaut électrique peut encore couper les deux liaisons.

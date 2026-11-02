@@ -56,6 +56,7 @@ const char* poolDeviceBlockReasonStr_(uint8_t reason)
         case POOL_DEVICE_BLOCK_INTERLOCK: return "interlock";
         case POOL_DEVICE_BLOCK_IO_ERROR: return "io_error";
         case POOL_DEVICE_BLOCK_MAX_UPTIME: return "max_uptime";
+        case POOL_DEVICE_BLOCK_NO_FLOW: return "no_flow";
         case POOL_DEVICE_BLOCK_IO_DISABLED: return "io_disabled";
         default: return "unknown";
     }
@@ -515,6 +516,7 @@ bool PoolLogicModule::stepO2Protocol_(bool filtrationOn,
         meta.blockReason == POOL_DEVICE_BLOCK_DISABLED ||
         meta.blockReason == POOL_DEVICE_BLOCK_IO_DISABLED ||
         meta.blockReason == POOL_DEVICE_BLOCK_INTERLOCK ||
+        meta.blockReason == POOL_DEVICE_BLOCK_NO_FLOW ||
         meta.blockReason == POOL_DEVICE_BLOCK_IO_ERROR) {
         o2LastProgressMs_ = 0;
         setO2ProtocolState_(O2ProtocolBlocked, O2BlockPumpBlocked, nowMs);

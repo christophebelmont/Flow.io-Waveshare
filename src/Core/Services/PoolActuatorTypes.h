@@ -23,7 +23,7 @@ enum class PoolRunningSource : uint8_t { StatusMask, FeedbackThreshold, DeviceSt
 enum class PoolRegisterValueType : uint8_t { Unsigned16, Signed16 };
 enum class PoolRawRounding : uint8_t { Nearest, Down };
 enum class PoolFeedbackQuality : uint8_t { Unknown, Estimated, Confirmed, Stale };
-enum class PoolCommandPhase : uint8_t { Idle, Pending, Applied, Failed, Frozen, Confirming };
+enum class PoolCommandPhase : uint8_t { Idle, Pending, Applied, Failed, Frozen, Confirming, Expired, VerifyingWrite };
 // Confirming: the device acknowledged the command, but fresh feedback has not
 // yet reached its target. Feedback quality describes the reading, not the command.
 
@@ -55,6 +55,9 @@ struct PoolDeviceFeedback {
     uint32_t observedAtMs = 0;
     uint32_t changedAtMs = 0;
     uint16_t error = 0;
+    // Independent of device faults and of the last confirmed values.
+    bool communicationDegraded = false;
+    bool hasObservation = false;
     uint16_t deviceFaults = 0;
     PoolTelemetryState telemetry{};
 };
@@ -116,6 +119,7 @@ struct PoolDriverConfig {
     float analogGain = 0.1f;
     float analogOffset = 0;
     // Minimum applied/observed level required of each dependency. Zero disables level check.
+    uint32_t verifiedFlowGraceMs = 0; // Opt-in for a heater with verified local protection.
     float dependencyMinimum = 0;
     bool requireConfirmedDependency = false;
     uint8_t flowPointCount = 0;

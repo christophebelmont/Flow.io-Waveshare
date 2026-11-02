@@ -135,7 +135,7 @@ async function main() {
     holdRead = true; event(2); await waitFor(() => releaseRead);
     await pump.click();
     assert(await pump.isDisabled(), 'A command still locks switches during a background read');
-    assert.equal(commands.length, 0, 'Commands wait for the earlier background snapshot');
+    await waitFor(() => commands.length === 1); // Dispatch even while the earlier read is held.
     const beforeCommandReply = releaseRead; releaseRead = null; beforeCommandReply();
     devices[1].actualOn = false; event(2); // Notification while the popup command owns its refresh.
     await page.waitForFunction(() => !document.querySelector('input[aria-label="On/Off — Filtration (pd0)"]').checked &&

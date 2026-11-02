@@ -102,6 +102,7 @@ const char* PoolDeviceModule::blockReasonStr_(uint8_t reason)
     if (reason == POOL_DEVICE_BLOCK_IO_ERROR) return "io_error";
     if (reason == POOL_DEVICE_BLOCK_MAX_UPTIME) return "max_uptime";
     if (reason == POOL_DEVICE_BLOCK_UNBOUND) return "unbound";
+    if (reason == POOL_DEVICE_BLOCK_NO_FLOW) return "no_flow";
     if (reason == POOL_DEVICE_BLOCK_IO_DISABLED) return "io_disabled";
     return "none";
 }
@@ -139,7 +140,7 @@ bool PoolDeviceModule::writeRuntimeUiValue(uint8_t valueId, IRuntimeUiWriter& wr
 
     const RuntimeUiId runtimeId = makeRuntimeUiId(moduleId(), valueId);
     PoolDeviceRuntimeStateEntry state{};
-    if (!poolDeviceRuntimeState(*dataStore_, slotIdx, state)) {
+    if (!poolDeviceRuntimeState(*dataStore_, slotIdx, state) || !state.feedback.observedValid) {
         return writer.writeUnavailable(runtimeId);
     }
     return writer.writeBool(runtimeId, state.actualOn);
@@ -209,7 +210,8 @@ bool PoolDeviceModule::buildStateSnapshot_(uint8_t slotIdx, char* out, size_t le
     doc["enabled"] = entry.enabled;
     doc["desired"] = entry.desiredOn;
     writeActuatorControlJson(doc, entry.control);
-    doc["on"] = entry.actualOn;
+    if (entry.feedback.observedValid) doc["on"] = entry.actualOn;
+    else doc["on"] = nullptr;
     doc["block"] = blockReasonStr_(entry.blockReason);
     doc["interlock_state"] = static_cast<uint8_t>(entry.interlockState);
     doc["driver_ready"] = s.driverReady;
@@ -239,6 +241,7 @@ bool PoolDeviceModule::buildStateSnapshot_(uint8_t slotIdx, char* out, size_t le
     observed["valid"] = f.observedValid; observed["on"] = f.observed.running;
     observed["setpoint"] = f.observed.setpoint; observed["ts"] = f.observedAtMs;
     doc["quality"] = uint8_t(f.quality); doc["phase"] = uint8_t(f.phase);
+    doc["communication_degraded"] = f.communicationDegraded;
     doc["online"] = f.online; doc["error"] = f.error;
     doc["device_faults"] = f.deviceFaults;
     writePoolTelemetryJson(doc.as<JsonObject>(), s.driverConfig.serial.telemetryProfile, f.telemetry);

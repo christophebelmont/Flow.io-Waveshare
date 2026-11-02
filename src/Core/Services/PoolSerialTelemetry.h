@@ -5,7 +5,7 @@
 
 enum class PoolTelemetryProfile : uint8_t { None, HeatPumpPoly };
 constexpr uint8_t POOL_TELEMETRY_BLOCKS = 5;
-constexpr uint8_t POOL_TELEMETRY_REGISTERS = 14;
+constexpr uint8_t POOL_TELEMETRY_REGISTERS = 15;
 
 struct PoolTelemetryState {
     uint16_t raw[POOL_TELEMETRY_REGISTERS]{};
@@ -32,8 +32,14 @@ struct PoolTelemetryField {
 
 /** Register map from Polytropic external gateway specification v6. */
 inline constexpr PoolTelemetryBlock kHeatPumpPolyBlocks[] = {
-    {500, 1, 0}, {503, 1, 1}, {510, 7, 2}, {521, 3, 9}, {1000, 2, 12}
+    {500, 2, 0}, {503, 1, 14}, {510, 7, 2}, {521, 3, 9}, {1000, 2, 12}
 };
+// Register 501 bit 14 (FLO). Retain an asserted alarm until a successful
+// read clears it, including while the telemetry block is stale.
+inline bool poolFlowProtectionActive(const PoolTelemetryState& telemetry)
+{
+    return (telemetry.raw[1] & 0x4000U) != 0;
+}
 inline constexpr PoolTelemetryField kHeatPumpPolyFields[] = {
     {"high_pressure", "High pressure", "", 0, 0, 0x0001, false, 1, EquipmentMetric::HighPressure},
     {"low_pressure", "Low pressure", "", 0, 0, 0x0002, false, 1, EquipmentMetric::LowPressure},
@@ -43,7 +49,7 @@ inline constexpr PoolTelemetryField kHeatPumpPolyFields[] = {
     {"four_way_valve", "Four-way valve", "", 0, 0, 0x0080, false, 1, EquipmentMetric::FourWayValve},
     {"bottom_plate", "Bottom plate", "", 0, 0, 0x0100, false, 1, EquipmentMetric::BottomPlate},
     {"compressor_heater", "Compressor heater", "", 0, 0, 0x0200, false, 1, EquipmentMetric::CompressorHeater},
-    {"defrost", "Defrost", "", 1, 1, 0x8000, false, 1, EquipmentMetric::Defrost},
+    {"defrost", "Defrost", "", 1, 14, 0x8000, false, 1, EquipmentMetric::Defrost},
     {"compressor_out", "Compressor outlet", "°C", 2, 2, 0, true, .1f, EquipmentMetric::CompressorOut},
     {"compressor_in", "Compressor inlet", "°C", 2, 3, 0, true, .1f, EquipmentMetric::CompressorIn},
     {"water_in", "Water inlet", "°C", 2, 4, 0, true, .1f, EquipmentMetric::WaterIn},

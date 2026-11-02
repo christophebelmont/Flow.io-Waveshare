@@ -3057,6 +3057,7 @@ const char* wavesharePoolDeviceBlockReasonLabel_(uint8_t reason)
         case POOL_DEVICE_BLOCK_INTERLOCK: return "interlock";
         case POOL_DEVICE_BLOCK_IO_ERROR: return "io_error";
         case POOL_DEVICE_BLOCK_MAX_UPTIME: return "max_uptime";
+        case POOL_DEVICE_BLOCK_NO_FLOW: return "no_flow";
         case POOL_DEVICE_BLOCK_UNBOUND: return "unbound";
         case POOL_DEVICE_BLOCK_IO_DISABLED: return "io_disabled";
         default: return "blocked";
@@ -7220,6 +7221,10 @@ void WebInterfaceModule::startServer_()
             deviceDoc["quality"] = uint8_t(state.feedback.quality);
             deviceDoc["phase"] = uint8_t(state.feedback.phase);
             deviceDoc["error"] = state.feedback.error;
+            deviceDoc["communicationDegraded"] = state.feedback.communicationDegraded ||
+                state.feedback.quality == PoolFeedbackQuality::Stale;
+            if (state.feedback.hasObservation)
+                deviceDoc["observationAgeMs"] = uint32_t(millis() - state.feedback.observedAtMs);
             if (stateAvailable && state.feedback.observedValid) {
                 deviceDoc["observedSetpoint"] = state.feedback.observed.setpoint;
                 deviceDoc["actualOn"] = state.actualOn;

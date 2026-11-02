@@ -73,5 +73,16 @@ int main() {
     pacedTransport.response = true; tick(paced,1010);
     tick(paced,1499); assert(pacedTransport.sent.size() == 1);
     tick(paced,1500); assert(pacedTransport.sent.size() == 2);
+    // Expire an unsent command even while an unrelated transaction owns the line.
+    Transport blocked; Rs485TransactionScheduler expiring(blocked); assert(expiring.begin());
+    auto& service = expiring.service();
+    testNowMs = 0;
+    assert(service.submit(service.ctx, &r, &a) == MODBUS_RESULT_OK);
+    tick(expiring, 1);
+    auto limited = r; limited.transactionBudgetMs = 20;
+    assert(service.submit(service.ctx, &limited, &b) == MODBUS_RESULT_OK);
+    tick(expiring, 21);
+    assert(service.poll(service.ctx, b, &result) == MODBUS_RESULT_OK && result.result == MODBUS_RESULT_EXPIRED);
+    assert(blocked.sent.size() == 1);
     puts("RS485 scheduler tests passed");
 }
