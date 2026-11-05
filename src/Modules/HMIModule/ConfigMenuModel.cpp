@@ -890,7 +890,10 @@ void ConfigMenuModel::buildView(ConfigMenuView& out) const
     out.pageIndex = pageIndex_;
     out.pageCount = 1;
     out.canHome = true;
-    out.canBack = (mode_ == ConfigMenuMode::Edit) || !isHome();
+    // The Back button is reserved for navigating between Browse branches.
+    // While editing a module, the Nextion editor page owns its own controls
+    // and must not expose the branch-navigation button.
+    out.canBack = mode_ == ConfigMenuMode::Browse && !isHome();
     out.canValidate = false;
     out.isHome = (mode_ == ConfigMenuMode::Browse && isHome());
     out.mode = mode_;

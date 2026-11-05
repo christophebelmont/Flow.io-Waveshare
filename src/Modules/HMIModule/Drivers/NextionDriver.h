@@ -81,6 +81,7 @@ private:
     void* debugCtx_ = nullptr;
     bool started_ = false;
     bool pageReady_ = false;
+    bool configRebuildRequired_ = true;
     bool versionDetected_ = false;
     bool identityDetected_ = false;
     char displayVersion_[HMI_DISPLAY_VERSION_TEXT_MAX]{};
@@ -122,4 +123,5 @@ private:
     const char* homeTextObjectName_(HmiHomeTextField field) const;
     const char* homeGaugeObjectName_(HmiHomeGaugeField field) const;
     void sanitizeText_(char* out, size_t outLen, const char* in) const;
+    void updateConfigPagination_(const ConfigMenuView& view);
 };

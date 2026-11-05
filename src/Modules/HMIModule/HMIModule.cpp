@@ -2304,7 +2304,7 @@ void HMIModule::handleDriverEvent_(const HmiEvent& e)
             break;
     }
 
-    if (changed) {
+    if (changed || configInputEvent) {
         viewDirty_ = true;
     }
     if (configInputEvent) {

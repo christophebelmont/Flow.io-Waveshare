@@ -65,7 +65,9 @@ private:
     // Keep the remote ESP session visible through the existing sleep grace.
     static constexpr uint32_t SleepOfflineTimeoutMs = 120000U;
     static constexpr uint32_t ReliableRetryMs = 150U;
-    static constexpr uint8_t ReliableMaxAttempts = 7U;
+    // Retry for the lifetime of the current session. UDP has no delivery
+    // guarantee; a finite retry budget can permanently lose a UI snapshot.
+    static constexpr uint32_t ReliableRetryMaxMs = 2000U;
 
     struct OutPacket {
         HmiUdpMsgType type = HmiUdpMsgType::Error;
@@ -105,6 +107,7 @@ private:
     char displayVersion_[HMI_DISPLAY_VERSION_TEXT_MAX]{};
     uint16_t txSeq_ = 1;
     uint16_t lastRxSeq_ = 0;
+    bool hasLastRxSeq_ = false;
     uint16_t lastEventSeq_ = 0;
     bool hasLastEventSeq_ = false;
     uint32_t lastSeenMs_ = 0;

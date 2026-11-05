@@ -43,10 +43,14 @@ class HmiPsramTests(unittest.TestCase):
 #include <vector>
 #define LOGD(...) ((void)0)
 #define LOGW(...) ((void)0)
+#define LOGI(...) ((void)0)
 constexpr size_t HMI_UDP_MAX_PACKET=512;
 constexpr uint16_t HMI_UDP_PORT=42110;
 constexpr uint8_t HMI_UDP_MAGIC0='F', HMI_UDP_MAGIC1='H', HMI_UDP_VERSION=7;
 constexpr uint8_t HMI_UDP_FLAG_ACK_REQUIRED=1, HMI_UDP_FLAG_IS_ACK=2;
+struct IPAddress { uint8_t octets[4]{}; uint8_t operator[](unsigned i) const { return octets[i]; } };
+struct FakeWiFi { IPAddress localIP() const { return IPAddress{{192,168,1,2}}; } };
+static FakeWiFi WiFi;
 uint32_t millis() { return 1; }
 '''+types+r'''
 uint16_t hmiUdpCrc16(const uint8_t* data, size_t len, uint16_t seed=0xffff);
@@ -60,7 +64,7 @@ struct Udp {
     unsigned starts=0;
     std::vector<std::vector<uint8_t>> packets;
     bool begin(uint16_t) { ++starts; return true; }
-    bool beginPacket(int,int) { return true; }
+    bool beginPacket(IPAddress,uint16_t) { return true; }
     size_t write(const uint8_t* p,size_t n) { packets.emplace_back(p,p+n); return n; }
     int endPacket() { return 1; }
 };
@@ -74,7 +78,8 @@ public:
     SpiRamPtr<PacketBuffers> buffers_;
     Udp udp_;
     bool started_=false, displayOnline_=true;
-    int remoteIp_=0, remotePort_=0;
+    IPAddress remoteIp_{};
+    int remotePort_=0;
     uint8_t outHead_=0, outTail_=0, reliableAttempts_=0;
     uint16_t txSeq_=1, lastRxSeq_=0, reliablePendingSeq_=0;
     size_t reliablePendingLen_=0;

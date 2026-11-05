@@ -131,6 +131,7 @@ bool NextionDriver::begin()
     delay(30);
     started_ = true;
     pageReady_ = false;
+    configRebuildRequired_ = true;
     versionDetected_ = false;
     identityDetected_ = false;
     displayVersion_[0] = '\0';
@@ -727,14 +728,7 @@ bool NextionDriver::renderConfigMenu(const ConfigMenuView& view)
     (void)sendCmdFmt_("tsw bBack,%u", view.canBack ? 1U : 0U);
     (void)sendCmdFmt_("vis bValid,%u", view.canValidate ? 1U : 0U);
     (void)sendCmdFmt_("tsw bValid,%u", view.canValidate ? 1U : 0U);
-    const bool canPrev = view.pageIndex > 0U;
-    const bool canNext = view.pageIndex + 1U < view.pageCount;
-    (void)sendCmdFmt_("vis bPrev,%u", canPrev ? 1U : 0U);
-    (void)sendCmdFmt_("tsw bPrev,%u", canPrev ? 1U : 0U);
-    (void)sendCmdFmt_("vis bNext,%u", canNext ? 1U : 0U);
-    (void)sendCmdFmt_("tsw bNext,%u", canNext ? 1U : 0U);
-    (void)sendCmdFmt_("nPage.val=%u", (unsigned)(view.pageIndex + 1U));
-    (void)sendCmdFmt_("nPages.val=%u", (unsigned)view.pageCount);
+    updateConfigPagination_(view);
     (void)sendCmdFmt_("vaCtxRef.val=%lu", (unsigned long)view.contextRef);
 
     for (uint8_t i = 0; i < ConfigMenuModel::RowsPerPage; ++i) {
@@ -814,6 +808,7 @@ bool NextionDriver::renderConfigMenu(const ConfigMenuView& view)
     }
 
     lastRenderMs_ = now;
+    configRebuildRequired_ = false;
     return true;
 }
 
@@ -821,6 +816,8 @@ bool NextionDriver::refreshConfigMenuValues(const ConfigMenuView& view)
 {
     if (!started_ || !pageReady_) return false;
     if (sleeping_) return false;
+    if (configRebuildRequired_) return renderConfigMenu(view);
+    updateConfigPagination_(view);
     (void)sendCmdFmt_("vaCtxRef.val=%lu", (unsigned long)view.contextRef);
 
     for (uint8_t i = 0; i < ConfigMenuModel::RowsPerPage; ++i) {
@@ -891,6 +888,18 @@ bool NextionDriver::refreshConfigMenuValues(const ConfigMenuView& view)
     return true;
 }
 
+void NextionDriver::updateConfigPagination_(const ConfigMenuView& view)
+{
+    const bool canPrev = view.pageCount > 1U && view.pageIndex > 0U;
+    const bool canNext = view.pageCount > 1U && (uint16_t)view.pageIndex + 1U < view.pageCount;
+    (void)sendCmdFmt_("nPage.val=%u", (unsigned)(view.pageIndex + 1U));
+    (void)sendCmdFmt_("nPages.val=%u", (unsigned)view.pageCount);
+    (void)sendCmdFmt_("vis bPrev,%u", canPrev ? 1U : 0U);
+    (void)sendCmdFmt_("tsw bPrev,%u", canPrev ? 1U : 0U);
+    (void)sendCmdFmt_("vis bNext,%u", canNext ? 1U : 0U);
+    (void)sendCmdFmt_("tsw bNext,%u", canNext ? 1U : 0U);
+}
+
 bool NextionDriver::parseCustomFrame_(const uint8_t* frame, uint8_t len, HmiEvent& out)
 {
     if (!frame || len == 0) return false;
@@ -909,8 +918,10 @@ bool NextionDriver::parseCustomFrame_(const uint8_t* frame, uint8_t len, HmiEven
                              ((uint32_t)payload[3] << 16) |
                              ((uint32_t)payload[4] << 24);
             }
-            const bool emitted = handlePageId_(payload[0], true, out);
+            const bool restoreContext = contextRef != 0U && isMenuPageId_(payload[0]);
+            const bool emitted = handlePageId_(payload[0], true, out) || restoreContext;
             if (emitted) {
+                out.type = HmiEventType::ConfigEnter;
                 out.contextRef = contextRef;
                 out.pageId = payload[0];
             }
@@ -919,6 +930,7 @@ bool NextionDriver::parseCustomFrame_(const uint8_t* frame, uint8_t len, HmiEven
 
         case NEXTION_CMD_NAV:
             if (payloadLen < 1U) return false;
+            if (payload[0] >= NAV_BACK && payload[0] <= NAV_PREV) configRebuildRequired_ = true;
             switch (payload[0]) {
                 case NAV_HOME:
                     out.type = HmiEventType::Home;
@@ -964,12 +976,14 @@ bool NextionDriver::parseCustomFrame_(const uint8_t* frame, uint8_t len, HmiEven
 
         case NEXTION_CMD_ROW_EDIT:
             if (payloadLen < 1U || payload[0] >= ConfigMenuModel::RowsPerPage) return false;
+            configRebuildRequired_ = true;
             out.type = HmiEventType::RowEdit;
             out.row = payload[0];
             return true;
 
         case NEXTION_CMD_ROW_SET_TEXT: {
             if (payloadLen < 2U || payload[0] >= ConfigMenuModel::RowsPerPage) return false;
+            configRebuildRequired_ = true;
             out.type = HmiEventType::RowSetText;
             out.row = payload[0];
             const uint8_t textLen = (uint8_t)(payloadLen - 1U);

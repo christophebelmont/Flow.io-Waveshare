@@ -39,7 +39,8 @@ inline bool define(Store& store, uint8_t slot, const char* name, const PoolDrive
     if (config.serial.telemetryProfile == PoolTelemetryProfile::HeatPumpPoly)
         for (const auto& field : kHeatPumpPolyFields)
             if (!declare(field.metric, field.unit, field.mask != 0, config.serial.telemetryStaleMs,
-                         field.mask || field.scale >= 1.0f ? 0 : 1)) return false;
+                         field.metric == EquipmentMetric::Current ? 2 :
+                             (field.mask || field.scale >= 1.0f ? 0 : 1))) return false;
     return true;
 }
 inline void publish(ValueRegistry& values, uint8_t slot, const PoolDriverConfig& config,

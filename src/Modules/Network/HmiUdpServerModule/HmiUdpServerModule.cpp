@@ -1,6 +1,7 @@
 #include "Modules/Network/HmiUdpServerModule/HmiUdpServerModule.h"
 
 #include <string.h>
+#include <WiFi.h>
 #include "Modules/Network/WifiModule/WifiRuntime.h"
 
 #define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::HmiUdpServerModule)
@@ -36,9 +37,16 @@ void HmiUdpServerModule::init(ConfigStore& cfg, ServiceRegistry& services)
 
 bool HmiUdpServerModule::begin()
 {
-    if (started_) return true;
     if (!buffers_) return false;
-    if (!wifiConnected_()) return false;
+    if (!wifiConnected_()) {
+        if (started_) {
+            udp_.stop();
+            started_ = false;
+            LOGW("HMI UDP socket stopped because network is offline");
+        }
+        return false;
+    }
+    if (started_) return true;
 
     if (!udp_.begin(HMI_UDP_PORT)) {
         LOGW("HMI UDP begin failed port=%u", (unsigned)HMI_UDP_PORT);
@@ -57,6 +65,16 @@ void HmiUdpServerModule::tick(uint32_t nowMs)
     const uint32_t offlineTimeout = displaySleeping_ ? SleepOfflineTimeoutMs : OfflineTimeoutMs;
     if (displayOnline_ && (uint32_t)(nowMs - lastSeenMs_) >= offlineTimeout) {
         markDisplayOffline_("heartbeat-timeout", true);
+        // A WiFiUDP socket can stop receiving after an interface transition or
+        // a long period without a peer. Rebind at lease expiry so the next
+        // broadcast Hello can always establish a fresh session.
+        udp_.stop();
+        started_ = false;
+        if (!begin()) {
+            LOGW("HMI UDP socket rebind failed after heartbeat timeout");
+        } else {
+            LOGW("HMI UDP socket reset after display link loss (heartbeat timeout)");
+        }
     }
 }
 
@@ -400,26 +418,17 @@ void HmiUdpServerModule::serviceReliableTx_(uint32_t nowMs)
     }
     if (reliablePendingLen_ == 0) return;
 
-    if (reliableAttempts_ >= ReliableMaxAttempts) {
-        const HmiUdpMsgType timedOutType = reliablePendingType_;
-        LOGW("HMI UDP reliable TX timeout type=%u seq=%u attempts=%u; dropping packet and resuming",
-             (unsigned)timedOutType,
-             (unsigned)reliablePendingSeq_,
-             (unsigned)reliableAttempts_);
-        reliablePendingLen_ = 0;
-        reliablePendingSeq_ = 0;
-        reliablePendingType_ = HmiUdpMsgType::Error;
-        reliableAttempts_ = 0;
-        reliableLastSendMs_ = 0;
-        if (isConfigMsg_(timedOutType)) clearReliableQueue_(false);
-        return;
+    uint32_t retryDelayMs = ReliableRetryMs;
+    if (reliableAttempts_ > 1U) {
+        const uint8_t backoffShift = reliableAttempts_ >= 5U ? 4U : (uint8_t)(reliableAttempts_ - 1U);
+        retryDelayMs <<= backoffShift;
+        if (retryDelayMs > ReliableRetryMaxMs) retryDelayMs = ReliableRetryMaxMs;
     }
-
-    if (reliableAttempts_ > 0U && (uint32_t)(nowMs - reliableLastSendMs_) < ReliableRetryMs) return;
+    if (reliableAttempts_ > 0U && (uint32_t)(nowMs - reliableLastSendMs_) < retryDelayMs) return;
     if (!udp_.beginPacket(remoteIp_, remotePort_)) return;
     const size_t written = udp_.write(buffers_->reliablePending, reliablePendingLen_);
     if (written == reliablePendingLen_ && udp_.endPacket() == 1) {
-        ++reliableAttempts_;
+        if (reliableAttempts_ < UINT8_MAX) ++reliableAttempts_;
         reliableLastSendMs_ = nowMs;
         LOGD("HMI UDP reliable TX type=%u seq=%u attempt=%u len=%u",
              (unsigned)reliablePendingType_,
@@ -471,22 +480,39 @@ bool HmiUdpServerModule::shouldSuppressUiTx_() const
 
 bool HmiUdpServerModule::sendAck_(uint16_t seq)
 {
-    if (!started_) return false;
+    if (!started_ || !buffers_) return false;
     size_t packetLen = 0;
+    const uint16_t ackSeq = txSeq_++;
     if (!hmiUdpBuildPacket(buffers_->tx,
                            sizeof(buffers_->tx),
                            packetLen,
                            HmiUdpMsgType::Ack,
-                           txSeq_++,
+                           ackSeq,
                            seq,
                            HMI_UDP_FLAG_IS_ACK,
                            nullptr,
                            0U)) {
+        LOGI("HMI UDP ACK TX build failed type=%u seq=%u ack=%u flags=%u src=%u.%u.%u.%u:%u dst=%u.%u.%u.%u:%u pending=%u",
+             (unsigned)HmiUdpMsgType::Ack, (unsigned)ackSeq, (unsigned)seq, (unsigned)HMI_UDP_FLAG_IS_ACK,
+             (unsigned)WiFi.localIP()[0], (unsigned)WiFi.localIP()[1], (unsigned)WiFi.localIP()[2], (unsigned)WiFi.localIP()[3], (unsigned)HMI_UDP_PORT,
+             (unsigned)remoteIp_[0], (unsigned)remoteIp_[1], (unsigned)remoteIp_[2], (unsigned)remoteIp_[3], (unsigned)remotePort_, (unsigned)reliablePendingSeq_);
         return false;
     }
-    if (!udp_.beginPacket(remoteIp_, remotePort_)) return false;
-    const size_t written = udp_.write(buffers_->tx, packetLen);
-    return written == packetLen && udp_.endPacket() == 1;
+    const bool began = udp_.beginPacket(remoteIp_, remotePort_);
+    size_t written = 0U;
+    int ended = 0;
+    if (began) {
+        written = udp_.write(buffers_->tx, packetLen);
+        ended = udp_.endPacket();
+    }
+    const bool sent = began && written == packetLen && ended == 1;
+    const IPAddress localIp = WiFi.localIP();
+    LOGI("HMI UDP ACK TX type=%u seq=%u ack=%u flags=%u src=%u.%u.%u.%u:%u dst=%u.%u.%u.%u:%u begin=%u write=%u/%u end=%d sent=%u pending=%u",
+         (unsigned)HmiUdpMsgType::Ack, (unsigned)ackSeq, (unsigned)seq, (unsigned)HMI_UDP_FLAG_IS_ACK,
+         (unsigned)localIp[0], (unsigned)localIp[1], (unsigned)localIp[2], (unsigned)localIp[3], (unsigned)HMI_UDP_PORT,
+         (unsigned)remoteIp_[0], (unsigned)remoteIp_[1], (unsigned)remoteIp_[2], (unsigned)remoteIp_[3], (unsigned)remotePort_,
+         (unsigned)began, (unsigned)written, (unsigned)packetLen, ended, (unsigned)sent, (unsigned)reliablePendingSeq_);
+    return sent;
 }
 
 void HmiUdpServerModule::readUdp_(uint32_t nowMs)
@@ -501,6 +527,17 @@ void HmiUdpServerModule::readUdp_(uint32_t nowMs)
                 remoteIp_ = udp_.remoteIP();
                 remotePort_ = udp_.remotePort();
                 handlePacket_(*header, payload, nowMs);
+            } else if (len >= (int)sizeof(HmiUdpHeader)) {
+                const HmiUdpHeader& candidate = *reinterpret_cast<const HmiUdpHeader*>(buffers_->rx);
+                if (candidate.type == (uint8_t)HmiUdpMsgType::Ack || (candidate.flags & HMI_UDP_FLAG_IS_ACK) != 0U) {
+                    const IPAddress sourceIp = udp_.remoteIP();
+                    const IPAddress localIp = WiFi.localIP();
+                    LOGI("HMI UDP ACK RX invalid type=%u seq=%u ack=%u flags=%u src=%u.%u.%u.%u:%u dst=%u.%u.%u.%u:%u packetLen=%d pending=%u",
+                         (unsigned)candidate.type, (unsigned)candidate.seq, (unsigned)candidate.ack, (unsigned)candidate.flags,
+                         (unsigned)sourceIp[0], (unsigned)sourceIp[1], (unsigned)sourceIp[2], (unsigned)sourceIp[3], (unsigned)udp_.remotePort(),
+                         (unsigned)localIp[0], (unsigned)localIp[1], (unsigned)localIp[2], (unsigned)localIp[3], (unsigned)HMI_UDP_PORT,
+                         len, (unsigned)reliablePendingSeq_);
+                }
             }
         } else {
             while (udp_.available() > 0) (void)udp_.read();
@@ -513,12 +550,23 @@ void HmiUdpServerModule::handlePacket_(const HmiUdpHeader& header, const uint8_t
 {
     if (!isValidInboundMessage_(header)) return;
     const bool sessionWasOnline = displayOnline_;
+    const bool inboundSequenceRestarted = hasLastRxSeq_ &&
+        (uint16_t)(header.seq - lastRxSeq_) >= 0x8000U;
     lastRxSeq_ = header.seq;
+    hasLastRxSeq_ = true;
     markRemote_(nowMs);
 
     const HmiUdpMsgType type = (HmiUdpMsgType)header.type;
     if ((header.flags & HMI_UDP_FLAG_IS_ACK) != 0U || type == HmiUdpMsgType::Ack) {
-        if (reliablePendingLen_ > 0 && header.ack == reliablePendingSeq_) {
+        const bool matched = reliablePendingLen_ > 0 && header.ack == reliablePendingSeq_;
+        const IPAddress sourceIp = udp_.remoteIP();
+        const IPAddress localIp = WiFi.localIP();
+        LOGI("HMI UDP ACK RX type=%u seq=%u ack=%u flags=%u src=%u.%u.%u.%u:%u dst=%u.%u.%u.%u:%u valid=1 pending=%u matched=%u",
+             (unsigned)type, (unsigned)header.seq, (unsigned)header.ack, (unsigned)header.flags,
+             (unsigned)sourceIp[0], (unsigned)sourceIp[1], (unsigned)sourceIp[2], (unsigned)sourceIp[3], (unsigned)udp_.remotePort(),
+             (unsigned)localIp[0], (unsigned)localIp[1], (unsigned)localIp[2], (unsigned)localIp[3], (unsigned)HMI_UDP_PORT,
+             (unsigned)reliablePendingSeq_, (unsigned)matched);
+        if (matched) {
             LOGD("HMI UDP reliable ACK type=%u seq=%u attempts=%u",
                  (unsigned)reliablePendingType_,
                  (unsigned)reliablePendingSeq_,
@@ -532,7 +580,10 @@ void HmiUdpServerModule::handlePacket_(const HmiUdpHeader& header, const uint8_t
         return;
     }
 
-    if ((header.flags & HMI_UDP_FLAG_ACK_REQUIRED) != 0U) {
+    // HmiEvent is acknowledged only after it is safely queued (or recognized as
+    // a replay). Otherwise a full application queue could make the sender drop
+    // an action that Flow.io never accepted.
+    if ((header.flags & HMI_UDP_FLAG_ACK_REQUIRED) != 0U && type != HmiUdpMsgType::HmiEvent) {
         (void)sendAck_(header.seq);
     }
 
@@ -544,6 +595,16 @@ void HmiUdpServerModule::handlePacket_(const HmiUdpHeader& header, const uint8_t
             welcome.flowFw = 1U;
             welcome.protoVersion = HMI_UDP_VERSION;
             welcome.accepted = tokenAccepted_(hello ? hello->tokenCrc : 0U) ? 1U : 0U;
+            const IPAddress sourceIp = udp_.remoteIP();
+            LOGI("HMI UDP Hello RX seq=%u ack=%u source=%u.%u.%u.%u:%u accepted=%u",
+                 (unsigned)header.seq,
+                 (unsigned)header.ack,
+                 (unsigned)sourceIp[0],
+                 (unsigned)sourceIp[1],
+                 (unsigned)sourceIp[2],
+                 (unsigned)sourceIp[3],
+                 (unsigned)udp_.remotePort(),
+                 (unsigned)welcome.accepted);
             if (welcome.accepted == 0U) {
                 (void)sendPacket_(HmiUdpMsgType::Welcome, &welcome, sizeof(welcome));
                 displayOnline_ = false;
@@ -561,7 +622,25 @@ void HmiUdpServerModule::handlePacket_(const HmiUdpHeader& header, const uint8_t
             char previousVersion[HMI_DISPLAY_VERSION_TEXT_MAX]{};
             strncpy(previousVersion, displayVersion_, sizeof(previousVersion) - 1U);
             previousVersion[sizeof(previousVersion) - 1U] = '\0';
-            const bool freshDisplaySession = !wasOnline || header.ack == 0U;
+            const bool newDisplayProcess = header.ack == 0U &&
+                ((!wasOnline && !hasLastEventSeq_) || inboundSequenceRestarted);
+            const bool freshDisplaySession = !wasOnline || newDisplayProcess;
+            if (freshDisplaySession) {
+                // Discard display-bound data from the old link. The full refresh
+                // below rebuilds the screen from authoritative Flow.io state.
+                clearReliableQueue_(true);
+                LOGI("HMI UDP display link resynchronized");
+            }
+            if (newDisplayProcess) {
+                // A process restart resets the display sequence space. A mere
+                // link outage does not: retain the deduplication window so an
+                // event whose ACK was lost cannot execute twice after reconnect.
+                eventHead_ = 0U;
+                eventTail_ = 0U;
+                hasLastEventSeq_ = false;
+                lastEventSeq_ = 0U;
+                LOGI("HMI UDP display process sequence window reset");
+            }
             displayVersionDetected_ = haveDisplayVersion;
             if (haveDisplayVersion) {
                 strncpy(displayVersion_, hello->nextionVersion, sizeof(displayVersion_) - 1U);
@@ -609,13 +688,16 @@ void HmiUdpServerModule::handlePacket_(const HmiUdpHeader& header, const uint8_t
             break;
         case HmiUdpMsgType::HmiEvent: {
             if (header.len != sizeof(HmiUdpEventPayload) || !payload) return;
-            if (hasLastEventSeq_ && header.seq == lastEventSeq_) {
+            const uint16_t eventSequenceDistance = (uint16_t)(header.seq - lastEventSeq_);
+            if (hasLastEventSeq_ && (eventSequenceDistance == 0U || eventSequenceDistance >= 0x8000U)) {
                 LOGD("HMI UDP duplicate event ignored seq=%u", (unsigned)header.seq);
+                if ((header.flags & HMI_UDP_FLAG_ACK_REQUIRED) != 0U) (void)sendAck_(header.seq);
                 return;
             }
             HmiEvent event{};
             hmiUdpPayloadToEvent(*reinterpret_cast<const HmiUdpEventPayload*>(payload), event);
             if (event.type == HmiEventType::DisplaySleep) {
+                if ((header.flags & HMI_UDP_FLAG_ACK_REQUIRED) != 0U) (void)sendAck_(header.seq);
                 lastEventSeq_ = header.seq;
                 hasLastEventSeq_ = true;
                 displaySleeping_ = true;
@@ -624,6 +706,7 @@ void HmiUdpServerModule::handlePacket_(const HmiUdpHeader& header, const uint8_t
                 return;
             }
             if (event.type == HmiEventType::DisplayWake) {
+                if ((header.flags & HMI_UDP_FLAG_ACK_REQUIRED) != 0U) (void)sendAck_(header.seq);
                 lastEventSeq_ = header.seq;
                 hasLastEventSeq_ = true;
                 const bool wasSleeping = displaySleeping_;
@@ -633,6 +716,7 @@ void HmiUdpServerModule::handlePacket_(const HmiUdpHeader& header, const uint8_t
                 return;
             }
             if (pushEvent_(event)) {
+                if ((header.flags & HMI_UDP_FLAG_ACK_REQUIRED) != 0U) (void)sendAck_(header.seq);
                 lastEventSeq_ = header.seq;
                 hasLastEventSeq_ = true;
                 const bool menuEvent = event.type == HmiEventType::Back ||
