@@ -1,6 +1,7 @@
 {
   "base": 176,
-  "stride": 32,
+  "stride": 40,
+  "legacy_stride": 32,
   "slots": 16,
   "metrics": [
     {
@@ -169,6 +170,76 @@
       "key": "temperature_setpoint",
       "label": "Consigne de température",
       "unit": "°C",
+      "type": "float"
+    },
+    {
+      "id": 29,
+      "key": "fan_1_speed",
+      "label": "Vitesse ventilateur 1 (brute)",
+      "unit": "",
+      "type": "float"
+    },
+    {
+      "id": 30,
+      "key": "fan_2_speed",
+      "label": "Vitesse ventilateur 2 (brute)",
+      "unit": "",
+      "type": "float"
+    },
+    {
+      "id": 31,
+      "key": "fan_1_level",
+      "label": "Niveau ventilateur 1",
+      "unit": "",
+      "type": "float"
+    },
+    {
+      "id": 32,
+      "key": "fan_2_level",
+      "label": "Niveau ventilateur 2",
+      "unit": "",
+      "type": "float"
+    },
+    {
+      "id": 33,
+      "key": "compressor_target_frequency",
+      "label": "Fréquence cible compresseur",
+      "unit": "Hz",
+      "type": "float"
+    },
+    {
+      "id": 34,
+      "key": "compressor_frequency",
+      "label": "Fréquence compresseur",
+      "unit": "Hz",
+      "type": "float"
+    },
+    {
+      "id": 35,
+      "key": "compressor_run_time",
+      "label": "Durée de marche compresseur",
+      "unit": "min",
+      "type": "float"
+    },
+    {
+      "id": 36,
+      "key": "compressor_stop_time",
+      "label": "Durée d’arrêt compresseur",
+      "unit": "min",
+      "type": "float"
+    },
+    {
+      "id": 37,
+      "key": "eev_1_opening",
+      "label": "Ouverture détendeur électronique 1 (pas)",
+      "unit": "",
+      "type": "float"
+    },
+    {
+      "id": 38,
+      "key": "eev_2_opening",
+      "label": "Ouverture détendeur électronique 2 (pas)",
+      "unit": "",
       "type": "float"
     }
   ]

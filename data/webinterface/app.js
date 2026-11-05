@@ -85,6 +85,11 @@
     let localFirmwareVersion = '-';
     let nextionDisplayVersion = '';
     let nextionDisplayDetected = false;
+    let nextionDisplayRemote = false;
+    let remoteNextionStatusAvailable = false;
+    let remoteNextionEnabled = false;
+    let remoteNextionConnected = false;
+    let remoteNextionProtocol = '';
     let nextionDisplayModel = '';
     let nextionDisplayCompatibility = '';
     let localUptimeMs = 0;
@@ -1043,6 +1048,12 @@
         const rawNextionVersion = String(data.nextion_display_version || '').trim();
         nextionDisplayVersion = rawNextionVersion && rawNextionVersion !== '0' ? rawNextionVersion : '';
         nextionDisplayDetected = data.nextion_display_detected === true;
+        nextionDisplayRemote = data.nextion_display_remote === true;
+        nextionDisplayDetected = nextionDisplayDetected || nextionDisplayRemote;
+        remoteNextionStatusAvailable = data.remote_nextion_status_available === true;
+        remoteNextionEnabled = data.remote_nextion_enabled === true;
+        remoteNextionConnected = data.remote_nextion_connected === true;
+        remoteNextionProtocol = String(data.remote_nextion_protocol || '').trim();
         nextionDisplayModel = String(data.nextion_display_model || '').trim();
         nextionDisplayCompatibility = String(data.nextion_display_compatibility || '').trim();
         localUptimeMs = Number(data.upms) || 0;
@@ -1622,6 +1633,7 @@
         [tr('info.row.networkType', 'Type réseau'), wifiDomain ? formatInfoNetworkType(infoNetworkType) : '-'],
         [tr('info.row.signal', 'Signal'), (wifiDomain && wifi.hrss) ? formatInfoDbm(wifi.rssi) : '-'],
         [tr('info.row.mqtt', 'MQTT'), mqttDomain ? formatInfoBoolean(!!mqtt.rdy, tr('info.state.connected', 'Connecté'), tr('info.state.disconnected', 'Déconnecté')) : '-'],
+        ...(remoteNextionStatusAvailable ? [[tr('info.row.remoteNextion', 'Nextion distant'), !remoteNextionEnabled ? tr('info.state.disabled', 'Désactivé') : formatInfoBoolean(remoteNextionConnected, tr('info.state.connected', 'Connecté'), tr('info.state.disconnected', 'Déconnecté')) + ' · ' + (remoteNextionProtocol || 'UDP')]] : []),
         [tr('info.row.time', 'Heure'), time ? flowTimeStatusLabel(time) : '-']
       ];
       if (systemDomain) {
@@ -4187,19 +4199,22 @@
         const nextionUnavailable = hasManifest && def.key === 'nextion' && nextionDisplayDetected && !latest;
         const comparableCurrent = current.version && current.version !== '-';
         const comparableAvailable = available.version && available.version !== '-';
-        const updateAvailable = !recoveryRequired && !nextionUnavailable
+        const remoteNextionUpdateBlocked = def.key === 'nextion' && nextionDisplayRemote;
+        const updateAvailable = !remoteNextionUpdateBlocked && !recoveryRequired && !nextionUnavailable
           && comparableAvailable
           && (!comparableCurrent || compareFirmwareVersions(available.version, current.version) > 0);
         const unavailableMessage = nextionDisplayDetected
           ? tr('updates.nextion.noCompatibleArtifact', 'Aucun firmware Nextion compatible')
           : tr('updates.nextion.notDetected', 'Nextion non détecté');
-        const statusMessage = recoveryRequired
-          ? tr('updates.nextion.manualSelection', 'Écran non détecté : sélectionnez son modèle')
-          : (nextionUnavailable ? unavailableMessage : '');
-        const statusKnown = recoveryRequired || hasManifest;
+        const statusMessage = remoteNextionUpdateBlocked
+          ? tr('updates.nextion.remoteUpdateDisabled', 'Mise à jour indisponible pour un écran déporté')
+          : (recoveryRequired
+            ? tr('updates.nextion.manualSelection', 'Écran non détecté : sélectionnez son modèle')
+            : (nextionUnavailable ? unavailableMessage : ''));
+        const statusKnown = remoteNextionUpdateBlocked || recoveryRequired || hasManifest;
         return Object.assign({}, def, {
           subtitle: def.key === 'nextion'
-            ? (nextionDisplayCompatibility || def.subtitle)
+            ? (remoteNextionUpdateBlocked ? tr('updates.nextion.remote', 'Remote') : (nextionDisplayCompatibility || def.subtitle))
             : def.subtitle,
           current: current,
           available: available,
@@ -4211,6 +4226,7 @@
           unavailableMessage: '',
           statusMessage: statusMessage,
           recoveryRequired: recoveryRequired,
+          actionDisabled: remoteNextionUpdateBlocked,
           recoveryEntries: recoveryEntries,
           entry: recoveryRequired ? null : latest
         });
@@ -4298,7 +4314,7 @@
       button.appendChild(icon);
       button.appendChild(label);
       const isNextion = row && row.key === 'nextion';
-      button.disabled = !isNextion && (!!(row && row.unavailable) || !(selectedEntry && selectedEntry.endpoint && selectedEntry.url));
+      button.disabled = !!(row && row.actionDisabled) || (!isNextion && (!!(row && row.unavailable) || !(selectedEntry && selectedEntry.endpoint && selectedEntry.url)));
       button.title = tr('updates.updateButton', 'Mettre à jour');
       bindClickAction(button, () => {
         if (!selectedEntry || !selectedEntry.endpoint || !selectedEntry.url) {
@@ -4413,7 +4429,7 @@
         nextion: nextion
       };
       if (nextion) {
-        nextionDisplayDetected = nextion.display_detected === true;
+        nextionDisplayDetected = nextion.display_detected === true || remoteNextionConnected;
         nextionDisplayModel = String(nextion.model || '').trim();
         nextionDisplayCompatibility = String(nextion.compatibility || '').trim();
       }

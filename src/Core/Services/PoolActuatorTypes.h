@@ -57,6 +57,10 @@ struct PoolDeviceFeedback {
     uint16_t error = 0;
     // Independent of device faults and of the last confirmed values.
     bool communicationDegraded = false;
+    bool communicationFresh = false;
+    // Set only after the configured freshness window expires. A transient
+    // failed transaction can therefore coexist with a still-fresh observation.
+    bool communicationLost = false;
     bool hasObservation = false;
     uint16_t deviceFaults = 0;
     PoolTelemetryState telemetry{};

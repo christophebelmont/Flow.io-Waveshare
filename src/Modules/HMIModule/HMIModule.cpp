@@ -111,7 +111,7 @@ static constexpr uint32_t kRtcFallbackDelayMs = 30000U;
 static constexpr uint32_t kRtcFallbackRetryMs = 10000U;
 static constexpr uint32_t kRtcPushRetryMs = 60000U;
 static constexpr uint16_t kLocalNextionRtcReadTimeoutMs = 180U;
-static constexpr uint16_t kRemoteNextionRtcReadTimeoutMs = 2000U;
+static constexpr uint16_t kRemoteNextionRtcReadTimeoutMs = 200U;
 static constexpr const char* kNextionDisplayVersionExpected = TFT_FIRMW;
 static constexpr uint8_t kNextionHomePagePrimary = 0U;
 static constexpr uint8_t kNextionHomePageAlias = 1U;
@@ -2774,6 +2774,18 @@ bool HMIModule::isDisplaySleeping_() const
         return remoteUdpServer_->isDisplaySleeping();
     }
     return false;
+}
+
+bool HMIModule::getRemoteDisplayStatus_(bool* enabled, bool* connected, uint8_t* protocolVersion) const
+{
+    if (enabled) *enabled = cfgData_.remoteUdpEnabled;
+    if (connected) *connected = false;
+    if (protocolVersion) *protocolVersion = 0U;
+    if (cfgData_.remoteUdpEnabled && driver_ == static_cast<const IHmiDriver*>(&remoteUdp_) && remoteUdpServer_ && connected) {
+        *connected = remoteUdpServer_->isDisplayOnline();
+    }
+    if (cfgData_.remoteUdpEnabled && protocolVersion) *protocolVersion = HMI_UDP_VERSION;
+    return true;
 }
 
 void HMIModule::updateNextionMotionWake_(uint32_t nowMs)

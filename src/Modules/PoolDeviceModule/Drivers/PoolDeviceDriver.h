@@ -49,6 +49,7 @@ public:
 };
 class SerialDeviceDriver final : public PoolDriverBase {
 public:
+    bool begin(const PoolDriverConfig&, const IOServiceV2*, const ModbusMasterService*, uint8_t) override;
     void applyTarget(const PoolDeviceTarget&, uint32_t revision) override;
     void tick(uint32_t now, bool writesEnabled) override;
 private:
@@ -82,6 +83,8 @@ private:
     bool stopAcknowledged_ = false;
     uint8_t communicationFailures_ = 0;
     bool recoveryRound_ = false;
+    uint32_t lastCommunicationAtMs_ = 0;
+    bool communicationResponseSeen_ = false;
     uint32_t nextRequestAt_ = 0;
     uint32_t limitRevision_ = 0;
     bool limitValid_ = false;

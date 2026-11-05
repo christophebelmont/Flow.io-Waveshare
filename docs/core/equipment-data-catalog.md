@@ -11,7 +11,12 @@ données ». Une mesure déclarée mais périmée reste visible et configurable.
 `src/Core/Values/equipment_metrics.json` est la source des identités de mesures.
 Le générateur produit les identifiants typés `EquipmentMetric` et les descriptions
 utilisées par les références de formules, l'interface et MQTT. Ne pas renuméroter
-une métrique existante : son identité est `176 + emplacement × 32 + métrique`.
+une métrique existante. Les identités historiques restent
+`176 + emplacement × 32 + métrique`. Quand le stride augmente, les nouvelles
+métriques utilisent une plage additionnelle après les identités historiques de
+tous les emplacements ; les identifiants déjà persistés ne bougent donc pas.
+La capacité réservée par emplacement peut évoluer sans déplacer les métriques
+existantes.
 Les identifiants antérieurs à 176 restent inchangés. Renommer un équipement ne
 change pas ses identités. Remplacer son profil réutilise les mêmes identités pour
 les mesures de même nature ; les réglages persistés des mesures devenues absentes

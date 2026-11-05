@@ -1,5 +1,8 @@
 #include "PoolDeviceDriver.h"
 #include "Modules/IOModule/IOProtocols/Modbus/ModbusRtuCodec.h"
+#define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::PoolDeviceModule)
+#include "Core/ModuleLog.h"
+#include <Arduino.h>
 #include <cmath>
 #include <cstring>
 
@@ -141,9 +144,33 @@ bool PoolDriverBase::begin(const PoolDriverConfig& config, const IOServiceV2* io
     if (!owner || !validatePoolDriverConfig(config)) return false;
     config_ = config; io_ = io; bus_ = bus; owner_ = owner;
     target_ = {false, config.capabilities.startup};
+    if (config.capabilities.kind == PoolControlKind::Rs485) {
+        state_.communicationLost = false;
+        state_.communicationDegraded = false;
+        state_.communicationFresh = false;
+        state_.hasObservation = false;
+        state_.observedValid = false;
+        state_.quality = PoolFeedbackQuality::Unknown;
+    }
     return config.capabilities.kind == PoolControlKind::Rs485 ?
         bus && bus->submit && bus->poll && bus->cancelOwner :
         io && io->runtimeStatus && io->readDigital && io->readValue && io->writeDigital && io->writeAnalog;
+}
+
+bool SerialDeviceDriver::begin(const PoolDriverConfig& config, const IOServiceV2* io,
+                               const ModbusMasterService* bus, uint8_t owner)
+{
+    if (!PoolDriverBase::begin(config, io, bus, owner)) return false;
+    state_.communicationLost = false;
+    state_.communicationDegraded = false;
+    state_.communicationFresh = false;
+    state_.hasObservation = false;
+    state_.observedValid = false;
+    state_.quality = PoolFeedbackQuality::Unknown;
+    state_.changedAtMs = millis();
+    lastCommunicationAtMs_ = state_.changedAtMs;
+    communicationResponseSeen_ = false;
+    return true;
 }
 
 void PoolDriverBase::applyTarget(const PoolDeviceTarget& t, uint32_t revision)
@@ -277,6 +304,11 @@ void AnalogSetpointDriver::tick(uint32_t now, bool enabled)
 void SerialDeviceDriver::applyTarget(const PoolDeviceTarget& t, uint32_t revision)
 {
     if (revision == revision_) return;
+    LOGI("RS485 command rev=%lu at_ms=%lu requested_run=%u requested_value=%.2f previous_observed_run=%u previous_observed_value=%.2f previous_valid=%u comm_degraded=%u comm_lost=%u",
+         (unsigned long)revision, (unsigned long)millis(), t.running ? 1U : 0U, (double)t.setpoint,
+         state_.observed.running ? 1U : 0U, (double)state_.observed.setpoint,
+         state_.observedValid ? 1U : 0U, state_.communicationDegraded ? 1U : 0U,
+         state_.communicationLost ? 1U : 0U);
     uncertainWrite_ = Operation::None;
     reconnectRead_ = t.running && state_.communicationDegraded && config_.serial.hasFeedback
         ? firstRead_() : Operation::None;
@@ -351,6 +383,9 @@ bool SerialDeviceDriver::submit_(Operation op, uint32_t now)
     if (sentTarget_.running || op == Operation::Setpoint || uncertainWrite_ == Operation::Setpoint) {
         sentTarget_.setpoint = (poolSerialRawSetpoint(config_, target_.setpoint) - c.rawOffset) / c.rawPerUnit;
     }
+    LOGD("RS485 command rev=%lu tx=%u op=%u register=%u value=%u submitted_at_ms=%lu",
+         (unsigned long)revision_, transaction_, (unsigned)op, wire->address,
+         (unsigned)r.values[0], (unsigned long)now);
     return true;
 }
 void SerialDeviceDriver::commandAcknowledged_(uint32_t now)
@@ -370,14 +405,15 @@ void SerialDeviceDriver::commandAcknowledged_(uint32_t now)
 void SerialDeviceDriver::linkFailure_(uint8_t result, uint32_t now)
 {
     state_.communicationDegraded = true;
-    state_.observedValid = false;
-    state_.quality = state_.hasObservation ? PoolFeedbackQuality::Stale : PoolFeedbackQuality::Unknown;
-    state_.online = false;
     state_.error = result;
     state_.changedAtMs = now;
     if (communicationFailures_ < 4) ++communicationFailures_;
     recoveryRound_ = true;
     retryAt_ = now + (1000U << (communicationFailures_ - 1U));
+    LOGW("RS485 communication failure rev=%lu tx=%u result=%u failures=%u retry_in_ms=%lu observed_age_ms=%lu",
+         (unsigned long)revision_, transaction_, result, communicationFailures_,
+         (unsigned long)(retryAt_ - now),
+         (unsigned long)(state_.hasObservation ? now - state_.observedAtMs : UINT32_MAX));
 }
 
 SerialDeviceDriver::Operation SerialDeviceDriver::firstRead_() const
@@ -449,6 +485,10 @@ void SerialDeviceDriver::finishReconnectRead_(bool moreReads, uint32_t now)
 
 void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
 {
+    LOGD("RS485 response rev=%lu tx=%u op=%u result=%u at_ms=%lu valid=%u rpm=%u status=%u",
+         (unsigned long)sentRevision_, r.transactionId, (unsigned)operation_, r.result,
+         (unsigned long)now, r.aquaGem.valid ? 1U : 0U,
+         (unsigned)r.aquaGem.rpm, (unsigned)r.aquaGem.status);
     if (operation_ == Operation::Telemetry) {
         auto& t = state_.telemetry;
         const auto& block = kHeatPumpPolyBlocks[telemetryBlock_];
@@ -539,6 +579,10 @@ void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
         }
         default: break;
     }
+    if (operation_ == Operation::Status || operation_ == Operation::Feedback) {
+        lastCommunicationAtMs_ = now;
+        communicationResponseSeen_ = true;
+    }
     const bool readRun = operation_ == firstRead_();
     if (readRun && state_.appliedValid && state_.appliedRevision == revision_ &&
         state_.observed.running == target_.running && modeMatches_(lastStatusWord_, target_))
@@ -585,13 +629,44 @@ void SerialDeviceDriver::tick(uint32_t now, bool enabled)
         }
     }
     if (config_.serial.hasFeedback) {
-        state_.observedValid = !state_.communicationDegraded && statusValid_ && levelValid_ &&
-            uint32_t(now - statusAt_) <= config_.serial.staleMs && uint32_t(now - levelAt_) <= config_.serial.staleMs;
+        const PoolFeedbackQuality previousQuality = state_.quality;
+        const bool observationRecent = statusValid_ && levelValid_ &&
+            uint32_t(now - statusAt_) <= config_.serial.staleMs &&
+            uint32_t(now - levelAt_) <= config_.serial.staleMs;
+        state_.observedValid = observationRecent;
         state_.quality = state_.observedValid ? PoolFeedbackQuality::Confirmed :
             (statusValid_ || levelValid_ ? PoolFeedbackQuality::Stale : PoolFeedbackQuality::Unknown);
         if (statusValid_ && levelValid_) {
             state_.hasObservation = true;
             state_.observedAtMs = uint32_t(now - statusAt_) > uint32_t(now - levelAt_) ? statusAt_ : levelAt_;
+        }
+        const bool wasLost = state_.communicationLost;
+        const bool wasFresh = state_.communicationFresh;
+        const uint32_t communicationAge = uint32_t(now - lastCommunicationAtMs_);
+        state_.communicationFresh = communicationResponseSeen_ &&
+            communicationAge <= config_.serial.staleMs;
+        state_.communicationLost = communicationAge > config_.serial.staleMs;
+        state_.online = state_.communicationFresh;
+        if (state_.communicationFresh && !wasFresh) {
+            LOGI("RS485 communication fresh rev=%lu age_ms=%lu",
+                 (unsigned long)revision_, (unsigned long)communicationAge);
+        }
+        if (state_.communicationLost && !wasLost) {
+            LOGE("RS485 communication lost rev=%lu age_ms=%lu threshold_ms=%lu cause=%s",
+                 (unsigned long)revision_, (unsigned long)communicationAge,
+                 (unsigned long)config_.serial.staleMs,
+                 state_.communicationDegraded ? "no_recent_valid_response" : "observation_expired");
+        }
+        if (state_.quality == PoolFeedbackQuality::Stale &&
+            previousQuality != PoolFeedbackQuality::Stale) {
+            LOGW("RS485 observation stale rev=%lu age_status_ms=%lu age_feedback_ms=%lu threshold_ms=%lu reason=observation_age_exceeded",
+                 (unsigned long)revision_, (unsigned long)(now - statusAt_),
+                 (unsigned long)(now - levelAt_),
+                 (unsigned long)config_.serial.staleMs);
+        }
+        if (!state_.communicationLost && wasLost) {
+            LOGI("RS485 communication restored rev=%lu age_ms=%lu",
+                 (unsigned long)revision_, (unsigned long)communicationAge);
         }
     }
     if (!config_.serial.hasFeedback && uint32_t(now - state_.observedAtMs) >= config_.serial.staleMs) {

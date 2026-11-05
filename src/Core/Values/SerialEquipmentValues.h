@@ -7,31 +7,39 @@
 /** Boot-time declarations and read-only publication of the driver's existing samples. */
 namespace SerialEquipmentValues {
 constexpr ValueId id(uint8_t slot, EquipmentMetric metric) {
-    return slot < ValueIds::PoolTankSlots ? ValueIds::Equipment + slot * ValueIds::EquipmentStride + uint8_t(metric) : VALUE_INVALID;
+    if (slot >= EquipmentValueSlots) return VALUE_INVALID;
+    const uint8_t metricId = uint8_t(metric);
+    if (metricId < EquipmentValueLegacyStride)
+        return ValueIds::Equipment + slot * EquipmentValueLegacyStride + metricId;
+    return ValueIds::Equipment + EquipmentValueSlots * EquipmentValueLegacyStride +
+        slot * (EquipmentValueStride - EquipmentValueLegacyStride) + metricId - EquipmentValueLegacyStride;
 }
 template<typename Store>
 inline bool define(Store& store, uint8_t slot, const char* name, const PoolDriverConfig& config) {
     if (config.capabilities.kind != PoolControlKind::Rs485) return true;
-    auto declare = [&](EquipmentMetric metric, const char* unit, bool binary, uint32_t maxAge) {
+    auto declare = [&](EquipmentMetric metric, const char* unit, bool binary, uint32_t maxAge, int8_t precision) {
         const auto identity = id(slot, metric);
         const auto* descriptor = dataValueDescriptor(identity);
         if (!descriptor) return false;
         ValueMetadata metadata{};
         metadata.type = binary ? ValueType::Bool : ValueType::Float;
-        metadata.precision = binary || config.capabilities.unit == PoolSetpointUnit::Rpm ? 0 : 1;
+        metadata.precision = precision;
         metadata.maxAgeMs = maxAge;
         setValueUnit(metadata.displayUnit, unit);
         snprintf(metadata.name, sizeof(metadata.name), "%s · %s", name, descriptor->label);
         return store.defineDataValue(identity, metadata);
     };
     const char* unit = poolSetpointUnitSymbol(config.capabilities.unit);
-    if (!declare(EquipmentMetric::Requested, unit, false, 5000)) return false;
+    if (!declare(EquipmentMetric::Requested, unit, false, 5000,
+                 config.capabilities.unit == PoolSetpointUnit::Rpm ? 0 : 1)) return false;
     if (config.serial.hasFeedback &&
-        (!declare(EquipmentMetric::Observed, unit, false, config.serial.staleMs) ||
-         !declare(EquipmentMetric::Running, "", true, config.serial.staleMs))) return false;
+        (!declare(EquipmentMetric::Observed, unit, false, config.serial.staleMs,
+                  config.capabilities.unit == PoolSetpointUnit::Rpm ? 0 : 1) ||
+         !declare(EquipmentMetric::Running, "", true, config.serial.staleMs, 0))) return false;
     if (config.serial.telemetryProfile == PoolTelemetryProfile::HeatPumpPoly)
         for (const auto& field : kHeatPumpPolyFields)
-            if (!declare(field.metric, field.unit, field.mask != 0, config.serial.telemetryStaleMs)) return false;
+            if (!declare(field.metric, field.unit, field.mask != 0, config.serial.telemetryStaleMs,
+                         field.mask || field.scale >= 1.0f ? 0 : 1)) return false;
     return true;
 }
 inline void publish(ValueRegistry& values, uint8_t slot, const PoolDriverConfig& config,

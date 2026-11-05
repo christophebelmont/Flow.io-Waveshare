@@ -26,7 +26,18 @@ enum class EquipmentMetric : uint8_t {
     CompressorFault = 26,
     ControlWord = 27,
     TemperatureSetpoint = 28,
+    Fan1Speed = 29,
+    Fan2Speed = 30,
+    Fan1Level = 31,
+    Fan2Level = 32,
+    CompressorTargetFrequency = 33,
+    CompressorFrequency = 34,
+    CompressorRunTime = 35,
+    CompressorStopTime = 36,
+    Eev1Opening = 37,
+    Eev2Opening = 38,
 };
 inline constexpr uint16_t EquipmentValueBase = 176;
-inline constexpr uint16_t EquipmentValueStride = 32;
+inline constexpr uint16_t EquipmentValueStride = 40;
+inline constexpr uint16_t EquipmentValueLegacyStride = 32;
 inline constexpr uint16_t EquipmentValueSlots = 16;

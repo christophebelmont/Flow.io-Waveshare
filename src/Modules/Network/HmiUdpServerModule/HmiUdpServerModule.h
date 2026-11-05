@@ -59,7 +59,10 @@ private:
     static constexpr uint8_t HMI_UDP_OUT_QUEUE_SIZE = 12;
     static constexpr uint8_t HMI_UDP_OUT_PAYLOAD_MAX = 64;
     static constexpr size_t HMI_UDP_LARGE_PAYLOAD_MAX = HMI_UDP_MAX_PACKET - sizeof(HmiUdpHeader);
-    static constexpr uint32_t OfflineTimeoutMs = 9000U;
+    // Three missed 2 s heartbeats, matching Flow Connect Display's 6 s lease.
+    static constexpr uint32_t OfflineTimeoutMs = 6000U;
+    // Flow Connect Display may suspend heartbeats while its Nextion is asleep.
+    // Keep the remote ESP session visible through the existing sleep grace.
     static constexpr uint32_t SleepOfflineTimeoutMs = 120000U;
     static constexpr uint32_t ReliableRetryMs = 150U;
     static constexpr uint8_t ReliableMaxAttempts = 7U;
@@ -140,6 +143,7 @@ private:
     void readUdp_(uint32_t nowMs);
     void handlePacket_(const HmiUdpHeader& header, const uint8_t* payload, uint32_t nowMs);
     void markRemote_(uint32_t nowMs);
+    bool isValidInboundMessage_(const HmiUdpHeader& header) const;
     bool pushEvent_(const HmiEvent& event);
     bool wifiConnected_() const;
     bool tokenAccepted_(uint32_t tokenCrc) const;

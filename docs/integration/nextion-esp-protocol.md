@@ -9,6 +9,36 @@ Le protocole est volontairement mixte :
 - `ESP -> Nextion` : commandes Nextion natives (`.txt`, `.val`, `page ...`)
 - `Nextion -> ESP` : protocole binaire compact `# <len> <opcode> <payload...>`
 
+## Transport distant Flow Connect Display
+
+Le profil Waveshare peut servir l'écran Nextion via Flow Connect Display en
+UDP sur le port `42110`. Le format des paquets est `HmiUdpHeader` (magic `FH`,
+version 7, longueur exacte et CRC16). La version reste 7 : cette mise à jour
+ne modifie ni les structures ni les types de messages du protocole.
+
+Flow Connect Display envoie un `Hello` puis des `Ping` toutes les 2 secondes.
+Seuls les paquets v7 dont CRC, longueur et type/payload sont valides renouvellent
+le bail de connexion. Lorsque l'écran est éveillé, Waveshare déclare le lien
+perdu après 6 secondes sans paquet valide, soit trois périodes de heartbeat;
+Flow Connect Display utilise le même délai. Après l'événement de veille Nextion,
+Waveshare conserve l'état de session pendant 120 secondes, car Flow Connect
+Display peut suspendre les heartbeats pendant le sommeil du TFT. Les paquets
+invalides ne renouvellent jamais ces délais.
+
+À chaque nouveau `Hello` accepté, y compris après reconnexion, flow.io demande
+un rafraîchissement complet Home. Il republie les champs et valeurs nécessaires
+à l'écran depuis l'état courant; Flow Connect Display met à jour localement
+`globals.vaFlowComm.val` (1 lien confirmé, 0 lien absent), qui n'est pas envoyé
+par flow.io. Un `FullRefresh` ou un réveil Nextion déclenche également ce rendu.
+Les événements critiques restent acquittés et retransmis; un événement déjà
+traité, identifié par son numéro de séquence, n'est pas exécuté une seconde fois
+mais reçoit de nouveau son ACK.
+
+Le serveur traite au plus quatre datagrammes par tick pour borner le travail
+d'une rafale. La lecture RTC distante conserve le contrat synchrone historique,
+avec un délai maximal ramené à 200 ms; les heartbeats et retransmissions sont
+servis pendant cette attente.
+
 Le port série utilisé par le profil Waveshare est `Serial2` sur `RX44 / TX43` à `115200` bauds. Cette affectation provient de `src/Board/WaveshareBoard.h` et est résolue par `src/Board/BoardSerialMap.h`.
 
 ## Principes
@@ -44,6 +74,8 @@ Objets numériques :
 - `vaOrpPercent.val`
 - `globals.vaStates.val`
 - `globals.vaAlarms.val`
+- `globals.vaFlowComm.val` (géré localement par Flow Connect Display : `1`
+  quand la communication Flow.io est confirmée et active, `0` sinon)
 
 Sémantique :
 - `globals.vaVersion.txt` : version du TFT au format `M.m.p`, 1 à 2 chiffres

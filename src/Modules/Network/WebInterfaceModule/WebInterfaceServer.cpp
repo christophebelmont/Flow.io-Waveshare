@@ -6219,7 +6219,13 @@ void WebInterfaceModule::startServer_()
         const bool nextionDisplayDetected =
             hmiSvc_ && hmiSvc_->getLocalDisplayIdentity &&
             hmiSvc_->getLocalDisplayIdentity(hmiSvc_->ctx, &nextionIdentity);
-        doc["nextion_display_detected"] = nextionDisplayDetected;
+        bool remoteNextionConnected = false;
+        bool remoteNextionEnabled = false;
+        uint8_t remoteNextionProtocol = 0U;
+        const bool remoteNextionStatusAvailable = hmiSvc_ && hmiSvc_->getRemoteDisplayStatus &&
+            hmiSvc_->getRemoteDisplayStatus(hmiSvc_->ctx, &remoteNextionEnabled, &remoteNextionConnected, &remoteNextionProtocol);
+        doc["nextion_display_detected"] = nextionDisplayDetected || remoteNextionConnected;
+        doc["nextion_display_remote"] = remoteNextionConnected;
         if (nextionDisplayDetected) {
             doc["nextion_display_model"] = nextionIdentity.model;
             doc["nextion_display_compatibility"] = nextionIdentity.compatibility;
@@ -6232,6 +6238,14 @@ void WebInterfaceModule::startServer_()
         doc["nextion_display_version_detected"] = nextionVersionDetected;
         doc["nextion_display_version_compatible"] = nextionVersionCompatible;
         doc["nextion_display_expected_version"] = TFT_FIRMW;
+        doc["remote_nextion_status_available"] = remoteNextionStatusAvailable;
+        doc["remote_nextion_enabled"] = remoteNextionStatusAvailable && remoteNextionEnabled;
+        doc["remote_nextion_connected"] = remoteNextionStatusAvailable && remoteNextionConnected;
+        if (remoteNextionStatusAvailable) {
+            char remoteNextionProtocolText[24] = {0};
+            snprintf(remoteNextionProtocolText, sizeof(remoteNextionProtocolText), "UDP v%u", (unsigned)remoteNextionProtocol);
+            doc["remote_nextion_protocol"] = remoteNextionProtocolText;
+        }
         if (nextionVersionDetected) {
             doc["nextion_display_version"] = nextionDisplayVersion;
         }
@@ -8543,6 +8557,20 @@ void WebInterfaceModule::authGate_(AsyncWebServerRequest* request, ArMiddlewareN
 void WebInterfaceModule::handleUpdateRequest_(AsyncWebServerRequest* request, FirmwareUpdateTarget target)
 {
     if (!request) return;
+    if (!hmiSvc_ && services_) {
+        hmiSvc_ = services_->get<HmiService>(ServiceId::Hmi);
+    }
+    if (target == FirmwareUpdateTarget::Nextion && hmiSvc_ && hmiSvc_->getRemoteDisplayStatus) {
+        bool remoteEnabled = false;
+        bool remoteConnected = false;
+        uint8_t remoteProtocol = 0U;
+        if (hmiSvc_->getRemoteDisplayStatus(hmiSvc_->ctx, &remoteEnabled, &remoteConnected, &remoteProtocol) &&
+            remoteEnabled && remoteConnected) {
+            request->send(409, "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"RemoteDisplayUpdateUnsupported\",\"where\":\"fwupdate.nextion\"}}");
+            return;
+        }
+    }
     if (!fwUpdateSvc_ && services_) {
         fwUpdateSvc_ = services_->get<FirmwareUpdateService>(ServiceId::FirmwareUpdate);
     }

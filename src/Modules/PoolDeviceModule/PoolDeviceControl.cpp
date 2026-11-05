@@ -662,8 +662,15 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
         if (s.driverReady) {
             if (s.retryExpiredCommand || !s.revision || effective.running != s.effective.running || effective.setpoint != s.effective.setpoint ||
                 effective.mode != s.effective.mode) {
-                LOGI("Target slot=%u run=%u previous=%u desired=%u reason=%s device_error=%u", i,
-                     effective.running, s.effective.running, s.desiredOn, blockReasonStr_(s.blockReason), s.feedback.error);
+                const char* decisionReason = s.feedback.communicationLost
+                    ? "communication_lost" : blockReasonStr_(s.blockReason);
+                LOGI("Target slot=%u run=%u previous=%u desired=%u reason=%s device_error=%u comm_degraded=%u comm_lost=%u quality=%u observation_age_ms=%lu",
+                     i, effective.running, s.effective.running, s.desiredOn,
+                     decisionReason, s.feedback.error,
+                     s.feedback.communicationDegraded ? 1U : 0U,
+                     s.feedback.communicationLost ? 1U : 0U,
+                     (unsigned)s.feedback.quality,
+                     (unsigned long)(s.feedback.hasObservation ? nowMs - s.feedback.observedAtMs : UINT32_MAX));
                 s.retryExpiredCommand = false;
                 s.effective = effective;
                 if (++s.revision == 0) ++s.revision;

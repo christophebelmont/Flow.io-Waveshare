@@ -55,7 +55,7 @@ void HmiUdpServerModule::tick(uint32_t nowMs)
     readUdp_(nowMs);
     serviceReliableTx_(nowMs);
     const uint32_t offlineTimeout = displaySleeping_ ? SleepOfflineTimeoutMs : OfflineTimeoutMs;
-    if (displayOnline_ && !rtcReadInProgress_ && (uint32_t)(nowMs - lastSeenMs_) > offlineTimeout) {
+    if (displayOnline_ && (uint32_t)(nowMs - lastSeenMs_) >= offlineTimeout) {
         markDisplayOffline_("heartbeat-timeout", true);
     }
 }
@@ -217,7 +217,7 @@ bool HmiUdpServerModule::requestRtcRead(HmiRtcDateTime& out, uint16_t timeoutMs)
             rtcReadInProgress_ = false;
             return true;
         }
-        delay(2);
+        delay(1);
     }
     rtcReadInProgress_ = false;
     return false;
@@ -492,7 +492,7 @@ bool HmiUdpServerModule::sendAck_(uint16_t seq)
 void HmiUdpServerModule::readUdp_(uint32_t nowMs)
 {
     int packetSize = udp_.parsePacket();
-    while (packetSize > 0) {
+    for (uint8_t packetsRead = 0U; packetSize > 0 && packetsRead < 4U; ++packetsRead) {
         if (packetSize <= (int)sizeof(buffers_->rx)) {
             const int len = udp_.read(buffers_->rx, sizeof(buffers_->rx));
             const HmiUdpHeader* header = nullptr;
@@ -511,6 +511,8 @@ void HmiUdpServerModule::readUdp_(uint32_t nowMs)
 
 void HmiUdpServerModule::handlePacket_(const HmiUdpHeader& header, const uint8_t* payload, uint32_t nowMs)
 {
+    if (!isValidInboundMessage_(header)) return;
+    const bool sessionWasOnline = displayOnline_;
     lastRxSeq_ = header.seq;
     markRemote_(nowMs);
 
@@ -554,12 +556,12 @@ void HmiUdpServerModule::handlePacket_(const HmiUdpHeader& header, const uint8_t
                                             (hello->flags & HMI_UDP_HELLO_FLAG_NEXTION_VERSION_VALID) != 0U;
             const bool nextionSleeping = hello &&
                                          (hello->flags & HMI_UDP_HELLO_FLAG_NEXTION_SLEEPING) != 0U;
-            const bool wasOnline = displayOnline_;
+            const bool wasOnline = sessionWasOnline;
             const bool previousVersionDetected = displayVersionDetected_;
             char previousVersion[HMI_DISPLAY_VERSION_TEXT_MAX]{};
             strncpy(previousVersion, displayVersion_, sizeof(previousVersion) - 1U);
             previousVersion[sizeof(previousVersion) - 1U] = '\0';
-            const bool freshDisplaySession = wasOnline && header.ack == 0U;
+            const bool freshDisplaySession = !wasOnline || header.ack == 0U;
             displayVersionDetected_ = haveDisplayVersion;
             if (haveDisplayVersion) {
                 strncpy(displayVersion_, hello->nextionVersion, sizeof(displayVersion_) - 1U);
@@ -589,9 +591,9 @@ void HmiUdpServerModule::handlePacket_(const HmiUdpHeader& header, const uint8_t
             }
             displayOnline_ = true;
             displaySleeping_ = nextionSleeping;
-            if (!nextionSleeping && (displayVersionUpdated || freshDisplaySession)) {
+            if (!nextionSleeping) {
                 fullRefreshRequested_ = true;
-                if (freshDisplaySession) {
+                if (!wasOnline || freshDisplaySession) {
                     LOGI("HMI UDP Flow Connect Display fresh session detected");
                 }
             }
@@ -692,6 +694,21 @@ void HmiUdpServerModule::markRemote_(uint32_t nowMs)
     }
     displayOnline_ = true;
     lastSeenMs_ = nowMs;
+}
+
+bool HmiUdpServerModule::isValidInboundMessage_(const HmiUdpHeader& header) const
+{
+    const HmiUdpMsgType type = (HmiUdpMsgType)header.type;
+    switch (type) {
+        case HmiUdpMsgType::Hello: return header.len == sizeof(HmiUdpHelloPayload);
+        case HmiUdpMsgType::Ping:
+        case HmiUdpMsgType::Pong:
+        case HmiUdpMsgType::Ack:
+        case HmiUdpMsgType::FullRefresh: return header.len == 0U;
+        case HmiUdpMsgType::HmiEvent: return header.len == sizeof(HmiUdpEventPayload);
+        case HmiUdpMsgType::RtcReadResponse: return header.len == sizeof(HmiUdpRtcPayload);
+        default: return false;
+    }
 }
 
 bool HmiUdpServerModule::pushEvent_(const HmiEvent& event)

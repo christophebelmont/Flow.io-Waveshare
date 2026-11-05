@@ -9,7 +9,13 @@ def load_catalog():
     equipment = json.loads((ROOT / 'src/Core/Values/equipment_metrics.json').read_text())
     for slot in range(equipment['slots']):
         for metric in equipment['metrics']:
-            identity = equipment['base'] + slot * equipment['stride'] + metric['id']
+            metric_offset = metric['id']
+            if metric_offset < equipment['legacy_stride']:
+                identity = equipment['base'] + slot * equipment['legacy_stride'] + metric_offset
+            else:
+                identity = (equipment['base'] + equipment['slots'] * equipment['legacy_stride'] +
+                            slot * (equipment['stride'] - equipment['legacy_stride']) +
+                            metric_offset - equipment['legacy_stride'])
             entries.append(dict(id=identity, reference=f"pd{slot:02}.{metric['key']}",
                 label=metric['label'], group=f"Équipement {slot + 1}", unit=metric['unit'],
                 kind='equipmentbinary' if metric['type']=='bool' else 'equipment', slot=slot,
@@ -31,7 +37,8 @@ def write_header():
         symbol = ''.join(part.capitalize() for part in metric['key'].split('_'))
         symbols.append(f"    {symbol} = {metric['id']},")
     symbols.append('};')
-    for name, value in [('Base', equipment['base']), ('Stride', equipment['stride']), ('Slots', equipment['slots'])]:
+    for name, value in [('Base', equipment['base']), ('Stride', equipment['stride']),
+                        ('LegacyStride', equipment['legacy_stride']), ('Slots', equipment['slots'])]:
         symbols.append(f'inline constexpr uint16_t EquipmentValue{name} = {value};')
     (ROOT/'src/Core/Generated/EquipmentMetric_Generated.h').write_text('\n'.join(symbols)+'\n')
     out = ['#pragma once', '// Generated from Core/Values/catalog.json; no runtime value storage.',

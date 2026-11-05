@@ -95,5 +95,6 @@ struct HmiService {
     bool (*readRtc)(void* ctx, HmiRtcDateTime* out, uint16_t timeoutMs);
     bool (*writeRtc)(void* ctx, const HmiRtcDateTime* value);
     bool (*isDisplaySleeping)(void* ctx);
+    bool (*getRemoteDisplayStatus)(void* ctx, bool* enabled, bool* connected, uint8_t* protocolVersion);
     void* ctx;
 };

@@ -293,6 +293,7 @@ private:
     bool prevAlarmPage_();
     bool isAlarmPageId_(uint8_t pageId) const;
     bool isDisplaySleeping_() const;
+    bool getRemoteDisplayStatus_(bool* enabled, bool* connected, uint8_t* protocolVersion) const;
     void updateNextionMotionWake_(uint32_t nowMs);
     void refreshNetworkExpectations_();
     void applyWs2812AutoWifiProfile_();
@@ -326,6 +327,7 @@ private:
         ServiceBinding::bind<&HMIModule::readRtcSvc_>,
         ServiceBinding::bind<&HMIModule::writeRtcSvc_>,
         ServiceBinding::bind<&HMIModule::isDisplaySleeping_>,
+        ServiceBinding::bind<&HMIModule::getRemoteDisplayStatus_>,
         this
     };
 };

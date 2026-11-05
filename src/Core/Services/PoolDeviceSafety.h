@@ -1,11 +1,13 @@
 #pragma once
 #include "PoolActuatorTypes.h"
 
-// Local output errors retain the original fail-safe policy. A failed exchange
-// on RS485 invalidates the observation, not the operator's demand.
+// Local output errors retain the original fail-safe policy. An RS485 exchange
+// failure degrades communication; only loss beyond the freshness window
+// invalidates the operator's demand.
 inline bool poolFeedbackInhibitsRun(PoolControlKind kind, const PoolDeviceFeedback& feedback)
 {
     if (feedback.error && !feedback.communicationDegraded) return true;
+    if (kind == PoolControlKind::Rs485 && feedback.communicationLost) return true;
     return kind != PoolControlKind::Rs485 && feedback.quality == PoolFeedbackQuality::Stale;
 }
 
