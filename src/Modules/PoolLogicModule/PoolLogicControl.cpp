@@ -683,13 +683,7 @@ PoolLogicModule::DeviceControlInfo PoolLogicModule::readDeviceControlInfo_(uint8
 bool PoolLogicModule::writeDeviceDesired_(uint8_t deviceSlot, bool on)
 {
     if (!poolSvc_ || !poolSvc_->setRunning) return false;
-    const bool syncTemperature = on && deviceSlot == heaterDeviceSlot_ && autoMode_ && heaterAutoMode_ &&
-        readDeviceControlInfo_(deviceSlot).unit == PoolSetpointUnit::Celsius;
-    PoolDeviceSvcStatus st;
-    if (syncTemperature) {
-        st = poolSvc_->setRunningAtSetpoint ?
-            poolSvc_->setRunningAtSetpoint(poolSvc_->ctx, deviceSlot, 1U, heaterSetpoint_) : POOLDEV_SVC_ERR_NOT_READY;
-    } else st = poolSvc_->setRunning(poolSvc_->ctx, deviceSlot, on ? 1U : 0U);
+    const auto st = poolSvc_->setRunning(poolSvc_->ctx, deviceSlot, on ? 1U : 0U);
     if (st != POOLDEV_SVC_OK) {
         const auto meta = readDeviceControlInfo_(deviceSlot);
         if (meta.available) {
@@ -946,12 +940,9 @@ void PoolLogicModule::applyDeviceControl_(uint8_t deviceSlot,
     const auto info = readDeviceControlInfo_(deviceSlot);
     const bool guidedMismatch = info.available && info.guidedOn != desired;
     const bool forced = info.available && info.forced;
-    const bool temperatureMismatch = info.available && !forced && desired && deviceSlot == heaterDeviceSlot_ &&
-        autoMode_ && heaterAutoMode_ && info.unit == PoolSetpointUnit::Celsius &&
-        info.guidedSetpoint != heaterSetpoint_ && uint32_t(nowMs - fsm.lastCmdMs) >= 5000U;
     const bool needRetry = !forced && fsm.known && fsm.on != desired && (uint32_t)(nowMs - fsm.lastCmdMs) >= 5000U;
 
-    if (desiredChanged || guidedMismatch || needRetry || temperatureMismatch) {
+    if (desiredChanged || guidedMismatch || needRetry) {
         if (writeDeviceDesired_(deviceSlot, desired)) {
             LOGI("%s %s", desired ? "Start" : "Stop", label ? label : "Pool Device");
             if (desiredChanged) {

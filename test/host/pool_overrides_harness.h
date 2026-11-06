@@ -9,10 +9,15 @@
 #include "Core/Control/TimedActuatorOverride.h"
 #include "Core/Control/ActuatorOverrideDuration.h"
 #include "Core/Services/IHA.h"
+#include "Core/Services/IPoolConfiguration.h"
+#include "Core/Services/PoolSerialTelemetry.h"
 using SpiRamJsonDocument = DynamicJsonDocument;
 constexpr uint8_t POOL_DEVICE_MAX=16, POOL_MAX_SPEED_STEPS=6;
 constexpr int IO_ID_INVALID=-1;
 enum class PoolControlKind { Relay, Discrete, Rs485 };
+enum class PoolSetpointUnit { Percent, Celsius };
+enum class PoolSerialModel { Custom, Polytropic };
+enum class PoolCommandPhase { Applied, Expired };
 enum class PoolFeedbackQuality { Good, Stale };
 enum class PoolInterlockState { Ready, StartRejected };
 enum class PoolDeviceSvcStatus { OK, InvalidArg, UnknownSlot, NotReady, IoError, Disabled, MaxUptime, Interlock };
@@ -66,6 +71,7 @@ struct IoService {
  void (*setOutputControlState)(void*,int,int,const ActuatorControlState*)=nullptr;
 };
 #define LOGE(...) ((void)0)
+#define LOGI(...) ((void)0)
 class PoolDeviceModule {
 public:
  struct PoolDeviceSlot {
@@ -73,11 +79,14 @@ public:
   std::string idStorage;
   const char* id=nullptr;
   struct { bool enabled=true; char label[24]="Equipment"; } def;
-  struct { struct { PoolControlKind kind=PoolControlKind::Relay; } capabilities;
+  struct { struct { PoolControlKind kind=PoolControlKind::Relay; PoolSetpointUnit unit=PoolSetpointUnit::Percent; } capabilities;
+     struct { PoolSerialModel model=PoolSerialModel::Custom; } serial;
      int outputs[POOL_MAX_SPEED_STEPS]={IO_ID_INVALID,IO_ID_INVALID,IO_ID_INVALID,IO_ID_INVALID,IO_ID_INVALID,IO_ID_INVALID}; } driverConfig;
   bool driverReady=true, desiredOn=false, actualOn=false, dependencies=true, maxUptime=false;
-  struct { bool error=false; PoolFeedbackQuality quality=PoolFeedbackQuality::Good; } feedback;
-  PoolDeviceTarget desired;
+  struct { bool error=false; PoolFeedbackQuality quality=PoolFeedbackQuality::Good; PoolCommandPhase phase=PoolCommandPhase::Applied; PoolTelemetryState telemetry{}; } feedback;
+  PoolDeviceTarget desired, effective;
+  bool retryExpiredCommand=false;
+  uint32_t revision=0;
   PoolInterlockState interlockState=PoolInterlockState::Ready;
   ActuatorControlState control{};
   ActuatorOverridePolicy overridePolicy{};
@@ -87,6 +96,9 @@ public:
   bool overrideBaseline=false, overrideRestored=false;
   uint64_t overrideRetryMs=0;
  } slots_[POOL_DEVICE_MAX];
+ const PoolConfigurationService* poolConfigurationSvc_=nullptr;
+ bool configurationSetpoint_(uint8_t,float&) const;
+ void syncConfigurationSetpoint_(uint8_t);
  ConfigStore storage; ConfigStore* cfgStore_=&storage;
  TimeService time; TimeService* timeSvc_=&time;
  IoService io; IoService* ioSvc_=&io;
@@ -106,7 +118,7 @@ public:
  }
  bool lockState_() const {return true;}
  void unlockState_() const {}
- bool dependenciesSatisfied_(uint8_t slot) const {return slots_[slot].dependencies;}
+ bool dependenciesSatisfied_(uint8_t slot, bool = false) const {return slots_[slot].dependencies;}
  static bool maxUptimeReached_(const PoolDeviceSlot& s){return s.maxUptime;}
  void tickDevices_(uint32_t,bool) { ++ticks; for(uint8_t i=0;i<POOL_DEVICE_MAX;++i) if(slots_[i].used) slots_[i].actualOn=resolveOverride_(i, slots_[i].dependencies&&!slots_[i].maxUptime, nowMs); }
  void emitActivity_(ActivityCode, ActivitySource, ActivitySeverity, ActivityRole, ActivityState,

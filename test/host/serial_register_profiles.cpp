@@ -1,3 +1,5 @@
+#include <stdint.h>
+uint32_t testNowMs = 0;
 #include <cassert>
 #include <cmath>
 #include <cstdio>
@@ -396,6 +398,69 @@ void heatPumpLimitWireUnits() {
     }
 }
 
+void authoritativeHeatPumpTemperature() {
+    for (bool running : {false, true}) {
+        PoolDriverConfig config;
+        assert(applyPoolSerialProfile(PoolSerialModel::Polytropic, config));
+        config.serial.telemetryProfile = PoolTelemetryProfile::None;
+        config.serial.pollMs = 50;
+        Bus bus;
+        SerialDeviceDriver driver;
+        assert(driver.begin(config, nullptr, &bus.service, 8));
+        driver.applyTarget({running, 29.0f, 2}, 1);
+        uint16_t temperature = 250, status = 0;
+        unsigned temperatureWrites = 0, processed = 0;
+        uint32_t now = 0;
+        auto advance = [&](unsigned ticks, bool enabled = true) {
+            for (unsigned i = 0; i < ticks; ++i) {
+                now += 100;
+                driver.tick(now, enabled);
+                if (processed == bus.requests.size()) continue;
+                const auto& request = bus.requests[processed++];
+                if (request.function == 6) {
+                    if (request.registerAddress == 1001) {
+                        temperature = request.values[0];
+                        ++temperatureWrites;
+                    } else {
+                        assert(request.registerAddress == 1000);
+                        status = request.values[0];
+                        assert(running || status == 0); // temperature never starts a stopped PAC
+                    }
+                    bus.reply();
+                } else {
+                    assert(request.function == 3);
+                    bus.reply(request.registerAddress == 58 ? 320 :
+                        request.registerAddress == 1000 ? status : temperature);
+                }
+            }
+        };
+        advance(40);
+        assert(temperature == 290 && temperatureWrites == 1);
+        assert(driver.readState().phase == PoolCommandPhase::Applied);
+        const auto writes = temperatureWrites;
+        advance(40);
+        assert(temperatureWrites == writes); // no flash or bus writes while matching
+        temperature = 250; // reboot or physical keypad: Flow.io must win
+        advance(80);
+        assert(temperature == 290 && temperatureWrites == writes + 1);
+        assert(driver.readState().phase == PoolCommandPhase::Applied);
+        assert(driver.readState().observed.running == running);
+        driver.applyTarget({running, 30.0f, 2}, 2);
+        advance(40);
+        assert(temperature == 300 && driver.readState().applied.mode == 2);
+        temperature = 250;
+        advance(40, false);
+        assert(temperature == 250); // freeze forbids repair writes too
+        advance(80);
+        assert(temperature == 300);
+        // A communication outage followed by a PAC reset retains the same target.
+        temperature = 250;
+        bus.reply(0, MODBUS_RESULT_TIMEOUT);
+        advance(120);
+        assert(temperature == 300 && driver.readState().observed.running == running);
+    }
+}
+
 void confirmationFailureAndReplacement() {
     auto config = pump();
     config.serial.line.minimumRequestIntervalMs = 500;
@@ -656,6 +721,9 @@ void wrongHeatModeNotConfirmed() {
 }
 
 int main() {
+#ifdef FLOW_TEST_AUTHORITATIVE_HEATPUMP
+    authoritativeHeatPumpTemperature();
+#else
     lostAckAndStopWhileDisconnected();
     wrongHeatModeNotConfirmed();
     heatPumpEcoRestartAndElectricalTelemetry();
@@ -663,9 +731,11 @@ int main() {
     stoppedSeparateSetpointMustConverge();
     communicationRecoveryBackoff();
     confirmationFailureAndReplacement();
+    authoritativeHeatPumpTemperature();
     heatPumpLimitWireUnits();
     stoppedHeatPumpSetpoint();
     manufacturerProfiles();
     combinedControl(); signedFeedbackAndLimits(); responseLayouts(); modesAndTelemetry();
+#endif
     puts("serial register profile tests passed");
 }

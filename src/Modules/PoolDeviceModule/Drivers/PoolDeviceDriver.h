@@ -90,6 +90,7 @@ private:
     bool limitValid_ = false;
     float maximumTemperature_ = 0;
     uint32_t nextPollAt_ = 0;
+    uint32_t setpointRepairAt_ = 0;
     uint32_t statusAt_ = 0;
     uint32_t levelAt_ = 0;
     bool statusValid_ = false;

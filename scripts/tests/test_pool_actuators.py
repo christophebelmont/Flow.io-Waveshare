@@ -9,11 +9,11 @@ CODEC = "src/Modules/IOModule/IOProtocols/Modbus/ModbusRtuCodec.cpp"
 DRIVER = "src/Modules/PoolDeviceModule/Drivers/PoolDeviceDriver.cpp"
 
 class PoolActuatorTests(unittest.TestCase):
-    def compile_and_run(self, main, sources, includes=()):
+    def compile_and_run(self, main, sources, includes=(), flags=()):
         with tempfile.TemporaryDirectory(prefix="flow-actuator-test-") as tmp:
             binary = Path(tmp) / "test"
             command = ["c++", "-std=c++17", "-Wall", "-Wextra", "-Werror",
-                       *["-I" + str(p) for p in includes], "-Itest/host/stubs", "-Isrc",
+                       *flags, *["-I" + str(p) for p in includes], "-Itest/host/stubs", "-Isrc",
                        "test/host/" + main, *sources, *(["src/Modules/IOModule/IOProtocols/Modbus/AquaGemRtuCodec.cpp"] if CODEC in sources else []), "-o", str(binary)]
             for invocation in (command, [str(binary)]):
                 result = subprocess.run(invocation, cwd=ROOT, capture_output=True, text=True)
@@ -35,6 +35,10 @@ class PoolActuatorTests(unittest.TestCase):
 
     def test_driver_transitions_and_wire_dialects(self):
         self.compile_and_run("pool_actuators.cpp", [DRIVER, CODEC])
+
+    def test_authoritative_heatpump_temperature(self):
+        self.compile_and_run("serial_register_profiles.cpp", [DRIVER, CODEC],
+                             flags=["-DFLOW_TEST_AUTHORITATIVE_HEATPUMP"])
 
     def test_serial_register_profiles(self):
         self.compile_and_run("serial_register_profiles.cpp", [DRIVER, CODEC])

@@ -598,6 +598,19 @@ void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
             nextPollAt_ = now + config_.serial.pollMs;
         }
     }
+    // The PAC does not retain its setpoint across a reboot. A fresh read is
+    // authoritative evidence of divergence, never a replacement for our target.
+    // Repair temperature independently of ON/OFF, with bounded write traffic.
+    if (operation_ == Operation::Feedback && config_.serial.model == PoolSerialModel::Polytropic &&
+        state_.appliedValid && state_.appliedRevision == revision_ &&
+        std::fabs(state_.observed.setpoint - state_.applied.setpoint) >
+            config_.serial.feedbackUnitsPerRaw * 0.5f && due(now, setpointRepairAt_)) {
+        state_.appliedValid = false;
+        speedRevision_ = 0;
+        limitValid_ = false;
+        confirmation_ = Operation::None;
+        setpointRepairAt_ = now + 5000U;
+    }
     state_.changedAtMs = now;
 }
 void SerialDeviceDriver::tick(uint32_t now, bool enabled)

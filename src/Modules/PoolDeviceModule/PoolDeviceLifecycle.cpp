@@ -329,6 +329,7 @@ void PoolDeviceModule::onConfigPrepared(ConfigStore&, ServiceRegistry&)
 
 void PoolDeviceModule::onConfigLoaded(ConfigStore&, ServiceRegistry& services)
 {
+    poolConfigurationSvc_ = services.get<PoolConfigurationService>(ServiceId::PoolConfiguration);
     static constexpr MqttConfigRouteProducer::Route kPoolDeviceCfgRoutes[] = {
         {kCfgMsgBasePdm,
          {(uint8_t)ConfigModuleId::PoolDevice, ConfigBranchRef::UnknownLocalBranch},

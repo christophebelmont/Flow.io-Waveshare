@@ -196,6 +196,22 @@ bool PoolLogicModule::serviceGetDeviceAssignments_(void* ctx, PoolDeviceAssignme
     return true;
 }
 
+bool PoolLogicModule::serviceGetDeviceSetpoint_(void* ctx, uint8_t slot, float* out)
+{
+    const auto* self = static_cast<const PoolLogicModule*>(ctx);
+    if (!self || !out || !self->deviceAssignmentsReady_ || slot != self->heaterDeviceSlot_) return false;
+    *out = self->heaterSetpoint_;
+    return true;
+}
+
+bool PoolLogicModule::serviceSetDeviceSetpoint_(void* ctx, uint8_t slot, float value)
+{
+    auto* self = static_cast<PoolLogicModule*>(ctx);
+    if (!self || !self->deviceAssignmentsReady_ || slot != self->heaterDeviceSlot_ ||
+        !std::isfinite(value) || !self->cfgStore_) return false;
+    return self->cfgStore_->set(self->heaterSetpointVar_, value);
+}
+
 bool PoolLogicModule::getPoolCharacteristics_(PoolCharacteristics& outCharacteristics) const
 {
     outCharacteristics = PoolCharacteristics{};

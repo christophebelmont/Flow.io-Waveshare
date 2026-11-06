@@ -473,12 +473,16 @@ private:
         PoolOperatingConfiguration* outConfiguration);
     bool getPoolOperatingConfiguration_(PoolOperatingConfiguration& outConfiguration) const;
     static bool serviceGetDeviceAssignments_(void* ctx, PoolDeviceAssignments* outAssignments);
+    static bool serviceGetDeviceSetpoint_(void* ctx, uint8_t slot, float* out);
+    static bool serviceSetDeviceSetpoint_(void* ctx, uint8_t slot, float value);
     bool deviceAssignmentsReady_ = false;
     PoolConfigurationService poolConfigurationSvc_{
         &PoolLogicModule::serviceGetPoolCharacteristics_,
         &PoolLogicModule::serviceGetPoolOperatingConfiguration_,
         this,
-        &PoolLogicModule::serviceGetDeviceAssignments_
+        &PoolLogicModule::serviceGetDeviceAssignments_,
+        &PoolLogicModule::serviceGetDeviceSetpoint_,
+        &PoolLogicModule::serviceSetDeviceSetpoint_
     };
     MqttConfigRouteProducer* cfgMqttPub_ = nullptr;
 

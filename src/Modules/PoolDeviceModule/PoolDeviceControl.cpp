@@ -125,6 +125,21 @@ PoolDeviceSvcStatus PoolDeviceModule::svcReadActualOnImpl_(uint8_t slot, uint8_t
     return POOLDEV_SVC_OK;
 }
 
+bool PoolDeviceModule::configurationSetpoint_(uint8_t slot, float& out) const
+{
+    return slots_[slot].driverConfig.capabilities.unit == PoolSetpointUnit::Celsius &&
+        poolConfigurationSvc_ && poolConfigurationSvc_->getDeviceSetpoint &&
+        poolConfigurationSvc_->getDeviceSetpoint(poolConfigurationSvc_->ctx, slot, &out);
+}
+
+void PoolDeviceModule::syncConfigurationSetpoint_(uint8_t slot)
+{
+    auto& s = slots_[slot];
+    auto target = s.desired;
+    if (configurationSetpoint_(slot, target.setpoint) && validatePoolTarget(s.driverConfig, target))
+        s.desired = target;
+}
+
 PoolDeviceSvcStatus PoolDeviceModule::svcSetRunningImpl_(uint8_t slot, uint8_t on)
 { return setRunning_(slot, on, false); }
 
@@ -140,6 +155,9 @@ PoolDeviceSvcStatus PoolDeviceModule::setRunning_(uint8_t slot, uint8_t on, bool
     if (slot >= POOL_DEVICE_MAX || !slots_[slot].used) { unlockState_(); return POOLDEV_SVC_ERR_UNKNOWN_SLOT; }
     auto target = slots_[slot].desired;
     target.running = on != 0;
+    // ON/OFF commands retain the configuration-owned temperature even if the
+    // configuration changed since the previous control tick.
+    (void)configurationSetpoint_(slot, target.setpoint);
     if (setpoint) target.setpoint = *setpoint;
     const auto result = setTarget_(slot, &target, manual);
     unlockState_();
@@ -172,6 +190,12 @@ PoolDeviceSvcStatus PoolDeviceModule::setTarget_(uint8_t slot, const PoolDeviceT
     if (manual && !s.overrideTimer.cancel(ActuatorOverrideReason::Released)) {
         tickDevices_(millis(), false);
         return finish(POOLDEV_SVC_ERR_IO);
+    }
+    float configuredSetpoint = 0;
+    if (configurationSetpoint_(slot, configuredSetpoint) && target->setpoint != configuredSetpoint) {
+        if (!poolConfigurationSvc_->setDeviceSetpoint ||
+            !poolConfigurationSvc_->setDeviceSetpoint(poolConfigurationSvc_->ctx, slot, target->setpoint))
+            return finish(POOLDEV_SVC_ERR_IO);
     }
     s.interlockState = PoolInterlockState::Ready;
     s.retryExpiredCommand = manual && target->running && s.feedback.phase == PoolCommandPhase::Expired;
@@ -655,6 +679,9 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
             poolFlowProtectionActive(s.feedback.telemetry)) s.blockReason = POOL_DEVICE_BLOCK_NO_FLOW;
         if (s.blockReason != POOL_DEVICE_BLOCK_NONE || unsafeFeedback)
             s.desiredOn = s.desired.running = false;
+        // Synchronize independently of running/automatic/override state. This
+        // changes temperature only; all existing run interlocks still apply.
+        syncConfigurationSetpoint_(i);
         PoolDeviceTarget effective = s.desired;
         const bool safe = dependenciesReady && s.blockReason == POOL_DEVICE_BLOCK_NONE &&
             !unsafeFeedback;

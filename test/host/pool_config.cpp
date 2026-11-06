@@ -1,3 +1,5 @@
+#include <stdint.h>
+uint32_t testNowMs = 0;
 #include <cassert>
 #include <cstdio>
 #include <cstring>

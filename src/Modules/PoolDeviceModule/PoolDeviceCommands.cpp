@@ -243,6 +243,7 @@ bool PoolDeviceModule::handlePoolWrite_(const CommandRequest& req, char* reply, 
             writeCmdError_(reply, replyLen, "pooldevice.write", ErrorCode::MissingValue); return false;
         }
         if (!lockState_()) { writeCmdError_(reply, replyLen, "pooldevice.write", ErrorCode::NotReady); return false; }
+        syncConfigurationSetpoint_(slot);
         auto target = slots_[slot].desired;
         target.running = requested;
         if (args.containsKey("setpoint")) target.setpoint = args["setpoint"].as<float>();
@@ -633,6 +634,7 @@ bool PoolDeviceModule::handlePoolTarget_(const CommandRequest& req, char* reply,
     if (slot >= POOL_DEVICE_MAX || !lockState_()) {
         writeCmdError_(reply, length, command, ErrorCode::BadSlot); return false;
     }
+    syncConfigurationSetpoint_(slot);
     PoolDeviceTarget target = slots_[slot].desired;
     if (field == TargetField::Mode) target.mode = args["value"].as<uint8_t>();
     else target.setpoint = args["value"].as<float>();

@@ -721,6 +721,7 @@ bool NextionDriver::renderConfigMenu(const ConfigMenuView& view)
         return false;
     }
 
+    (void)sendCmd_("vis tLoading,0");
     (void)sendText_("tPath", view.breadcrumb);
     (void)sendCmdFmt_("vis bHome,%u", view.canHome ? 1U : 0U);
     (void)sendCmdFmt_("tsw bHome,%u", view.canHome ? 1U : 0U);

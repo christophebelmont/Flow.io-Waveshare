@@ -177,4 +177,47 @@ int main() {
  assert(heating.slots_[0].desired.running && heating.slots_[0].desired.setpoint==25 && heating.slots_[0].desired.mode==2);
  assert(heating.svcSetRunningAtSetpointImpl_(0,1,101)==POOLDEV_SVC_ERR_INVALID_ARG);
  assert(heating.slots_[0].desired.setpoint==25 && heating.slots_[0].desired.mode==2);
+ // The configuration owns only the assigned thermal device's temperature.
+ struct TemperatureConfig { float value=29; unsigned writes=0; bool fail=false; } temperature;
+ PoolConfigurationService authority{};
+ authority.ctx=&temperature;
+ authority.getDeviceSetpoint=[](void* ctx,uint8_t slot,float* out) {
+   if(slot!=7)return false;
+   *out=static_cast<TemperatureConfig*>(ctx)->value;return true;
+ };
+ authority.setDeviceSetpoint=[](void* ctx,uint8_t slot,float value) {
+   auto& config=*static_cast<TemperatureConfig*>(ctx);
+   if(slot!=7||config.fail)return false;
+   config.value=value;++config.writes;return true;
+ };
+ PoolDeviceModule pac;
+ pac.poolConfigurationSvc_=&authority;
+ auto& thermal=pac.slots_[7];
+ thermal.driverConfig.capabilities.unit=PoolSetpointUnit::Celsius;
+ thermal.desired={false,25,2};
+ pac.syncConfigurationSetpoint_(7); // boot before the first write
+ assert(thermal.desired.setpoint==29&&!thermal.desired.running&&thermal.desired.mode==2);
+ assert(temperature.writes==0);
+ temperature.value=30; // ConfigStore changed with automatic heating disabled
+ pac.syncConfigurationSetpoint_(7);
+ assert(thermal.desired.setpoint==30&&!thermal.desired.running);
+ PoolDeviceTarget requested{false,31,2};
+ assert(pac.svcSetTargetImpl_(7,&requested)==POOLDEV_SVC_OK);
+ assert(temperature.value==31&&temperature.writes==1);
+ assert(pac.svcSetTargetImpl_(7,&requested)==POOLDEV_SVC_OK);
+ assert(temperature.writes==1);
+ temperature.fail=true;requested.setpoint=32;
+ assert(pac.svcSetTargetImpl_(7,&requested)==POOLDEV_SVC_ERR_IO);
+ assert(thermal.desired.setpoint==31&&temperature.value==31);
+ requested.setpoint=101;
+ assert(pac.svcSetTargetImpl_(7,&requested)==POOLDEV_SVC_ERR_INVALID_ARG);
+ assert(temperature.writes==1);
+ // A later ON/OFF command uses a freshly changed configuration, not a stale target.
+ temperature.value=28;
+ assert(pac.svcSetRunningImpl_(7,0)==POOLDEV_SVC_OK);
+ assert(thermal.desired.setpoint==28&&!thermal.desired.running&&thermal.desired.mode==2);
+ pac.slots_[0].desired.setpoint=77;
+ pac.syncConfigurationSetpoint_(0);
+ assert(pac.slots_[0].desired.setpoint==77);
+
 }

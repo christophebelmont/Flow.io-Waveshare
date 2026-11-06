@@ -14,7 +14,7 @@ class OverrideCommandTests(unittest.TestCase):
             if file == 'PoolDeviceOverrides.cpp':
                 source += '\n#include "Modules/PoolDeviceModule/PoolDeviceOverrideDiscovery.h"\n'
         control = (ROOT / 'src/Modules/PoolDeviceModule/PoolDeviceControl.cpp').read_text()
-        begin = control.index('PoolDeviceSvcStatus PoolDeviceModule::svcSetRunningImpl_')
+        begin = control.index('bool PoolDeviceModule::configurationSetpoint_')
         end = control.index('PoolDeviceSvcStatus PoolDeviceModule::svcReadStateImpl_', begin)
         source += '\n' + control[begin:end]
         source += (ROOT / 'test/host/pool_override_adapter_harness.h').read_text()

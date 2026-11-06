@@ -377,6 +377,7 @@ bool PoolDeviceModule::configureRuntime_()
         s.actualOn = s.desiredOn = false;
         s.interlockState = PoolInterlockState::Ready;
         s.desired = {s.overrideRestored && s.overrideBaseline, s.driverConfig.capabilities.startup};
+        syncConfigurationSetpoint_(i);
         s.desiredOn = s.desired.running;
         s.effective = s.desired;
         s.blockReason = s.driverReady ? POOL_DEVICE_BLOCK_NONE : POOL_DEVICE_BLOCK_UNBOUND;

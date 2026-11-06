@@ -18,9 +18,9 @@ body{margin:0;min-height:100vh;font-family:-apple-system,BlinkMacSystemFont,"Seg
 .menu-btn:hover{background:#FFFFFF;color:var(--menu-inactive-fg);border-color:transparent;}
 .menu-btn-glyph{width:20px;display:inline-flex;flex-direction:column;align-items:stretch;justify-content:center;gap:3px;}
 .menu-btn-glyph span{display:block;width:100%;height:2px;border-radius:999px;background:currentColor;}
-.menu-btn-msr{display:none;font-size:21px;font-variation-settings:'FILL' 1,'wght' 500,'GRAD' 0,'opsz' 24;}
+.menu-btn .menu-btn-msr{display:none;font-size:21px;font-variation-settings:'FILL' 1,'wght' 500,'GRAD' 0,'opsz' 24;}
 body.menu-icons-remote .menu-btn-glyph,.drawer.collapsed .drawer-user,.drawer.collapsed .menu-item .label,body.menu-icons-disabled:not(.web-icons-disabled) .menu-item .ico,.mobile-topbar,.page,.bar-fill.is-complete .bar-dot,.eta-txt,.cfg-tree-row.is-leaf .cfg-tree-toggle{display:none;}
-body.menu-icons-remote .menu-btn-msr,body.menu-icons-remote .ui-msr{display:inline-flex;align-items:center;justify-content:center;}
+body.menu-icons-remote .menu-btn-msr{display:inline-flex;align-items:center;justify-content:center;}
 .drawer-user{display:inline-flex;align-items:center;justify-content:center;min-width:0;min-height:36px;flex:1;}
 .brand-logo{display:block;width:132px;max-width:100%;height:auto;object-fit:contain;transform:translateX(-5px);}
 .brand-wordmark{display:inline-flex;align-items:baseline;font-size:28px;line-height:1;font-weight:800;letter-spacing:0;white-space:nowrap;user-select:none;}
@@ -40,6 +40,7 @@ body.menu-icons-remote .menu-btn-msr,body.menu-icons-remote .ui-msr{display:inli
 .menu-item .ico{width:20px;height:20px;display:inline-flex;justify-content:center;align-items:center;color:var(--menu-inactive-fg);transition:color 0.16s ease;flex:0 0 20px;background-color:currentColor;-webkit-mask-position:center;-webkit-mask-repeat:no-repeat;-webkit-mask-size:contain;mask-position:center;mask-repeat:no-repeat;mask-size:contain;}
 .menu-item:hover .ico,.menu-item.active .ico{color:var(--menu-active-fg);}
 :root{--menu-icon-derived-url:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M4 4h16v2H7.4l4.2 6-4.2 6H20v2H4v-1.5l5-6.5-5-6.5V4Z'/%3E%3C/svg%3E");}
+:root{--menu-icon-history-url:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M12 2a10 10 0 1 0 10 10h-2a8 8 0 1 1-2.35-5.65L14 10h8V2l-2.93 2.93A9.96 9.96 0 0 0 12 2Zm-1 5h2v5.42l4 2.38-1 1.73-5-3V7Z'/%3E%3C/svg%3E");--menu-icon-activity-url:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M3 4h18v2H3V4Zm0 7h18v2H3v-2Zm0 7h18v2H3v-2Z'/%3E%3C/svg%3E");--menu-icon-info-url:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16Zm-1-9h2v6h-2v-6Zm0-4h2v2h-2V7Z'/%3E%3C/svg%3E");--menu-icon-users-url:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M16 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM8 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-3 0-7 1.5-7 4v3h14v-3c0-2.5-4-4-7-4Zm8 .2c1.9 1 3 2.3 3 3.8v3h4v-3c0-2-3.1-3.4-7-3.8Z'/%3E%3C/svg%3E");}
 :root{--menu-icon-data-url:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath fill='black' d='M155-75q-35-35-35-85t35-85q35-35 85-35 14 0 26 3t23 8l57-71q-28-31-39-70t-5-78l-81-27q-17 25-43 40t-58 15q-50 0-85-35T0-580q0-50 35-85t85-35q50 0 85 35t35 85v8l81 28q20-36 53.5-61t75.5-32v-87q-39-11-64.5-42.5T360-840q0-50 35-85t85-35q50 0 85 35t35 85q0 42-26 73.5T510-724v87q42 7 75.5 32t53.5 61l81-28v-8q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-32 0-58.5-15T739-515l-81 27q6 39-5 77.5T614-340l57 70q11-5 23-7.5t26-2.5q50 0 85 35t35 85q0 50-35 85t-85 35q-50 0-85-35t-35-85q0-20 6.5-38.5T624-232l-57-71q-41 23-87.5 23T392-303l-56 71q11 15 17.5 33.5T360-160q0 50-35 85t-85 35q-50 0-85-35Zm-35-465q17 0 28.5-11.5T160-580q0-17-11.5-28.5T120-620q-17 0-28.5 11.5T80-580q0 17 11.5 28.5T120-540Zm148.5 408.5Q280-143 280-160t-11.5-28.5Q257-200 240-200t-28.5 11.5Q200-177 200-160t11.5 28.5Q223-120 240-120t28.5-11.5Zm240-680Q520-823 520-840t-11.5-28.5Q497-880 480-880t-28.5 11.5Q440-857 440-840t11.5 28.5Q463-800 480-800t28.5-11.5ZM480-360q42 0 71-29t29-71q0-42-29-71t-71-29q-42 0-71 29t-29 71q0 42 29 71t71 29Zm268.5 228.5Q760-143 760-160t-11.5-28.5Q737-200 720-200t-28.5 11.5Q680-177 680-160t11.5 28.5Q703-120 720-120t28.5-11.5Zm120-420Q880-563 880-580t-11.5-28.5Q857-620 840-620t-28.5 11.5Q800-597 800-580t11.5 28.5Q823-540 840-540t28.5-11.5ZM480-840ZM120-580Zm360 120Zm360-120ZM240-160Zm480 0Z'/%3E%3C/svg%3E");--menu-icon-io-url:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath fill='black' d='M200-120q-17 0-28.5-11.5T160-160v-40q-11-11-25.5-17.5T120-240v-120q0-17 11.5-28.5T160-400h40v-280q0-66 47-113t113-47q66 0 113 47t47 113v400q0 33 23.5 56.5T600-200q33 0 56.5-23.5T680-280v-280h-40q-17 0-28.5-11.5T600-600v-120q0-16 14.5-22.5T640-760v-40q0-17 11.5-28.5T680-840h80q17 0 28.5 11.5T800-800v40q11 11 25.5 17.5T840-720v120q0 17-11.5 28.5T800-560h-40v280q0 66-47 113t-113 47q-66 0-113-47t-47-113v-400q0-33-23.5-56.5T360-760q-33 0-56.5 23.5T280-680v280h40q17 0 28.5 11.5T360-360v120q0 16-14.5 22.5T320-200v40q0 17-11.5 28.5T280-120h-80Z'/%3E%3C/svg%3E");}
 .icon-data{-webkit-mask-image:var(--menu-icon-data-url);mask-image:var(--menu-icon-data-url);}
 .icon-derived{-webkit-mask-image:var(--menu-icon-derived-url);mask-image:var(--menu-icon-derived-url);}
@@ -47,6 +48,10 @@ body.menu-icons-remote .menu-btn-msr,body.menu-icons-remote .ui-msr{display:inli
 .icon-io{-webkit-mask-image:var(--menu-icon-io-url);mask-image:var(--menu-icon-io-url);}
 .icon-terminal{-webkit-mask-image:var(--menu-icon-terminal-url);mask-image:var(--menu-icon-terminal-url);}
 .icon-system,.icon-info{-webkit-mask-image:var(--menu-icon-system-url);mask-image:var(--menu-icon-system-url);}
+.icon-history{-webkit-mask-image:var(--menu-icon-history-url);mask-image:var(--menu-icon-history-url);}
+.icon-activity{-webkit-mask-image:var(--menu-icon-activity-url);mask-image:var(--menu-icon-activity-url);}
+.icon-info{-webkit-mask-image:var(--menu-icon-info-url);mask-image:var(--menu-icon-info-url);}
+.icon-users{-webkit-mask-image:var(--menu-icon-users-url);mask-image:var(--menu-icon-users-url);}
 .icon-calibration{-webkit-mask-image:var(--menu-icon-calibration-url);mask-image:var(--menu-icon-calibration-url);}
 .icon-flowcfg{-webkit-mask-image:var(--menu-icon-flowcfg-url);mask-image:var(--menu-icon-flowcfg-url);}
 body.menu-icons-remote:not(.web-icons-disabled) .menu-item .ico{background:transparent;background-color:transparent;-webkit-mask-image:none;mask-image:none;font-family:"Material Symbols Rounded";font-size:21px;font-weight:normal;font-style:normal;line-height:1;letter-spacing:0;text-transform:none;white-space:nowrap;direction:ltr;font-feature-settings:"liga";font-variation-settings:'FILL' 1,'wght' 500,'GRAD' 0,'opsz' 24;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
@@ -96,7 +101,7 @@ body.menu-icons-disabled:not(.web-icons-disabled) .menu-item{gap:0;}
 .topbar-actions{display:inline-flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;min-width:0;}
 .topbar h1{margin:0;font-size:20px;font-weight:700;color:var(--text);display:none;}
 .ui-heading-inline{display:inline-flex;align-items:center;gap:8px;min-width:0;}
-.ui-msr{display:none;font-family:"Material Symbols Rounded";font-weight:normal;font-style:normal;line-height:1;letter-spacing:0;text-transform:none;white-space:nowrap;direction:ltr;font-feature-settings:"liga";font-variation-settings:'FILL' 1,'wght' 500,'GRAD' 0,'opsz' 24;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;color:inherit;flex:0 0 auto;}
+.ui-msr{display:inline-flex;align-items:center;justify-content:center;font-family:"Material Symbols Rounded";font-weight:normal;font-style:normal;line-height:1;letter-spacing:0;text-transform:none;white-space:nowrap;direction:ltr;font-feature-settings:"liga";font-variation-settings:'FILL' 1,'wght' 500,'GRAD' 0,'opsz' 24;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;color:inherit;flex:0 0 auto;}
 .app-header .ui-msr{display:inline-flex;align-items:center;justify-content:center;}
 .ui-msr-sm{font-size:18px;font-variation-settings:'FILL' 1,'wght' 500,'GRAD' 0,'opsz' 20;}
 .btn-msr{font-size:18px;margin-right:6px;vertical-align:-2px;}
@@ -342,7 +347,7 @@ body.web-icons-disabled .status-flag-check.is-true{font-size:13px;}
 .update-dot.is-blue{background:#1682E8;}
 .update-dot.is-gray{background:#7D8998;}
 .update-component-badge{width:31px;height:31px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;flex:0 0 31px;box-shadow:none;background:#EAF4FF;color:var(--primary);}
-.update-component-badge .ui-msr{font-size:18px;color:currentColor;font-variation-settings:'FILL' 1,'wght' 500,'GRAD' 0,'opsz' 24;}
+.update-component-badge .ui-msr{display:inline-flex;align-items:center;justify-content:center;font-size:18px;color:currentColor;font-variation-settings:'FILL' 1,'wght' 500,'GRAD' 0,'opsz' 24;}
 .update-component-badge-lg{width:49px;height:49px;flex-basis:49px;}
 .update-component-badge-lg .ui-msr{font-size:28px;}
 .update-component-blue{background:#EAF4FF;color:var(--primary);}
@@ -398,7 +403,7 @@ body.web-icons-disabled .status-flag-check.is-true{font-size:13px;}
 .updates-source-server{border-color:#BBDCFB;box-shadow:0 0 0 2px rgba(0,116,232,0.12),0 10px 26px rgba(7,26,53,0.06);}
 .updates-source-head{display:flex;gap:16px;align-items:flex-start;}
 .updates-source-icon{width:52px;height:52px;flex:0 0 52px;border-radius:14px;display:inline-flex;align-items:center;justify-content:center;background:var(--primary-soft);color:var(--primary);}
-.updates-source-icon .ui-msr{font-size:28px;font-variation-settings:'FILL' 1,'wght' 500,'GRAD' 0,'opsz' 24;}
+.updates-source-icon .ui-msr{display:inline-flex;align-items:center;justify-content:center;font-size:28px;font-variation-settings:'FILL' 1,'wght' 500,'GRAD' 0,'opsz' 24;}
 .updates-source-icon-local{background:rgba(22,164,93,0.1);color:var(--success);}
 .updates-source-copy{display:grid;gap:5px;min-width:0;}
 .updates-source-copy h2{margin:0;font-size:18px;font-weight:820;line-height:1.2;color:var(--text);}
@@ -442,7 +447,7 @@ body.web-icons-disabled .status-flag-check.is-true{font-size:13px;}
 .updates-results-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;}
 .updates-results-title{display:flex;align-items:flex-start;gap:14px;min-width:0;}
 .updates-results-icon{width:44px;height:44px;flex:0 0 44px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;background:var(--primary-soft);color:var(--primary);}
-.updates-results-icon .ui-msr{font-size:24px;}
+.updates-results-icon .ui-msr{display:inline-flex;align-items:center;justify-content:center;font-size:24px;}
 .updates-results-title h2{margin:0;font-size:18px;font-weight:820;color:var(--text);line-height:1.2;}
 .updates-results-title p{margin:4px 0 0;font-size:13px;line-height:1.4;color:var(--text-muted);}
 .updates-results-status{max-width:360px;text-align:right;line-height:1.4;}

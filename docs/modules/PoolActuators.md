@@ -200,6 +200,25 @@ Le second format est autorisé uniquement avec `protocol=1`, en lecture ou écri
 
 ### Modes de fonctionnement et PAC
 
+Pour l'équipement affecté à `poollogic/devices.heater_slot` et déclaré en °C,
+`poollogic/heater.heater_setpoint` est l'unique consigne persistante. PoolDevice
+la charge avant sa première application et la synchronise à chaque cycle,
+indépendamment de l'automatisme, de la marche et des forçages. Les commandes
+directes de consigne mettent à jour cette même valeur via `PoolConfigurationService` ;
+un échec de sauvegarde refuse la nouvelle cible. Une commande de température
+seule conserve la demande ON/OFF et le mode. Les autres équipements gardent
+leur propre cible.
+
+La consigne relue sur une PAC Polytropic ne remplace jamais celle de Flow.io.
+Un retour à 25 °C après redémarrage, ou un changement au clavier physique,
+entraîne une réapplication de la cible après contrôle de la limite constructeur.
+Les tentatives de correction sont espacées d'au moins 5 secondes ; les lectures
+continuent et les écritures restent soumises au gel et aux sécurités existantes.
+Aucune écriture NVS ne résulte de ces corrections : seule une nouvelle consigne
+Flow.io modifie la configuration persistante. Le clavier de la PAC ne doit pas
+servir à régler la température cible.
+
+
 `run_modes` est une liste facultative d'au plus huit objets `{"label":"Heating Eco","value":120}`. Les libellés (23 octets maximum) et valeurs doivent être uniques ; aucune valeur ne peut être le code d'arrêt. Cette liste est réservée à `control=0`. Le mode initial est l'index `0` ; sans liste, `run_value` reste utilisé. La consigne thermique est écrite avant la commande de marche/mode.
 
 `pooldevice.mode`, args `{"slot":7,"value":2}`, sélectionne l'index du mode sans démarrer un appareil arrêté. `pooldevice.write` accepte aussi `mode` et `setpoint` pour une commande atomique. Les snapshots exposent les libellés dans `modes`, la demande dans `mode` et le mode acquitté dans `applied.mode`. Ce dernier n'est pas une confirmation physique du mode actif.

@@ -72,7 +72,7 @@
       'icon-system': 'system_update_alt',
       'icon-flowcfg': 'settings',
       'icon-info': 'info',
-      'icon-users': 'manage_accounts'
+      'icon-users': 'group'
     };
     const infoRefreshActiveMs = 10000;
     const infoLocalRefreshMs = 1000;
@@ -558,8 +558,7 @@
       const mode = normalizeNetworkMode(data && data.network_mode);
       networkMode = mode;
       networkTransport = normalizeNetworkTransport(data && (data.network_transport || data.transport));
-      const remoteReady = await ensureRemoteMenuIconFontLoaded().catch(() => false);
-      applyMenuIconSourcePreference(remoteReady);
+      applyMenuIconSourcePreference(false);
     }
 
     function isWaveshareProfile() {
@@ -1047,7 +1046,8 @@
         }
         const rawNextionVersion = String(data.nextion_display_version || '').trim();
         nextionDisplayVersion = rawNextionVersion && rawNextionVersion !== '0' ? rawNextionVersion : '';
-        nextionDisplayDetected = data.nextion_display_detected === true;
+        nextionDisplayDetected = data.nextion_display_detected === true
+          || data.nextion_display_version_detected === true;
         nextionDisplayRemote = data.nextion_display_remote === true;
         nextionDisplayDetected = nextionDisplayDetected || nextionDisplayRemote;
         remoteNextionStatusAvailable = data.remote_nextion_status_available === true;
@@ -4429,9 +4429,13 @@
         nextion: nextion
       };
       if (nextion) {
-        nextionDisplayDetected = nextion.display_detected === true || remoteNextionConnected;
-        nextionDisplayModel = String(nextion.model || '').trim();
-        nextionDisplayCompatibility = String(nextion.compatibility || '').trim();
+        nextionDisplayDetected = nextionDisplayDetected
+          || nextion.display_detected === true
+          || remoteNextionConnected;
+        const detectedModel = String(nextion.model || '').trim();
+        const detectedCompatibility = String(nextion.compatibility || '').trim();
+        if (detectedModel) nextionDisplayModel = detectedModel;
+        if (detectedCompatibility) nextionDisplayCompatibility = detectedCompatibility;
       }
       renderUpgradeCatalog();
     }

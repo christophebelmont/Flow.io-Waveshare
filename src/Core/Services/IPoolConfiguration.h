@@ -1,7 +1,7 @@
 #pragma once
 /**
  * @file IPoolConfiguration.h
- * @brief Read-only pool characteristics shared with history and insight modules.
+ * @brief Pool characteristics and authoritative actuator settings shared with history and insight modules.
  */
 
 #include <stdint.h>
@@ -75,4 +75,7 @@ struct PoolConfigurationService {
     void* ctx;
     // Boot-time consumer: HA discovery freezes this mapping until the next boot.
     bool (*getDeviceAssignments)(void* ctx, PoolDeviceAssignments* outAssignments) = nullptr;
+    // A false read means this slot has no configuration-owned setpoint.
+    bool (*getDeviceSetpoint)(void* ctx, uint8_t slot, float* out) = nullptr;
+    bool (*setDeviceSetpoint)(void* ctx, uint8_t slot, float value) = nullptr;
 };

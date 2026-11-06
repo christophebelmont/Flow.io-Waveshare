@@ -6265,15 +6265,21 @@ void WebInterfaceModule::startServer_()
         heap["internal_largest"] = snap.heap.internalLargestFreeBlock;
         heap["internal_frag"] = snap.heap.internalFragPercent;
 
-        char out[960] = {0};
-        const size_t n = serializeJson(doc, out, sizeof(out));
-        if (n == 0 || n >= sizeof(out)) {
-            request->send(500, "application/json",
-                          "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"web.meta\"}}");
+        if (doc.overflowed()) {
+            sendTinyBusyJson_(request, "web_meta_capacity");
             return;
         }
-
-        AsyncWebServerResponse* response = request->beginResponse(200, "application/json", out);
+        const size_t responseSize = measureJson(doc);
+        AsyncResponseStream* response = request->beginResponseStream("application/json", responseSize);
+        if (!response) {
+            sendTinyBusyJson_(request, "web_meta_memory");
+            return;
+        }
+        if (serializeJson(doc, *response) != responseSize) {
+            delete response;
+            sendTinyBusyJson_(request, "web_meta_response");
+            return;
+        }
         addNoCacheHeaders_(response);
         request->send(response);
     });

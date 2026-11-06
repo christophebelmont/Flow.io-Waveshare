@@ -327,6 +327,9 @@ private:
     DomainStatusServiceProvider domainStatusProvider_{};
     EventBus* eventBus_ = nullptr;
     DataStore* dataStore_ = nullptr;
+    bool configurationSetpoint_(uint8_t slot, float& out) const;
+    void syncConfigurationSetpoint_(uint8_t slot);
+    const PoolConfigurationService* poolConfigurationSvc_ = nullptr;
     ConfigStore* cfgStore_ = nullptr;
     const ConfigStoreService* cfgSvc_ = nullptr;
     MqttConfigRouteProducer* cfgMqttPub_ = nullptr;
