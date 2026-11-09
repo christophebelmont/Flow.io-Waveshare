@@ -6,15 +6,11 @@
 
 struct Discovery {
     std::vector<HASensorEntry> sensors;
-    std::vector<HADiscoveryRemovalEntry> removals;
     HAService service{};
     Discovery() {
         service.ctx = this;
         service.addSensor = [](void* ctx, const HASensorEntry* entry) {
             static_cast<Discovery*>(ctx)->sensors.push_back(*entry); return true;
-        };
-        service.addDiscoveryRemoval = [](void* ctx, const HADiscoveryRemovalEntry* entry) {
-            static_cast<Discovery*>(ctx)->removals.push_back(*entry); return true;
         };
     }
 };
@@ -73,16 +69,14 @@ int main() {
             registry.read(ValueIds::Derived+slot, snapshot), nullptr,
             slot == 0 ? "L" : nullptr));
     }
-    assert(discovery.sensors.size() == 2 && discovery.removals.size() == 3);
+    assert(discovery.sensors.size() == 2);
     assert(std::strcmp(discovery.sensors[0].stateTopicSuffix, "rt/value/96") == 0);
     assert(std::strcmp(discovery.sensors[0].unit, "L") == 0);
     assert(std::strcmp(discovery.sensors[1].objectSuffix, "io_value_v01") == 0);
     assert(std::strstr(discovery.sensors[0].availabilityTemplate, "quality == 1"));
-    assert(std::strcmp(discovery.removals.back().objectSuffix, "io_value_v04") == 0);
-    assert(std::strcmp(discovery.removals.back().component, "sensor") == 0);
     assert(!DerivedValueHaDiscovery::registerEntry(discovery.service, buffers, 5, true));
 
-    // Reboot with V01 disabled removes exactly its previous discovery identity.
+    // Reboot with V01 disabled does not announce it.
     ValueRegistry rebooted;
     assert(rebooted.begin());
     assert(rebooted.define(ValueIds::Analog, {}));
@@ -93,7 +87,6 @@ int main() {
     assert(DerivedValueHaDiscovery::registerEntry(afterReboot.service, rebootBuffers, 1,
         rebooted.read(ValueIds::Derived+1, snapshot)));
     assert(afterReboot.sensors.empty());
-    assert(std::strcmp(afterReboot.removals[0].objectSuffix, discovery.sensors[1].objectSuffix) == 0);
 
     // An enabled dependent requires an enabled source; reject invalid topology.
     ValueRegistry invalid;
@@ -113,5 +106,5 @@ int main() {
     assert(std::strcmp(named.sensors[1].name, "Value V00") == 0);
     HAService missing{};
     assert(!DerivedValueHaDiscovery::registerEntry(missing, buffers, 0, true));
-    assert(!DerivedValueHaDiscovery::registerEntry(missing, buffers, 0, false));
+    assert(DerivedValueHaDiscovery::registerEntry(missing, buffers, 0, false));
 }

@@ -7,17 +7,12 @@
 
 struct Capture {
     std::vector<HASensorEntry> sensors;
-    std::vector<HADiscoveryRemovalEntry> removals;
     std::vector<HANumberEntry> numbers;
     std::vector<HAButtonEntry> buttons;
     bool accept = true;
     HAService service() {
         HAService ha{};
         ha.ctx = this;
-        ha.addDiscoveryRemoval = [](void* ctx, const HADiscoveryRemovalEntry* entry) {
-            auto& self = *static_cast<Capture*>(ctx);
-            self.removals.push_back(*entry); return self.accept;
-        };
         ha.addSensor = [](void* ctx, const HASensorEntry* entry) {
             auto& self = *static_cast<Capture*>(ctx);
             self.sensors.push_back(*entry); return self.accept;
@@ -49,7 +44,6 @@ int main() {
     Capture old;
     assert(registerEntries(old.service(), oldStorage));
     assert(old.sensors.empty() && old.numbers.size() == 8 && old.buttons.size() == 8);
-    assert(old.removals.empty());
     assert(std::strcmp(old.numbers[0].objectSuffix, "pd0_flow") == 0);
     assert(std::strcmp(old.buttons[0].objectSuffix, "pd_refill_ph") == 0);
 

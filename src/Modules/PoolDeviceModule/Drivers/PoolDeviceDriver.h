@@ -34,6 +34,7 @@ protected:
 };
 class DigitalRelayDriver final : public PoolDriverBase {
 public:
+    bool begin(const PoolDriverConfig&, const IOServiceV2*, const ModbusMasterService*, uint8_t) override;
     void tick(uint32_t now, bool writesEnabled) override;
 };
 class DiscreteSpeedDriver final : public PoolDriverBase {
@@ -60,6 +61,10 @@ private:
     bool observedTargetReached_() const;
     void reconcileWrite_(uint32_t now);
     void finishReconnectRead_(bool moreReads, uint32_t now);
+    void observeRunning_(uint32_t now);
+    bool startupFeedbackPending_(uint32_t now) const;
+    void requestReconciliation_(uint32_t now);
+    void reconcileObservation_(uint32_t now);
     bool modeMatches_(uint16_t status, const PoolDeviceTarget& target) const;
     void linkFailure_(uint8_t result, uint32_t now);
     // After a read outage renew both critical observations before reconciling.
@@ -67,7 +72,11 @@ private:
     Operation firstRead_() const;
     Operation uncertainWrite_ = Operation::None;
     static constexpr uint32_t DeliveryBudgetMs = 15000;
+    static constexpr uint32_t SetpointRepairIntervalMs = 5000;
     bool runVerified_ = false;
+    bool runningObserved_ = false;
+    uint32_t runningSinceMs_ = 0;
+    uint32_t runningObservationAtMs_ = 0;
     uint8_t stopRepeats_ = 0;
     uint32_t stopRetryAt_ = 0;
     bool deliveryExpired_ = false;

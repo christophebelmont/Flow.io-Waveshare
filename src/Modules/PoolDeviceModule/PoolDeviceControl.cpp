@@ -127,6 +127,10 @@ PoolDeviceSvcStatus PoolDeviceModule::svcReadActualOnImpl_(uint8_t slot, uint8_t
 
 bool PoolDeviceModule::configurationSetpoint_(uint8_t slot, float& out) const
 {
+    if (slots_[slot].driverConfig.capabilities.unit == PoolSetpointUnit::Rpm) {
+        out = slots_[slot].requestedRpm;
+        return true;
+    }
     return slots_[slot].driverConfig.capabilities.unit == PoolSetpointUnit::Celsius &&
         poolConfigurationSvc_ && poolConfigurationSvc_->getDeviceSetpoint &&
         poolConfigurationSvc_->getDeviceSetpoint(poolConfigurationSvc_->ctx, slot, &out);
@@ -193,8 +197,11 @@ PoolDeviceSvcStatus PoolDeviceModule::setTarget_(uint8_t slot, const PoolDeviceT
     }
     float configuredSetpoint = 0;
     if (configurationSetpoint_(slot, configuredSetpoint) && target->setpoint != configuredSetpoint) {
-        if (!poolConfigurationSvc_->setDeviceSetpoint ||
-            !poolConfigurationSvc_->setDeviceSetpoint(poolConfigurationSvc_->ctx, slot, target->setpoint))
+        const bool persisted = s.driverConfig.capabilities.unit == PoolSetpointUnit::Rpm
+            ? cfgStore_ && cfgStore_->set(cfgRequestedRpmVar_[slot], target->setpoint)
+            : poolConfigurationSvc_->setDeviceSetpoint &&
+                poolConfigurationSvc_->setDeviceSetpoint(poolConfigurationSvc_->ctx, slot, target->setpoint);
+        if (!persisted)
             return finish(POOLDEV_SVC_ERR_IO);
     }
     s.interlockState = PoolInterlockState::Ready;

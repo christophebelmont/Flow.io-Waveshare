@@ -18,6 +18,7 @@
 #include <math.h>
 #include <string.h>
 #include "Core/SpiRamJsonDocument.h"
+#include "Core/SpiRamObject.h"
 #include "Drivers/PoolTelemetryJson.h"
 
 namespace {
@@ -362,6 +363,41 @@ bool PoolDeviceModule::buildRuntimeSnapshot(uint16_t idx, char* out, size_t len,
         : buildStateSnapshot_(slotIdx, out, len, maxTsOut);
 }
 
+bool PoolDeviceModule::validateSpeedConfiguration_(const ConfigCandidate& candidate) const
+{
+    struct CandidateDriver { char json[POOL_DRIVER_CONFIG_BYTES]; PoolDriverConfig config; };
+    SpiRamPtr<CandidateDriver> driver;
+    for (uint8_t i = 0; i < POOL_DEVICE_MAX; ++i) {
+        const auto& s = slots_[i];
+        if (!s.used || !candidate.contains(cfgRequestedRpmVar_[i])) continue;
+        float rpm;
+        if (!candidate.read(cfgRequestedRpmVar_[i], s.requestedRpm, rpm) || rpm < 0 || rpm > 65535)
+            return false;
+        if (!driver) driver = makeSpiRamObject<CandidateDriver>();
+        if (!driver || !candidate.read(cfgDriverVar_[i], s.driverJson, driver->json) ||
+            !parsePoolDriverConfig(driver->json, driver->config, nullptr, 0)) return false;
+        if (driver->config.capabilities.unit == PoolSetpointUnit::Rpm &&
+            !validatePoolTarget(driver->config, {false, rpm}))
+            return false;
+    }
+    return true;
+}
+
+bool PoolDeviceModule::restoreRequestedSpeed_(uint8_t slot)
+{
+    auto& s = slots_[slot];
+    if (s.driverConfig.capabilities.unit != PoolSetpointUnit::Rpm) return true;
+    bool stored = false;
+    if (!cfgStore_ || !cfgStore_->persistentKeyExists(s.requestedRpmKey, stored)) return false;
+    if (stored && validatePoolTarget(s.driverConfig, {false, s.requestedRpm})) return true;
+    // First upgrade, or a changed driver range: use the profile's valid default.
+    // The observed RPM (including the startup speed) must never become the target.
+    if (stored) LOGW("PoolDevice slot=%u stored RPM incompatible with driver; restoring profile default", slot);
+    const float initial = s.driverConfig.capabilities.startup;
+    return s.requestedRpm == initial ? cfgStore_->persistRegisteredValue(&s.requestedRpm)
+        : cfgStore_->set(cfgRequestedRpmVar_[slot], initial);
+}
+
 bool PoolDeviceModule::configureRuntime_()
 {
     if (runtimeReady_) return true;
@@ -374,9 +410,13 @@ bool PoolDeviceModule::configureRuntime_()
 
         s.driverReady = configureDriver_(i);
         s.runtimePublishable = true;
-        s.actualOn = s.desiredOn = false;
+        s.feedback = s.driverReady ? s.driver.get().readState() : PoolDeviceFeedback{};
+        s.actualOn = s.feedback.observedValid && s.feedback.observed.running;
         s.interlockState = PoolInterlockState::Ready;
-        s.desired = {s.overrideRestored && s.overrideBaseline, s.driverConfig.capabilities.startup};
+        // The relay driver observes the IO boot policy before writes are enabled.
+        // A restored override still owns its pre-override guided baseline.
+        s.desired = {s.overrideRestored ? s.overrideBaseline : s.actualOn,
+                     s.driverConfig.capabilities.startup};
         syncConfigurationSetpoint_(i);
         s.desiredOn = s.desired.running;
         s.effective = s.desired;
@@ -542,6 +582,10 @@ bool PoolDeviceModule::configureDriver_(uint8_t slot)
 {
     auto& s = slots_[slot];
     if (!parsePoolDriverConfig(s.driverJson, s.driverConfig, s.driverError, sizeof(s.driverError))) return false;
+    if (!restoreRequestedSpeed_(slot)) {
+        snprintf(s.driverError, sizeof(s.driverError), "Requested speed persistence unavailable");
+        return false;
+    }
     if (s.def.tankCapacityMl > 0 && s.driverConfig.capabilities.kind != PoolControlKind::Relay &&
         (!isfinite(poolCalibratedFlow(s.driverConfig, s.driverConfig.capabilities.minimum)) ||
          !isfinite(poolCalibratedFlow(s.driverConfig, s.driverConfig.capabilities.maximum)))) {

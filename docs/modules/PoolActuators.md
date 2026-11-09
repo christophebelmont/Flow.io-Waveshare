@@ -37,6 +37,16 @@ Les champs métier `enabled`, `depends_on_mask`, `flow_l_h`, `tank_cap_ml`, `tan
 
 Les éléments de `outputs` sont des `IoId`, pas des numéros de GPIO. `0..15` désignent les sorties digitales du profil. Les sorties impulsionnelles ne sont pas utilisables par les pilotes d'équipement.
 
+Au démarrage, le pilote relais lit l'état initialisé par IO sans écrire sur la
+sortie. `PoolDevice` reprend cet état observé comme consigne guidée, sauf si un
+forçage restauré possède sa propre consigne de retour. Ainsi, avec « Conserver au
+reboot » sur une sortie TCA9554, une pompe déjà allumée ne reçoit pas d'arrêt
+transitoire avant la reprise du planning. La lecture reste active pendant le gel
+des commandes ; une consigne identique au relais ne provoque aucune écriture.
+Les interlocks, limites journalières et décisions d'arrêt de PoolLogic restent
+prioritaires. Après une coupure d'alimentation, IO applique son comportement de
+démarrage à froid : le registre par défaut du TCA9554 n'est pas un état conservé.
+
 ### Trois vitesses par sorties digitales
 
 ```json
@@ -79,6 +89,32 @@ ont été remplacés par ces configurations compactes.
   Ces captures corrigent l’ordre précédemment retenu à partir de la note du PDF.
 - Deux requêtes du pilote sont espacées d'au moins 500 ms ; silence de 50 ms après réponse.
   Les réessais du transport respectent une garde de 500 ms après échec.
+
+La vitesse demandée est persistée dans le ConfigStore, par équipement :
+`pdm/pdN.requested_rpm` (clé NVS `actN_rpm`). Les commandes de vitesse passent
+par cette configuration avant de modifier la cible du pilote ; un échec
+d'enregistrement rejette la nouvelle consigne. Un arrêt conserve cette vitesse,
+et les lectures de RPM ne la remplacent jamais. Au premier démarrage après mise
+à jour, sans consigne enregistrée, la valeur du profil est utilisée (2900 RPM
+pour AquaGem). Une valeur enregistrée incompatible avec le nouveau pilote est
+signalée dans le journal et remplacée par la valeur initiale de ce pilote.
+
+Au reboot, la vitesse est restaurée avant l'envoi de la cible ; la décision de
+marche reste soumise à la logique métier et aux sécurités. La pompe accepte la
+commande immédiatement, mais son retour RPM peut rester à la vitesse de
+démarrage pendant 60 secondes. Le bit d'état confirme donc la marche
+indépendamment de la vitesse : la commande reste en `Confirming` jusqu'à ce que
+l'état **et** les RPM correspondent. Une nouvelle vitesse pendant cette période
+est envoyée immédiatement sans prolonger le délai de démarrage. Si l'acquittement
+est perdu, le pilote vérifie la commande par lecture pendant cette période.
+
+Un arrêt physique observé après confirmation de marche provoque une nouvelle
+réconciliation, après réévaluation des sécurités. Une divergence RPM persistante
+après les 60 secondes déclenche une réémission espacée d'au moins 5 secondes.
+Après une interruption assez longue pour périmer les observations, la première
+lecture de marche ouvre une nouvelle fenêtre de 60 secondes, l'ancienneté du
+démarrage de la pompe étant inconnue. Un arrêt demandé annule immédiatement
+toute commande de marche ou de vitesse en attente.
 
 La valeur des deux octets réservés de la requête de lecture n'est pas spécifiée :
 le codec émet `00 00`. Les échanges capturés confirment cette requête avec les octets réservés à zéro.

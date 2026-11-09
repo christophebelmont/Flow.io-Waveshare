@@ -589,6 +589,12 @@
       "widget": "pool-driver",
       "label_t": "cfgdocs.pooldev.driver.label",
       "help_t": "cfgdocs.pooldev.driver.help"
+    },
+    "*/requested_rpm": {
+      "type": "float",
+      "label_t": "cfgdocs.pooldev.requested_rpm.label",
+      "help_t": "cfgdocs.pooldev.requested_rpm.help",
+      "unit": "rpm"
     }
   }
 }

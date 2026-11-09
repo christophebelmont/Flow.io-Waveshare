@@ -328,6 +328,8 @@
     "pool.telemetry.fault_main_pcb_communication": "Main board communication fault (AL07)",
     "pool.telemetry.fault_eeprom": "EEPROM fault (AL08)",
     "pool.telemetry.eev_1_opening": "Electronic expansion valve 1 opening (steps)",
-    "pool.telemetry.eev_2_opening": "Electronic expansion valve 2 opening (steps)"
+    "pool.telemetry.eev_2_opening": "Electronic expansion valve 2 opening (steps)",
+    "cfgdocs.pooldev.requested_rpm.label": "Requested speed",
+    "cfgdocs.pooldev.requested_rpm.help": "Persistent RPM setpoint for RPM-controlled equipment. Preserved while stopped and restored after restart."
   }
 }

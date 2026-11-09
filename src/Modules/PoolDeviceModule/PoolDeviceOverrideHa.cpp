@@ -10,7 +10,7 @@ void PoolDeviceModule::registerOverrideHa_()
     SpiRamJsonDocument options(2048);
     auto array = options.to<JsonArray>();
     for (uint8_t i = 0; i < POOL_DEVICE_MAX; ++i) {
-        if (!overrideSupported_(i)) continue;
+        if (!slots_[i].def.enabled || !overrideSupported_(i)) continue;
         auto& slot = slots_[i];
         snprintf(slot.overrideOption, sizeof(slot.overrideOption), "%s — %s", slot.id, slot.def.label);
         array.add(slot.overrideOption);
@@ -20,16 +20,8 @@ void PoolDeviceModule::registerOverrideHa_()
         LOGE("Override selector catalogue exceeds capacity"); return;
     }
     serializeJson(options, overrideOptions_, sizeof(overrideOptions_));
-    if (!haSvc_) return;
+    if (!haSvc_ || array.size() == 0) return;
     bool ok = true;
-    for (const auto& removal : Removals)
-        if (!haSvc_->addDiscoveryRemoval || !haSvc_->addDiscoveryRemoval(haSvc_->ctx, &removal)) ok = false;
-    if (array.size() == 0) {
-        for (const auto& removal : PanelRemovals)
-            if (!haSvc_->addDiscoveryRemoval || !haSvc_->addDiscoveryRemoval(haSvc_->ctx, &removal)) ok = false;
-        if (!ok) LOGE("Override discovery cleanup incomplete");
-        return;
-    }
     if (!haSvc_->addNumber || !haSvc_->addNumber(haSvc_->ctx, &Duration)) ok = false;
     for (const auto& sensor : Sensors) if (!haSvc_->addSensor || !haSvc_->addSensor(haSvc_->ctx, &sensor)) ok = false;
     for (const auto& button : Buttons) if (!haSvc_->addButton || !haSvc_->addButton(haSvc_->ctx, &button)) ok = false;

@@ -23,6 +23,7 @@ inline bool applyPoolSerialProfile(PoolSerialModel model, PoolDriverConfig& c)
         s.feedback = {2001, 0xC3, RegisterOperation::Read};
         s.stopValue = 1; s.pollMs = 500; s.line.minimumRequestIntervalMs = 500;
         s.line.lateResponseGuardMs = 450;
+        s.startupFeedbackDelayMs = 60000;
     } else {
         c.capabilities.unit = PoolSetpointUnit::Celsius;
         c.capabilities.minimum = 0; c.capabilities.maximum = 60; c.capabilities.startup = 25;

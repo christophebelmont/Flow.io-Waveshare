@@ -43,6 +43,9 @@ class PoolActuatorTests(unittest.TestCase):
     def test_serial_register_profiles(self):
         self.compile_and_run("serial_register_profiles.cpp", [DRIVER, CODEC])
 
+    def test_pump_reconciliation(self):
+        self.compile_and_run("pump_reconciliation.cpp", [DRIVER, CODEC])
+
     def test_bus_arbitration_cancellation_and_retries(self):
         self.compile_and_run("rs485_scheduler.cpp", [
             "src/Modules/IOModule/IOScheduler/Rs485TransactionScheduler.cpp", "src/Core/Log.cpp", CODEC])

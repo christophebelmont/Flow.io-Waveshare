@@ -327,6 +327,8 @@
     "pool.telemetry.fault_main_pcb_communication": "Communication carte principale (AL07)",
     "pool.telemetry.fault_eeprom": "Défaut EEPROM (AL08)",
     "pool.telemetry.eev_1_opening": "Ouverture détendeur électronique 1 (pas)",
-    "pool.telemetry.eev_2_opening": "Ouverture détendeur électronique 2 (pas)"
+    "pool.telemetry.eev_2_opening": "Ouverture détendeur électronique 2 (pas)",
+    "cfgdocs.pooldev.requested_rpm.label": "Vitesse demandée",
+    "cfgdocs.pooldev.requested_rpm.help": "Consigne persistante en tr/min pour les équipements à vitesse variable en RPM. Conservée à l’arrêt et restaurée au redémarrage."
   }
 }

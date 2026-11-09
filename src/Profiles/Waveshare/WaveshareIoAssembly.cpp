@@ -274,14 +274,7 @@ void syncDataSensors(ModuleInstances& modules)
         const auto& d = kDataValues[index];
         ValueSnapshot value{}; ValueMetadata meta{};
         const bool defined = modules.ioDataStore->values.read(d.id, value, &meta) && dataValueCompatible(d, meta);
-        if (!modules.ioDataStore->publishHa(d.id) || !defined) {
-            if (modules.haService->addDiscoveryRemoval) {
-                const HADiscoveryRemovalEntry removal{dataValueIsBinary(d) ? "binary_sensor" : "sensor", d.haSuffix};
-                reportDiscoveryResult(modules.haService->addDiscoveryRemoval(modules.haService->ctx, &removal), d.haSuffix);
-            }
-            continue;
-        }
-        if (!defined) continue;
+        if (!modules.ioDataStore->publishHa(d.id) || !defined) continue;
         auto* label = gDiscoveryHeap->dataLabels;
         while (label && label->id != d.id) label = label->next;
         if (!label) {

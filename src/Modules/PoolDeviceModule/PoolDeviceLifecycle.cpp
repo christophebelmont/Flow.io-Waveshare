@@ -62,7 +62,7 @@ bool PoolDeviceModule::ensureStorage_()
     }
 
     if (runtimePersistBuf_ && slots_ && cfgDriverVar_ && cfgEnabledVar_ && cfgDependsVar_ && cfgFlowVar_ &&
-        cfgTankCapVar_ && cfgTankInitVar_ && cfgMaxUptimeVar_) {
+        cfgTankCapVar_ && cfgTankInitVar_ && cfgMaxUptimeVar_ && cfgRequestedRpmVar_) {
         return stateMutex_ != nullptr;
     }
 
@@ -71,6 +71,7 @@ bool PoolDeviceModule::ensureStorage_()
     }
     if (!slots_) slots_ = allocPsramArray_<PoolDeviceSlot>(POOL_DEVICE_MAX);
     if (!cfgDriverVar_) cfgDriverVar_ = allocPsramArray_<ConfigVariable<char,0>>(POOL_DEVICE_MAX);
+    if (!cfgRequestedRpmVar_) cfgRequestedRpmVar_ = allocPsramArray_<ConfigVariable<float,0>>(POOL_DEVICE_MAX);
     if (!cfgEnabledVar_) cfgEnabledVar_ = allocPsramArray_<ConfigVariable<bool,0>>(POOL_DEVICE_MAX);
     if (!cfgDependsVar_) cfgDependsVar_ = allocPsramArray_<ConfigVariable<uint16_t,0>>(POOL_DEVICE_MAX);
     if (!cfgFlowVar_) cfgFlowVar_ = allocPsramArray_<ConfigVariable<float,0>>(POOL_DEVICE_MAX);
@@ -79,7 +80,7 @@ bool PoolDeviceModule::ensureStorage_()
     if (!cfgMaxUptimeVar_) cfgMaxUptimeVar_ = allocPsramArray_<ConfigVariable<int32_t,0>>(POOL_DEVICE_MAX);
 
     const bool ok = stateMutex_ && runtimePersistBuf_ && slots_ && cfgDriverVar_ && cfgEnabledVar_ && cfgDependsVar_ && cfgFlowVar_ &&
-                    cfgTankCapVar_ && cfgTankInitVar_ && cfgMaxUptimeVar_;
+                    cfgTankCapVar_ && cfgTankInitVar_ && cfgMaxUptimeVar_ && cfgRequestedRpmVar_;
     if (ok) {
         LOGI("PoolDevice scalable storage ready slots=%u slot_bytes=%u slots_psram=%u persist_bytes=%u",
              (unsigned)POOL_DEVICE_MAX,
@@ -224,6 +225,11 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
         };
         cfg.registerVar(cfgDriverVar_[i], kCfgModuleId, localBranchId);
 
+        snprintf(s.requestedRpmKey, sizeof(s.requestedRpmKey), "act%u_rpm", unsigned(i));
+        cfgRequestedRpmVar_[i] = {s.requestedRpmKey, "requested_rpm", slot.configModuleName,
+            ConfigType::Float, &s.requestedRpm, ConfigPersistence::Persistent, 0};
+        cfg.registerVar(cfgRequestedRpmVar_[i], kCfgModuleId, localBranchId);
+
         cfgEnabledVar_[i].nvsKey = slot.enabledKey;
         cfgEnabledVar_[i].jsonName = "enabled";
         cfgEnabledVar_[i].moduleName = slot.configModuleName;
@@ -303,6 +309,9 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
                              (size_t)POOL_DEVICE_MAX * sizeof(PoolDeviceSlot),
                              "init",
                              nullptr);
+    if (!cfg.registerValidator([](void* context, const ConfigCandidate& candidate) {
+            return static_cast<PoolDeviceModule*>(context)->validateSpeedConfiguration_(candidate);
+        }, this)) LOGE("PoolDevice speed configuration validator registration failed");
     LOGI("PoolDevice module ready (devices=%u)", (unsigned)count);
     (void)logHub_;
 }

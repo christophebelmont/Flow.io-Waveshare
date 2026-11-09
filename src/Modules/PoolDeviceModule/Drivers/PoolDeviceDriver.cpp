@@ -234,14 +234,41 @@ bool PoolDriverBase::writeDigital_(IoId id, bool on, uint32_t now)
 {
     return io_->writeDigital(io_->ctx, id, on, now, owner_) == IO_OK;
 }
+bool DigitalRelayDriver::begin(const PoolDriverConfig& config, const IOServiceV2* io,
+                               const ModbusMasterService* bus, uint8_t owner)
+{
+    if (!PoolDriverBase::begin(config, io, bus, owner)) return false;
+    // IO has already applied its boot policy (initial value or retained latch).
+    // Observe it without writing so the controller can adopt that state.
+    tick(millis(), false);
+    return true;
+}
+
 void DigitalRelayDriver::tick(uint32_t now, bool enabled)
 {
     if (!outputsAvailable_(now)) return;
-    if (!writable_(enabled) || !due(now, retryAt_)) return;
     uint8_t on = 0;
-    if (state_.appliedValid && state_.appliedRevision == revision_ &&
-        io_->readDigital(io_->ctx, config_.outputs[0], &on, nullptr, nullptr) == IO_OK &&
-        (on != 0) == target_.running) { state_.phase = PoolCommandPhase::Applied; return; }
+    const IoStatus read = io_->readDigital(io_->ctx, config_.outputs[0], &on, nullptr, nullptr);
+    if (read == IO_OK) {
+        if (!state_.observedValid || state_.observed.running != (on != 0)) state_.changedAtMs = now;
+        state_.observed = {on != 0, config_.capabilities.startup};
+        state_.observedValid = true;
+        state_.observedAtMs = now;
+        state_.quality = PoolFeedbackQuality::Estimated;
+        state_.online = true;
+        state_.error = 0;
+    } else {
+        state_.observedValid = false;
+        state_.quality = PoolFeedbackQuality::Unknown;
+        // A missing readback must not prevent an explicit stop from being sent.
+        if (!enabled) failed_(read, now);
+    }
+    if (!writable_(enabled) || !due(now, retryAt_)) return;
+    if (state_.observedValid && state_.observed.running == target_.running) {
+        if (!state_.appliedValid || state_.appliedRevision != revision_) applied_(target_, revision_, now);
+        else state_.phase = PoolCommandPhase::Applied;
+        return;
+    }
     if (writeDigital_(config_.outputs[0], target_.running, now)) applied_(target_, revision_, now);
     else failed_(IO_ERR_HW, now);
 }
@@ -393,6 +420,7 @@ void SerialDeviceDriver::commandAcknowledged_(uint32_t now)
     applied_(sentTarget_, sentRevision_, now);
     nextPollAt_ = now;
     runVerified_ = !config_.serial.hasFeedback;
+    if (config_.serial.startupFeedbackDelayMs) setpointRepairAt_ = now + SetpointRepairIntervalMs;
     if (!sentTarget_.running && config_.serial.hasFeedback) {
         stopRetryAt_ = now + (1000U << stopRepeats_);
     }
@@ -451,11 +479,23 @@ void SerialDeviceDriver::reconcileWrite_(uint32_t now)
         speedRevision_ = revision_;
         if (!target_.running) commandAcknowledged_(now);
     } else if (write == Operation::Run && state_.observed.running == target_.running &&
-               modeMatches_(lastStatusWord_, target_) &&
-               (!target_.running || config_.serial.control != PoolSerialControl::SetpointOrStop || speedMatches)) {
+               modeMatches_(lastStatusWord_, target_)) {
+        if (target_.running && config_.serial.control == PoolSerialControl::SetpointOrStop && !speedMatches) {
+            // An ACK may have been lost while the pump accepted the command.
+            // Confirm ON independently, and wait for startup feedback before
+            // deciding whether the current speed command needs another write.
+            runVerified_ = true;
+            if (startupFeedbackPending_(now)) uncertainWrite_ = write;
+            state_.changedAtMs = now;
+            return;
+        }
         if (!target_.running && config_.serial.control == PoolSerialControl::SeparateRun)
             stopAcknowledged_ = true;
-        else commandAcknowledged_(now);
+        else {
+            commandAcknowledged_(now);
+            // This recovery is based on a physical read, not a wire ACK.
+            runVerified_ = true;
+        }
     }
     // A mismatch leaves this write pending; only the current target is eligible.
     state_.changedAtMs = now;
@@ -471,15 +511,56 @@ void SerialDeviceDriver::finishReconnectRead_(bool moreReads, uint32_t now)
         if (!runningMatches || !setpointMatches) {
             // The device lost its settings during the outage. Give PoolDevice
             // a full control tick to re-evaluate interlocks before any write.
-            state_.appliedValid = false;
-            stopAcknowledged_ = false;
-            runVerified_ = false;
-            speedRevision_ = 0;
-            limitValid_ = false;
-            confirmation_ = Operation::None;
-            deliveryAt_ = now;
-            retryAt_ = now + 1;
+            requestReconciliation_(now);
         }
+    }
+}
+
+void SerialDeviceDriver::observeRunning_(uint32_t now)
+{
+    if (state_.observed.running && (!runningObserved_ ||
+        uint32_t(now - runningObservationAtMs_) > config_.serial.staleMs)) runningSinceMs_ = now;
+    runningObserved_ = state_.observed.running;
+    runningObservationAtMs_ = now;
+}
+
+bool SerialDeviceDriver::startupFeedbackPending_(uint32_t now) const
+{
+    return runningObserved_ && uint32_t(now - runningSinceMs_) < config_.serial.startupFeedbackDelayMs;
+}
+
+void SerialDeviceDriver::requestReconciliation_(uint32_t now)
+{
+    state_.appliedValid = false;
+    state_.phase = PoolCommandPhase::Confirming;
+    stopAcknowledged_ = false;
+    runVerified_ = false;
+    speedRevision_ = 0;
+    limitValid_ = false;
+    confirmation_ = Operation::None;
+    deliveryAt_ = now;
+    // Return control to PoolDevice so interlocks can supersede this request.
+    retryAt_ = now + 1;
+}
+
+void SerialDeviceDriver::reconcileObservation_(uint32_t now)
+{
+    if (!state_.appliedValid || state_.appliedRevision != revision_ || deliveryExpired_) return;
+    // Once ON was confirmed, an observed stop is a new physical restart.
+    // A start that never takes effect remains subject to the delivery budget.
+    if (target_.running && runVerified_ && !state_.observed.running) {
+        requestReconciliation_(now);
+        return;
+    }
+    const auto& serial = config_.serial;
+    const bool repairTemperature = serial.model == PoolSerialModel::Polytropic;
+    const bool repairSpeed = serial.startupFeedbackDelayMs && target_.running &&
+        state_.observed.running && !startupFeedbackPending_(now);
+    if (operation_ == Operation::Feedback && (repairTemperature || repairSpeed) &&
+        std::fabs(state_.observed.setpoint - state_.applied.setpoint) > serial.feedbackUnitsPerRaw * 0.5f &&
+        due(now, setpointRepairAt_)) {
+        requestReconciliation_(now);
+        setpointRepairAt_ = now + SetpointRepairIntervalMs;
     }
 }
 
@@ -584,6 +665,7 @@ void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
         communicationResponseSeen_ = true;
     }
     const bool readRun = operation_ == firstRead_();
+    if (readRun) observeRunning_(now);
     if (readRun && state_.appliedValid && state_.appliedRevision == revision_ &&
         state_.observed.running == target_.running && modeMatches_(lastStatusWord_, target_))
         runVerified_ = true;
@@ -598,19 +680,7 @@ void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
             nextPollAt_ = now + config_.serial.pollMs;
         }
     }
-    // The PAC does not retain its setpoint across a reboot. A fresh read is
-    // authoritative evidence of divergence, never a replacement for our target.
-    // Repair temperature independently of ON/OFF, with bounded write traffic.
-    if (operation_ == Operation::Feedback && config_.serial.model == PoolSerialModel::Polytropic &&
-        state_.appliedValid && state_.appliedRevision == revision_ &&
-        std::fabs(state_.observed.setpoint - state_.applied.setpoint) >
-            config_.serial.feedbackUnitsPerRaw * 0.5f && due(now, setpointRepairAt_)) {
-        state_.appliedValid = false;
-        speedRevision_ = 0;
-        limitValid_ = false;
-        confirmation_ = Operation::None;
-        setpointRepairAt_ = now + 5000U;
-    }
+    if (operation_ == Operation::Status || operation_ == Operation::Feedback) reconcileObservation_(now);
     state_.changedAtMs = now;
 }
 void SerialDeviceDriver::tick(uint32_t now, bool enabled)

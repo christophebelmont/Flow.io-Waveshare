@@ -26,7 +26,7 @@ class OverrideCommandTests(unittest.TestCase):
             binary = Path(directory) / 'test'
             main.write_text(source)
             for command in ([
-                'c++', '-std=c++17', '-Wall', '-Wextra', '-Werror', '-Wno-pragma-once-outside-header', '-Isrc',
+                'c++', '-std=c++17', '-Wall', '-Wextra', '-Werror', '-Wno-pragma-once-outside-header', '-Isrc', '-Iinclude',
                 '-I.pio/libdeps/Flowio-waveshare-esp32-s3/ArduinoJson/src', str(main), '-o', str(binary)], [str(binary)]):
                 result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

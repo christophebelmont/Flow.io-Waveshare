@@ -116,6 +116,8 @@ private:
         PoolDeviceDriver driver{};
         char driverJson[POOL_DRIVER_CONFIG_BYTES]{};
         char driverKey[16]{};
+        char requestedRpmKey[16]{};
+        float requestedRpm = 0;
         char driverError[96]{};
         char haSuffix[24]{};
         char haTopic[40]{};
@@ -181,6 +183,8 @@ private:
     // Lifecycle
     static void onEventStatic_(const Event& e, void* user);
     void onEvent_(const Event& e);
+    bool validateSpeedConfiguration_(const ConfigCandidate& candidate) const;
+    bool restoreRequestedSpeed_(uint8_t slot);
 
     // Control
     uint8_t activeCount_() const;
@@ -335,6 +339,7 @@ private:
     MqttConfigRouteProducer* cfgMqttPub_ = nullptr;
 
     ConfigVariable<char,0>* cfgDriverVar_ = nullptr;
+    ConfigVariable<float,0>* cfgRequestedRpmVar_ = nullptr;
     ConfigVariable<bool,0>* cfgEnabledVar_ = nullptr;
     ConfigVariable<uint16_t,0>* cfgDependsVar_ = nullptr;
     ConfigVariable<float,0>* cfgFlowVar_ = nullptr;

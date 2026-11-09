@@ -5,7 +5,7 @@ import tempfile
 import unittest
 ROOT = Path(__file__).resolve().parents[2]
 class DataDiscoveryTests(unittest.TestCase):
-    def test_selected_sensors_and_removals(self):
+    def test_only_selected_sensors(self):
         source = (ROOT/'src/Profiles/Waveshare/WaveshareIoAssembly.cpp').read_text()
         a=source.index('void syncDataSensors('); b=source.index('\nvoid syncSwitches',a)
         code=(ROOT/'test/host/data_discovery.cpp').read_text().replace('// PRODUCTION_SYNC',source[a:b])

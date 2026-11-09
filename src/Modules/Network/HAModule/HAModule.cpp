@@ -270,7 +270,6 @@ void HAModule::releaseOneShotResources_()
     heap_caps_free(buttons_);
     heap_caps_free(selects_);
     heap_caps_free(pendingBits_);
-    heap_caps_free(removals_); removals_ = nullptr; removalCount_ = removalCapacity_ = 0;
     sensors_ = nullptr;
     binarySensors_ = nullptr;
     switches_ = nullptr;
@@ -531,6 +530,7 @@ bool HAModule::publishDiscovery(const char* component, const char* objectId, Mqt
 {
     if (!component || !objectId) return false;
     if (!outCtx.topic || outCtx.topicCapacity == 0 || !outCtx.payload || outCtx.payloadCapacity == 0) return false;
+    if (outCtx.payload[0] == '\0') return false;
     if (!formatChecked(outCtx.topic,
                        outCtx.topicCapacity,
                        "%s/%s/%s/%s/config",
@@ -826,20 +826,6 @@ bool HAModule::publishButton(const char* objectId, const char* name,
     return publishDiscovery("button", objectId, *outCtx);
 }
 
-bool HAModule::addDiscoveryRemovalSvc_(const HADiscoveryRemovalEntry* entry)
-{
-    if (!entry || !entry->component || !entry->objectSuffix || oneShotCompleted_) return false;
-    if (!ensureStorage_()) return false;
-    for (uint16_t i = 0; i < removalCount_; ++i) {
-        if (strcmp(removals_[i].component, entry->component) == 0 &&
-            strcmp(removals_[i].objectSuffix, entry->objectSuffix) == 0) return true;
-    }
-    if (!reserveDiscoveryEntries(removals_, removalCapacity_, removalCount_ + 1, MAX_HA_REMOVALS)) return false;
-    removals_[removalCount_++] = *entry;
-    requestAutoconfigRefresh();
-    return true;
-}
-
 void HAModule::setStartupReady(bool ready)
 {
     startupReady_ = ready;
@@ -949,15 +935,10 @@ uint16_t HAModule::entityCount_() const
            (uint16_t)buttonCount_;
 }
 
-uint16_t HAModule::messageCount_() const
-{
-    return entityCount_() + removalCount_;
-}
-
 bool HAModule::isPending_(uint16_t messageId) const
 {
     if (!pendingBits_) return false;
-    if (messageId >= MAX_HA_MESSAGES) return false;
+    if (messageId >= MAX_HA_ENTITIES) return false;
     const uint16_t word = (uint16_t)(messageId / 32U);
     const uint16_t bit = (uint16_t)(messageId % 32U);
     return (pendingBits_[word] & (1UL << bit)) != 0UL;
@@ -966,7 +947,7 @@ bool HAModule::isPending_(uint16_t messageId) const
 void HAModule::setPending_(uint16_t messageId, bool pending)
 {
     if (!pendingBits_) return;
-    if (messageId >= MAX_HA_MESSAGES) return;
+    if (messageId >= MAX_HA_ENTITIES) return;
     const uint16_t word = (uint16_t)(messageId / 32U);
     const uint16_t bit = (uint16_t)(messageId % 32U);
     const uint32_t mask = (1UL << bit);
@@ -978,13 +959,11 @@ void HAModule::markAllPending_()
 {
     if (oneShotCompleted_ || !ensureStorage_()) return;
     memset(pendingBits_, 0, sizeof(uint32_t) * HA_PENDING_WORDS);
-    const uint16_t count = messageCount_();
+    const uint16_t count = entityCount_();
     for (uint16_t i = 0; i < count; ++i) {
         setPending_(i, true);
     }
-    HA_BOOT_TRACE_D("ha boot trace: mark all pending messages=%u entities=%u",
-                    (unsigned)count,
-                    (unsigned)entityCount_());
+    HA_BOOT_TRACE_D("ha boot trace: mark all pending entities=%u", (unsigned)count);
 }
 
 bool HAModule::anyPending_() const
@@ -1002,7 +981,7 @@ bool HAModule::enqueuePending_(MqttPublishPriority prio)
     if (!mqttSvc_ || !mqttSvc_->enqueue) return false;
     if (!discoveryReady_()) return false;
 
-    const uint16_t count = messageCount_();
+    const uint16_t count = entityCount_();
     constexpr uint8_t kFlags = (uint8_t)MqttEnqueueFlags::SilentRejectLog;
     for (uint16_t i = 0; i < count; ++i) {
         if (!isPending_(i)) continue;
@@ -1122,16 +1101,6 @@ bool HAModule::buildEntityMessage_(uint16_t messageId, MqttBuildContext& buildCt
     return true;
 }
 
-bool HAModule::buildRemovalMessage_(uint16_t index, MqttBuildContext& buildCtx)
-{
-    if (index >= removalCount_ || !buildCtx.payload || buildCtx.payloadCapacity == 0) return false;
-    const HADiscoveryRemovalEntry& entry = removals_[index];
-    if (!buildObjectId(entry.objectSuffix, objectIdBuf_, sizeof(objectIdBuf_))) return false;
-    buildCtx.payload[0] = '\0';
-    buildCtx.allowEmptyPayload = true;
-    return publishDiscovery(entry.component, objectIdBuf_, buildCtx);
-}
-
 MqttBuildResult HAModule::buildMessage_(uint16_t messageId, MqttBuildContext& buildCtx)
 {
     if (oneShotCompleted_) return MqttBuildResult::NoLongerNeeded;
@@ -1148,11 +1117,10 @@ MqttBuildResult HAModule::buildMessage_(uint16_t messageId, MqttBuildContext& bu
     setHaDeviceId(*dsSvc_->store, deviceId_);
 
     const uint16_t entityCount = entityCount_();
-    HA_BOOT_TRACE_D("ha boot trace: build message=%u entity_count=%u total=%u",
+    HA_BOOT_TRACE_D("ha boot trace: build message=%u entity_count=%u",
                     (unsigned)messageId,
-                    (unsigned)entityCount,
-                    (unsigned)messageCount_());
-    if (messageId >= messageCount_()) return MqttBuildResult::NoLongerNeeded;
+                    (unsigned)entityCount);
+    if (messageId >= entityCount) return MqttBuildResult::NoLongerNeeded;
     // Registration precedes acquisition. Gate catalogue discovery here, after startup,
     // rather than treating every not-yet-sampled value as unavailable at registration.
     const ValueId id = messageId < sensorCount_ ? sensors_[messageId].dataValueId :
@@ -1163,10 +1131,7 @@ MqttBuildResult HAModule::buildMessage_(uint16_t messageId, MqttBuildContext& bu
             !readAvailableDataValue(dsSvc_->store->values, id, value, metadata))
             return MqttBuildResult::NoLongerNeeded;
     }
-    const bool built = messageId < entityCount
-        ? buildEntityMessage_(messageId, buildCtx)
-        : buildRemovalMessage_(messageId - entityCount, buildCtx);
-    if (!built) return MqttBuildResult::PermanentError;
+    if (!buildEntityMessage_(messageId, buildCtx)) return MqttBuildResult::PermanentError;
     return MqttBuildResult::Ready;
 }
 
@@ -1301,10 +1266,9 @@ void HAModule::init(ConfigStore& cfg, ServiceRegistry& services)
     cfg.registerVar(entityPrefixVar, kCfgModuleId, kCfgBranchId);
     cfg.registerVar(prefixVar, kCfgModuleId, kCfgBranchId);
     cfg.registerVar(modelVar, kCfgModuleId, kCfgBranchId);
-    HA_BOOT_TRACE_I("ha boot trace: init oneshot=%d max_entities=%u max_messages=%u",
+    HA_BOOT_TRACE_I("ha boot trace: init oneshot=%d max_entities=%u",
                     FLOW_HA_ONESHOT_DISCOVERY ? 1 : 0,
-                    (unsigned)MAX_HA_ENTITIES,
-                    (unsigned)MAX_HA_MESSAGES);
+                    (unsigned)MAX_HA_ENTITIES);
 
     eventBusSvc_ = services.get<EventBusService>(ServiceId::EventBus);
     dsSvc_ = services.get<DataStoreService>(ServiceId::DataStore);

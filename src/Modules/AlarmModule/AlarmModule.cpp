@@ -23,13 +23,6 @@ static constexpr uint8_t kAlarmCfgBranch = 1;
 static constexpr MqttConfigRouteProducer::Route kAlarmCfgRoutes[] = {
     {1, {(uint8_t)ConfigModuleId::Alarms, kAlarmCfgBranch}, "alarms", "alarms", (uint8_t)MqttPublishPriority::Normal, nullptr},
 };
-// Remove old slot-based discovery records when migrating to stable AlarmIds.
-static constexpr HADiscoveryRemovalEntry kLegacyAlarmButtons[] = {
-    {"button", "alm_reset_slot_0"}, {"button", "alm_reset_slot_1"},
-    {"button", "alm_reset_slot_2"}, {"button", "alm_reset_slot_3"},
-    {"button", "alm_reset_slot_4"}, {"button", "alm_reset_slot_5"},
-    {"button", "alm_reset_slot_6"}, {"button", "alm_reset_slot_7"},
-};
 }
 
 static uint32_t clampEvalPeriodMs_(int32_t inMs)
@@ -741,8 +734,7 @@ void AlarmModule::registerHaEntities_(ServiceRegistry& services)
     if (!haSvc_) haSvc_ = services.get<HAService>(ServiceId::Ha);
     if (!haSvc_) return;
 
-    if (!haSvc_->addSensor || !haSvc_->addBinarySensor || !haSvc_->addButton ||
-        !haSvc_->addDiscoveryRemoval) return;
+    if (!haSvc_->addSensor || !haSvc_->addBinarySensor || !haSvc_->addButton) return;
 
     bool ok = true;
     const HASensorEntry alarmsPack{
@@ -809,12 +801,6 @@ void AlarmModule::registerHaEntities_(ServiceRegistry& services)
         if (!stateOk || !buttonOk) {
             LOGW("HA alarm registration failed id=%u", (unsigned)slot.id);
             ok = false;
-        }
-    }
-    // Only remove legacy records after all replacement entries were registered.
-    if (ok) {
-        for (const auto& entry : kLegacyAlarmButtons) {
-            ok = haSvc_->addDiscoveryRemoval(haSvc_->ctx, &entry) && ok;
         }
     }
     haEntitiesRegistered_ = ok;

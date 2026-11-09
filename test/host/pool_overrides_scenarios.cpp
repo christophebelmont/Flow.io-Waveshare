@@ -1,7 +1,7 @@
 int main() {
  PoolDeviceModule module;
- unsigned sensors=0,numbers=0,buttons=0,selects=0,removals=0;
- struct Capture { unsigned *s,*n,*b,*sel,*r; } capture{&sensors,&numbers,&buttons,&selects,&removals};
+ unsigned sensors=0,numbers=0,buttons=0,selects=0;
+ struct Capture { unsigned *s,*n,*b,*sel; } capture{&sensors,&numbers,&buttons,&selects};
  HAService ha{}; ha.ctx=&capture;
  ha.addSensor=[](void* p,const HASensorEntry*){++*static_cast<Capture*>(p)->s;return true;};
  ha.addNumber=[](void* p,const HANumberEntry*){++*static_cast<Capture*>(p)->n;return true;};
@@ -11,9 +11,15 @@ int main() {
    DynamicJsonDocument doc(2048);assert(!deserializeJson(doc,e->optionsJson));assert(doc.size()==16);
    assert(strstr(e->commandTemplate,"to_json"));return true;
  };
- ha.addDiscoveryRemoval=[](void* p,const HADiscoveryRemovalEntry*){++*static_cast<Capture*>(p)->r;return true;};
  module.haSvc_=&ha; module.restoreOverrides_(); module.registerOverrideHa_();
- assert(sensors==2&&numbers==1&&buttons==3&&selects==1&&removals==12);
+ assert(sensors==2&&numbers==1&&buttons==3&&selects==1);
+ {
+   PoolDeviceModule disabled;
+   for (auto& slot : disabled.slots_) slot.def.enabled=false;
+   disabled.haSvc_=&ha;
+   disabled.registerOverrideHa_();
+   assert(sensors==2&&numbers==1&&buttons==3&&selects==1);
+ }
  using Cmd=ActuatorOverrideCommand;
  char reply[256];
  auto call=[&](const char* args,Cmd action) { return module.svcOverrideCommandImpl_({nullptr,nullptr,args,42},reply,sizeof(reply),action); };

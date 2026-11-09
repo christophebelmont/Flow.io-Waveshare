@@ -116,5 +116,4 @@ int main() {
         assert(doc["args"]["minutes"] == 45);
         assert(entry.minValue == 1 && entry.maxValue == 1440);
     }
-    assert(sizeof(Removals) / sizeof(*Removals) == 12);
 }

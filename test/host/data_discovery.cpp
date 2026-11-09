@@ -30,7 +30,7 @@ int main() {
     assert(InternalAnalogSources::define(store.values));
     assert(PoolDeviceValues::define(store.values));
     PoolDeviceValues::setNames(store.values, 2, "Chlore");
-    struct Captured { std::set<std::string> added, removed; } captured;
+    struct Captured { std::set<std::string> added; } captured;
     HAService service{}; service.ctx=&captured;
     service.addSensor=[](void* ctx,const HASensorEntry* sensor) {
         auto& out=*static_cast<Captured*>(ctx); out.added.insert(sensor->objectSuffix);
@@ -53,22 +53,18 @@ int main() {
         assert(sensor->availabilityTemplate != nullptr);
         return true;
     };
-    service.addDiscoveryRemoval=[](void* ctx,const HADiscoveryRemovalEntry* removal) {
-        assert(strcmp(removal->component,"sensor")==0 || strcmp(removal->component,"binary_sensor")==0);
-        static_cast<Captured*>(ctx)->removed.insert(removal->objectSuffix); return true;
-    };
     ModuleInstances modules{&store,&service};
+    // No selected values means no catalogue announcements at all.
+    syncDataSensors(modules);
+    assert(captured.added.empty());
     // First boot: only pd2 remaining volume and daily uptime requested.
     store.enabled[116]=store.enabled[146]=true;
     syncDataSensors(modules);
     assert((captured.added==std::set<std::string>{"data_116","data_146"}));
-    assert(captured.removed.size()==kDataValueCount-2);
-    assert(captured.removed.count("data_117"));
-    // Next boot: disable uptime; its retained discovery must be removed.
+    // Next boot: disabled uptime is not announced.
     captured={}; store.enabled[146]=false;
     syncDataSensors(modules);
     assert((captured.added==std::set<std::string>{"data_116"}));
-    assert(captured.removed.count("data_146"));
     captured={}; store.enabled[117]=true;
     syncDataSensors(modules);
     assert(captured.added.count("data_117"));
@@ -77,7 +73,7 @@ int main() {
     captured={}; store.enabled[116]=false;
     for (uint8_t slot=0;slot<16;++slot) store.enabled[PoolDeviceValues::uptimeId(slot)]=true;
     syncDataSensors(modules);
-    assert(captured.added.size()==16 && captured.removed.size()==kDataValueCount-16);
+    assert(captured.added.size()==16);
     captured={};
     ValueMetadata state{}; state.type=ValueType::Bool;
     assert(store.values.define(ValueIds::DigitalState+4, state));
@@ -85,5 +81,11 @@ int main() {
     syncDataSensors(modules);
     assert(captured.added.count("data_164"));
     assert(!captured.added.count("data_166") && !captured.added.count("data_168"));
-    puts("Catalogue discovery: boot-time selection, deselection cleanup and all daily uptimes OK");
+    captured={};
+    for (auto& enabled : store.enabled) enabled=false;
+    // Selecting an undefined value still must not announce an entity.
+    store.enabled[ValueIds::DigitalState+6]=true;
+    syncDataSensors(modules);
+    assert(captured.added.empty());
+    puts("Catalogue discovery: boot-time selection, disabled values omitted and all daily uptimes OK");
 }

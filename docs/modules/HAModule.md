@@ -28,7 +28,6 @@ Type: module actif (event-driven par notification task).
 - `ha` -> `HAService`
   - `addSensor`, `addBinarySensor`, `addSwitch`, `addNumber`, `addButton`
   - `requestRefresh`
-  - `addDiscoveryRemoval` (suppression retained des anciennes découvertes)
 
 ## Services consommés
 
@@ -116,6 +115,11 @@ Réactions:
 ## Mode one-shot
 
 Le build peut définir `FLOW_HA_ONESHOT_DISCOVERY=1` pour publier l'auto-discovery une seule fois au démarrage.
+Seules les entités nécessaires et activées dans la configuration de démarrage sont
+annoncées. Flow.io ne publie aucun message Discovery vide retained et ne conserve
+aucun historique des annonces pour supprimer d'anciennes entités. Le nettoyage
+des anciennes configurations Discovery dans le broker MQTT relève de l'utilisateur.
+
 Ce mode est utilisé par le firmware Waveshare:
 - les tables d'entités HA sont allouées dynamiquement au lieu d'être conservées en `.bss`
 - le producteur MQTT de configuration HA n'est pas instancié
@@ -168,10 +172,9 @@ Les états MQTT des alarmes sont retained et resynchronisés à chaque connexion
 Flow.IO au broker. Une reconnexion de Home Assistant récupère ainsi les derniers
 états sans attendre une transition. La disponibilité globale reste liée au LWT.
 
-Les anciennes découvertes `alm_reset_slot_0` à `alm_reset_slot_7` sont supprimées
-par publication vide retained, après enregistrement des nouvelles entités. Les
-helpers YAML installés manuellement ne sont pas supprimés: leurs utilisateurs
-peuvent migrer leurs cartes/automatisations puis retirer l'ancien include.
+Les anciennes découvertes `alm_reset_slot_0` à `alm_reset_slot_7` restent dans le
+broker jusqu'à leur suppression manuelle par l'utilisateur. Les utilisateurs des
+helpers YAML peuvent migrer leurs cartes/automatisations puis retirer l'ancien include.
 
 ### Contrat des boutons
 

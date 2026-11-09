@@ -100,12 +100,6 @@ struct HAButtonEntry {
     bool includeNameInUniqueId = true;
 };
 
-/** @brief Retained discovery configuration to remove during publication. */
-struct HADiscoveryRemovalEntry {
-    const char* component;
-    const char* objectSuffix;
-};
-
 /** @brief Service used by modules to register static HA discovery entries and request refreshes. */
 struct HAService {
     bool (*addSensor)(void* ctx, const HASensorEntry* entry);
@@ -116,5 +110,4 @@ struct HAService {
     bool (*addButton)(void* ctx, const HAButtonEntry* entry);
     bool (*requestRefresh)(void* ctx);
     void* ctx;
-    bool (*addDiscoveryRemoval)(void* ctx, const HADiscoveryRemovalEntry* entry);
 };

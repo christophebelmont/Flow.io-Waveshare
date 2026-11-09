@@ -112,6 +112,8 @@ struct PoolSerialConfig {
     uint32_t pollMs = 1000;
     uint32_t timeoutMs = 300;
     uint32_t staleMs = 5000;
+    // Manufacturer startup period: commands are accepted, but RPM feedback lags.
+    uint32_t startupFeedbackDelayMs = 0;
     uint8_t retries = 1;
 };
 struct PoolFlowPoint { float setpoint = 0; float litresPerHour = 0; };

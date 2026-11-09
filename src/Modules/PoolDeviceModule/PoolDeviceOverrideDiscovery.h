@@ -27,17 +27,4 @@ inline const HAButtonEntry Buttons[] = {
     {"pooldevice", "pdm_ovr_release", "End Override", "cmd", "{\"cmd\":\"pooldevice.release\"}", nullptr,
      "mdi:autorenew", Selected, Releasable, false},
 };
-inline const HADiscoveryRemovalEntry PanelRemovals[] = {
-    {"select", "pdm_ovr_target"}, {"number", "pdm_ovr_min"},
-    {"sensor", "pdm_ovr_state"}, {"sensor", "pdm_ovr_active"},
-    {"button", "pdm_ovr_on"}, {"button", "pdm_ovr_off"}, {"button", "pdm_ovr_release"},
-};
-// Remove obsolete retained discovery configs; their runtime topics remain compatible.
-inline const HADiscoveryRemovalEntry Removals[] = {
-    {"number", "pl_flt_ovr_min"}, {"number", "pl_robot_ovr_min"},
-    {"sensor", "pl_flt_ovr_state"}, {"sensor", "pl_flt_ovr_remaining"},
-    {"sensor", "pl_robot_ovr_state"}, {"sensor", "pl_robot_ovr_remaining"},
-    {"button", "pl_flt_ovr_on"}, {"button", "pl_flt_ovr_off"}, {"button", "pl_flt_ovr_release"},
-    {"button", "pl_robot_ovr_on"}, {"button", "pl_robot_ovr_off"}, {"button", "pl_robot_ovr_release"},
-};
 }

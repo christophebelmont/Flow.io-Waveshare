@@ -20,7 +20,6 @@ class HaDynamicStorageTests(unittest.TestCase):
         production += '\n' + function(source, 'bool HAModule::ensureStorage_(')
         for title, _, _, _ in KINDS:
             production += '\n' + function(source, f'bool HAModule::add{title}Entry(')
-        production += '\n' + function(source, 'bool HAModule::addDiscoveryRemovalSvc_(')
         production += '\n' + function(source, 'bool HAModule::buildEntityMessage_(')
         preamble = r'''
 #include "Core/Services/IHA.h"
@@ -57,10 +56,6 @@ struct HAModule {
     size_t entityTableUsedBytes_() const{return 0;}
     size_t entityTableCapacityBytes_() const{return 0;}
     bool ensureStorage_();
-    static constexpr uint16_t MAX_HA_REMOVALS=300;
-    HADiscoveryRemovalEntry* removals_=nullptr;
-    uint16_t removalCount_=0, removalCapacity_=0;
-    bool addDiscoveryRemovalSvc_(const HADiscoveryRemovalEntry*);
 '''
         for title, singular, plural, upper in KINDS:
             preamble += f'''
@@ -69,7 +64,7 @@ struct HAModule {
     uint16_t {singular}Count_=0, {singular}Capacity_=0;
     bool add{title}Entry(const HA{title}Entry&);
 '''
-        preamble += '~HAModule(){heap_caps_free(pendingBits_);heap_caps_free(removals_);'
+        preamble += '~HAModule(){heap_caps_free(pendingBits_);'
         for _, _, plural, _ in KINDS:
             preamble += f'heap_caps_free({plural}_);'
         preamble += '}};\n'
@@ -120,19 +115,7 @@ int main(){
     assert(module.{singular}Count_==300);
 }}
 '''
-        scenarios += r'''
-    HAModule module;
-    assert(module.ensureStorage_());
-    HADiscoveryRemovalEntry removal{"sensor", "test"};
-    fakePsramAvailable=false;
-    assert(!module.addDiscoveryRemovalSvc_(&removal) && module.removalCount_==0);
-    fakePsramAvailable=true;
-    for(unsigned i=0;i<300;++i){removal.objectSuffix=keys[i].c_str();assert(module.addDiscoveryRemovalSvc_(&removal));}
-    assert(module.addDiscoveryRemovalSvc_(&removal) && module.removalCount_==300);
-    removal.objectSuffix=keys[300].c_str();
-    assert(!module.addDiscoveryRemovalSvc_(&removal));
-}
-'''
+        scenarios += '}\n'
         with tempfile.TemporaryDirectory() as tmp:
             cpp=Path(tmp)/'ha.cpp'; exe=Path(tmp)/'ha'
             cpp.write_text(preamble+production+scenarios)

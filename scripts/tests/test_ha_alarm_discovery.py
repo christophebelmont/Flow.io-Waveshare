@@ -55,7 +55,6 @@ struct Captured {
     std::vector<HASensorEntry> sensors;
     std::vector<HABinarySensorEntry> binary;
     std::vector<HAButtonEntry> buttons;
-    std::vector<HADiscoveryRemovalEntry> removals;
     bool rejectBinary = false;
     HAService service{};
     Captured() {
@@ -70,9 +69,6 @@ struct Captured {
         };
         service.addButton = [](void* ctx, const HAButtonEntry* e) {
             static_cast<Captured*>(ctx)->buttons.push_back(*e); return true;
-        };
-        service.addDiscoveryRemoval = [](void* ctx, const HADiscoveryRemovalEntry* e) {
-            static_cast<Captured*>(ctx)->removals.push_back(*e); return true;
         };
     }
 };
@@ -140,7 +136,7 @@ void checkMqttState(AlarmModule& module) {
 }
 '''
 
-REMOVAL_RUNTIME = r'''
+DISCOVERY_RUNTIME = r'''
 #include <cstdarg>
 #define HA_BOOT_TRACE_D(...) logNoop(__VA_ARGS__)
 bool formatChecked(char* out, size_t len, const char* fmt, ...) {
@@ -175,34 +171,27 @@ class HAModule { public:
     HASensorEntry sensors_[3]{};
     uint8_t sensorCount_ = 2, binarySensorCount_ = 1;
     HABinarySensorEntry binarySensors_[1]{};
-    HADiscoveryRemovalEntry removals_[8]{};
-    uint8_t removalCount_ = 0;
     bool isPending_(uint16_t) const { return true; }
     void refreshIdentityFromConfig() {}
     uint16_t entityCount_() const { return 3; }
-    uint16_t messageCount_() const;
     bool buildObjectId(const char* suffix, char* out, size_t len) const {
         return formatChecked(out, len, "fio_%s", suffix);
     }
     bool buildEntityMessage_(uint16_t, MqttBuildContext&) { return true; }
-    bool buildRemovalMessage_(uint16_t, MqttBuildContext&);
     bool publishDiscovery(const char*, const char*, MqttBuildContext&);
     MqttBuildResult buildMessage_(uint16_t, MqttBuildContext&);
 };
-void checkRemoval() {
+void checkDiscovery() {
     HAModule ha;
-    for (auto entry : kLegacyAlarmButtons) ha.removals_[ha.removalCount_++] = entry;
-    char topic[192], payload[64];
-    for (uint16_t index = 0; index < 8; ++index) {
-        strcpy(payload, "old payload must be cleared");
-        MqttBuildContext context{topic, sizeof(topic), payload, sizeof(payload)};
-        assert(ha.buildMessage_(ha.entityCount_() + index, context) == MqttBuildResult::Ready);
-        assert(context.allowEmptyPayload && context.payloadLen == 0 && context.retain);
-        assert(std::string(topic) == "homeassistant/button/device/fio_alm_reset_slot_"
-                                     + std::to_string(index) + "/config");
-    }
+    char topic[192]{}, payload[64]{};
     MqttBuildContext context{topic, sizeof(topic), payload, sizeof(payload)};
-    assert(ha.buildMessage_(ha.messageCount_(), context) == MqttBuildResult::NoLongerNeeded);
+    assert(ha.buildMessage_(ha.entityCount_(), context) == MqttBuildResult::NoLongerNeeded);
+    assert(topic[0] == '\0' && payload[0] == '\0' && !context.allowEmptyPayload);
+    assert(!ha.publishDiscovery("sensor", "fio_test", context));
+    strcpy(payload, "{\"name\":\"Test\"}");
+    assert(ha.publishDiscovery("sensor", "fio_test", context));
+    assert(context.retain && context.payloadLen > 0 && !context.allowEmptyPayload);
+    assert(std::string(topic) == "homeassistant/sensor/device/fio_test/config");
     // Discovery is gated when the MQTT message is built, after acquisition starts.
     ha.sensors_[0].dataValueId = 117;
     ha.startupReady_ = false;
@@ -213,9 +202,8 @@ void checkRemoval() {
     assert(ha.buildMessage_(0, context) == MqttBuildResult::Ready);
     ha.store.values = int(ValueQuality::Invalid);
     assert(ha.buildMessage_(0, context) == MqttBuildResult::NoLongerNeeded);
-    // Non-catalogue entities are unaffected, and no removal is added for unavailability.
+    // Non-catalogue entities are unaffected by catalogue value availability.
     assert(ha.buildMessage_(1, context) == MqttBuildResult::Ready);
-    assert(ha.removalCount_ == 8);
     ha.binarySensors_[0].dataValueId = 164;
     assert(ha.buildMessage_(2, context) == MqttBuildResult::NoLongerNeeded);
     ha.store.values = int(ValueQuality::Valid);
@@ -229,7 +217,7 @@ void checkRemoval() {
 
 MAIN = r'''
 int main() {
-    checkRemoval();
+    checkDiscovery();
     ServiceRegistry services;
     {
         Captured captured;
@@ -248,7 +236,6 @@ int main() {
         assert(captured.binary.size() == 3); // two occupied slots + aggregate
         assert(captured.buttons.size() == 3); // two occupied slots + global
         assert(captured.sensors.size() == 2); // compatibility pack + count
-        assert(captured.removals.size() == 8);
         assert(std::string(captured.buttons[0].objectSuffix) == "alm_reset_all");
         for (unsigned i = 1; i < captured.buttons.size(); ++i) {
             const auto& entry = captured.buttons[i];
@@ -296,7 +283,6 @@ int main() {
         module.haSvc_ = &captured.service;
         module.registerHaEntities_(services);
         assert(!module.haEntitiesRegistered_);
-        assert(captured.removals.empty()); // preserve old discovery on registration failure
     }
     {
         AlarmModule module;
@@ -367,7 +353,6 @@ class AlarmDiscoveryTest(unittest.TestCase):
         source = (ROOT / 'src/Modules/AlarmModule/AlarmModule.cpp').read_text()
         structs = '\n'.join(re.search(r'    struct ' + name + r' \{.*?\n    \};', header, re.S)[0]
                             for name in ('AlarmSlot', 'HaAlarmDiscovery'))
-        legacy = re.search(r'static constexpr HADiscoveryRemovalEntry kLegacyAlarmButtons\[\].*?\n};', source, re.S)[0]
         methods = '\n'.join(function(source, 'AlarmModule::' + name + '(') for name in (
             'registerHaEntities_', 'findSlotById_', 'buildAlarmState_',
             'resetWithActor_', 'resetAllWithActor_', 'condStateStr_'))
@@ -375,9 +360,9 @@ class AlarmDiscoveryTest(unittest.TestCase):
         mqtt_method = function(mqtt_source, 'MQTTModule::buildAlarm_(')
         ha_source = (ROOT / 'src/Modules/Network/HAModule/HAModule.cpp').read_text()
         ha_methods = '\n'.join(function(ha_source, 'HAModule::' + name + '(') for name in (
-            'buildMessage_', 'buildRemovalMessage_', 'publishDiscovery', 'messageCount_'))
-        program = (PREAMBLE + legacy + '\nclass AlarmModule { public:\n' + structs + CLASS + methods
-                   + MQTT_RUNTIME + mqtt_method + REMOVAL_RUNTIME + ha_methods + MAIN)
+            'buildMessage_', 'publishDiscovery'))
+        program = (PREAMBLE + '\nclass AlarmModule { public:\n' + structs + CLASS + methods
+                   + MQTT_RUNTIME + mqtt_method + DISCOVERY_RUNTIME + ha_methods + MAIN)
         with tempfile.TemporaryDirectory(prefix='flow-ha-alarms-') as directory:
             work = Path(directory)
             (work / 'esp_heap_caps.h').write_text(HEAP_HEADER)

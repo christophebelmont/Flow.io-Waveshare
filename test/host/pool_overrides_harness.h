@@ -11,11 +11,12 @@
 #include "Core/Services/IHA.h"
 #include "Core/Services/IPoolConfiguration.h"
 #include "Core/Services/PoolSerialTelemetry.h"
+#include "Core/ConfigTypes.h"
 using SpiRamJsonDocument = DynamicJsonDocument;
 constexpr uint8_t POOL_DEVICE_MAX=16, POOL_MAX_SPEED_STEPS=6;
 constexpr int IO_ID_INVALID=-1;
 enum class PoolControlKind { Relay, Discrete, Rs485 };
-enum class PoolSetpointUnit { Percent, Celsius };
+enum class PoolSetpointUnit { Percent, Celsius, Rpm };
 enum class PoolSerialModel { Custom, Polytropic };
 enum class PoolCommandPhase { Applied, Expired };
 enum class PoolFeedbackQuality { Good, Stale };
@@ -47,6 +48,11 @@ struct Store { int notifications=0; void notifyChanged(int) { ++notifications; }
 struct ConfigStore {
  bool fail=false; unsigned writes=0;
  std::map<std::string,std::vector<uint8_t>> records;
+ template<typename T, size_t H> bool set(ConfigVariable<T,H>& var, const T& value) {
+   if (*var.value == value) return true;
+   if (fail) return false;
+   ++writes; *var.value = value; return true;
+ }
  bool writeRuntimeBlob(const char* key,const uint8_t* bytes,size_t len) {
    ++writes; if(fail)return false; records[key]={bytes,bytes+len}; return true;
  }
@@ -85,6 +91,7 @@ public:
   bool driverReady=true, desiredOn=false, actualOn=false, dependencies=true, maxUptime=false;
   struct { bool error=false; PoolFeedbackQuality quality=PoolFeedbackQuality::Good; PoolCommandPhase phase=PoolCommandPhase::Applied; PoolTelemetryState telemetry{}; } feedback;
   PoolDeviceTarget desired, effective;
+  float requestedRpm=0;
   bool retryExpiredCommand=false;
   uint32_t revision=0;
   PoolInterlockState interlockState=PoolInterlockState::Ready;
@@ -100,6 +107,7 @@ public:
  bool configurationSetpoint_(uint8_t,float&) const;
  void syncConfigurationSetpoint_(uint8_t);
  ConfigStore storage; ConfigStore* cfgStore_=&storage;
+ ConfigVariable<float,0> cfgRequestedRpmVar_[POOL_DEVICE_MAX]{};
  TimeService time; TimeService* timeSvc_=&time;
  IoService io; IoService* ioSvc_=&io;
  Store store; Store* dataStore_=&store;
@@ -114,6 +122,7 @@ public:
   for(unsigned i=0;i<POOL_DEVICE_MAX;++i) {
    slots_[i].idStorage="pd"+std::to_string(i);slots_[i].id=slots_[i].idStorage.c_str();
    slots_[i].driverConfig.outputs[0]=int(i);
+   cfgRequestedRpmVar_[i].value=&slots_[i].requestedRpm;
   }
  }
  bool lockState_() const {return true;}

@@ -71,9 +71,7 @@ private:
     static constexpr uint8_t MAX_HA_SELECTS = Limits::Ha::Capacity::MaxSelects;
     static constexpr uint16_t MAX_HA_ENTITIES =
         MAX_HA_SENSORS + MAX_HA_BINARY_SENSORS + MAX_HA_SWITCHES + MAX_HA_NUMBERS + MAX_HA_BUTTONS + MAX_HA_SELECTS;
-    static constexpr uint16_t MAX_HA_REMOVALS = kDataValueCount + 64; // Cleanup capacity also covers retained entities from previous firmware.
-    static constexpr uint16_t MAX_HA_MESSAGES = MAX_HA_ENTITIES + MAX_HA_REMOVALS;
-    static constexpr uint16_t HA_PENDING_WORDS = (MAX_HA_MESSAGES + 31U) / 32U;
+    static constexpr uint16_t HA_PENDING_WORDS = (MAX_HA_ENTITIES + 31U) / 32U;
 
     struct HAConfig {
         bool enabled = true;
@@ -114,8 +112,6 @@ private:
     HAButtonEntry* buttons_ = nullptr;
     HASelectEntry* selects_ = nullptr;
     uint32_t* pendingBits_ = nullptr;
-    HADiscoveryRemovalEntry* removals_ = nullptr;
-    uint16_t removalCount_ = 0, removalCapacity_ = 0;
     uint16_t sensorCount_ = 0, sensorCapacity_ = 0;
     uint16_t binarySensorCount_ = 0, binarySensorCapacity_ = 0;
     uint16_t switchCount_ = 0, switchCapacity_ = 0;
@@ -161,7 +157,6 @@ private:
     bool addSelectSvc_(const HASelectEntry* entry);
     bool addButtonSvc_(const HAButtonEntry* entry);
     bool requestRefreshSvc_();
-    bool addDiscoveryRemovalSvc_(const HADiscoveryRemovalEntry* entry);
     bool initDiscoveryDocument_(JsonDocument& doc, const char* component, const char* objectId, const char* name, bool includeNameInUniqueId);
     bool ensureStorage_();
     void releaseOneShotResources_();
@@ -184,7 +179,6 @@ private:
     void setPending_(uint16_t messageId, bool pending);
     bool anyPending_() const;
     uint16_t entityCount_() const;
-    uint16_t messageCount_() const;
 
     static MqttBuildResult producerBuildStatic_(void* ctx, uint16_t messageId, MqttBuildContext& buildCtx);
     static void producerPublishedStatic_(void* ctx, uint16_t messageId);
@@ -196,7 +190,6 @@ private:
     void markBootLogCaptureCompleteAfterDiscovery_();
 
     bool buildEntityMessage_(uint16_t messageId, MqttBuildContext& buildCtx);
-    bool buildRemovalMessage_(uint16_t index, MqttBuildContext& buildCtx);
     bool resolveMqttTopicDeviceId_(char* out, size_t outLen) const;
 
     bool buildObjectId(const char* suffix, char* out, size_t outLen) const;
@@ -267,7 +260,6 @@ private:
         ServiceBinding::bind<&HAModule::addSelectSvc_>,
         ServiceBinding::bind<&HAModule::addButtonSvc_>,
         ServiceBinding::bind<&HAModule::requestRefreshSvc_>,
-        this,
-        ServiceBinding::bind<&HAModule::addDiscoveryRemovalSvc_>
+        this
     };
 };
