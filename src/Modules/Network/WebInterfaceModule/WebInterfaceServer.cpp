@@ -1661,7 +1661,8 @@ const char* runtimeUiWireTypeName_(RuntimeUiWireType type)
 constexpr size_t kMaxRuntimeHttpIds = 48U;
 
 void printRuntimeValuePrefix_(Print& out, bool& firstValue, RuntimeUiId id, const char* key, const char* type, const char* unit,
-                              int8_t precision = VALUE_PRECISION_NONE)
+                              int8_t precision = VALUE_PRECISION_NONE,
+                              const ValueMetadata* displayMetadata = nullptr)
 {
     if (!firstValue) out.print(',');
     firstValue = false;
@@ -1678,6 +1679,14 @@ void printRuntimeValuePrefix_(Print& out, bool& firstValue, RuntimeUiId id, cons
     if (precision >= 0) {
         out.print(",\"precision\":");
         out.print((int)precision);
+    }
+    if (displayMetadata) {
+        out.print(",\"has_display_range\":");
+        out.print(displayMetadata->hasDisplayRange ? "true" : "false");
+        if (displayMetadata->hasDisplayRange) {
+            out.print(",\"display_min\":"); out.print(displayMetadata->displayMin, 8);
+            out.print(",\"display_max\":"); out.print(displayMetadata->displayMax, 8);
+        }
     }
 }
 
@@ -1975,7 +1984,8 @@ bool appendWaveshareLocalRuntimeValue_(Print& out,
         char number[40];
         if (integer64) snprintf(number, sizeof(number), "%llu", (unsigned long long)value.value.u64);
         else if (!formatValueNumber(number, sizeof(number), valueAsDouble(metadata.type, value.value), metadata.precision)) return false;
-        printRuntimeValuePrefix_(out, firstValue, id, item->key, integer64 ? "string" : "double", metadata.displayUnit, metadata.precision);
+        printRuntimeValuePrefix_(out, firstValue, id, item->key, integer64 ? "string" : "double", metadata.displayUnit,
+                                 metadata.precision, &metadata);
         out.print(",\"value\":");
         if (integer64) printJsonEscaped_(out, number); else out.print(number);
         out.print('}');
@@ -7332,7 +7342,7 @@ void WebInterfaceModule::startServer_()
             ValueSnapshot sample{};
             if (!dataValueIsEquipment(descriptor) || (dataStore_ && dataStore_->values.read(descriptor.id, sample))) ++count;
         }
-        auto body = std::make_shared<WebJsonBuffer>(32U + count * 1568U);
+        auto body = std::make_shared<WebJsonBuffer>(32U + count * 950U);
         if (!body->valid()) { sendTinyBusyJson_(request, "data_values_memory"); return; }
         body->print("{\"ok\":true,\"values\":[");
         bool first = true;
@@ -7342,7 +7352,7 @@ void WebInterfaceModule::startServer_()
             if (dataValueIsEquipment(descriptor) && !defined) continue;
             if (!first) body->print(',');
             first = false;
-            StaticJsonDocument<896> item;
+            StaticJsonDocument<2048> item;
             item["id"] = descriptor.id;
             item["runtimeId"] = kDataRuntimeUiBase + descriptor.id;
             auto runtimeIds = item.createNestedArray("runtime_ids");
@@ -7368,6 +7378,25 @@ void WebInterfaceModule::startServer_()
                 dataStore_->values.usable(descriptor.id) != dataStore_->configuredUsable(descriptor.id));
             item["estimated"] = descriptor.kind == DataValueKind::Tank;
             item["precision"] = defined ? meta.precision : VALUE_PRECISION_NONE;
+            // Display-only bounds stay in the local Web API. They are not part
+            // of the Home Assistant publisher or MQTT runtime payload.
+            item["has_display_range"] = defined && meta.hasDisplayRange;
+            if (defined && meta.hasDisplayRange) {
+                item["display_min"] = meta.displayMin;
+                item["display_max"] = meta.displayMax;
+            } else {
+                item["display_min"] = nullptr;
+                item["display_max"] = nullptr;
+            }
+            const auto defaultRange = defaultValueDisplayRange(descriptor.id);
+            item["default_has_display_range"] = defaultRange.hasRange;
+            if (defaultRange.hasRange) {
+                item["default_display_min"] = defaultRange.min;
+                item["default_display_max"] = defaultRange.max;
+            } else {
+                item["default_display_min"] = nullptr;
+                item["default_display_max"] = nullptr;
+            }
             char configPath[20];
             snprintf(configPath, sizeof(configPath), "data/value/d%03u", descriptor.id);
             item["config_path"] = configPath;
@@ -7382,6 +7411,56 @@ void WebInterfaceModule::startServer_()
         }
         body->print("]}");
         sendBufferedJson(request, body);
+    });
+    server_.on("/api/data/display", HTTP_POST, [this](AsyncWebServerRequest* request) {
+        if (!dataStore_ || !request->hasParam("id", true) || !request->hasParam("mode", true)) {
+            request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid_request\"}");
+            return;
+        }
+        const String& rawId = request->getParam("id", true)->value();
+        char* idEnd = nullptr;
+        const long parsedId = strtol(rawId.c_str(), &idEnd, 10);
+        if (!idEnd || *idEnd != '\0' || parsedId < 0 || parsedId >= ValueIds::Capacity ||
+            !dataValueDescriptor(static_cast<ValueId>(parsedId))) {
+            request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid_value_id\"}");
+            return;
+        }
+        ValueSnapshot sample{};
+        ValueMetadata metadata{};
+        const ValueId id = static_cast<ValueId>(parsedId);
+        if (!dataStore_->values.read(id, sample, &metadata) || metadata.type == ValueType::Bool) {
+            request->send(400, "application/json", "{\"ok\":false,\"error\":\"range_not_supported\"}");
+            return;
+        }
+        const String& mode = request->getParam("mode", true)->value();
+        ValueDisplayRange range{};
+        if (mode == "default") {
+            range = defaultValueDisplayRange(id);
+        } else if (mode == "none") {
+            range = {};
+        } else if (mode == "custom" && request->hasParam("min", true) && request->hasParam("max", true)) {
+            const String& rawMin = request->getParam("min", true)->value();
+            const String& rawMax = request->getParam("max", true)->value();
+            char* minEnd = nullptr;
+            char* maxEnd = nullptr;
+            range.min = strtod(rawMin.c_str(), &minEnd);
+            range.max = strtod(rawMax.c_str(), &maxEnd);
+            range.hasRange = true;
+            if (rawMin.isEmpty() || rawMax.isEmpty() || !minEnd || minEnd == rawMin.c_str() ||
+                *minEnd != '\0' || !maxEnd || maxEnd == rawMax.c_str() || *maxEnd != '\0' ||
+                !validDisplayRange(range.min, range.max)) {
+                request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid_range\"}");
+                return;
+            }
+        } else {
+            request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid_mode\"}");
+            return;
+        }
+        if (!dataStore_->setDisplayRange(id, range)) {
+            request->send(500, "application/json", "{\"ok\":false,\"error\":\"persistence_failed\"}");
+            return;
+        }
+        request->send(200, "application/json", "{\"ok\":true}");
     });
     server_.on("/api/history/value", HTTP_GET, [this, sendBufferedJson](AsyncWebServerRequest* request) {
         auto readIndex = [request](const char* name, uint16_t limit, uint16_t& value) {

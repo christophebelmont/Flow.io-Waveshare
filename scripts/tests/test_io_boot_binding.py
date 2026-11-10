@@ -21,7 +21,7 @@ class BootBindingTest(unittest.TestCase):
     def test_boot_resolution_validation_and_migration(self):
         module = (ROOT / 'src/Modules/IOModule/IOModule.cpp').read_text()
         production = '\n'.join(function(module, signature) for signature in (
-            'bool IOModule::resolveAnalogBinding_', 'bool IOModule::resolveDigitalInputBinding_',
+            'IoStatus IOModule::outputBootPolicy_', 'bool IOModule::resolveAnalogBinding_', 'bool IOModule::resolveDigitalInputBinding_',
             'bool IOModule::resolveDigitalOutputBinding_', 'int32_t IOModule::sanitizeAnalogPrecision_',
             'void IOModule::refreshAnalogConfigState_'))
         boot = (ROOT / 'src/Modules/IOModule/IOBootBinding.cpp').read_text()

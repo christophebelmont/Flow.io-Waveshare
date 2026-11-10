@@ -86,13 +86,16 @@ les automatisations, préférer impérativement une cible explicite.
 Snapshots communs : `rt/pdm/override/selected` et `rt/pdm/override/all`.
 Le premier expose le slot sélectionné, sa consigne et ses attributs. Le second
 expose `active_count` et un objet `actuators` indexé par `pdN`, contenant tous les
-équipements compatibles. Changements publiés immédiatement ; décompte toutes les
-dix secondes. Les topics historiques `rt/poollogic/override/filtration` et
-`rt/poollogic/override/robot` restent disponibles.
+équipements compatibles. Les changements de commande sont publiés immédiatement.
+Le décompte est rafraîchi toutes les dix secondes pendant un forçage actif.
+Les topics historiques `rt/poollogic/override/filtration` et
+`rt/poollogic/override/robot` suivent chacun leur équipement et la durée par défaut.
 
 Les états individuels `rt/pdm/state/pdN` et la sortie digitale associée exposent
 `override_supported`, `override_available`, `control_automatic`, `control_mode`,
 `override_reason`, `override_value`, `override_remaining_s`, `override_ends_at_utc`.
+Un changement du temps restant seul déclenche également une publication toutes
+les dix secondes sur ces topics. Les transitions de commande sont immédiates.
 `control_mode` vaut `guided`, `forced`, `waiting_time` ou `persistence_error`.
 Ces codes et les booléens ne sont jamais traduits ; les interfaces traduisent
 leur présentation uniquement.

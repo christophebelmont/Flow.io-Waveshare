@@ -18,6 +18,7 @@
 #include "Domain/Pool/PoolBehaviors.h"
 #include "Domain/Pool/PoolIds.h"
 #include "Modules/IOModule/IORuntime.h"
+#include "Modules/Network/HAModule/HADiscoveryJson.h"
 #include "Modules/Network/HAModule/HARuntime.h"
 #include "Profiles/Waveshare/WaveshareProfile.h"
 
@@ -308,7 +309,8 @@ void syncDataSensors(ModuleInstances& modules)
             d.kind == DataValueKind::Tank ? "mdi:cup-water" :
                 (d.kind == DataValueKind::Uptime ? "mdi:timer-outline" : "mdi:chart-line"), unit[0] ? unit : nullptr,
             true, analog ? "{{ 'online' if value_json.available else 'offline' }}" :
-                           "{{ 'online' if value_json.quality == 1 else 'offline' }}", false, nullptr, d.haSuffix, d.id};
+                           "{{ 'online' if value_json.quality == 1 else 'offline' }}", false,
+            HADiscoveryJson::DisplayRangeAttributesTemplate, d.haSuffix, d.id};
         reportDiscoveryResult(modules.haService->addSensor(modules.haService->ctx, &entry), d.haSuffix);
     }
 }

@@ -67,5 +67,5 @@ bool DataStoreModule::buildRuntimeSnapshot(uint16_t idx, char* out, size_t len, 
     if (!d || !_store.values.read(d->id, value, &meta)) return false;
     if (!dataValueCompatible(*d, meta)) value.quality = ValueQuality::Invalid;
     stamp = value.sequence ? value.sequence : 1;
-    return formatValueSnapshot(out, len, d->id, value, meta);
+    return formatValueSnapshot(out, len, d->id, value, meta, true);
 }

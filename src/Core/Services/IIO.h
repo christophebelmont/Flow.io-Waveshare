@@ -205,6 +205,11 @@ struct IoSensorStatus {
     uint32_t tsMs = 0;
 };
 
+struct IoOutputBootPolicy {
+    bool initialOn = false;
+    bool retainPrevious = false;
+};
+
 /**
  * @brief Unified static I/O service contract.
  *
@@ -246,9 +251,14 @@ struct IOServiceV2 {
     IoStatus (*writeAnalog)(void* ctx, IoId id, float value, uint32_t tsMs, uint8_t owner);
     /** Opaque implementation context. */
     void* ctx;
-    /** Publish the owning controller state without changing the physical output. */
-    IoStatus (*setOutputControlState)(void* ctx, IoId id, uint8_t owner, const ActuatorControlState* state) = nullptr;
+    /** Store the owning controller state without changing the physical output.
+     *  Countdown-only changes notify observers when refreshCountdown is true.
+     */
+    IoStatus (*setOutputControlState)(void* ctx, IoId id, uint8_t owner, const ActuatorControlState* state,
+                                      bool refreshCountdown) = nullptr;
     /** Task-owned reset/checkpoint, confirmed in NVS before success; bounded wait. */
     IoStatus (*resetCounter)(void* ctx, IoId id) = nullptr;
     IoStatus (*saveCounters)(void* ctx) = nullptr;
+    /** Configured policy by logical output slot, independent of physical binding or availability. */
+    IoStatus (*outputBootPolicy)(void* ctx, uint8_t slot, IoOutputBootPolicy* out) = nullptr;
 };

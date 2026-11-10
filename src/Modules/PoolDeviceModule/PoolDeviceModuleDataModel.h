@@ -45,6 +45,7 @@ struct PoolDeviceRuntimeStateEntry {
     PoolDeviceFeedback feedback{};
     uint32_t tsMs = 0;
     uint32_t actualOnSinceMs = 0;
+    uint32_t sequence = 0;
 };
 
 struct PoolDeviceRuntimeMetricsEntry {

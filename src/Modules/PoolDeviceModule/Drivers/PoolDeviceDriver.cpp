@@ -170,6 +170,7 @@ bool SerialDeviceDriver::begin(const PoolDriverConfig& config, const IOServiceV2
     state_.changedAtMs = millis();
     lastCommunicationAtMs_ = state_.changedAtMs;
     communicationResponseSeen_ = false;
+    communicationMonitoringStarted_ = false;
     return true;
 }
 
@@ -685,6 +686,10 @@ void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
 }
 void SerialDeviceDriver::tick(uint32_t now, bool enabled)
 {
+    if (enabled && !communicationMonitoringStarted_) {
+        communicationMonitoringStarted_ = true;
+        lastCommunicationAtMs_ = now;
+    }
     if (enabled && !deliveryStarted_) {
         deliveryStarted_ = true;
         deliveryAt_ = now;
@@ -728,7 +733,7 @@ void SerialDeviceDriver::tick(uint32_t now, bool enabled)
         const uint32_t communicationAge = uint32_t(now - lastCommunicationAtMs_);
         state_.communicationFresh = communicationResponseSeen_ &&
             communicationAge <= config_.serial.staleMs;
-        state_.communicationLost = communicationAge > config_.serial.staleMs;
+        state_.communicationLost = communicationMonitoringStarted_ && communicationAge > config_.serial.staleMs;
         state_.online = state_.communicationFresh;
         if (state_.communicationFresh && !wasFresh) {
             LOGI("RS485 communication fresh rev=%lu age_ms=%lu",

@@ -6,6 +6,7 @@
 
 namespace {
 constexpr const char* DurationKey = NvsKeys::PoolDevice::OverrideDuration;
+constexpr uint64_t OverrideCountdownPublishMs = 10000;
 uint64_t monotonicMs() { return uint64_t(esp_timer_get_time()) / 1000; }
 }
 
@@ -131,7 +132,6 @@ PoolDeviceSvcStatus PoolDeviceModule::svcReleaseOverrideImpl_(uint8_t slot, Actu
     if (slot >= POOL_DEVICE_MAX || !slots_[slot].used) { unlockState_(); return POOLDEV_SVC_ERR_UNKNOWN_SLOT; }
     const bool saved = slots_[slot].overrideTimer.cancel(reason);
     if (runtimeReady_) tickDevices_(millis(), false);
-    if (dataStore_) dataStore_->notifyChanged(DataKeys::PoolDeviceOverrides);
     unlockState_();
     return saved ? POOLDEV_SVC_OK : POOLDEV_SVC_ERR_IO;
 }
@@ -144,7 +144,7 @@ uint16_t PoolDeviceModule::svcOverrideDurationImpl_() const
     return minutes;
 }
 
-bool PoolDeviceModule::resolveOverride_(uint8_t slot, bool safe, uint64_t now)
+bool PoolDeviceModule::resolveOverride_(uint8_t slot, bool safe, uint64_t now, bool& refreshCountdown)
 {
     auto& s = slots_[slot];
     auto& timer = s.overrideTimer;
@@ -171,14 +171,15 @@ bool PoolDeviceModule::resolveOverride_(uint8_t slot, bool safe, uint64_t now)
     s.control.automatic = s.overridePolicy.automatic;
     s.control.available = supported && runtimeReady_ && writesEnabled_ && s.overridePolicy.ready &&
         s.def.enabled && s.driverReady && overrideUtc_() && !timer.pendingSave();
-    if (ioSvc_ && ioSvc_->setOutputControlState && supported)
-        ioSvc_->setOutputControlState(ioSvc_->ctx, s.driverConfig.outputs[0], slot + 1, &s.control);
-    if (dataStore_ && (previous.mode != s.control.mode || previous.value != s.control.value ||
-        previous.available != s.control.available || previous.reason != s.control.reason ||
-        millis() - overridePublishMs_ >= 10000U)) {
-        overridePublishMs_ = millis();
-        dataStore_->notifyChanged(DataKeys::PoolDeviceOverrides);
+    const bool controlChanged = !sameActuatorControl(previous, s.control);
+    refreshCountdown = !controlChanged && s.control.mode == ActuatorControlMode::Forced &&
+        now - s.overridePublishMs >= OverrideCountdownPublishMs;
+    if (controlChanged || refreshCountdown) {
+        s.overridePublishMs = now;
+        if (dataStore_) dataStore_->notifyChanged(DataKeys::PoolDeviceOverrideBase + slot);
     }
+    if (ioSvc_ && ioSvc_->setOutputControlState && supported)
+        ioSvc_->setOutputControlState(ioSvc_->ctx, s.driverConfig.outputs[0], slot + 1, &s.control, refreshCountdown);
     if (s.control.mode == ActuatorControlMode::WaitingTime || s.control.mode == ActuatorControlMode::PersistenceError)
         return false;
     if (s.control.mode == ActuatorControlMode::Forced) {
@@ -210,10 +211,13 @@ bool PoolDeviceModule::svcOverrideCommandImpl_(const CommandRequest& req, char* 
     const char* json = req.args ? req.args : req.json;
     if (json && deserializeJson(doc, json)) return fail(ErrorCode::BadCmdJson);
     JsonObjectConst args = doc["args"].is<JsonObjectConst>() ? doc["args"].as<JsonObjectConst>() : doc.as<JsonObjectConst>();
+    DataKey panelChange = 0;
     if (action == ActuatorOverrideCommand::Duration) {
         if (!args["minutes"].is<uint16_t>() || !args["minutes"].as<uint16_t>() ||
             args["minutes"].as<uint16_t>() > ActuatorOverrideDuration::MaxMinutes) return fail(ErrorCode::BadCmdJson);
-        if (!overrideDuration_.set(args["minutes"].as<uint16_t>(), this, saveOverrideDuration_)) return fail(ErrorCode::Failed);
+        const uint16_t minutes = args["minutes"].as<uint16_t>();
+        if (minutes != overrideDuration_.minutes()) panelChange = DataKeys::PoolDeviceOverrideDuration;
+        if (!overrideDuration_.set(minutes, this, saveOverrideDuration_)) return fail(ErrorCode::Failed);
     } else {
         uint8_t slot = overrideSelection_;
         const bool explicitSlot = args.containsKey("slot");
@@ -230,8 +234,10 @@ bool PoolDeviceModule::svcOverrideCommandImpl_(const CommandRequest& req, char* 
         }
         if (slot >= POOL_DEVICE_MAX || !slots_[slot].used) return fail(ErrorCode::BadSlot);
         auto& s = slots_[slot];
-        if (action == ActuatorOverrideCommand::Select) overrideSelection_ = slot;
-        else if (action == ActuatorOverrideCommand::Release) {
+        if (action == ActuatorOverrideCommand::Select) {
+            if (overrideSelection_ != slot) panelChange = DataKeys::PoolDeviceOverrides;
+            overrideSelection_ = slot;
+        } else if (action == ActuatorOverrideCommand::Release) {
             if (!s.overrideTimer.cancel(ActuatorOverrideReason::Released)) {
                 tickDevices_(millis(), false); return fail(ErrorCode::Failed);
             }
@@ -273,7 +279,7 @@ bool PoolDeviceModule::svcOverrideCommandImpl_(const CommandRequest& req, char* 
         }
     }
     if (runtimeReady_) tickDevices_(millis(), false);
-    if (dataStore_) dataStore_->notifyChanged(DataKeys::PoolDeviceOverrides);
+    if (dataStore_ && panelChange) dataStore_->notifyChanged(panelChange);
     snprintf(reply, replyLen, "{\"ok\":true,\"duration_minutes\":%u,\"persisted\":%s}",
         unsigned(overrideDuration_.minutes()), action == ActuatorOverrideCommand::Select ? "false" : "true");
     unlockState_();

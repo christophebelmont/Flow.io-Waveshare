@@ -1920,8 +1920,18 @@
           low = Math.min(Number.isFinite(low) ? low : 0, 0) - 1;
           high = Math.max(Number.isFinite(high) ? high : 0, 0) + 1;
         }
+        const configured = dataValueCatalog.find(entry => Number(entry.id) === Number(data.id));
+        if (configured && configured.has_display_range === true &&
+            Number.isFinite(Number(configured.display_min)) && Number.isFinite(Number(configured.display_max)) &&
+            Number(configured.display_max) > Number(configured.display_min)) {
+          low = Number(configured.display_min);
+          high = Number(configured.display_max);
+        }
       }
-      const scaleY = v => padTop + (high - v) / (high - low) * plotHeight;
+      const scaleY = v => {
+        const clipped = Math.max(low, Math.min(high, Number(v)));
+        return padTop + (high - clipped) / (high - low) * plotHeight;
+      };
       const slot = plotWidth / records.length;
       const item = historyView.values.find(entry => Number(entry.id) === Number(data.id));
       const name = item ? (item.name || ('#' + data.id)) : ('#' + data.id);
@@ -2016,6 +2026,7 @@
       status.textContent = historyText('loading', 'Chargement de l’historique…');
       document.getElementById('page-history').setAttribute('aria-busy', 'true');
       try {
+        await loadDataValueCatalog().catch(() => {});
         const id = document.getElementById('historyValueId').value;
         const daily = document.getElementById('historyValuePeriod').value;
         const url = valueOnly ? `/api/history/value?id=${encodeURIComponent(id)}&daily=${encodeURIComponent(daily)}` : '/api/history/pool';
@@ -4978,8 +4989,8 @@
     }
 
     function createFlowFiveZoneBands(config) {
-      const min = Number(config && config.min);
-      const max = Number(config && config.max);
+      const min = Number.isFinite(Number(config && config.min)) ? Number(config.min) : -Number.MAX_VALUE;
+      const max = Number.isFinite(Number(config && config.max)) ? Number(config.max) : Number.MAX_VALUE;
       const criticalLowEnd = Number(config && config.criticalLowEnd);
       const warningLowEnd = Number(config && config.warningLowEnd);
       const warningHighStart = Number(config && config.warningHighStart);
@@ -5494,22 +5505,29 @@
         localFirmwareVersion !== '-' ||
         localUptimeMs > 0 ||
         localHeapFree !== null;
+      const displayRange = (id) => {
+        const configured = dataValueCatalog.find(item => Number(item.id) === id);
+        if (!configured || configured.has_display_range !== true) return null;
+        return { min: Number(configured.display_min), max: Number(configured.display_max) };
+      };
+      const waterRange = displayRange(dataValueIds.waterTemperature);
+      const airRange = displayRange(dataValueIds.airTemperature);
+      const phRange = displayRange(dataValueIds.ph);
+      const orpRange = displayRange(dataValueIds.orp);
       const poolMetricRows = [
         [
           'Temperature eau',
           buildFlowThresholdValueNode({
             value: waterTemp,
-            min: 0,
-            max: 40,
+            min: waterRange ? waterRange.min : Number.NaN,
+            max: waterRange ? waterRange.max : Number.NaN,
             unit: '°C',
             decimals: 1,
             bands: createFlowFiveZoneBands({
-              min: 0,
               criticalLowEnd: 8,
               warningLowEnd: 14,
               warningHighStart: 30,
-              criticalHighStart: 34,
-              max: 40
+              criticalHighStart: 34
             })
           })
         ],
@@ -5517,17 +5535,15 @@
           'Temperature air',
           buildFlowThresholdValueNode({
             value: airTemp,
-            min: -10,
-            max: 45,
+            min: airRange ? airRange.min : Number.NaN,
+            max: airRange ? airRange.max : Number.NaN,
             unit: '°C',
             decimals: 1,
             bands: createFlowFiveZoneBands({
-              min: -10,
               criticalLowEnd: 0,
               warningLowEnd: 8,
               warningHighStart: 28,
-              criticalHighStart: 35,
-              max: 45
+              criticalHighStart: 35
             })
           })
         ],
@@ -5535,16 +5551,14 @@
           'pH',
           buildFlowThresholdValueNode({
             value: phValue,
-            min: 6.4,
-            max: 8.4,
+            min: phRange ? phRange.min : Number.NaN,
+            max: phRange ? phRange.max : Number.NaN,
             decimals: 2,
             bands: createFlowFiveZoneBands({
-              min: 6.4,
               criticalLowEnd: 6.8,
               warningLowEnd: 7.0,
               warningHighStart: 7.6,
-              criticalHighStart: 7.8,
-              max: 8.4
+              criticalHighStart: 7.8
             })
           })
         ],
@@ -5552,17 +5566,15 @@
           'ORP',
           buildFlowThresholdValueNode({
             value: orpValue,
-            min: 350,
-            max: 900,
+            min: orpRange ? orpRange.min : Number.NaN,
+            max: orpRange ? orpRange.max : Number.NaN,
             unit: 'mV',
             decimals: 0,
             bands: createFlowFiveZoneBands({
-              min: 350,
               criticalLowEnd: 500,
               warningLowEnd: 620,
               warningHighStart: 760,
-              criticalHighStart: 820,
-              max: 900
+              criticalHighStart: 820
             })
           })
         ]
@@ -6631,13 +6643,17 @@
     }
 
     function poolSondeRangeFromEntry(entry) {
-      const displayConfig = runtimeMeasureDisplayConfig(entry);
-      const bands = displayConfig.bands && typeof displayConfig.bands === 'object' && !Array.isArray(displayConfig.bands)
-        ? displayConfig.bands
-        : null;
-      const min = Number(bands && bands.min !== undefined ? bands.min : displayConfig.min);
-      const max = Number(bands && bands.max !== undefined ? bands.max : displayConfig.max);
-      return Number.isFinite(min) && Number.isFinite(max) && max > min ? { min: min, max: max } : null;
+      if (entry && Number.isInteger(Number(entry.dataValueId))) {
+        const configured = dataValueCatalog.find(value => Number(value.id) === Number(entry.dataValueId));
+        if (configured) {
+          return configured.has_display_range === true && Number.isFinite(Number(configured.display_min)) &&
+            Number.isFinite(Number(configured.display_max)) && Number(configured.display_max) > Number(configured.display_min)
+            ? { min: Number(configured.display_min), max: Number(configured.display_max) }
+            : null;
+        }
+        return null;
+      }
+      return null;
     }
 
     function enrichPoolSondeSlotsWithRanges(slots, entries) {
@@ -6894,6 +6910,15 @@
         if (!Number.isFinite(max)) max = Number(displayConfig.bands.max);
       } else if (Array.isArray(displayConfig.bands)) {
         bands = displayConfig.bands;
+      }
+      const configured = dataValueCatalog.find(value => Number(value.id) === Number(entry && entry.dataValueId));
+      if (configured) {
+        if (configured.has_display_range === true) {
+          min = Number(configured.display_min);
+          max = Number(configured.display_max);
+        } else {
+          return null;
+        }
       }
       if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) {
         return null;
@@ -9319,6 +9344,7 @@
       }
 
       try {
+        await loadDataValueCatalog();
         const allEntries = await runtimeMeasureEntriesForDomain(cleanDomain, !!forceRefresh);
         const entries = cleanDomain === 'sondes'
           ? allEntries.filter((entry) => !isPoolDashboardGroupEntry(entry))
@@ -9359,6 +9385,7 @@
 
     async function refreshDashboardMeasureDomains(forceRefresh) {
       if (forceRefresh) invalidatePoolDashboardSlots();
+      await loadDataValueCatalog().catch(() => {});
       await Promise.allSettled(
         dashboardMeasureDomainKeys().map((domainKey) => loadPoolMeasureDomain(domainKey, !!forceRefresh))
       );
@@ -11944,6 +11971,7 @@
     let derivedValuesState = null;
     let derivedCounterInputs = [];
     let dataValueCatalog = [];
+    const dataValueIds = Object.freeze({ orp: 0, ph: 1, waterTemperature: 4, airTemperature: 5 });
     let dataExposureEdits = [];
     let dataIntroExpanded = false;
     let dataUnavailableExpanded = false;
@@ -12176,6 +12204,15 @@
       const caps = document.createElement('span');
       caps.className = 'data-values-caps';
       dataExposureFields.forEach((field) => caps.appendChild(buildDataValueCap(item, entry, field)));
+      if (item.defined === true && item.kind !== 5 && item.kind !== 7) {
+        const displayButton = document.createElement('button');
+        displayButton.type = 'button';
+        displayButton.className = 'data-values-display-button';
+        displayButton.textContent = tr('data.display', 'Affichage');
+        displayButton.setAttribute('aria-label', tr('data.displayFor', 'Plage d’affichage pour') + ' ' + item.name);
+        displayButton.addEventListener('click', () => openDataDisplayDialog(item));
+        caps.appendChild(displayButton);
+      }
       capsCell.appendChild(caps);
       row.appendChild(capsCell);
 
@@ -12185,6 +12222,87 @@
       if (badge) stateCell.appendChild(badge);
       row.appendChild(stateCell);
       return row;
+    }
+
+    function openDataDisplayDialog(item) {
+      let dialog = document.getElementById('dataDisplayDialog');
+      if (!dialog) {
+        dialog = document.createElement('dialog');
+        dialog.id = 'dataDisplayDialog';
+        dialog.className = 'history-dialog data-display-dialog';
+        dialog.innerHTML = '<form method="dialog"><div class="history-dialog-head"><h2 id="dataDisplayTitle"></h2><button id="dataDisplayCancel" class="btn-tonal btn-icon-only" type="button" aria-label="Fermer">×</button></div>' +
+          '<label><span>' + tr('data.displayMode', 'Plage') + '</span><select id="dataDisplayMode"><option value="default">' + tr('data.displayDefault', 'Valeur par défaut') + '</option><option value="custom">' + tr('data.displayCustom', 'Personnalisée') + '</option><option value="none">' + tr('data.displayNone', 'Aucune plage') + '</option></select></label>' +
+          '<div id="dataDisplayCustomFields"><label><span>' + tr('data.displayMin', 'Minimum') + '</span><input id="dataDisplayMin" type="number" step="any" required></label><label><span>' + tr('data.displayMax', 'Maximum') + '</span><input id="dataDisplayMax" type="number" step="any" required></label><span id="dataDisplayUnit"></span></div>' +
+          '<p id="dataDisplayError" role="alert"></p><div class="btn-row"><button id="dataDisplaySave" class="btn-primary" type="button">' + tr('data.save', 'Enregistrer') + '</button></div></form>';
+        document.body.appendChild(dialog);
+        dialog.querySelector('#dataDisplayCancel').addEventListener('click', () => dialog.close('cancel'));
+        dialog.querySelector('#dataDisplayMode').addEventListener('change', () => {
+          dialog.querySelector('#dataDisplayCustomFields').hidden = dialog.querySelector('#dataDisplayMode').value !== 'custom';
+        });
+        ['#dataDisplayMin', '#dataDisplayMax'].forEach((selector) => {
+          dialog.querySelector(selector).addEventListener('input', () => {
+            dialog.querySelector('#dataDisplayMode').value = 'custom';
+            dialog.querySelector('#dataDisplayCustomFields').hidden = false;
+          });
+        });
+        dialog.querySelector('#dataDisplaySave').addEventListener('click', async () => {
+          const error = dialog.querySelector('#dataDisplayError');
+          error.textContent = '';
+          const mode = dialog.querySelector('#dataDisplayMode').value;
+          const min = Number(dialog.querySelector('#dataDisplayMin').value);
+          const max = Number(dialog.querySelector('#dataDisplayMax').value);
+          if (mode === 'custom' && (!Number.isFinite(min) || !Number.isFinite(max) || min >= max)) {
+            error.textContent = tr('data.displayInvalid', 'Saisissez deux nombres finis avec un minimum inférieur au maximum.');
+            return;
+          }
+          const fields = { id: String(dialog.dataset.valueId), mode };
+          if (mode === 'custom') { fields.min = String(min); fields.max = String(max); }
+          const button = dialog.querySelector('#dataDisplaySave');
+          button.disabled = true;
+          try {
+            const response = await fetchJsonResponse('/api/data/display', createFormPostOptions(fields));
+            if (!response.res.ok || !response.data || response.data.ok !== true) {
+              const messages = { invalid_range: tr('data.displayInvalid', 'Plage invalide.'), persistence_failed: tr('data.displayStorageFailed', 'La sauvegarde a échoué.') };
+              throw new Error(messages[response.data && response.data.error] || tr('data.displayStorageFailed', 'La sauvegarde a échoué.'));
+            }
+            const saved = dataValueCatalog.find(value => Number(value.id) === Number(dialog.dataset.valueId));
+            if (saved) {
+              saved.has_display_range = mode === 'custom' || (mode === 'default' && saved.default_has_display_range === true);
+              saved.display_min = mode === 'custom' ? min : (mode === 'default' ? saved.default_display_min : null);
+              saved.display_max = mode === 'custom' ? max : (mode === 'default' ? saved.default_display_max : null);
+            }
+            dialog.close();
+            const status = document.getElementById('dataValuesStatus');
+            status.className = 'config-status is-ok';
+            status.textContent = tr('data.displaySaved', 'Plage d’affichage enregistrée.');
+            const historySelect = document.getElementById('historyValueId');
+            if (historySelect && Number(historySelect.value) === Number(dialog.dataset.valueId)) loadHistory(true);
+            if (poolMeasureDomainState.sondes) loadPoolMeasureDomain('sondes', true);
+            refreshDashboardMeasureDomains(true);
+            renderDashboardGauges();
+          } catch (saveError) {
+            error.textContent = String(saveError);
+          } finally {
+            button.disabled = false;
+          }
+        });
+      }
+      dialog.dataset.valueId = String(item.id);
+      dialog.querySelector('#dataDisplayTitle').textContent = tr('data.displayFor', 'Affichage pour') + ' ' + item.name;
+      dialog.querySelector('#dataDisplayUnit').textContent = item.unit || '';
+      const hasDefault = item.default_has_display_range === true;
+      dialog.querySelector('#dataDisplayMode option[value="default"]').textContent = hasDefault
+        ? tr('data.displayDefault', 'Plage par défaut')
+        : tr('data.displayNoDefault', 'Défaut : aucune plage');
+      const currentDefault = item.has_display_range === hasDefault && (!hasDefault ||
+        (Number(item.display_min) === Number(item.default_display_min) && Number(item.display_max) === Number(item.default_display_max)));
+      const mode = currentDefault ? 'default' : (item.has_display_range ? 'custom' : (hasDefault ? 'none' : 'default'));
+      dialog.querySelector('#dataDisplayMode').value = mode;
+      dialog.querySelector('#dataDisplayMin').value = item.has_display_range ? item.display_min : (hasDefault ? item.default_display_min : '');
+      dialog.querySelector('#dataDisplayMax').value = item.has_display_range ? item.display_max : (hasDefault ? item.default_display_max : '');
+      dialog.querySelector('#dataDisplayCustomFields').hidden = mode !== 'custom';
+      dialog.querySelector('#dataDisplayError').textContent = '';
+      dialog.showModal();
     }
 
     function buildDataValuesCard(items, entriesById, options) {

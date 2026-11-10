@@ -183,7 +183,11 @@ RuntimeRouteClass PoolLogicModule::runtimeSnapshotClass(uint16_t idx) const
 bool PoolLogicModule::runtimeSnapshotAffectsKey(uint16_t idx, DataKey key) const
 {
     if (idx > 5) return false;
-    if (idx >= 4 && key == DataKeys::PoolDeviceOverrides) return true;
+    if (idx >= 4) {
+        const uint8_t slot = idx == 4 ? filtrationDeviceSlot_ : robotDeviceSlot_;
+        return key == DataKeys::PoolDeviceOverrideDuration ||
+               (slot < POOL_DEVICE_MAX && key == DataKeys::PoolDeviceOverrideBase + slot);
+    }
     if (key >= DATAKEY_IO_BASE && key < (DataKey)(DATAKEY_IO_BASE + IO_MAX_ENDPOINTS)) return true;
     if (key >= DATAKEY_POOL_DEVICE_STATE_BASE &&
         key < (DataKey)(DATAKEY_POOL_DEVICE_STATE_BASE + POOL_DEVICE_MAX)) return true;

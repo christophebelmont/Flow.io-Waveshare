@@ -27,6 +27,14 @@ struct ActuatorControlState {
     uint64_t endsAtUtc = 0;
 };
 
+// The remaining time changes independently of the underlying command.
+inline bool sameActuatorControl(const ActuatorControlState& a, const ActuatorControlState& b)
+{
+    return a.supported == b.supported && a.available == b.available &&
+           a.automatic == b.automatic && a.mode == b.mode && a.reason == b.reason &&
+           a.value == b.value && a.endsAtUtc == b.endsAtUtc;
+}
+
 inline const char* actuatorControlModeName(ActuatorControlMode mode) {
     switch (mode) {
         case ActuatorControlMode::Forced: return "forced";

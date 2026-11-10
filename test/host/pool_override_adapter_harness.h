@@ -1,5 +1,8 @@
 #define portENTER_CRITICAL(x) ((void)(x))
 #define portEXIT_CRITICAL(x) ((void)(x))
+constexpr DataKey DATAKEY_IO_BASE = DataKeys::IoBase;
+constexpr DataKey DATAKEY_POOL_DEVICE_STATE_BASE = DataKeys::PoolDeviceStateBase;
+constexpr uint16_t IO_MAX_ENDPOINTS = Limits::Io::MaxEndpoints;
 class PoolLogicModule {
 public:
  using OverrideCommand=ActuatorOverrideCommand;
@@ -16,4 +19,5 @@ public:
  Adapter* poolSvc_=&adapter;
  explicit PoolLogicModule(PoolDeviceModule& module):adapter{&module}{}
  bool handleOverride_(const CommandRequest&,char*,size_t,OverrideCommand);
+ bool runtimeSnapshotAffectsKey(uint16_t, DataKey) const;
 };

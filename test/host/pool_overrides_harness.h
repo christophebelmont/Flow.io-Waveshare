@@ -12,6 +12,7 @@
 #include "Core/Services/IPoolConfiguration.h"
 #include "Core/Services/PoolSerialTelemetry.h"
 #include "Core/ConfigTypes.h"
+#include "Core/DataKeys.h"
 using SpiRamJsonDocument = DynamicJsonDocument;
 constexpr uint8_t POOL_DEVICE_MAX=16, POOL_MAX_SPEED_STEPS=6;
 constexpr int IO_ID_INVALID=-1;
@@ -42,9 +43,11 @@ enum class ActivitySeverity { Info };
 enum class ActivityState { RequestedOn, RequestedOff };
 enum class ActivityReason { Manual };
 constexpr size_t ACTIVITY_TITLE_MAX=100, ACTIVITY_DETAIL_MAX=256;
-namespace DataKeys { constexpr int PoolDeviceOverrides=13; }
 namespace NvsKeys { namespace PoolDevice { constexpr auto OverrideDuration="pdm_ovr_min"; } }
-struct Store { int notifications=0; void notifyChanged(int) { ++notifications; } };
+struct Store {
+ std::vector<DataKey> notifications;
+ void notifyChanged(DataKey key) { notifications.push_back(key); }
+};
 struct ConfigStore {
  bool fail=false; unsigned writes=0;
  std::map<std::string,std::vector<uint8_t>> records;
@@ -74,7 +77,7 @@ struct IoEndpointMeta { uint16_t bindingPort=1; };
 struct IoService {
  void* ctx=nullptr;
  void (*meta)(void*,int,IoEndpointMeta*)=[](void*,int id,IoEndpointMeta* m){m->bindingPort=id+1;};
- void (*setOutputControlState)(void*,int,int,const ActuatorControlState*)=nullptr;
+ void (*setOutputControlState)(void*,int,int,const ActuatorControlState*,bool)=nullptr;
 };
 #define LOGE(...) ((void)0)
 #define LOGI(...) ((void)0)
@@ -93,6 +96,7 @@ public:
   PoolDeviceTarget desired, effective;
   float requestedRpm=0;
   bool retryExpiredCommand=false;
+  bool bootResumePending=false;
   uint32_t revision=0;
   PoolInterlockState interlockState=PoolInterlockState::Ready;
   ActuatorControlState control{};
@@ -101,7 +105,7 @@ public:
   PoolDeviceModule* owner=nullptr;
   char overrideKey[16]{}, overrideOption[48]{};
   bool overrideBaseline=false, overrideRestored=false;
-  uint64_t overrideRetryMs=0;
+  uint64_t overrideRetryMs=0, overridePublishMs=0;
  } slots_[POOL_DEVICE_MAX];
  const PoolConfigurationService* poolConfigurationSvc_=nullptr;
  bool configurationSetpoint_(uint8_t,float&) const;
@@ -116,7 +120,6 @@ public:
  int loggedActor=0, logCount=0, ticks=0;
  ActuatorOverrideDuration overrideDuration_;
  uint8_t overrideSelection_=0xFF;
- uint32_t overridePublishMs_=0;
  char overrideOptions_[1024]{};
  PoolDeviceModule() {
   for(unsigned i=0;i<POOL_DEVICE_MAX;++i) {
@@ -129,7 +132,16 @@ public:
  void unlockState_() const {}
  bool dependenciesSatisfied_(uint8_t slot, bool = false) const {return slots_[slot].dependencies;}
  static bool maxUptimeReached_(const PoolDeviceSlot& s){return s.maxUptime;}
- void tickDevices_(uint32_t,bool) { ++ticks; for(uint8_t i=0;i<POOL_DEVICE_MAX;++i) if(slots_[i].used) slots_[i].actualOn=resolveOverride_(i, slots_[i].dependencies&&!slots_[i].maxUptime, nowMs); }
+ bool persistRunning_(uint8_t, bool) const { return !storage.fail; }
+ void tickDevices_(uint32_t, bool) {
+   ++ticks;
+   for (uint8_t i = 0; i < POOL_DEVICE_MAX; ++i) {
+     if (!slots_[i].used) continue;
+     bool refreshCountdown = false;
+     slots_[i].actualOn = resolveOverride_(i, slots_[i].dependencies && !slots_[i].maxUptime,
+                                          nowMs, refreshCountdown);
+   }
+ }
  void emitActivity_(ActivityCode, ActivitySource, ActivitySeverity, ActivityRole, ActivityState,
                     ActivityReason, uint8_t, const char*, const char*, const char*, int actor) { loggedActor=actor; ++logCount; }
  PoolDeviceSvcStatus svcSetRunningImpl_(uint8_t,uint8_t);
@@ -149,7 +161,7 @@ public:
  PoolDeviceSvcStatus svcSetOverridePoliciesImpl_(const ActuatorOverridePolicy*,uint8_t);
  PoolDeviceSvcStatus svcReleaseOverrideImpl_(uint8_t,ActuatorOverrideReason);
  uint16_t svcOverrideDurationImpl_() const;
- bool resolveOverride_(uint8_t,bool,uint64_t);
+ bool resolveOverride_(uint8_t,bool,uint64_t,bool&);
  static bool cmdOverride_(void*,const CommandRequest&,char*,size_t);
  static bool cmdOverrideOn_(void*,const CommandRequest&,char*,size_t);
  static bool cmdOverrideOff_(void*,const CommandRequest&,char*,size_t);

@@ -67,7 +67,12 @@ int main() {
     TestStore store;
     std::shared_ptr<WebJsonBuffer> body;
     buildResponse(&store, body);
-    assert(errors == 0 && allocations == 1 && body && body->finish());
+    if (!(errors == 0 && allocations == 1 && body && body->finish())) {
+        fprintf(stderr, "catalog response failure errors=%u allocations=%zu body=%d length=%zu capacity=%zu overflow=%d\n",
+                errors, allocations, body != nullptr, body ? body->length() : 0U,
+                body ? body->capacity() : 0U, body ? body->overflowed() : 0);
+        assert(false);
+    }
     std::string received;
     uint8_t chunk[127];
     for (size_t index = 0; index < body->length();) {
@@ -82,6 +87,9 @@ int main() {
     assert(json["values"][0]["value"].as<std::string>() == "18446744073709551615");
     assert(json["values"][0]["name"].as<std::string>().size() == 63);
     assert(json["values"][0]["pending_restart"].as<bool>());
+    assert(json["values"][0]["default_has_display_range"].as<bool>());
+    assert(json["values"][0]["default_display_min"].as<double>() == 350.0);
+    assert(json["values"][0]["has_display_range"].as<bool>() == false);
     auto retained = [body](uint8_t* out) { return body->fillAt(out, 1, 0); };
     body.reset();
     assert(retained(chunk) == 1 && chunk[0] == '{');

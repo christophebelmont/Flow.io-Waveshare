@@ -42,8 +42,13 @@ constexpr DataKey HaVendor = 11;
 /** @brief Home Assistant runtime key: configured device id (`HARuntime`). */
 constexpr DataKey HaDeviceId = 12;
 
-/** @brief Shared actuator override panel/state changed. */
+/** @brief Shared override panel selection or equipment running state changed. */
 constexpr DataKey PoolDeviceOverrides = 13;
+/** @brief Default duration for new overrides changed. */
+constexpr DataKey PoolDeviceOverrideDuration = 14;
+/** @brief Per-equipment override state changed, including active countdown updates. */
+constexpr DataKey PoolDeviceOverrideBase = 15;
+constexpr DataKey PoolDeviceOverrideEndExclusive = PoolDeviceOverrideBase + Limits::Io::MaxPoolDevices;
 
 /** @brief Reserved base for IO endpoint runtime keys (`IORuntime`). */
 constexpr DataKey IoBase = 40;
@@ -75,7 +80,9 @@ static_assert(WifiReady < TimeReady, "DataKey ordering invariant broken");
 static_assert(TimeReady < MqttReady, "DataKey ordering invariant broken");
 static_assert(MqttRuntimeFullSnapshotPublished < HaPublished, "DataKey ranges overlap");
 static_assert(HaDeviceId < PoolDeviceOverrides, "Fixed runtime keys overlap");
-static_assert(PoolDeviceOverrides < IoBase, "Fixed runtime keys overlap IO key range");
+static_assert(PoolDeviceOverrides < PoolDeviceOverrideDuration, "Fixed runtime keys overlap");
+static_assert(PoolDeviceOverrideDuration < PoolDeviceOverrideBase, "Override keys overlap");
+static_assert(PoolDeviceOverrideEndExclusive <= IoBase, "Override keys overlap IO key range");
 static_assert(IoEndExclusive <= PoolDeviceStateBase, "IO and pool-device key ranges overlap");
 static_assert(PoolDeviceStateEndExclusive <= PoolDeviceMetricsBase, "Pool-device state and metrics ranges overlap");
 static_assert(PoolDeviceMetricsEndExclusive <= (ReservedMax + 1), "Pool-device key range exceeds reserved max");

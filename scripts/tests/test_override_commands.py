@@ -3,6 +3,9 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+
+from scripts.tests.test_io_boot_binding import function
+
 ROOT = Path(__file__).resolve().parents[2]
 
 class OverrideCommandTests(unittest.TestCase):
@@ -20,6 +23,8 @@ class OverrideCommandTests(unittest.TestCase):
         source += (ROOT / 'test/host/pool_override_adapter_harness.h').read_text()
         adapter = (ROOT / 'src/Modules/PoolLogicModule/PoolLogicOverrides.cpp').read_text()
         source += adapter[adapter.index('bool PoolLogicModule::handleOverride_('):]
+        runtime = (ROOT / 'src/Modules/PoolLogicModule/PoolLogicRuntime.cpp').read_text()
+        source += '\n' + function(runtime, 'bool PoolLogicModule::runtimeSnapshotAffectsKey')
         source += (ROOT / 'test/host/pool_overrides_scenarios.cpp').read_text()
         with tempfile.TemporaryDirectory() as directory:
             main = Path(directory) / 'main.cpp'

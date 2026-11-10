@@ -2,6 +2,7 @@
 
 #include "Core/Services/IHA.h"
 #include "Core/Values/Value.h"
+#include "Modules/Network/HAModule/HADiscoveryJson.h"
 #include <stdio.h>
 
 namespace DerivedValueHaDiscovery {
@@ -29,7 +30,8 @@ inline bool registerEntry(const HAService& service, Storage& storage, uint8_t sl
     const HASensorEntry entry{
         "io", out.objectSuffix, name && name[0] ? name : out.name, out.stateTopic, "{{ value_json.value }}",
         nullptr, "mdi:function-variant", (unit && unit[0]) ? unit : nullptr, true,
-        "{{ 'online' if value_json.quality == 1 else 'offline' }}", false, nullptr, out.name
+        "{{ 'online' if value_json.quality == 1 else 'offline' }}", false,
+        HADiscoveryJson::DisplayRangeAttributesTemplate, out.name
     };
     return service.addSensor && service.addSensor(service.ctx, &entry);
 }

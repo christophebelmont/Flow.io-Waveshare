@@ -2635,12 +2635,10 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
       "display": "circ-gauge",
       "displayConfig": {
         "bands": {
-          "min": 0,
           "criticalLowEnd": 8,
           "warningLowEnd": 14,
           "warningHighStart": 30,
-          "criticalHighStart": 34,
-          "max": 40
+          "criticalHighStart": 34
         }
       },
       "dataValueId": 4
@@ -2664,12 +2662,10 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
       "display": "circ-gauge",
       "displayConfig": {
         "bands": {
-          "min": -10,
           "criticalLowEnd": 0,
           "warningLowEnd": 8,
           "warningHighStart": 28,
-          "criticalHighStart": 35,
-          "max": 45
+          "criticalHighStart": 35
         }
       },
       "dataValueId": 5
@@ -2693,12 +2689,10 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
       "display": "circ-gauge",
       "displayConfig": {
         "bands": {
-          "min": 6.4,
           "criticalLowEnd": 6.8,
           "warningLowEnd": 7.0,
           "warningHighStart": 7.6,
-          "criticalHighStart": 7.8,
-          "max": 8.4
+          "criticalHighStart": 7.8
         }
       },
       "dataValueId": 1
@@ -2722,12 +2716,10 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
       "display": "circ-gauge",
       "displayConfig": {
         "bands": {
-          "min": 350,
           "criticalLowEnd": 500,
           "warningLowEnd": 620,
           "warningHighStart": 760,
-          "criticalHighStart": 820,
-          "max": 900
+          "criticalHighStart": 820
         }
       },
       "dataValueId": 0

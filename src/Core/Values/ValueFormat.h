@@ -22,7 +22,8 @@ inline bool formatValueNumber(char* out, size_t capacity, double value, int prec
 }
 
 inline bool formatValueSnapshot(char* out, size_t capacity, ValueId id,
-                                const ValueSnapshot& sample, const ValueMetadata& metadata) {
+                                const ValueSnapshot& sample, const ValueMetadata& metadata,
+                                bool includeDisplayRange = false) {
     char number[40] = "null";
     if (sample.quality == ValueQuality::Valid) {
         if (metadata.type == ValueType::Bool)
@@ -32,8 +33,19 @@ inline bool formatValueSnapshot(char* out, size_t capacity, ValueId id,
         else if (!formatValueNumber(number, sizeof(number), valueAsDouble(metadata.type, sample.value), metadata.precision))
             return false;
     }
-    const int length = snprintf(out, capacity,
-        "{\"id\":%u,\"value\":%s,\"quality\":%u,\"generation\":%lu}",
-        unsigned(id), number, unsigned(sample.quality), (unsigned long)sample.generation);
+    int length = -1;
+    if (includeDisplayRange && metadata.hasDisplayRange &&
+        validDisplayRange(metadata.displayMin, metadata.displayMax)) {
+        char minimum[40], maximum[40];
+        if (!formatValueNumber(minimum, sizeof(minimum), metadata.displayMin, VALUE_PRECISION_NONE) ||
+            !formatValueNumber(maximum, sizeof(maximum), metadata.displayMax, VALUE_PRECISION_NONE)) return false;
+        length = snprintf(out, capacity,
+            "{\"id\":%u,\"value\":%s,\"quality\":%u,\"generation\":%lu,\"min\":%s,\"max\":%s}",
+            unsigned(id), number, unsigned(sample.quality), (unsigned long)sample.generation, minimum, maximum);
+    } else {
+        length = snprintf(out, capacity,
+            "{\"id\":%u,\"value\":%s,\"quality\":%u,\"generation\":%lu}",
+            unsigned(id), number, unsigned(sample.quality), (unsigned long)sample.generation);
+    }
     return length >= 0 && size_t(length) < capacity;
 }

@@ -17,7 +17,7 @@ L'ancien module indépendant `VariableSpeedPumpModule` et son service ont été 
 
 ## Configuration persistante
 
-Clés NVS : `actN_driver`, `actN_en`, `actN_dp`, `actN_flh`, `actN_tc`, `actN_ti`, `actN_mu`, `actN_rt`. Aucune lecture, conversion ou migration des anciennes clés `pdN*`.
+Clés NVS : `actN_driver`, `actN_en`, `actN_dp`, `actN_flh`, `actN_tc`, `actN_ti`, `actN_mu`, `actN_rt`, `actN_run`. Aucune lecture, conversion ou migration des anciennes clés `pdN*`.
 
 `driver` est un document JSON stocké comme chaîne (`2048` octets maximum, terminateur inclus). Le formulaire Web présente ses champs. Une mise à jour par l'API de configuration doit donc encoder ce document comme chaîne :
 
@@ -37,15 +37,45 @@ Les champs métier `enabled`, `depends_on_mask`, `flow_l_h`, `tank_cap_ml`, `tan
 
 Les éléments de `outputs` sont des `IoId`, pas des numéros de GPIO. `0..15` désignent les sorties digitales du profil. Les sorties impulsionnelles ne sont pas utilisables par les pilotes d'équipement.
 
-Au démarrage, le pilote relais lit l'état initialisé par IO sans écrire sur la
-sortie. `PoolDevice` reprend cet état observé comme consigne guidée, sauf si un
-forçage restauré possède sa propre consigne de retour. Ainsi, avec « Conserver au
-reboot » sur une sortie TCA9554, une pompe déjà allumée ne reçoit pas d'arrêt
-transitoire avant la reprise du planning. La lecture reste active pendant le gel
-des commandes ; une consigne identique au relais ne provoque aucune écriture.
-Les interlocks, limites journalières et décisions d'arrêt de PoolLogic restent
-prioritaires. Après une coupure d'alimentation, IO applique son comportement de
-démarrage à froid : le registre par défaut du TCA9554 n'est pas un état conservé.
+Au démarrage, le pilote relais lit la sortie sans écrire. Les écritures restent
+gelées jusqu’à la reprise du contrôle métier. Une consigne identique à l’état
+physique ne provoque aucune écriture. Les réglages communs ci-dessous déterminent
+la consigne de l’équipement ; ils ne dépendent pas du registre matériel du relais.
+
+### Comportement au démarrage, commun à tous les pilotes
+
+Les **deux champs existants** de la page `io/output/dNN` restent utilisés :
+`dNN_initial_on` (état initial souhaité) et `retain_on_warm_reboot`
+(comportement au démarrage). Ils pilotent l’équipement `pdm/pdN` associé à cette
+page, indépendamment de ses sorties physiques : relais, vitesses discrètes,
+analogique ou RS485. Les clés NVS et les valeurs déjà configurées sont conservées.
+Aucun réglage de démarrage supplémentaire n’est créé.
+
+- **État initial** : applique la valeur de `dNN_initial_on`.
+- **Conserver l’état précédent** : restaure la dernière consigne marche/arrêt
+  guidée, enregistrée dans `actN_run` à chaque changement. La mémoire survit au
+  reboot et à une coupure électrique. En l’absence d’un enregistrement valide
+  (notamment au premier démarrage de cette version), l’état initial est utilisé.
+
+Les retours matériels ne remplacent jamais cette consigne. Un démarrage n’est
+accepté qu’après sauvegarde ; un échec de sauvegarde ne retarde pas un arrêt
+physique, et l’enregistrement est retenté toutes les 5 secondes. Les commandes
+identiques n’usent pas la NVS. Un forçage temporisé garde son propre enregistrement
+et sa durée restante, sans transformer sa marche forcée en consigne permanente.
+Les consignes numériques gardent leur politique existante : RPM persistants,
+température configurée, ou consigne de démarrage du profil pour les autres unités.
+
+Les sécurités et automatismes restent prioritaires. La reprise peut attendre
+jusqu’à 20 secondes après activation des écritures que ses dépendances deviennent
+opérationnelles ; passé ce délai elle est annulée. Une perte de dépendance après
+reprise provoque un arrêt mémorisé, sans réarmement automatique. Une filtration
+restaurée reste demandée pendant l’attente de synchronisation de l’horloge ; le
+planning reprend ensuite la décision. Pour RS485, la surveillance d’absence de
+communication commence à l’activation des échanges, pas pendant le gel initial.
+
+Le comportement matériel des sorties IO non pilotées par un équipement est
+inchangé : conservation du latch TCA9554 au reboot chaud, démarrage à froid et
+comportement des autres expandeurs selon leur politique IO.
 
 ### Trois vitesses par sorties digitales
 

@@ -252,7 +252,7 @@ bool PoolDeviceModule::buildStateSnapshot_(uint8_t slotIdx, char* out, size_t le
     if (doc.overflowed() || measureJson(doc) >= len) { unlockState_(); return false; }
     serializeJson(doc, out, len);
 
-    maxTsOut = (entry.tsMs == 0U) ? 1U : entry.tsMs;
+    maxTsOut = entry.sequence;
     unlockState_();
     return true;
 }
@@ -338,7 +338,10 @@ RuntimeRouteClass PoolDeviceModule::runtimeSnapshotClass(uint16_t idx) const
 
 bool PoolDeviceModule::runtimeSnapshotAffectsKey(uint16_t idx, DataKey key) const
 {
-    if (idx < 2) return key == DataKeys::PoolDeviceOverrides;
+    if (idx < 2) {
+        return key == DataKeys::PoolDeviceOverrides || (idx == 0 && key == DataKeys::PoolDeviceOverrideDuration) ||
+               (key >= DataKeys::PoolDeviceOverrideBase && key < DataKeys::PoolDeviceOverrideEndExclusive);
+    }
     // Reject unrelated events before taking the device mutex or scanning slots.
     if (key < DATAKEY_POOL_DEVICE_STATE_BASE ||
         key >= DATAKEY_POOL_DEVICE_METRICS_BASE + POOL_DEVICE_MAX) return false;
@@ -398,6 +401,27 @@ bool PoolDeviceModule::restoreRequestedSpeed_(uint8_t slot)
         : cfgStore_->set(cfgRequestedRpmVar_[slot], initial);
 }
 
+void PoolDeviceModule::commitRuntimeState_(uint8_t slot, uint32_t nowMs, bool refreshCountdown)
+{
+    auto& s = slots_[slot];
+    PoolDeviceRuntimeStateEntry state{};
+    state.valid = true;
+    state.control = s.control;
+    state.enabled = s.def.enabled;
+    state.desiredOn = s.desiredOn;
+    state.actualOn = s.actualOn;
+    state.type = s.def.type;
+    state.blockReason = s.blockReason;
+    state.interlockState = s.interlockState;
+    state.tsMs = nowMs;
+    state.actualOnSinceMs = s.actualOnSinceMs;
+    state.desiredSetpoint = s.desired.setpoint;
+    state.effectiveOn = s.effective.running;
+    state.effectiveSetpoint = s.effective.setpoint;
+    state.feedback = s.feedback;
+    if (setPoolDeviceRuntimeState(*dataStore_, slot, state, refreshCountdown)) s.stateTsMs = nowMs;
+}
+
 bool PoolDeviceModule::configureRuntime_()
 {
     if (runtimeReady_) return true;
@@ -413,10 +437,12 @@ bool PoolDeviceModule::configureRuntime_()
         s.feedback = s.driverReady ? s.driver.get().readState() : PoolDeviceFeedback{};
         s.actualOn = s.feedback.observedValid && s.feedback.observed.running;
         s.interlockState = PoolInterlockState::Ready;
-        // The relay driver observes the IO boot policy before writes are enabled.
-        // A restored override still owns its pre-override guided baseline.
-        s.desired = {s.overrideRestored ? s.overrideBaseline : s.actualOn,
+        // Equipment policy owns the guided demand, independently of feedback
+        // availability or the physical output's boot policy.
+        const bool bootRunning = restoreRunning_(i);
+        s.desired = {s.overrideRestored ? s.overrideBaseline : bootRunning,
                      s.driverConfig.capabilities.startup};
+        s.bootResumePending = s.desired.running;
         syncConfigurationSetpoint_(i);
         s.desiredOn = s.desired.running;
         s.effective = s.desired;
@@ -441,16 +467,6 @@ bool PoolDeviceModule::configureRuntime_()
         s.lastRuntimeCommitMs = now;
         s.lastPersistMs = now;
 
-        PoolDeviceRuntimeStateEntry rtState{};
-        rtState.valid = true;
-        rtState.enabled = s.def.enabled;
-        rtState.desiredOn = s.desiredOn;
-        rtState.actualOn = s.actualOn;
-        rtState.type = s.def.type;
-        rtState.blockReason = s.blockReason;
-        rtState.tsMs = s.stateTsMs;
-        rtState.actualOnSinceMs = s.actualOnSinceMs;
-
         PoolDeviceRuntimeMetricsEntry rtMetrics{};
         rtMetrics.valid = true;
         rtMetrics.runningSecDay = toSeconds_(s.runningMsDay);
@@ -463,7 +479,7 @@ bool PoolDeviceModule::configureRuntime_()
         rtMetrics.injectedMlTotal = s.injectedMlTotal;
         rtMetrics.tsMs = s.metricsTsMs;
         if (dataStore_ && s.runtimePublishable) {
-            (void)setPoolDeviceRuntimeState(*dataStore_, i, rtState);
+            commitRuntimeState_(i, now);
             (void)setPoolDeviceRuntimeMetrics(*dataStore_, i, rtMetrics);
         }
     }

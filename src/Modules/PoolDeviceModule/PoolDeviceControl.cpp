@@ -186,6 +186,9 @@ PoolDeviceSvcStatus PoolDeviceModule::setTarget_(uint8_t slot, const PoolDeviceT
         if (s.driverConfig.serial.model == PoolSerialModel::Polytropic && poolFlowProtectionActive(s.feedback.telemetry))
             return finish(POOLDEV_SVC_ERR_INTERLOCK);
         if (!dependenciesSatisfied_(slot, s.effective.running)) {
+            if (s.bootResumePending && !manual && target->running == s.desired.running &&
+                target->setpoint == s.desired.setpoint && target->mode == s.desired.mode)
+                return finish(POOLDEV_SVC_OK);
             s.interlockState = PoolInterlockState::StartRejected;
             tickDevices_(millis(), false);
             return finish(POOLDEV_SVC_ERR_INTERLOCK);
@@ -204,6 +207,11 @@ PoolDeviceSvcStatus PoolDeviceModule::setTarget_(uint8_t slot, const PoolDeviceT
         if (!persisted)
             return finish(POOLDEV_SVC_ERR_IO);
     }
+    // Starts must be durable before actuation. A failed save must never delay
+    // a physical stop; the control tick retries that OFF record.
+    const bool runningSaved = persistRunning_(slot, target->running);
+    if (!runningSaved && target->running) return finish(POOLDEV_SVC_ERR_IO);
+    s.bootResumePending = false;
     s.interlockState = PoolInterlockState::Ready;
     s.retryExpiredCommand = manual && target->running && s.feedback.phase == PoolCommandPhase::Expired;
     if (s.desired.running != target->running || s.retryExpiredCommand)
@@ -212,7 +220,7 @@ PoolDeviceSvcStatus PoolDeviceModule::setTarget_(uint8_t slot, const PoolDeviceT
     s.desired = *target;
     s.desiredOn = target->running;
     tickDevices_(millis(), false);
-    return finish(POOLDEV_SVC_OK);
+    return finish(runningSaved ? POOLDEV_SVC_OK : POOLDEV_SVC_ERR_IO);
 }
 
 PoolDeviceSvcStatus PoolDeviceModule::svcReadStateImpl_(uint8_t slot, PoolDeviceFeedback* out) const
@@ -240,6 +248,11 @@ PoolDeviceSvcStatus PoolDeviceModule::svcSetWritesEnabledImpl_(uint8_t enabled)
     }
 
     writesEnabled_ = newValue;
+    if (writesEnabled_) {
+        const uint32_t now = millis();
+        for (uint8_t i = 0; i < POOL_DEVICE_MAX; ++i)
+            if (slots_[i].bootResumePending) slots_[i].bootResumeSinceMs = now;
+    }
     LOGI("Pool actuator writes %s", writesEnabled_ ? "enabled" : "frozen");
     tickDevices_(millis(), false);
     unlockState_();
@@ -647,7 +660,7 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
         if (!s.used) continue;
         if (runtimeReady_ && !s.runtimePublishable) continue;
         const bool wasActualOn = s.actualOn;
-        bool stateChanged = false;
+        const bool wasDesiredOn = s.desiredOn;
         bool metricsChanged = (pending != 0U) || s.forceMetricsCommit;
         s.forceMetricsCommit = false;
 
@@ -673,15 +686,16 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
                 s.persistDirty = true;
         }
         const bool dependenciesReady = dependenciesSatisfied_(i, s.effective.running);
+        const bool unsafeFeedback = poolFeedbackInhibitsRun(s.driverConfig.capabilities.kind, s.feedback);
+        const bool waitingForBootDependencies = bootDependenciesPending_(i, nowMs, dependenciesReady, unsafeFeedback);
         s.interlockState = updatePoolInterlockState(s.interlockState, dependenciesReady,
-                                                    s.desiredOn || s.effective.running || s.actualOn ||
-                                                    (s.overrideTimer.active() && s.overrideTimer.state(0).value));
+            !waitingForBootDependencies && (s.desiredOn || s.effective.running || s.actualOn ||
+                (s.overrideTimer.active() && s.overrideTimer.state(0).value)));
         s.blockReason = !s.def.enabled ? POOL_DEVICE_BLOCK_DISABLED :
             !s.driverReady ? POOL_DEVICE_BLOCK_UNBOUND :
             maxUptimeReached_(s) ? POOL_DEVICE_BLOCK_MAX_UPTIME :
             poolInterlockBlocked(s.interlockState) ? POOL_DEVICE_BLOCK_INTERLOCK : POOL_DEVICE_BLOCK_NONE;
         const bool serial = s.driverConfig.capabilities.kind == PoolControlKind::Rs485;
-        const bool unsafeFeedback = poolFeedbackInhibitsRun(s.driverConfig.capabilities.kind, s.feedback);
         if (s.driverConfig.serial.model == PoolSerialModel::Polytropic &&
             poolFlowProtectionActive(s.feedback.telemetry)) s.blockReason = POOL_DEVICE_BLOCK_NO_FLOW;
         if (s.blockReason != POOL_DEVICE_BLOCK_NONE || unsafeFeedback)
@@ -692,7 +706,18 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
         PoolDeviceTarget effective = s.desired;
         const bool safe = dependenciesReady && s.blockReason == POOL_DEVICE_BLOCK_NONE &&
             !unsafeFeedback;
-        effective.running = resolveOverride_(i, safe, uint64_t(esp_timer_get_time()) / 1000) && safe;
+        bool refreshCountdown = false;
+        effective.running = resolveOverride_(i, safe, uint64_t(esp_timer_get_time()) / 1000, refreshCountdown) && safe;
+        if (writesEnabled_) {
+            // Save the guided baseline, never the temporary override or delayed
+            // hardware feedback. Safety stops are persisted by this same path.
+            if (wasDesiredOn != s.desiredOn || !s.runStateSaveFailed || uint32_t(nowMs - s.runStateSaveAtMs) >= 5000U)
+                persistRunning_(i, s.desiredOn);
+            if (s.runStateSaveFailed && s.desiredOn) {
+                effective.running = false;
+                s.blockReason = POOL_DEVICE_BLOCK_IO_ERROR;
+            }
+        }
         if (s.driverReady) {
             if (s.retryExpiredCommand || !s.revision || effective.running != s.effective.running || effective.setpoint != s.effective.setpoint ||
                 effective.mode != s.effective.mode) {
@@ -721,14 +746,9 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
         if (s.feedback.observedValid && (s.actualOn != wasActualOn || !previous.observedValid) && serial)
             LOGI("Readback slot=%u confirmed_run=%u requested_run=%u revision=%lu", i,
                  s.actualOn, s.effective.running, (unsigned long)s.revision);
-        if (s.actualOn != wasActualOn && dataStore_) dataStore_->notifyChanged(DataKeys::PoolDeviceOverrides);
         if (s.actualOn != wasActualOn || s.actualOnSinceMs == 0U) {
             s.actualOnSinceMs = nowMs;
         }
-        stateChanged = previous.changedAtMs != s.feedback.changedAtMs ||
-            previous.phase != s.feedback.phase || previous.quality != s.feedback.quality ||
-            previous.observedValid != s.feedback.observedValid;
-
         if (wasActualOn && deltaMs > 0) {
             s.runningMsDay += deltaMs;
             s.runningMsWeek += deltaMs;
@@ -760,33 +780,6 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
             s.persistImmediate = true;
         }
 
-        if (dataStore_) {
-            PoolDeviceRuntimeStateEntry prevState{};
-            if (poolDeviceRuntimeState(*dataStore_, i, prevState) && prevState.valid) {
-                if ((prevState.control.mode != s.control.mode) ||
-                    (prevState.control.available != s.control.available) ||
-                    (prevState.control.automatic != s.control.automatic) ||
-                    (prevState.control.supported != s.control.supported) ||
-                    (prevState.control.reason != s.control.reason) ||
-                    (prevState.control.value != s.control.value) ||
-                    (prevState.control.endsAtUtc != s.control.endsAtUtc) ||
-                    (prevState.control.remainingSec != s.control.remainingSec) ||
-                    (prevState.enabled != s.def.enabled) ||
-                    (prevState.desiredOn != s.desiredOn) ||
-                    (prevState.actualOn != s.actualOn) ||
-                    (prevState.type != s.def.type) ||
-                    (prevState.interlockState != s.interlockState) ||
-                    (prevState.blockReason != s.blockReason)) {
-                    stateChanged = true;
-                }
-            } else {
-                stateChanged = true;
-            }
-        }
-
-        if (stateChanged) {
-            s.stateTsMs = nowMs;
-        }
         if (metricsChanged) {
             s.metricsTsMs = nowMs;
             s.lastRuntimeCommitMs = nowMs;
@@ -794,22 +787,7 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
         }
 
         if (dataStore_) {
-            PoolDeviceRuntimeStateEntry rtState{};
-            rtState.valid = true;
-            rtState.control = s.control;
-            rtState.enabled = s.def.enabled;
-            rtState.desiredOn = s.desiredOn;
-            rtState.actualOn = s.actualOn;
-            rtState.type = s.def.type;
-            rtState.blockReason = s.blockReason;
-            rtState.interlockState = s.interlockState;
-            rtState.tsMs = s.stateTsMs;
-            rtState.actualOnSinceMs = s.actualOnSinceMs;
-            rtState.desiredSetpoint = s.desired.setpoint;
-            rtState.effectiveOn = s.effective.running;
-            rtState.effectiveSetpoint = s.effective.setpoint;
-            rtState.feedback = s.feedback;
-            (void)setPoolDeviceRuntimeState(*dataStore_, i, rtState);
+            commitRuntimeState_(i, nowMs, refreshCountdown);
 
             if (metricsChanged) {
                 PoolDeviceRuntimeMetricsEntry rtMetrics{};

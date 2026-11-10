@@ -57,7 +57,7 @@ enum PoolDeviceSvcStatus { POOLDEV_SVC_OK, POOLDEV_SVC_ERR_INVALID_ARG, POOLDEV_
 class PoolDeviceModule {
 public:
     struct Slot {
-        bool used=true, driverReady=true, desiredOn=false, retryExpiredCommand=false;
+        bool used=true, driverReady=true, desiredOn=false, retryExpiredCommand=false, bootResumePending=false;
         struct { bool enabled=true; } def;
         PoolDriverConfig driverConfig;
         char driverJson[POOL_DRIVER_CONFIG_BYTES]{};
@@ -96,6 +96,7 @@ public:
     bool dependenciesSatisfied_(uint8_t, bool) const { return true; }
     bool maxUptimeReached_(const Slot&) const { return false; }
     void tickDevices_(uint32_t, bool) { ++ticks; }
+    bool persistRunning_(uint8_t, bool) { return true; } // Run-state persistence has a separate integration suite.
     bool configurationSetpoint_(uint8_t,float&) const;
     void syncConfigurationSetpoint_(uint8_t);
     bool restoreRequestedSpeed_(uint8_t);

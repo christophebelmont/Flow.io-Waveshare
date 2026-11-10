@@ -1259,9 +1259,9 @@ void PoolLogicModule::runControlLoop_(uint32_t nowMs)
         filtrationDesiredBase = guidedDeviceOn_(filtrationDeviceSlot_, filtrationFsm_.on);
     } else {
         const bool timeSynced = timeSvc_ && timeSvc_->isSynced && timeSvc_->isSynced(timeSvc_->ctx);
-        if (filtrationFsm_.on && !timeSynced) {
-            // During a warm reboot, keep a retained pump running until the
-            // scheduler can make a reliable clock-based decision.
+        if (filtrationDesiredBase && !timeSynced) {
+            // Preserve the equipment's restored demand while the clock is
+            // unavailable, including asynchronous drivers not yet reporting ON.
             filtrationDesiredBase = true;
         } else if (filtrationFsm_.on && haveAirTemp && airTemp <= freezeHoldTempC_) {
             // Freeze hold: once running, never stop under freeze-hold threshold.

@@ -11,6 +11,7 @@
  * when the EventBus notification queue is full. Payloads are allocated in PSRAM during definition; no allocation during sampling. */
 class ValueRegistry {
 public:
+    using DisplayRangeResolver = bool (*)(void*, ValueId, ValueDisplayRange&);
     using Observer = void (*)(void*, ValueId, const ValueMetadata&, const ValueSnapshot&,
                              const ValueSnapshot* source);
     ValueRegistry() : mutex_(xSemaphoreCreateMutexStatic(&mutexStorage_)) {}
@@ -46,6 +47,12 @@ public:
     void setName(ValueId id, const char* name);
     void setUsable(ValueId id, bool enabled);
     bool usable(ValueId id) const;
+    bool setDisplayRange(ValueId id, const ValueDisplayRange& range);
+    bool displayRange(ValueId id, ValueDisplayRange& range) const;
+    void setDisplayRangeResolver(DisplayRangeResolver resolver, void* context) {
+        displayRangeResolver_ = resolver;
+        displayRangeContext_ = context;
+    }
     void setHistory(ValueId id, bool enabled);
     bool history(ValueId id) const;
 private:
@@ -65,6 +72,7 @@ private:
     };
     bool defineProgram_(ValueId id, const ValueExpression::Program& program,
                         const double* parameters, const ValueMetadata& metadata);
+    void applyDisplayRangeOverride_(ValueId id, ValueMetadata& metadata) const;
     bool setParameters_(ValueId id, const double* parameters, uint64_t timestampMs);
     void propagate_(ValueId changedId, uint64_t timestampMs, ValueId force = VALUE_INVALID);
     void notify_(ValueId id);
@@ -86,6 +94,8 @@ private:
     bool storageInPsram_ = false;
     void (*notification_)(void*, ValueId, uint32_t) = nullptr;
     void* notificationContext_ = nullptr;
+    DisplayRangeResolver displayRangeResolver_ = nullptr;
+    void* displayRangeContext_ = nullptr;
     uint16_t transformCount_ = 0, used_ = 0;
     Observer observer_ = nullptr;
     void* observerContext_ = nullptr;

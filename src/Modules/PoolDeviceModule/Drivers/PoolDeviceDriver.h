@@ -94,6 +94,7 @@ private:
     bool recoveryRound_ = false;
     uint32_t lastCommunicationAtMs_ = 0;
     bool communicationResponseSeen_ = false;
+    bool communicationMonitoringStarted_ = false;
     uint32_t nextRequestAt_ = 0;
     uint32_t limitRevision_ = 0;
     bool limitValid_ = false;

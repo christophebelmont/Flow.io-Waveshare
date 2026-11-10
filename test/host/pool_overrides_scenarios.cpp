@@ -1,4 +1,80 @@
+static void overridePublication()
+{
+    const uint64_t initialMs = nowMs;
+    const uint64_t initialUtc = utc;
+    PoolDeviceModule module;
+    module.restoreOverrides_();
+    PoolLogicModule logic(module);
+    auto& events = module.store.notifications;
+    const DataKey filtration = DataKeys::PoolDeviceOverrideBase + logic.filtrationDeviceSlot_;
+    const DataKey robot = DataKeys::PoolDeviceOverrideBase + logic.robotDeviceSlot_;
+    std::vector<int> outputRefreshes;
+    module.io.ctx = &outputRefreshes;
+    module.io.setOutputControlState = [](void* ctx, int output, int, const ActuatorControlState*, bool refreshCountdown) {
+        if (refreshCountdown) static_cast<std::vector<int>*>(ctx)->push_back(output);
+    };
+    assert(logic.runtimeSnapshotAffectsKey(4, filtration) && !logic.runtimeSnapshotAffectsKey(5, filtration));
+    assert(logic.runtimeSnapshotAffectsKey(5, robot) && !logic.runtimeSnapshotAffectsKey(4, robot));
+    for (uint16_t route : {4, 5}) {
+        assert(!logic.runtimeSnapshotAffectsKey(route, DATAKEY_IO_BASE));
+        assert(!logic.runtimeSnapshotAffectsKey(route, DATAKEY_POOL_DEVICE_STATE_BASE));
+        assert(!logic.runtimeSnapshotAffectsKey(route, DataKeys::PoolDeviceOverrides));
+        assert(logic.runtimeSnapshotAffectsKey(route, DataKeys::PoolDeviceOverrideDuration));
+    }
+
+    const auto advance = [&](uint32_t ms) {
+        nowMs += ms;
+        utc = initialUtc + (nowMs - initialMs) / 1000;
+        module.tickDevices_(millis(), false);
+    };
+    advance(0); // Initial control availability.
+    events.clear();
+    advance(30000);
+    assert(events.empty());
+
+    char reply[256]{};
+    using Cmd = ActuatorOverrideCommand;
+    const auto command = [&](const char* args, Cmd action) {
+        return module.svcOverrideCommandImpl_({nullptr, nullptr, args}, reply, sizeof(reply), action);
+    };
+    assert(command(R"({"slot":3,"duration_s":25})", Cmd::On));
+    assert(events == std::vector<DataKey>{filtration});
+    assert(outputRefreshes.empty());
+    events.clear();
+    for (uint32_t seconds = 1; seconds < 10; ++seconds) {
+        advance(1000);
+        assert(events.empty() && outputRefreshes.empty());
+        assert(module.slots_[logic.filtrationDeviceSlot_].control.remainingSec == 25 - seconds);
+    }
+    advance(1000);
+    assert(events == std::vector<DataKey>{filtration});
+    assert(outputRefreshes == std::vector<int>{logic.filtrationDeviceSlot_});
+    events.clear();
+    outputRefreshes.clear();
+    advance(10000);
+    assert(events == std::vector<DataKey>{filtration});
+    assert(outputRefreshes == std::vector<int>{logic.filtrationDeviceSlot_});
+    events.clear();
+    outputRefreshes.clear();
+    advance(5000);
+    assert(events == std::vector<DataKey>{filtration});
+    assert(outputRefreshes.empty());
+    assert(module.slots_[logic.filtrationDeviceSlot_].control.mode == ActuatorControlMode::Guided);
+    events.clear();
+    advance(30000);
+    assert(events.empty());
+
+    assert(command(R"({"minutes":45})", Cmd::Duration));
+    assert(events == std::vector<DataKey>{DataKeys::PoolDeviceOverrideDuration});
+    events.clear();
+    assert(command(R"({"minutes":45})", Cmd::Duration));
+    assert(events.empty());
+    nowMs = initialMs;
+    utc = initialUtc;
+}
+
 int main() {
+ overridePublication();
  PoolDeviceModule module;
  unsigned sensors=0,numbers=0,buttons=0,selects=0;
  struct Capture { unsigned *s,*n,*b,*sel; } capture{&sensors,&numbers,&buttons,&selects};

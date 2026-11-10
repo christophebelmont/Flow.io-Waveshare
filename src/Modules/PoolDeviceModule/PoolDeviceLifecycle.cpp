@@ -225,6 +225,7 @@ void PoolDeviceModule::init(ConfigStore& cfg, ServiceRegistry& services)
         };
         cfg.registerVar(cfgDriverVar_[i], kCfgModuleId, localBranchId);
 
+        snprintf(s.runStateKey, sizeof(s.runStateKey), "act%u_run", unsigned(i));
         snprintf(s.requestedRpmKey, sizeof(s.requestedRpmKey), "act%u_rpm", unsigned(i));
         cfgRequestedRpmVar_[i] = {s.requestedRpmKey, "requested_rpm", slot.configModuleName,
             ConfigType::Float, &s.requestedRpm, ConfigPersistence::Persistent, 0};

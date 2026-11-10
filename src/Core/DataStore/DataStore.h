@@ -40,7 +40,13 @@ public:
     ValueRegistry values;
     // Exposure policy is loaded once per boot, independently of value production.
     using RegisterExposure = bool (*)(void*, ValueId);
+    using PersistDisplayRange = bool (*)(void*, ValueId, const ValueDisplayRange&);
     void setExposureRegistrar(RegisterExposure callback, void* context) { exposureRegistrar_ = callback; exposureContext_ = context; }
+    void setDisplayRangePersister(PersistDisplayRange callback, void* context) { rangePersister_ = callback; rangeContext_ = context; }
+    bool setDisplayRange(ValueId id, const ValueDisplayRange& range) {
+        if (!rangePersister_ || !rangePersister_(rangeContext_, id, range)) return false;
+        return values.setDisplayRange(id, range);
+    }
     bool defineDataValue(ValueId id, const ValueMetadata& metadata) {
         return exposureRegistrar_ && exposureRegistrar_(exposureContext_, id) && values.define(id, metadata);
     }
@@ -81,6 +87,8 @@ private:
     ExposureStorage* exposure_ = nullptr;
     RegisterExposure exposureRegistrar_ = nullptr;
     void* exposureContext_ = nullptr;
+    PersistDisplayRange rangePersister_ = nullptr;
+    void* rangeContext_ = nullptr;
     PendingDataKeys pendingChanges_;
     RuntimeData _rt{};
     EventBus* _bus = nullptr;

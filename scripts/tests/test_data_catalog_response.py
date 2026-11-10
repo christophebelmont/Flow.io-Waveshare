@@ -16,6 +16,10 @@ class DataCatalogResponseTests(unittest.TestCase):
         start = source.index('    server_.on("/api/data/values"')
         end = source.index('    server_.on("/api/history/value"', start)
         route = source[start:end]
+        ha_source = (ROOT / 'src/Modules/Network/HAModule').glob('*.cpp')
+        ha_text = '\n'.join(path.read_text() for path in ha_source)
+        self.assertNotIn('display_min', ha_text)
+        self.assertNotIn('display_max', ha_text)
         self.assertNotIn('beginResponseStream', route)
         self.assertIn('sendBufferedJson(request, body)', route)
         start = route.index('        size_t count =')

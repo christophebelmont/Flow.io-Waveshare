@@ -9,6 +9,9 @@ constexpr ValueId VALUE_INVALID = UINT16_MAX;
 namespace ValueIds {
 constexpr ValueId Analog = 0, Digital = 32, PulseRate = 48, Total = 64,
                   ConvertedRate = 80, Derived = 96;
+// Stable analog ValueIds used for the historical pool probe display scales.
+constexpr ValueId AnalogOrp = 0, AnalogPh = 1, AnalogPressure = 2,
+                  AnalogWaterTemperature = 4, AnalogAirTemperature = 5;
 constexpr uint8_t DerivedCapacity = 5;
 // Keep existing persisted/history identities stable. Equipment metrics have their own range.
 constexpr ValueId PoolTank = 112;
@@ -75,8 +78,35 @@ struct ValueMetadata {
     uint32_t maxAgeMs = 0; // Zero: producer owns validity; otherwise expire centrally.
     bool history = true;
     bool usable = true; // User displays and formula sources; independent of production.
+    // Display-only scale. This is independent of acquisition validity, alarm
+    // thresholds, and actuator limits. Values are never clamped in the registry.
+    bool hasDisplayRange = false;
+    double displayMin = 0.0;
+    double displayMax = 0.0;
     char name[64]{};
 };
+
+struct ValueDisplayRange {
+    bool hasRange = false;
+    double min = 0.0;
+    double max = 0.0;
+};
+
+inline bool validDisplayRange(double min, double max) {
+    return isfinite(min) && isfinite(max) && min < max;
+}
+
+// Historical display scales for the four measured probes. IDs are persistent
+// ValueIds; labels and runtime UI positions are intentionally not involved.
+inline ValueDisplayRange defaultValueDisplayRange(ValueId id) {
+    switch (id) {
+        case ValueIds::AnalogOrp: return {true, 350.0, 900.0}; // ORP (mV)
+        case ValueIds::AnalogPh: return {true, 6.4, 8.4};      // pH
+        case ValueIds::AnalogWaterTemperature: return {true, 0.0, 40.0}; // °C
+        case ValueIds::AnalogAirTemperature: return {true, -10.0, 45.0}; // °C
+        default: return {};
+    }
+}
 struct ValueSnapshot {
     ValueNumber value{};
     uint64_t timestampMs = 0;

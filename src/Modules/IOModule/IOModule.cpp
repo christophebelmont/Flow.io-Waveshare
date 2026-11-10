@@ -1009,7 +1009,7 @@ bool IOModule::runtimeSnapshotRouteFromIndex_(uint16_t snapshotIdx, uint8_t& rou
     return false;
 }
 
-IoStatus IOModule::setOutputControlState_(IoId id, uint8_t owner, const ActuatorControlState* state)
+IoStatus IOModule::setOutputControlState_(IoId id, uint8_t owner, const ActuatorControlState* state, bool refreshCountdown)
 {
     if (!state || id < IO_ID_DO_BASE || id >= IO_ID_DO_BASE + Limits::Io::MaxDigitalOutputs) return IO_ERR_INVALID_ARG;
     const auto index = id - IO_ID_DO_BASE;
@@ -1018,10 +1018,7 @@ IoStatus IOModule::setOutputControlState_(IoId id, uint8_t owner, const Actuator
     const auto previous = outputControl_[index];
     outputControl_[index] = *state;
     portEXIT_CRITICAL(&outputControlMux_);
-    if (previous.mode != state->mode || previous.remainingSec != state->remainingSec ||
-        previous.endsAtUtc != state->endsAtUtc || previous.reason != state->reason ||
-        previous.supported != state->supported || previous.available != state->available ||
-        previous.automatic != state->automatic || previous.value != state->value) {
+    if (!sameActuatorControl(previous, *state) || refreshCountdown) {
         uint8_t slot = 0;
         if (dataStore_ && findDigitalSlotByIoId_(id, slot) && digitalSlots_[slot].endpoint)
             dataStore_->notifyChanged(static_cast<DataKey>(DATAKEY_IO_BASE + digitalSlots_[slot].endpoint->runtimeIndex));
@@ -1042,10 +1039,20 @@ bool IOModule::buildEndpointSnapshot_(IOEndpoint* ep, char* out, size_t len, uin
     doc["id"] = id ? id : "";
     doc["name"] = label && label[0] ? label : id ? id : "";
     if (ep->numericId >= IO_ID_AI_BASE && ep->numericId < IO_ID_AI_MAX) {
-        const ValueId sourceValue = analogSourceValue(ep->numericId - IO_ID_AI_BASE);
+        const uint8_t analogIdx = ep->numericId - IO_ID_AI_BASE;
+        const ValueId sourceValue = analogSourceValue(analogIdx);
         if (sourceValue != VALUE_INVALID) {
             doc["source_value"] = sourceValue;
             doc["estimated"] = true;
+        }
+        ValueSnapshot measurementSample{};
+        ValueMetadata measurementMetadata{};
+        const ValueId measurementValue = ValueIds::Analog + analogIdx;
+        if (dataStore_ && dataStore_->values.read(measurementValue, measurementSample, &measurementMetadata) &&
+            measurementMetadata.hasDisplayRange &&
+            validDisplayRange(measurementMetadata.displayMin, measurementMetadata.displayMax)) {
+            doc["min"] = measurementMetadata.displayMin;
+            doc["max"] = measurementMetadata.displayMax;
         }
     }
     doc["available"] = value.valid;
@@ -1193,7 +1200,7 @@ bool IOModule::buildRuntimeSnapshot(uint16_t idx, char* out, size_t len, uint32_
         const ValueId id = valueRoutes_[slotIdx];
         if (!dataStore_ || !dataStore_->values.read(id, sample, &metadata)) return false;
         maxTsOut = sample.sequence ? sample.sequence : 1;
-        return formatValueSnapshot(out, len, id, sample, metadata);
+        return formatValueSnapshot(out, len, id, sample, metadata, true);
     }
     if (routeType == ROUTE_ANALOG_OUTPUT) return buildEndpointSnapshot_(&analogOutputs_[slotIdx].endpoint, out, len, maxTsOut);
     IOEndpoint* ep = nullptr;
@@ -3923,6 +3930,13 @@ bool IOModule::defineAnalogOutput(const IoEndpointMeta& meta, bool (*write)(void
     snprintf(output.id, sizeof(output.id), "o%02u", unsigned(meta.id - IO_ID_AO_BASE));
     output.endpoint.configure(output.id, meta.minValid, meta.maxValid, write, context);
     return true;
+}
+
+IoStatus IOModule::outputBootPolicy_(uint8_t slot, IoOutputBootPolicy* out)
+{
+    if (!out || slot >= DIGITAL_CFG_SLOTS) return IO_ERR_INVALID_ARG;
+    *out = {digitalCfg_[slot].initialOn, digitalCfg_[slot].retainOnWarmReboot};
+    return IO_OK;
 }
 
 IoStatus IOModule::claimOutputs_(const IoId* ids, uint8_t count, uint8_t owner)

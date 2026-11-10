@@ -69,6 +69,7 @@ struct IOModule {
     bool resolveDigitalInputBinding_(PhysicalPortId, uint8_t&, uint8_t&, uint8_t&, IOExpanderId&) const;
     bool resolveDigitalOutputBinding_(PhysicalPortId, uint8_t&, uint8_t&, uint8_t&, IOExpanderId&, bool&, bool&, bool&) const;
     IOPortPresence portPresence_(PhysicalPortId, uint8_t) const;
+    IoStatus outputBootPolicy_(uint8_t, IoOutputBootPolicy*);
     void resolveBootBindings_();
     void validateResolvedResources_();
     bool validateBindingConfig_(const ConfigCandidate&) const;
@@ -104,6 +105,17 @@ int main()
     assert(resolveIOBinding({0,100},P::Unconfigured,P::Present).port == 100);
 
     IOModule module;
+    // The existing initial/retain fields are available even without a bound
+    // or enabled physical endpoint (for example, an RS485 equipment slot).
+    module.digitalCfg_[3].initialOn = true;
+    module.digitalCfg_[3].retainOnWarmReboot = true;
+    IoOutputBootPolicy policy{};
+    assert(module.outputBootPolicy_(3, &policy) == IO_OK);
+    assert(policy.initialOn && policy.retainPrevious);
+    assert(module.outputBootPolicy_(0, &policy) == IO_OK);
+    assert(!policy.initialOn && !policy.retainPrevious);
+    assert(module.outputBootPolicy_(IOModule::DIGITAL_CFG_SLOTS, &policy) == IO_ERR_INVALID_ARG);
+    assert(module.outputBootPolicy_(0, nullptr) == IO_ERR_INVALID_ARG);
     module.analogSlots_[0].used = true;
     module.analogCfg_[0].binding = choices;
     module.analogPresence_[IO_SRC_ADS_INTERNAL_SINGLE] = P::Present;

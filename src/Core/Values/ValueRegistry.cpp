@@ -42,11 +42,26 @@ bool ValueRegistry::begin() {
     for (ValueId id = ValueIds::Equipment; id < ValueIds::Capacity; ++id) storage_->historyDisabled[id] = true;
     return true;
 }
+void ValueRegistry::applyDisplayRangeOverride_(ValueId id, ValueMetadata& metadata) const {
+    if (!displayRangeResolver_) return;
+    ValueDisplayRange range{};
+    if (!displayRangeResolver_(displayRangeContext_, id, range)) return;
+    metadata.hasDisplayRange = range.hasRange;
+    metadata.displayMin = range.hasRange ? range.min : 0.0;
+    metadata.displayMax = range.hasRange ? range.max : 0.0;
+}
 bool ValueRegistry::define(ValueId id, const ValueMetadata& metadata) {
     Lock lock(mutex_);
     if (!storage_ || id >= ValueIds::Capacity || storage_->slots[id].used || metadata.source != VALUE_INVALID) return false;
     if (!storage_->slots.ensure(id)) return false;
     storage_->slots[id].metadata = metadata;
+    const auto defaultRange = defaultValueDisplayRange(id);
+    if (defaultRange.hasRange && metadata.type != ValueType::Bool) {
+        storage_->slots[id].metadata.hasDisplayRange = true;
+        storage_->slots[id].metadata.displayMin = defaultRange.min;
+        storage_->slots[id].metadata.displayMax = defaultRange.max;
+    }
+    applyDisplayRangeOverride_(id, storage_->slots[id].metadata);
     storage_->slots[id].metadata.history = !storage_->historyDisabled[id];
     storage_->slots[id].metadata.usable = !storage_->usageDisabled[id];
     storage_->slots[id].used = true;
@@ -68,6 +83,13 @@ bool ValueRegistry::defineProgram_(ValueId id, const ValueExpression::Program& p
     if (!storage_->slots.ensure(id)) return false;
     auto& slot = storage_->slots[id];
     slot.metadata = metadata; slot.metadata.history = !storage_->historyDisabled[id]; slot.metadata.usable = !storage_->usageDisabled[id]; slot.used = true; slot.program = transformCount_;
+    const auto defaultRange = defaultValueDisplayRange(id);
+    if (defaultRange.hasRange && metadata.type != ValueType::Bool) {
+        slot.metadata.hasDisplayRange = true;
+        slot.metadata.displayMin = defaultRange.min;
+        slot.metadata.displayMax = defaultRange.max;
+    }
+    applyDisplayRangeOverride_(id, slot.metadata);
     auto& transform = storage_->programs[transformCount_];
     transform.program = program;
     for (uint8_t i = 0; i < ValueExpression::ParamCount; ++i) transform.parameters[i] = parameters[i];
@@ -297,6 +319,26 @@ void ValueRegistry::setUsable(ValueId id, bool enabled) {
 bool ValueRegistry::usable(ValueId id) const {
     Lock lock(mutex_);
     return storage_ && id < ValueIds::Capacity && !storage_->usageDisabled[id];
+}
+bool ValueRegistry::setDisplayRange(ValueId id, const ValueDisplayRange& range) {
+    Lock lock(mutex_);
+    if (!storage_ || id >= ValueIds::Capacity || !storage_->slots[id].used) return false;
+    auto& metadata = storage_->slots[id].metadata;
+    if (metadata.type == ValueType::Bool || (range.hasRange && !validDisplayRange(range.min, range.max))) return false;
+    if (metadata.hasDisplayRange == range.hasRange &&
+        (!range.hasRange || (metadata.displayMin == range.min && metadata.displayMax == range.max))) return true;
+    metadata.hasDisplayRange = range.hasRange;
+    metadata.displayMin = range.hasRange ? range.min : 0.0;
+    metadata.displayMax = range.hasRange ? range.max : 0.0;
+    if (notification_) notification_(notificationContext_, id, storage_->slots[id].runtime.sequence);
+    return true;
+}
+bool ValueRegistry::displayRange(ValueId id, ValueDisplayRange& range) const {
+    Lock lock(mutex_);
+    if (!storage_ || id >= ValueIds::Capacity || !storage_->slots[id].used) return false;
+    const auto& metadata = storage_->slots[id].metadata;
+    range = {metadata.hasDisplayRange, metadata.displayMin, metadata.displayMax};
+    return true;
 }
 bool ValueRegistry::history(ValueId id) const {
     Lock lock(mutex_);

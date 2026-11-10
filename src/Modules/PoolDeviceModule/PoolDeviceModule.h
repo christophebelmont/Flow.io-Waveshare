@@ -118,6 +118,13 @@ private:
         char driverKey[16]{};
         char requestedRpmKey[16]{};
         float requestedRpm = 0;
+        char runStateKey[16]{};
+        bool savedRunning = false;
+        bool savedRunningValid = false;
+        bool runStateSaveFailed = false;
+        uint32_t runStateSaveAtMs = 0;
+        bool bootResumePending = false;
+        uint32_t bootResumeSinceMs = 0;
         char driverError[96]{};
         char haSuffix[24]{};
         char haTopic[40]{};
@@ -141,6 +148,7 @@ private:
         bool overrideBaseline = false;
         bool overrideRestored = false;
         uint64_t overrideRetryMs = 0;
+        uint64_t overridePublishMs = 0;
         char overrideOption[48]{};
         bool desiredOn = false;
         bool actualOn = false;
@@ -185,6 +193,9 @@ private:
     void onEvent_(const Event& e);
     bool validateSpeedConfiguration_(const ConfigCandidate& candidate) const;
     bool restoreRequestedSpeed_(uint8_t slot);
+    bool restoreRunning_(uint8_t slot);
+    bool persistRunning_(uint8_t slot, bool running);
+    bool bootDependenciesPending_(uint8_t slot, uint32_t now, bool dependenciesReady, bool unsafe);
 
     // Control
     uint8_t activeCount_() const;
@@ -200,7 +211,7 @@ private:
     uint32_t overrideBinding_(uint8_t slot) const;
     bool overrideDependenciesSatisfied_(uint8_t slot) const;
     uint64_t overrideUtc_() const;
-    bool resolveOverride_(uint8_t slot, bool safe, uint64_t now);
+    bool resolveOverride_(uint8_t slot, bool safe, uint64_t now, bool& refreshCountdown);
     static bool saveOverride_(void*, const uint8_t*, size_t);
     static bool saveOverrideDuration_(void*, const uint8_t*, size_t);
     static bool cmdOverride_(void*, const CommandRequest&, char*, size_t);
@@ -212,7 +223,6 @@ private:
     bool buildOverrideSnapshot_(bool all, char*, size_t, uint32_t&) const;
     ActuatorOverrideDuration overrideDuration_;
     uint8_t overrideSelection_ = 0xFF;
-    uint32_t overridePublishMs_ = 0;
     char overrideOptions_[1024]{};
     PoolDeviceSvcStatus svcSetRunningImpl_(uint8_t slot, uint8_t on);
     PoolDeviceSvcStatus svcSetManualRunningImpl_(uint8_t slot, uint8_t on);
@@ -244,6 +254,7 @@ private:
 
     // Runtime
     bool configureRuntime_();
+    void commitRuntimeState_(uint8_t slot, uint32_t nowMs, bool refreshCountdown = false);
     static MqttBuildResult buildCfgBasePdmStatic_(void* ctx, uint16_t messageId, MqttBuildContext& buildCtx);
     MqttBuildResult buildCfgBasePdm_(MqttBuildContext& buildCtx);
     bool snapshotRouteFromIndex_(uint8_t snapshotIdx, uint8_t& slotIdxOut, bool& metricsOut) const;

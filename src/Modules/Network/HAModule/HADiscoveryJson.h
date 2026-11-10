@@ -5,6 +5,10 @@
 
 // Inputs are ordinary strings, never pre-escaped JSON fragments.
 namespace HADiscoveryJson {
+inline constexpr const char* DisplayRangeAttributesTemplate =
+    "{{ ({'min': value_json.min, 'max': value_json.max} | to_json) "
+    "if value_json.min is defined and value_json.max is defined else '{}' }}";
+
 inline void availability(JsonObject root, const char* statusTopic,
                          const char* stateTopic = nullptr,
                          const char* stateTemplate = nullptr)
