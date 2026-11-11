@@ -84,12 +84,10 @@
     let loadedWebAssetVersion = '';
     let localFirmwareVersion = '-';
     let nextionDisplayVersion = '';
+    let nextionDisplayPresent = false;
     let nextionDisplayDetected = false;
     let nextionDisplayRemote = false;
-    let remoteNextionStatusAvailable = false;
-    let remoteNextionEnabled = false;
     let remoteNextionConnected = false;
-    let remoteNextionProtocol = '';
     let nextionDisplayModel = '';
     let nextionDisplayCompatibility = '';
     let localUptimeMs = 0;
@@ -1046,14 +1044,11 @@
         }
         const rawNextionVersion = String(data.nextion_display_version || '').trim();
         nextionDisplayVersion = rawNextionVersion && rawNextionVersion !== '0' ? rawNextionVersion : '';
-        nextionDisplayDetected = data.nextion_display_detected === true
-          || data.nextion_display_version_detected === true;
+        nextionDisplayPresent = data.nextion_display_detected === true;
         nextionDisplayRemote = data.nextion_display_remote === true;
-        nextionDisplayDetected = nextionDisplayDetected || nextionDisplayRemote;
-        remoteNextionStatusAvailable = data.remote_nextion_status_available === true;
-        remoteNextionEnabled = data.remote_nextion_enabled === true;
+        nextionDisplayDetected = nextionDisplayPresent || nextionDisplayRemote
+          || data.nextion_display_version_detected === true;
         remoteNextionConnected = data.remote_nextion_connected === true;
-        remoteNextionProtocol = String(data.remote_nextion_protocol || '').trim();
         nextionDisplayModel = String(data.nextion_display_model || '').trim();
         nextionDisplayCompatibility = String(data.nextion_display_compatibility || '').trim();
         localUptimeMs = Number(data.upms) || 0;
@@ -1597,6 +1592,12 @@
       return raw ? raw : '-';
     }
 
+    function formatInfoDisplay() {
+      if (nextionDisplayRemote) return tr('info.display.nextionRemote', 'Nextion Distant');
+      if (nextionDisplayPresent) return tr('info.display.nextionLocal', 'Nextion Local');
+      return tr('info.display.absent', 'Absent');
+    }
+
     function renderInfoPanel() {
       const systemDomain = (flowStatusDomainCache.system && flowStatusDomainCache.system.data && flowStatusDomainCache.system.data.ok === true)
         ? flowStatusDomainCache.system.data
@@ -1633,7 +1634,7 @@
         [tr('info.row.networkType', 'Type réseau'), wifiDomain ? formatInfoNetworkType(infoNetworkType) : '-'],
         [tr('info.row.signal', 'Signal'), (wifiDomain && wifi.hrss) ? formatInfoDbm(wifi.rssi) : '-'],
         [tr('info.row.mqtt', 'MQTT'), mqttDomain ? formatInfoBoolean(!!mqtt.rdy, tr('info.state.connected', 'Connecté'), tr('info.state.disconnected', 'Déconnecté')) : '-'],
-        ...(remoteNextionStatusAvailable ? [[tr('info.row.remoteNextion', 'Nextion distant'), !remoteNextionEnabled ? tr('info.state.disabled', 'Désactivé') : formatInfoBoolean(remoteNextionConnected, tr('info.state.connected', 'Connecté'), tr('info.state.disconnected', 'Déconnecté')) + ' · ' + (remoteNextionProtocol || 'UDP')]] : []),
+        [tr('info.row.display', 'Ecran'), formatInfoDisplay()],
         [tr('info.row.time', 'Heure'), time ? flowTimeStatusLabel(time) : '-']
       ];
       if (systemDomain) {
@@ -12225,6 +12226,7 @@
     }
 
     function openDataDisplayDialog(item) {
+      const currentItem = dataValueCatalog.find(value => Number(value.id) === Number(item.id)) || item;
       let dialog = document.getElementById('dataDisplayDialog');
       if (!dialog) {
         dialog = document.createElement('dialog');
@@ -12287,19 +12289,19 @@
           }
         });
       }
-      dialog.dataset.valueId = String(item.id);
-      dialog.querySelector('#dataDisplayTitle').textContent = tr('data.displayFor', 'Affichage pour') + ' ' + item.name;
-      dialog.querySelector('#dataDisplayUnit').textContent = item.unit || '';
-      const hasDefault = item.default_has_display_range === true;
+      dialog.dataset.valueId = String(currentItem.id);
+      dialog.querySelector('#dataDisplayTitle').textContent = tr('data.displayFor', 'Affichage pour') + ' ' + currentItem.name;
+      dialog.querySelector('#dataDisplayUnit').textContent = currentItem.unit || '';
+      const hasDefault = currentItem.default_has_display_range === true;
       dialog.querySelector('#dataDisplayMode option[value="default"]').textContent = hasDefault
         ? tr('data.displayDefault', 'Plage par défaut')
         : tr('data.displayNoDefault', 'Défaut : aucune plage');
-      const currentDefault = item.has_display_range === hasDefault && (!hasDefault ||
-        (Number(item.display_min) === Number(item.default_display_min) && Number(item.display_max) === Number(item.default_display_max)));
-      const mode = currentDefault ? 'default' : (item.has_display_range ? 'custom' : (hasDefault ? 'none' : 'default'));
+      const currentDefault = currentItem.has_display_range === hasDefault && (!hasDefault ||
+        (Number(currentItem.display_min) === Number(currentItem.default_display_min) && Number(currentItem.display_max) === Number(currentItem.default_display_max)));
+      const mode = currentDefault ? 'default' : (currentItem.has_display_range ? 'custom' : (hasDefault ? 'none' : 'default'));
       dialog.querySelector('#dataDisplayMode').value = mode;
-      dialog.querySelector('#dataDisplayMin').value = item.has_display_range ? item.display_min : (hasDefault ? item.default_display_min : '');
-      dialog.querySelector('#dataDisplayMax').value = item.has_display_range ? item.display_max : (hasDefault ? item.default_display_max : '');
+      dialog.querySelector('#dataDisplayMin').value = currentItem.has_display_range ? currentItem.display_min : (hasDefault ? currentItem.default_display_min : '');
+      dialog.querySelector('#dataDisplayMax').value = currentItem.has_display_range ? currentItem.display_max : (hasDefault ? currentItem.default_display_max : '');
       dialog.querySelector('#dataDisplayCustomFields').hidden = mode !== 'custom';
       dialog.querySelector('#dataDisplayError').textContent = '';
       dialog.showModal();
