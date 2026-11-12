@@ -215,13 +215,8 @@ private:
                              bool includeNameInUniqueId = true,
                              MqttBuildContext* outCtx = nullptr,
                              const char* availabilityTemplate = nullptr);
-    bool publishSwitch(const char* objectId, const char* name,
-                       const char* stateTopic, const char* valueTemplate,
-                       const char* commandTopic,
-                       const char* payloadOn, const char* payloadOff,
-                       const char* icon = nullptr,
-                       const char* entityCategory = nullptr,
-                       MqttBuildContext* outCtx = nullptr);
+    bool publishSwitch(const char* objectId, const HASwitchEntry& entry,
+                       const char* stateTopic, const char* commandTopic, MqttBuildContext& outCtx);
     bool publishNumber(const char* objectId, const char* name,
                        const char* stateTopic, const char* valueTemplate,
                        const char* commandTopic, const char* commandTemplate,

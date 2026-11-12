@@ -337,7 +337,8 @@ void syncSwitches(const DomainSpec& domain, ModuleInstances& modules)
             role.on,
             role.off,
             device.haIcon,
-            nullptr
+            nullptr,
+            PoolRoleHaDiscovery::SwitchAttributesTemplate
         };
         reportDiscoveryResult(modules.haService->addSwitch(modules.haService->ctx, &entry), entry.objectSuffix);
     }

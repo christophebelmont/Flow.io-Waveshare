@@ -625,60 +625,24 @@ bool HAModule::publishBinarySensor(const char* objectId, const char* name,
     return publishDiscovery("binary_sensor", objectId, *outCtx);
 }
 
-bool HAModule::publishSwitch(const char* objectId, const char* name,
-                             const char* stateTopic, const char* valueTemplate,
-                             const char* commandTopic,
-                             const char* payloadOn, const char* payloadOff,
-                             const char* icon,
-                             const char* entityCategory,
-                             MqttBuildContext* outCtx)
+bool HAModule::publishSwitch(const char* objectId, const HASwitchEntry& entry,
+                             const char* stateTopic, const char* commandTopic, MqttBuildContext& outCtx)
 {
-    if (!outCtx) return false;
-    MqttBuildContext& buildCtx = *outCtx;
-    if (!objectId || !name || !stateTopic || !valueTemplate || !commandTopic || !payloadOn || !payloadOff) return false;
-    char defaultEntityId[224] = {0};
-    if (!buildDefaultEntityId("switch", objectId, defaultEntityId, sizeof(defaultEntityId))) return false;
-    char uniqueId[256] = {0};
-    if (!buildUniqueId(objectId, name, uniqueId, sizeof(uniqueId))) return false;
-    char availabilityField[384] = {0};
-    buildAvailabilityField(mqttSvc_, availabilityField, sizeof(availabilityField));
-    char entityCategoryField[64] = {0};
-    if (entityCategory && entityCategory[0] != '\0') {
-        snprintf(entityCategoryField, sizeof(entityCategoryField), ",\"ent_cat\":\"%s\"", entityCategory);
+    SpiRamJsonDocument doc(4096);
+    if (!initDiscoveryDocument_(doc, "switch", objectId, entry.name, true)) return false;
+    if (entry.entityCategory && entry.entityCategory[0]) doc["ent_cat"] = entry.entityCategory;
+    if (entry.icon && entry.icon[0]) doc["ic"] = entry.icon;
+    const auto root = doc.as<JsonObject>();
+    HADiscoveryJson::mqttSwitch(root, stateTopic, entry.valueTemplate, commandTopic,
+                                entry.payloadOn, entry.payloadOff, entry.attributesTemplate);
+    char statusTopic[192]{};
+    mqttSvc_->formatTopic(mqttSvc_->ctx, MqttTopics::SuffixStatus, statusTopic, sizeof(statusTopic));
+    HADiscoveryJson::availability(root, statusTopic);
+    if (!HADiscoveryJson::serialize(doc, outCtx.payload, outCtx.payloadCapacity)) {
+        LOGW("HA switch payload overflow object=%s", objectId);
+        return false;
     }
-
-    if (icon && icon[0] != '\0') {
-        if (!formatChecked(buildCtx.payload, buildCtx.payloadCapacity,
-                 "{\"name\":\"%s\",\"obj_id\":\"%s\",\"def_ent_id\":\"%s\",\"uniq_id\":\"%s\",\"stat_t\":\"%s\","
-                 "\"val_tpl\":\"%s\",\"stat_on\":\"ON\",\"stat_off\":\"OFF\","
-                 "\"cmd_t\":\"%s\",\"pl_on\":\"%s\",\"pl_off\":\"%s\","
-                 "\"ic\":\"%s\"%s%s,"
-                 "\"o\":{\"name\":\"%s\"},"
-                 "\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\","
-                 "\"mf\":\"%s\",\"mdl\":\"%s\",\"sw\":\"%s\",\"cu\":\"%s\"}}",
-                 name, objectId, defaultEntityId, uniqueId, stateTopic, valueTemplate,
-                 commandTopic, payloadOn, payloadOff, icon,
-                 entityCategoryField, availabilityField,
-                 originName_, deviceIdent_, deviceName_, cfgData_.vendor, cfgData_.model, FirmwareVersion::Full, kHaDeviceConfigUrl)) {
-            LOGW("HA switch payload truncated object=%s", objectId);
-            return false;
-        }
-    } else {
-        if (!formatChecked(buildCtx.payload, buildCtx.payloadCapacity,
-                 "{\"name\":\"%s\",\"obj_id\":\"%s\",\"def_ent_id\":\"%s\",\"uniq_id\":\"%s\",\"stat_t\":\"%s\","
-                 "\"val_tpl\":\"%s\",\"stat_on\":\"ON\",\"stat_off\":\"OFF\","
-                 "\"cmd_t\":\"%s\",\"pl_on\":\"%s\",\"pl_off\":\"%s\"%s%s,"
-                 "\"o\":{\"name\":\"%s\"},"
-                 "\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\","
-                 "\"mf\":\"%s\",\"mdl\":\"%s\",\"sw\":\"%s\",\"cu\":\"%s\"}}",
-                 name, objectId, defaultEntityId, uniqueId, stateTopic, valueTemplate,
-                 commandTopic, payloadOn, payloadOff, entityCategoryField, availabilityField,
-                 originName_, deviceIdent_, deviceName_, cfgData_.vendor, cfgData_.model, FirmwareVersion::Full, kHaDeviceConfigUrl)) {
-            LOGW("HA switch payload truncated object=%s", objectId);
-            return false;
-        }
-    }
-    return publishDiscovery("switch", objectId, buildCtx);
+    return publishDiscovery("switch", objectId, outCtx);
 }
 
 bool HAModule::publishNumber(const char* objectId, const char* name,
@@ -1051,8 +1015,7 @@ bool HAModule::buildEntityMessage_(uint16_t messageId, MqttBuildContext& buildCt
                 if (buildObjectId(e.objectSuffix, objectIdBuf_, sizeof(objectIdBuf_))) {
                     mqttSvc_->formatTopic(mqttSvc_->ctx, e.stateTopicSuffix, stateTopicBuf_, sizeof(stateTopicBuf_));
                     mqttSvc_->formatTopic(mqttSvc_->ctx, e.commandTopicSuffix, commandTopicBuf_, sizeof(commandTopicBuf_));
-                    ok = publishSwitch(objectIdBuf_, e.name, stateTopicBuf_, e.valueTemplate,
-                                       commandTopicBuf_, e.payloadOn, e.payloadOff, e.icon, e.entityCategory, &buildCtx);
+                    ok = publishSwitch(objectIdBuf_, e, stateTopicBuf_, commandTopicBuf_, buildCtx);
                 }
             } else {
                 cursor = (uint16_t)(cursor + switchCount_);

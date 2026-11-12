@@ -211,6 +211,7 @@ bool PoolDeviceModule::buildStateSnapshot_(uint8_t slotIdx, char* out, size_t le
     doc["enabled"] = entry.enabled;
     doc["desired"] = entry.desiredOn;
     writeActuatorControlJson(doc, entry.control);
+    doc["forced"] = entry.control.mode == ActuatorControlMode::Forced;
     if (entry.feedback.observedValid) doc["on"] = entry.actualOn;
     else doc["on"] = nullptr;
     doc["block"] = blockReasonStr_(entry.blockReason);

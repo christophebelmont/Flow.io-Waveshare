@@ -13,6 +13,7 @@ ARDUINO_JSON = ROOT / ".pio/libdeps/Flowio-waveshare-esp32-s3/ArduinoJson/src"
 TEST_PROGRAM = r'''
 #include "Modules/Network/WebInterfaceModule/RuntimeActionArguments.h"
 #include "Core/Generated/RuntimeUiManifest_Generated.h"
+#include "Modules/Network/HAModule/HADiscoveryJson.h"
 #include "Modules/PoolLogicModule/ManualDeviceCommand.h"
 #include "Profiles/Waveshare/PoolDeviceHaCommand.h"
 #include <cassert>
@@ -55,15 +56,19 @@ int main() {
     // Decode actual HA discovery payloads as HA does, then verify that the
     // MQTT command reaches the same dispatcher and slot as the web popup.
     for (unsigned slot = 0; slot < 16; ++slot) {
+        char payloadOn[160]{}, payloadOff[160]{};
+        assert(formatPoolDeviceHaWritePayload(payloadOn, sizeof(payloadOn), slot, true));
+        assert(formatPoolDeviceHaWritePayload(payloadOff, sizeof(payloadOff), slot, false));
+        StaticJsonDocument<512> config;
+        HADiscoveryJson::mqttSwitch(config.to<JsonObject>(), "state", "{{ value_json.on }}",
+                                    "cmd", payloadOn, payloadOff, nullptr);
+        char discovery[512]{};
+        assert(HADiscoveryJson::serialize(config, discovery, sizeof(discovery)));
+        assert(!deserializeJson(config, static_cast<const char*>(discovery)));
+        assert(!config.containsKey("json_attr_t") && !config.containsKey("json_attr_tpl"));
         for (const bool on : {false, true}) {
-            char payload[160]{};
-            assert(formatPoolDeviceHaWritePayload(payload, sizeof(payload), slot, on));
-            char discovery[192]{};
-            std::snprintf(discovery, sizeof(discovery), "{\"pl\":\"%s\"}", payload);
-            StaticJsonDocument<512> config;
-            assert(!deserializeJson(config, static_cast<const char*>(discovery)));
             StaticJsonDocument<512> command;
-            assert(!deserializeJson(command, config["pl"].as<const char*>()));
+            assert(!deserializeJson(command, config[on ? "pl_on" : "pl_off"].as<const char*>()));
             assert(std::strcmp(command["cmd"], action->command) == 0);
             assert(command["args"]["slot"].is<uint8_t>() && command["args"]["slot"].as<uint8_t>() == slot);
             assert(command["args"]["value"].is<bool>() && command["args"]["value"].as<bool>() == on);

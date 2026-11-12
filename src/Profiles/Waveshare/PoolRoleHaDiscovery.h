@@ -8,6 +8,8 @@
 
 namespace PoolRoleHaDiscovery {
 
+inline constexpr const char* SwitchAttributesTemplate = "{{ {'forced': value_json.forced | default(false)} | to_json }}";
+
 // Role identity is stable; only the device address follows PoolLogic at boot.
 inline uint8_t assignedSlot(PoolDeviceId role, const PoolDeviceAssignments& assignments)
 {

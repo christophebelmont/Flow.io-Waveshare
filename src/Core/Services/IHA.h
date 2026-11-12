@@ -48,10 +48,11 @@ struct HASwitchEntry {
     const char* stateTopicSuffix;
     const char* valueTemplate;
     const char* commandTopicSuffix;
-    const char* payloadOn;
-    const char* payloadOff;
+    const char* payloadOn; // Raw MQTT payload; the discovery serializer escapes it.
+    const char* payloadOff; // Raw MQTT payload; the discovery serializer escapes it.
     const char* icon;
     const char* entityCategory;
+    const char* attributesTemplate = nullptr; // Attributes read from the state topic.
 };
 
 /** @brief Static Home Assistant number discovery registration. */

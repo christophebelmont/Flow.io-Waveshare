@@ -100,4 +100,8 @@ les dix secondes sur ces topics. Les transitions de commande sont immédiates.
 Ces codes et les booléens ne sont jamais traduits ; les interfaces traduisent
 leur présentation uniquement.
 
+Le topic `rt/pdm/state/pdN` expose aussi le booléen `forced`, repris dans les
+attributs du switch Home Assistant. Il vaut `true` pendant un forçage en marche
+ou à l'arrêt, puis `false` dès la fin du forçage.
+
 Voir [la carte Home Assistant commune](../examples/home-assistant/README.md).

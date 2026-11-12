@@ -476,8 +476,8 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
             "cfg/poollogic/modes",
             "{% if value_json.auto_mode %}ON{% else %}OFF{% endif %}",
             MqttTopics::SuffixCfgSet,
-            "{\\\"poollogic/modes\\\":{\\\"auto_mode\\\":true}}",
-            "{\\\"poollogic/modes\\\":{\\\"auto_mode\\\":false}}",
+            R"({"poollogic/modes":{"auto_mode":true}})",
+            R"({"poollogic/modes":{"auto_mode":false}})",
             "mdi:calendar-clock",
             "config"
         };
@@ -488,8 +488,8 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
             "cfg/poollogic/modes",
             "{% if value_json.winter_mode %}ON{% else %}OFF{% endif %}",
             MqttTopics::SuffixCfgSet,
-            "{\\\"poollogic/modes\\\":{\\\"winter_mode\\\":true}}",
-            "{\\\"poollogic/modes\\\":{\\\"winter_mode\\\":false}}",
+            R"({"poollogic/modes":{"winter_mode":true}})",
+            R"({"poollogic/modes":{"winter_mode":false}})",
             "mdi:snowflake",
             "config"
         };
@@ -500,8 +500,8 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
             "cfg/poollogic/ph",
             "{% if value_json.ph_auto_mode %}ON{% else %}OFF{% endif %}",
             MqttTopics::SuffixCfgSet,
-            "{\\\"poollogic/ph\\\":{\\\"ph_auto_mode\\\":true}}",
-            "{\\\"poollogic/ph\\\":{\\\"ph_auto_mode\\\":false}}",
+            R"({"poollogic/ph":{"ph_auto_mode":true}})",
+            R"({"poollogic/ph":{"ph_auto_mode":false}})",
             "mdi:beaker-check-outline",
             "config"
         };
@@ -512,8 +512,8 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
             "cfg/poollogic/chlorine",
             "{% if value_json.dis_auto_mode %}ON{% else %}OFF{% endif %}",
             MqttTopics::SuffixCfgSet,
-            "{\\\"poollogic/chlorine\\\":{\\\"dis_auto_mode\\\":true}}",
-            "{\\\"poollogic/chlorine\\\":{\\\"dis_auto_mode\\\":false}}",
+            R"({"poollogic/chlorine":{"dis_auto_mode":true}})",
+            R"({"poollogic/chlorine":{"dis_auto_mode":false}})",
             "mdi:water-check-outline",
             "config"
         };
@@ -524,8 +524,8 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
             "cfg/poollogic/heater",
             "{% if value_json.heater_auto_mode %}ON{% else %}OFF{% endif %}",
             MqttTopics::SuffixCfgSet,
-            "{\\\"poollogic/heater\\\":{\\\"heater_auto_mode\\\":true}}",
-            "{\\\"poollogic/heater\\\":{\\\"heater_auto_mode\\\":false}}",
+            R"({"poollogic/heater":{"heater_auto_mode":true}})",
+            R"({"poollogic/heater":{"heater_auto_mode":false}})",
             "mdi:radiator",
             "config"
         };
@@ -536,8 +536,8 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
             "cfg/poollogic/ph",
             "{% if value_json.ph_dose_plus %}ON{% else %}OFF{% endif %}",
             MqttTopics::SuffixCfgSet,
-            "{\\\"poollogic/ph\\\":{\\\"ph_dose_plus\\\":true}}",
-            "{\\\"poollogic/ph\\\":{\\\"ph_dose_plus\\\":false}}",
+            R"({"poollogic/ph":{"ph_dose_plus":true}})",
+            R"({"poollogic/ph":{"ph_dose_plus":false}})",
             "mdi:beaker-plus-outline",
             "config"
         };
@@ -548,8 +548,8 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
             "cfg/poollogic/o2",
             "{% if value_json.temp_comp %}ON{% else %}OFF{% endif %}",
             MqttTopics::SuffixCfgSet,
-            "{\\\"poollogic/o2\\\":{\\\"temp_comp\\\":true}}",
-            "{\\\"poollogic/o2\\\":{\\\"temp_comp\\\":false}}",
+            R"({"poollogic/o2":{"temp_comp":true}})",
+            R"({"poollogic/o2":{"temp_comp":false}})",
             "mdi:thermometer-lines",
             "config"
         };

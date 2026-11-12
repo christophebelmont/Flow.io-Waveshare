@@ -1,4 +1,5 @@
 #include "Profiles/Waveshare/PoolRoleHaDiscovery.h"
+#include "Modules/Network/HAModule/HADiscoveryJson.h"
 #include <ArduinoJson.h>
 #include <cassert>
 #include <cstring>
@@ -61,9 +62,17 @@ int main() {
             const auto expected = role == PoolIds::DeviceLights ? 6 : slot;
             assert(buffers.slot == expected);
             assert(std::string(buffers.state) == "rt/pdm/state/pd" + std::to_string(expected));
+            DynamicJsonDocument discovery(1024);
+            HADiscoveryJson::mqttSwitch(discovery.to<JsonObject>(), buffers.state, "{{ value_json.on }}",
+                                        MqttTopics::SuffixCmd, buffers.on, buffers.off, SwitchAttributesTemplate);
+            char encoded[1024]{};
+            assert(HADiscoveryJson::serialize(discovery, encoded, sizeof(encoded)));
+            assert(!deserializeJson(discovery, static_cast<const char*>(encoded)));
+            assert(discovery["json_attr_t"] == discovery["stat_t"].as<const char*>());
+            assert(discovery["json_attr_tpl"] == SwitchAttributesTemplate);
             for (const auto* payload : {buffers.on, buffers.off}) {
                 DynamicJsonDocument doc(512);
-                assert(!deserializeJson(doc, unescape(payload)));
+                assert(!deserializeJson(doc, payload));
                 assert(doc["cmd"] == "poollogic.device.write");
                 assert(doc["args"]["slot"] == expected);
                 assert(doc["args"]["value"] == (payload == buffers.on));
