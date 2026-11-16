@@ -212,6 +212,13 @@ bool PoolDeviceModule::buildStateSnapshot_(uint8_t slotIdx, char* out, size_t le
     doc["desired"] = entry.desiredOn;
     writeActuatorControlJson(doc, entry.control);
     doc["forced"] = entry.control.mode == ActuatorControlMode::Forced;
+    PoolDeviceRuntimeMetricsEntry metrics{};
+    if (poolDeviceRuntimeMetrics(*dataStore_, slotIdx, metrics)) {
+        doc["uptime_day_s"] = metrics.runningSecDay;
+        doc["uptime_week_s"] = metrics.runningSecWeek;
+        doc["uptime_month_s"] = metrics.runningSecMonth;
+        doc["uptime_total_s"] = metrics.runningSecTotal;
+    }
     if (entry.feedback.observedValid) doc["on"] = entry.actualOn;
     else doc["on"] = nullptr;
     doc["block"] = blockReasonStr_(entry.blockReason);
@@ -335,6 +342,15 @@ RuntimeRouteClass PoolDeviceModule::runtimeSnapshotClass(uint16_t idx) const
         return RuntimeRouteClass::NumericThrottled;
     }
     return metrics ? RuntimeRouteClass::NumericThrottled : RuntimeRouteClass::ActuatorImmediate;
+}
+
+uint32_t PoolDeviceModule::runtimeSnapshotRefreshMs(uint16_t idx) const
+{
+    if (idx < 2) return 0;
+    uint8_t slotIdx = 0xFF;
+    bool metrics = false;
+    return snapshotRouteFromIndex_(idx, slotIdx, metrics) && !metrics
+        ? Limits::Mqtt::Timing::ActuatorRefreshMs : 0;
 }
 
 bool PoolDeviceModule::runtimeSnapshotAffectsKey(uint16_t idx, DataKey key) const

@@ -91,6 +91,14 @@ Publié par `RuntimeProducer` + publishers périodiques:
 - `rt/system/state` (périodique)
 - `rt/alarms/*` (meta/pack/id, retained et resynchronisés à la connexion MQTT)
 
+`rt/pdm/state/pdN` alimente l'état du switch Home Assistant et ses attributs
+`forced`, `uptime_day_s`, `uptime_week_s`, `uptime_month_s` et `uptime_total_s`.
+Les durées sont exprimées en secondes et proviennent des compteurs de
+fonctionnement de l'équipement. Quand MQTT est connecté, le producteur remet
+l'état complet en file d'envoi après 120 secondes sans publication réussie,
+même si le switch est resté dans le même état. Le délai de livraison dépend
+de la file et du transport MQTT.
+
 ### Config (`cfg/*`) module-owned
 
 La publication config est pilotée par producteurs locaux (modules).

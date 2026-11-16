@@ -15,6 +15,9 @@
 #include "Core/Services/PoolDeviceSafety.h"
 #include "Core/Services/IPoolDevice.h"
 #include "Core/DataKeys.h"
+#include "Core/SpiRamJsonDocument.h"
+#include "Core/SystemLimits.h"
+#include "Modules/PoolDeviceModule/Drivers/PoolTelemetryJson.h"
 
 uint32_t testNowMs = 100;
 uint64_t esp_timer_get_time() { return uint64_t(testNowMs) * 1000; }
@@ -32,6 +35,7 @@ namespace SerialEquipmentValues { template<class... T> void publish(T&&...) {} }
 namespace InternalAnalogSources { template<class... T> void publishTank(T&&...) {} }
 namespace PoolDeviceValues { template<class... T> void publishUptime(T&&...) {} }
 constexpr DataKey DATAKEY_POOL_DEVICE_STATE_BASE = DataKeys::PoolDeviceStateBase;
+constexpr DataKey DATAKEY_POOL_DEVICE_METRICS_BASE = DataKeys::PoolDeviceMetricsBase;
 struct RuntimeData {
     PoolDeviceRuntimeData pool;
 };
@@ -40,10 +44,10 @@ struct DataStore {
     RuntimeData runtime{};
     std::vector<DataKey> notifications;
     RuntimeData& dataMutable() { return runtime; }
+    const RuntimeData& data() const { return runtime; }
     void notifyChanged(DataKey key) { notifications.push_back(key); }
 };
 // RUNTIME_STATE_HELPERS
-bool setPoolDeviceRuntimeMetrics(DataStore&, uint8_t, const PoolDeviceRuntimeMetricsEntry&) { return true; }
 
 struct ConfigStore {
     std::map<std::string, std::vector<uint8_t>> blobs;
@@ -134,6 +138,10 @@ public:
         return s.def.enabled && s.driver.configure(s.driverConfig.capabilities.kind).begin(s.driverConfig, ioSvc_, &pump.service, i + 1);
     }
     bool configureRuntime_();
+    bool snapshotRouteFromIndex_(uint8_t, uint8_t&, bool&) const;
+    bool slotRuntimePublishable_(uint8_t) const;
+    bool buildStateSnapshot_(uint8_t, char*, size_t, uint32_t&) const;
+    uint32_t runtimeSnapshotRefreshMs(uint16_t) const;
     void commitRuntimeState_(uint8_t, uint32_t, bool refreshCountdown = false);
     bool restoreRunning_(uint8_t);
     bool persistRunning_(uint8_t, bool);
@@ -161,7 +169,7 @@ public:
     bool reconcilePeriodCountersFromClock_() { return true; }
     void requestPeriodReconcile_() {}
     void persistMetrics_(uint8_t, PoolDeviceSlot&, uint32_t) {}
-    const char* blockReasonStr_(uint8_t) { return ""; }
+    static const char* blockReasonStr_(uint8_t) { return ""; }
     // These scenarios use guided control; timed override arbitration has its own suite.
     bool resolveOverride_(uint8_t i, bool, uint64_t, bool& refreshCountdown) {
         refreshCountdown = false;
@@ -366,9 +374,47 @@ static void countdownNotifications()
     assert(store.notifications == std::vector<DataKey>{DATAKEY_POOL_DEVICE_STATE_BASE});
 }
 
+static void actuatorSnapshotCountersAndRefresh()
+{
+    PoolDeviceModule device;
+    device.io.policies[0].retainPrevious = true;
+    device.saved(true);
+    auto& slot = device.slots_[0];
+    slot.id = "pd0";
+    slot.runningMsDay = 900;
+    slot.runningMsWeek = 1900;
+    slot.runningMsMonth = 2900;
+    slot.runningMsTotal = 4294967294000ULL + 900;
+    assert(device.configureRuntime_());
+    assert(device.svcSetWritesEnabledImpl_(1) == POOLDEV_SVC_OK);
+    assert(device.runtimeSnapshotRefreshMs(0) == 0);
+    assert(device.runtimeSnapshotRefreshMs(1) == 0);
+    assert(device.runtimeSnapshotRefreshMs(2) == 120000);
+    assert(device.runtimeSnapshotRefreshMs(3) == 0);
+    assert(device.runtimeSnapshotRefreshMs(4) == 0);
+
+    // Stop before the next one-second metrics commit, with the final fraction
+    // of the run taking each counter across a whole-second boundary.
+    testNowMs += 200;
+    const PoolDeviceTarget stop{false, 100};
+    assert(device.setTarget_(0, &stop, true) == POOLDEV_SVC_OK);
+    char payload[4096]{};
+    uint32_t sequence = 0;
+    assert(device.buildStateSnapshot_(0, payload, sizeof(payload), sequence));
+    DynamicJsonDocument snapshot(4096);
+    assert(!deserializeJson(snapshot, payload));
+    assert(snapshot["on"] == false && snapshot["forced"] == false);
+    assert(snapshot["uptime_day_s"] == 1U);
+    assert(snapshot["uptime_week_s"] == 2U);
+    assert(snapshot["uptime_month_s"] == 3U);
+    assert(snapshot["uptime_total_s"].is<uint32_t>());
+    assert(snapshot["uptime_total_s"].as<uint32_t>() == UINT32_MAX);
+}
+
 int main()
 {
     countdownNotifications();
+    actuatorSnapshotCountersAndRefresh();
     allDriverPolicies();
     persistenceAndDriverChange();
     bootFailures();
@@ -391,14 +437,17 @@ int main()
     const auto stable = stored;
     retained.store.notifications.clear();
     retained.advance(1000);
-    assert(retained.store.notifications.empty());
+    assert(retained.store.notifications == std::vector<DataKey>{DATAKEY_POOL_DEVICE_METRICS_BASE});
     assert(stored.feedback.observedAtMs > stable.feedback.observedAtMs);
     assert(stored.tsMs == stable.tsMs && stored.sequence == stable.sequence);
     // End of the filtration window (or a controller safety stop) still stops.
+    retained.store.notifications.clear();
     retained.slots_[0].desired.running = retained.slots_[0].desiredOn = false;
     retained.tickDevices_(testNowMs += 200);
     assert(!retained.io.on && retained.io.writes == std::vector<bool>{false});
-    assert(retained.store.notifications == std::vector<DataKey>{DATAKEY_POOL_DEVICE_STATE_BASE});
+    const std::vector<DataKey> stopNotifications{
+        DATAKEY_POOL_DEVICE_STATE_BASE, DATAKEY_POOL_DEVICE_METRICS_BASE};
+    assert(retained.store.notifications == stopNotifications);
     assert(stored.sequence == stable.sequence + 1 && stored.tsMs == testNowMs);
 
     // Cold boot / initial OFF is not promoted to ON until requested.

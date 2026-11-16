@@ -183,6 +183,7 @@ constexpr uint32_t DisabledDelayMs = 2000;
 /** @brief Network warmup delay in ms before first MQTT connect attempt in `MQTTModule::loop`. */
 constexpr uint32_t NetWarmupMs = 2000;
 constexpr uint32_t SensorRefreshMs = 120000; // Republish unchanged sensor states, without MQTT retention.
+constexpr uint32_t ActuatorRefreshMs = 120000; // Republish equipment state and its runtime counters.
 /** @brief MQTT connection timeout in ms before forcing reconnect in `MQTTModule::loop`. */
 constexpr uint32_t ConnectTimeoutMs = 10000;
 /** @brief Main MQTT task loop delay in ms (`MQTTModule::loop`). */

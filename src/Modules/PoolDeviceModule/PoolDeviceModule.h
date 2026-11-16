@@ -85,6 +85,7 @@ public:
     uint16_t runtimeSnapshotCount() const override;
     const char* runtimeSnapshotSuffix(uint16_t idx) const override;
     RuntimeRouteClass runtimeSnapshotClass(uint16_t idx) const override;
+    uint32_t runtimeSnapshotRefreshMs(uint16_t idx) const override;
     bool runtimeSnapshotAffectsKey(uint16_t idx, DataKey key) const override;
     bool buildRuntimeSnapshot(uint16_t idx, char* out, size_t len, uint32_t& maxTsOut) const override;
     bool writeRuntimeUiValue(uint8_t valueId, IRuntimeUiWriter& writer) const override;

@@ -776,7 +776,7 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
             }
         }
         if (wasActualOn && !s.actualOn) {
-            s.persistDirty = true;
+            metricsChanged = true;
             s.persistImmediate = true;
         }
 

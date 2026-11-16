@@ -22,11 +22,15 @@ class PoolRelayBootTests(unittest.TestCase):
             source = source.replace(marker, function(header, signature) + ';')
         runtime = (module / 'PoolDeviceRuntime.cpp').read_text()
         production = '\n'.join(function(runtime, signature) for signature in (
-            'void PoolDeviceModule::commitRuntimeState_', 'bool PoolDeviceModule::configureRuntime_'))
+            'void PoolDeviceModule::commitRuntimeState_', 'bool PoolDeviceModule::configureRuntime_',
+            'bool PoolDeviceModule::snapshotRouteFromIndex_', 'bool PoolDeviceModule::slotRuntimePublishable_',
+            'bool PoolDeviceModule::buildStateSnapshot_', 'uint32_t PoolDeviceModule::runtimeSnapshotRefreshMs'))
         runtime_helpers = (module / 'PoolDeviceRuntime.h').read_text()
         source = source.replace('// RUNTIME_STATE_HELPERS', '\n'.join(
             function(runtime_helpers, 'static inline bool ' + name) for name in (
-                'samePoolDeviceTarget', 'samePoolDeviceFeedback', 'samePoolDeviceState', 'setPoolDeviceRuntimeState')))
+                'poolDeviceRuntimeState', 'poolDeviceRuntimeMetrics', 'samePoolDeviceTarget',
+                'samePoolDeviceFeedback', 'samePoolDeviceState', 'setPoolDeviceRuntimeState',
+                'setPoolDeviceRuntimeMetrics')))
         control = (module / 'PoolDeviceControl.cpp').read_text()
         for signature in ('void PoolDeviceModule::tickDevices_',
                           'bool PoolDeviceModule::dependenciesSatisfied_',

@@ -1,4 +1,4 @@
-"""Per-sensor silence deadlines force non-retained publications without changing samples."""
+"""Runtime silence deadlines force non-retained publications without changing samples."""
 from pathlib import Path
 import subprocess
 import tempfile
@@ -64,7 +64,9 @@ struct RuntimeProducer {
 int main() {
     RuntimeProducer producer; Provider providers[3]; MqttService service;
     for(unsigned i=0;i<3;++i) producer.routes_[i].provider=&providers[i];
-    producer.routes_[2].refreshIntervalMs=0; // Actuators keep their existing policy.
+    producer.routes_[1].routeClass=RuntimeRouteClass::ActuatorImmediate;
+    providers[1].payload="{\"on\":true,\"forced\":false,\"uptime_day_s\":5}";
+    producer.routes_[2].refreshIntervalMs=0; // Routes without a refresh policy stay event-driven.
     producer.mqttSvc_=&service;
     char topic[128], payload[256]; MqttBuildContext ctx{topic,sizeof(topic),payload,sizeof(payload)};
     auto build=[&](unsigned i) {
@@ -80,8 +82,9 @@ int main() {
     assert(providers[0].sequence==1);
     producer.tick(124999); assert(producer.attempts[1]==0);
     producer.tick(125000); assert(producer.attempts[1]==1);
-    providers[1].payload="{\"value\":false,\"quality\":1}";
+    providers[1].payload="{\"on\":true,\"forced\":false,\"uptime_day_s\":125}";
     nowMs=125000; build(1); producer.onMessagePublished(1);
+    assert(providers[1].sequence==1); // Counters can advance with a stable switch state.
     // Ordinary changed-value publications reset only that sensor's deadline.
     nowMs=200000; ++providers[0].sequence;
     producer.markRoutePending_(0,false); build(0); producer.onMessagePublished(0);
@@ -92,13 +95,14 @@ int main() {
     assert(producer.routes_[1].lastPublishMs==125000);
     producer.accept=true; producer.tick(245001); producer.tick(245002);
     assert(producer.attempts[1]==3);
-    providers[1].payload="{\"value\":null,\"quality\":2}";
     nowMs=245003; build(1); producer.onMessagePublished(1);
-    assert(providers[1].sequence==1); // Refresh never makes an invalid measurement valid.
     producer.tick(320000); assert(producer.attempts[0]==2);
     producer.onMessageDropped(0);
     assert(producer.routes_[0].lastPublishMs==200000);
     producer.tick(320001); assert(producer.attempts[0]==3);
+    providers[0].payload="{\"value\":null,\"quality\":2}";
+    nowMs=320001; build(0); producer.onMessagePublished(0);
+    assert(providers[0].sequence==2); // Refresh keeps the invalid sample and its sequence.
     // Unsigned elapsed-time comparison also works across millis() wraparound.
     producer.routes_[0].lastPublishMs=UINT32_MAX-60000;
     producer.routes_[0].refreshQueued=false;
