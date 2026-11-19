@@ -28,6 +28,7 @@
 #include "Core/Services/IPoolDevice.h"
 #include "Modules/PoolDeviceModule/Drivers/PoolTelemetryJson.h"
 #include "Core/Services/IPoolConfiguration.h"
+#include "Core/Services/ISystemHealth.h"
 #include "Modules/IOModule/IODerivedValueName.h"
 #include "Modules/IOModule/IORuntime.h"
 #include "Modules/PoolDeviceModule/PoolDeviceRuntime.h"
@@ -50,6 +51,7 @@
 #include <SPIFFS.h>
 #include <FS.h>
 #include <esp_heap_caps.h>
+#include <esp_timer.h>
 #include <memory>
 #include <stdarg.h>
 #include "Core/DataKeys.h"
@@ -7300,6 +7302,51 @@ void WebInterfaceModule::startServer_()
         addNoCacheHeaders_(response);
         request->send(response);
     };
+    server_.on("/api/system/health", HTTP_GET, [this, sendBufferedJson](AsyncWebServerRequest* request) {
+        HttpLatencyScope latency(request, "/api/system/health");
+        const auto* service = services_ ? services_->get<SystemHealthService>(ServiceId::SystemHealth) : nullptr;
+        const auto snapshot = service && service->snapshot ? service->snapshot(service->ctx) : SystemHealthSnapshot{};
+        constexpr size_t capacity = JSON_OBJECT_SIZE(4) + JSON_OBJECT_SIZE(6) +
+                                    JSON_OBJECT_SIZE(3) + JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(8);
+        StaticJsonDocument<capacity> doc;
+        doc["ok"] = true;
+        if (snapshot.sampledAtUs != 0U) {
+            doc["sample_age_ms"] = (uint64_t(esp_timer_get_time()) - snapshot.sampledAtUs) / 1000U;
+            auto tasks = doc.createNestedObject("tasks");
+            tasks["running"] = snapshot.tasks.running;
+            tasks["below_stack"] = snapshot.tasks.belowStackThreshold;
+            tasks["late_starts"] = snapshot.tasks.lateStarts;
+            tasks["work_overruns"] = snapshot.tasks.workOverruns;
+            if (const auto& margin = snapshot.tasks.lowestMargin; margin.task) {
+                auto lowest = tasks.createNestedObject("lowest_stack");
+                lowest["task"] = margin.task;
+                lowest["free_b"] = margin.freeBytes;
+                lowest["threshold_b"] = margin.thresholdBytes;
+            }
+            if (const auto& duration = snapshot.tasks.longestWork; duration.task) {
+                auto longest = tasks.createNestedObject("longest_work");
+                longest["task"] = duration.task;
+                longest["duration_us"] = duration.durationUs;
+            }
+            if (snapshot.eventBusAvailable) {
+                const auto& queue = snapshot.eventBus;
+                auto eventBus = doc.createNestedObject("event_bus");
+                eventBus["capacity"] = queue.capacity;
+                eventBus["queued"] = queue.queued;
+                eventBus["peak"] = queue.peak;
+                if (queue.queued) eventBus["oldest_age_us"] = queue.oldestAgeUs;
+                if (queue.dequeued) eventBus["max_delay_us"] = queue.maxQueueDelayUs;
+                eventBus["drops"] = uint64_t(queue.fullDrops) + queue.oversizeDrops + queue.missingPayloadDrops;
+                eventBus["control_drops"] = queue.controlDrops;
+                eventBus["retries"] = queue.fullRetries;
+            }
+        }
+        if (doc.overflowed()) { sendTinyBusyJson_(request, "system_health_capacity"); return; }
+        auto body = std::make_shared<WebJsonBuffer>(measureJson(doc) + 1U);
+        if (!body->valid()) { sendTinyBusyJson_(request, "system_health_memory"); return; }
+        serializeJson(doc, *body);
+        sendBufferedJson(request, body);
+    });
     server_.on("/api/history/pool", HTTP_GET, [this, sendBufferedJson](AsyncWebServerRequest* request) {
         const auto* history = services_ ? services_->get<PoolHistoryService>(ServiceId::PoolHistory) : nullptr;
         const auto* store = services_ ? services_->get<DataStoreService>(ServiceId::DataStore) : nullptr;

@@ -1,5 +1,7 @@
 #include "App/Bootstrap.h"
 
+#include <Arduino.h>
+
 #include "Core/Services/IHmi.h"
 #include "Core/Services/ILogger.h"
 #include "Core/ReleaseStorage.h"
@@ -48,6 +50,7 @@ void run()
 {
     if (gStarted) return;
 
+    gContext.moduleManager.attachArduinoLoop("loopTask", getArduinoLoopTaskStackSize(), ARDUINO_RUNNING_CORE);
     const FirmwareProfile& profile = resolveProfile();
     gContext.profile = &profile;
     gContext.board = profile.board;
@@ -75,6 +78,9 @@ void loop()
         run();
     }
 
+    auto& loopHealth = gContext.moduleManager.arduinoLoopHealth();
+    loopHealth.beginCycle();
+    gContext.moduleManager.reapFinishedTasks();
     (void)gContext.moduleManager.tickStartup(gContext.registry, gContext.services);
     if (!gPendingApplicationConfirmed && gContext.moduleManager.startupComplete()) {
         gPendingApplicationConfirmed = ReleaseStorage::confirmPendingApplication();
@@ -85,6 +91,8 @@ void loop()
 
     if (gContext.profile && gContext.profile->loop) {
         gContext.profile->loop(gContext);
+    } else {
+        loopHealth.endCycle();
     }
 }
 

@@ -11,6 +11,7 @@
 #define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::IOModule)
 #include "Core/ModuleLog.h"
 #include "Domain/Pool/PoolIds.h"
+#include "Modules/IOModule/IOBus/OneWireBus.h"
 #include "Modules/IOModule/IORuntime.h"
 #include <Arduino.h>
 #include <Preferences.h>
@@ -1301,22 +1302,58 @@ bool IOModule::tickFastAds_(void* ctx, uint32_t nowMs)
     return true;
 }
 
-bool IOModule::tickSlowDs_(void* ctx, uint32_t nowMs)
+bool IOModule::tickSlowDs_(void* ctx, uint32_t)
 {
     IOModule* self = static_cast<IOModule*>(ctx);
     if (!self || !self->runtimeReady_) return false;
 
-    self->analogProviders_[IO_SRC_DS18_WATER].tick(nowMs);
-    self->analogProviders_[IO_SRC_DS18_AIR].tick(nowMs);
+    using Step = Ds18b20Driver::PollStep;
+    const uint32_t nowMs = millis();
+    for (uint8_t offset = 0; offset < self->dsProbeCount_; ++offset) {
+        const uint8_t index = (self->nextDsProbe_ + offset) % self->dsProbeCount_;
+        DsProbe& probe = self->dsProbes_[index];
+        const uint64_t startedUs = esp_timer_get_time();
+        const Step step = probe.driver->poll(nowMs);
+        if (step == Step::Idle) continue;
 
-    for (uint8_t i = 0; i < MAX_ANALOG_ENDPOINTS; ++i) {
-        if (!self->analogSlots_[i].used) continue;
-        uint8_t src = self->analogSlots_[i].source;
-        if (src == IO_SRC_DS18_WATER || src == IO_SRC_DS18_AIR) {
-            self->processAnalogDefinition_(i, nowMs);
+        if (step == Step::Read) {
+            for (uint8_t i = 0; i < MAX_ANALOG_ENDPOINTS; ++i) {
+                const auto& slot = self->analogSlots_[i];
+                if (slot.used && slot.source == probe.source) {
+                    self->processAnalogDefinition_(i, nowMs);
+                }
+            }
         }
+        const uint64_t elapsedUs = uint64_t(esp_timer_get_time()) - startedUs;
+        probe.durations.record(elapsedUs);
+        probe.startedUs = startedUs;
+        if (elapsedUs > kWorkBudgetUs) incrementSaturated(probe.overBudget);
+        probe.pendingReport = step;
+        // Do not catch up by running both probes in the same IO cycle.
+        self->nextDsProbe_ = (index + 1U) % self->dsProbeCount_;
+        return true;
     }
-    return true;
+    return false;
+}
+
+void IOModule::reportDsPollTiming_(uint32_t nowMs)
+{
+    using Step = Ds18b20Driver::PollStep;
+    constexpr uint32_t reportIntervalMs = 5000U;
+    if (nowMs - dsPollLastReportMs_ < reportIntervalMs) return;
+    for (uint8_t i = 0; i < dsProbeCount_; ++i) {
+        DsProbe& probe = dsProbes_[i];
+        if (probe.pendingReport == Step::Idle) continue;
+        LOGI("DsPoll source=%u step=%s start_us=%llu last_us=%llu max_us=%llu steps=%lu over_io_budget=%lu",
+             (unsigned)probe.source, probe.pendingReport == Step::Read ? "read" : "convert",
+             (unsigned long long)probe.startedUs,
+             (unsigned long long)probe.durations.lastUs,
+             (unsigned long long)probe.durations.maxUs,
+             (unsigned long)probe.durations.count,
+             (unsigned long)probe.overBudget);
+        probe.pendingReport = Step::Idle;
+        dsPollLastReportMs_ = nowMs;
+    }
 }
 
 bool IOModule::tickI2cAnalogs_(void* ctx, uint32_t nowMs)
@@ -3210,35 +3247,35 @@ bool IOModule::configureRuntime_()
         }
     }
 
-    Ds18b20DriverConfig dsCfg{};
-    dsCfg.pollMs = (cfgData_.dsPollMs < 750) ? 750 : (uint32_t)cfgData_.dsPollMs;
-    dsCfg.conversionWaitMs = 750;
-
-    if (needAnalogSource[IO_SRC_DS18_WATER] && oneWireWater_) {
-        if (oneWireWaterAddrValid_) {
-            IAnalogSourceDriver* driver = allocDsDriver_("ds18_water", oneWireWater_, oneWireWaterAddr_, dsCfg);
-            if (driver) {
-                const auto provider = makeAnalogProvider(driver);
-                if (provider.begin()) analogProviders_[IO_SRC_DS18_WATER] = provider;
-            } else {
-                LOGW("DS18 water pool exhausted");
-            }
-        } else {
-            LOGW("No resolvable DS18B20 found on water OneWire bus GPIO=%d", oneWireWater_->pin());
+    const Ds18b20DriverConfig dsCfg{cfgData_.dsPollMs > 0 ? uint32_t(cfgData_.dsPollMs) : 0U};
+    const uint32_t dsPeriodMs = dsCfg.periodMs();
+    const struct {
+        IOAnalogSource source;
+        OneWireBus* bus;
+        const uint8_t* address;
+        const char* name;
+    } dsBindings[kDsProbeCapacity] = {
+        {IO_SRC_DS18_WATER, oneWireWater_, oneWireWaterAddrValid_ ? oneWireWaterAddr_ : nullptr, "ds18_water"},
+        {IO_SRC_DS18_AIR, oneWireAir_, oneWireAirAddrValid_ ? oneWireAirAddr_ : nullptr, "ds18_air"},
+    };
+    for (const auto& binding : dsBindings) {
+        if (!needAnalogSource[binding.source] || !binding.bus) continue;
+        if (!binding.address) {
+            LOGW("No resolvable DS18B20 found source=%u OneWire GPIO=%d",
+                 (unsigned)binding.source, binding.bus->pin());
+            continue;
         }
-    }
-
-    if (needAnalogSource[IO_SRC_DS18_AIR] && oneWireAir_) {
-        if (oneWireAirAddrValid_) {
-            IAnalogSourceDriver* driver = allocDsDriver_("ds18_air", oneWireAir_, oneWireAirAddr_, dsCfg);
-            if (driver) {
-                const auto provider = makeAnalogProvider(driver);
-                if (provider.begin()) analogProviders_[IO_SRC_DS18_AIR] = provider;
-            } else {
-                LOGW("DS18 air pool exhausted");
-            }
-        } else {
-            LOGW("No resolvable DS18B20 found on air OneWire bus GPIO=%d", oneWireAir_->pin());
+        auto* driver = allocDsDriver_(binding.name, binding.bus, binding.address, dsCfg);
+        if (!driver) {
+            LOGW("DS18 driver pool exhausted source=%u", (unsigned)binding.source);
+            continue;
+        }
+        const auto provider = makeAnalogProvider(driver);
+        if (provider.begin()) {
+            analogProviders_[binding.source] = provider;
+            DsProbe& probe = dsProbes_[dsProbeCount_++];
+            probe.driver = driver;
+            probe.source = binding.source;
         }
     }
 
@@ -3343,13 +3380,6 @@ bool IOModule::configureRuntime_()
     adsJob.ctx = this;
     scheduler_.add(adsJob);
 
-    IOScheduledJob dsJob{};
-    dsJob.id = "ds_slow";
-    dsJob.periodMs = (cfgData_.dsPollMs < 250) ? 250 : (uint32_t)cfgData_.dsPollMs;
-    dsJob.fn = &IOModule::tickSlowDs_;
-    dsJob.ctx = this;
-    scheduler_.add(dsJob);
-
     const bool needI2cAnalogJob = needAnalogSource[IO_SRC_SHT40]
         || needAnalogSource[IO_SRC_BMP280]
         || needAnalogSource[IO_SRC_BME680]
@@ -3370,6 +3400,20 @@ bool IOModule::configureRuntime_()
     dinJob.ctx = this;
     scheduler_.add(dinJob);
 
+    if (dsProbeCount_ != 0U) {
+        const uint32_t nowMs = millis();
+        for (uint8_t i = 0; i < dsProbeCount_; ++i) {
+            dsProbes_[i].driver->scheduleFirstConversion(nowMs, i * (dsPeriodMs / 2U));
+        }
+        // Check probe deadlines each IO cycle, after the other acquisition jobs.
+        IOScheduledJob dsJob{};
+        dsJob.id = "ds_slow";
+        dsJob.periodMs = 1U;
+        dsJob.fn = &IOModule::tickSlowDs_;
+        dsJob.ctx = this;
+        if (!scheduler_.add(dsJob)) return false;
+    }
+
     for (auto& output : analogOutputs_) {
         if (output.write && !registry_.add(&output.endpoint, output.meta.id)) return false;
     }
@@ -3383,8 +3427,8 @@ bool IOModule::configureRuntime_()
         if (dataStore_->publishHa(id) && dataStore_->values.read(id, value)) valueRoutes_[valueRouteCount_++] = id;
     }
     runtimeReady_ = true;
-    LOGI("I/O ready (ads=%ldms ds=%ldms i2c_ai=%s din=%ldms endpoints=%u)",
-         (long)adsJob.periodMs, (long)dsJob.periodMs,
+    LOGI("I/O ready (ads=%ldms ds=%lums ds_probes=%u i2c_ai=%s din=%ldms endpoints=%u)",
+         (long)adsJob.periodMs, (unsigned long)dsPeriodMs, (unsigned)dsProbeCount_,
          needI2cAnalogJob ? "20ms" : "off", (long)dinJob.periodMs,
          (unsigned)registry_.count());
 
@@ -3462,9 +3506,9 @@ IAnalogSourceDriver* IOModule::allocAdsDriver_(const char* driverId, I2CBus* bus
     return new (mem) Ads1115Driver(driverId, bus, cfg);
 }
 
-IAnalogSourceDriver* IOModule::allocDsDriver_(const char* driverId, OneWireBus* bus, const uint8_t address[8], const Ds18b20DriverConfig& cfg)
+Ds18b20Driver* IOModule::allocDsDriver_(const char* driverId, OneWireBus* bus, const uint8_t address[8], const Ds18b20DriverConfig& cfg)
 {
-    if (dsDriverPoolUsed_ >= 2) return nullptr;
+    if (dsDriverPoolUsed_ >= kDsProbeCapacity) return nullptr;
     void* mem = dsDriverPool_[dsDriverPoolUsed_++];
     return new (mem) Ds18b20Driver(driverId, bus, address, cfg);
 }
@@ -3886,33 +3930,41 @@ void IOModule::loop()
     if (runtimeReady_ && dataStore_ && valueConfig_) valueConfig_->applyParameters(dataStore_->values, esp_timer_get_time() / 1000ULL);
     const IoStatus st = ioTick_(nowMs);
     if (!servicePulseRequest_(nowMs)) checkpointPulses_(nowMs);
+    reportDsPollTiming_(nowMs);
     if (st != IO_OK) {
         if (!cfgData_.enabled || !runtimeReady_) {
-            vTaskDelay(pdMS_TO_TICKS(500));
+            delayNextCycle(pdMS_TO_TICKS(500));
             return;
         }
     }
 
-    vTaskDelay(pdMS_TO_TICKS(10));
+    delayNextCycle(pdMS_TO_TICKS(10));
 }
 
-const ModuleTaskSpec* IOModule::taskSpecs() const
+ModuleTaskSpec IOModule::taskSpec(uint8_t index) const
 {
-    taskSpecs_[0] = *singleLoopTaskSpec();
+    if (index != 1U) {
+        auto spec = Module::taskSpec(index);
+        spec.traceWake = index == 0U;
+        return spec;
+    }
     // AsyncTCP handlers run at priority 10. Service UART deadlines above them:
     // a long HTTP serialization must not postpone RX/TX progress. This task
     // only advances the non-blocking transport and yields every tick.
     constexpr UBaseType_t serialPriority = 11;
     static_assert(serialPriority < configMAX_PRIORITIES, "RS485 task priority out of range");
-    taskSpecs_[1] = {"rs485", 3072, serialPriority, taskCore(), &IOModule::serialTask_, const_cast<IOModule*>(this)};
-    return taskSpecs_;
+    return {"rs485", 3072, serialPriority, taskCore(), &IOModule::serialTask_,
+            const_cast<IOModule*>(this), TaskRole::Rs485, {TaskCadence::Periodic, 1000U, 1000U},
+            kDefaultTaskMinFreeBytes, true};
 }
 
-void IOModule::serialTask_(void* context)
+void IOModule::serialTask_(void* context, TaskHealth& health)
 {
     auto& self = *static_cast<IOModule*>(context);
     for (;;) {
+        health.beginCycle();
         if (self.rs485Ready_) self.modbusMaster_.tick(millis(), micros(), self.cfgData_.enabled);
+        health.endCycle(1);
         vTaskDelay(1);
     }
 }

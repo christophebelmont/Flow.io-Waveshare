@@ -38,6 +38,8 @@ class ModuleManager {
 public:
     /** @brief Add a module to the manager. */
     bool add(Module* m);
+    /** @brief Declare the health row of a module disabled by the firmware profile. */
+    bool declareDisabledTasks(Module& module);
     /** @brief Initialize modules, load config, and prepare the startup sequencer. */
     bool initAll(ConfigStore& cfg, ServiceRegistry& services);
     /** @brief Advance the non-blocking startup sequencer and release due modules. */
@@ -47,11 +49,16 @@ public:
     /** @brief Wire core services into the registry. */
     void wireCoreServices(ServiceRegistry& services, ConfigStore& config);
     
-    /** @brief Task handle tracking for monitoring. */
+    /** @brief Immutable task declaration with an independently synchronized health slot. */
     struct TaskEntry {
-        Module* module;
-        TaskHandle_t handle;
-        uint8_t taskIndex;
+        ModuleTaskSpec spec{};
+        Module* module = nullptr;
+        ModuleManager* owner = nullptr;
+        UBaseType_t stackCaps = 0;
+        uint16_t id = 0;
+        bool withCaps = false;
+        bool deferred = false;
+        mutable TaskHealth health;
     };
 
     /** @brief Current module count. */
@@ -61,24 +68,24 @@ public:
         if (idx >= count) return nullptr;
         return modules[idx];
     }
-    /** @brief Number of started module tasks. */
+    /** @brief Includes declared but not yet running tasks and the Arduino loop. */
     uint8_t getTaskEntryCount() const { return taskEntryCount; }
-    /** @brief Get a started task entry by index. */
-    const TaskEntry* getTaskEntry(uint8_t idx) const {
-        if (idx >= taskEntryCount) return nullptr;
-        return &taskEntries[idx];
-    }
-    /** @brief Remove a task entry after a self-deleting module task has ended. */
-    bool removeTaskEntry(TaskHandle_t handle);
+    const TaskEntry& getTaskEntry(uint8_t idx) const { return taskEntries[idx]; }
+    void attachArduinoLoop(const char* name, uint32_t stackBytes, BaseType_t core);
+    TaskHealth& arduinoLoopHealth() { return taskEntries[0].health; }
+    void reapFinishedTasks();
+
 private:
+    friend class Module;
     Module* modules[Limits::Core::Capacity::MaxModules]{};
     Module* modulesById[kModuleIdCount]{};
     uint8_t count = 0;
 
     Module* ordered[Limits::Core::Capacity::MaxModules]{};
     uint8_t orderedCount = 0;
-    TaskEntry taskEntries[Limits::Core::Capacity::MaxModuleTasks]{};
+    TaskEntry taskEntries[Limits::Core::Capacity::MaxTaskHealthEntries]{};
     uint8_t taskEntryCount = 0;
+    std::atomic<bool> reapRequested_{false};
     uint32_t startupEpochMs_ = 0;
     uint32_t startupStartedMask_ = 0;
     uint8_t startupFlags_ = 0; // bit0: prepared, bit1: active, bit2: failed
@@ -87,4 +94,10 @@ private:
     bool buildInitOrder();
     bool dependenciesStarted_(Module& module) const;
     bool startModule_(uint8_t orderedIdx, ConfigStore& cfg, ServiceRegistry& services);
+    bool declareTasks_();
+    bool declareTask_(Module& module, const ModuleTaskSpec& spec, bool deferred,
+                      TaskHealthState initialState = TaskHealthState::Expected);
+    bool startTask_(TaskEntry& entry);
+    bool startDeferredTask_(Module& module);
+    static void taskEntry_(void* context);
 };

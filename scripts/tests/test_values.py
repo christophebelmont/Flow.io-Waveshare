@@ -99,6 +99,16 @@ class ValueTests(unittest.TestCase):
                 '-o', str(binary)], cwd=ROOT, check=True)
             subprocess.run([str(binary)], cwd=ROOT, check=True)
 
+    def test_task_health(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = pathlib.Path(tmp) / 'task-health'
+            subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
+                '-fsanitize=undefined,address', '-g', '-pthread',
+                '-Itest/host/task_health_stubs', '-Itest/host/value_stubs', '-Isrc',
+                'test/host/task_health.cpp', 'src/Core/TaskHealth.cpp', '-o', str(binary)],
+                cwd=ROOT, check=True)
+            subprocess.run([str(binary)], cwd=ROOT, check=True)
+
     def test_runtime(self):
         with tempfile.TemporaryDirectory() as tmp:
             binary = pathlib.Path(tmp) / 'values'

@@ -53,7 +53,7 @@
 #endif
 
 #ifndef FLOW_MODDEF_IO_DS
-#define FLOW_MODDEF_IO_DS 2000
+#define FLOW_MODDEF_IO_DS 10000
 #endif
 
 #ifndef FLOW_MODDEF_IO_DIN

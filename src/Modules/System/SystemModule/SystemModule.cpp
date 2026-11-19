@@ -201,53 +201,54 @@ void SystemModule::loop()
     }
 }
 
-void SystemModule::restartTaskStatic_(void* userCtx)
+ModuleTaskSpec SystemModule::deferredTaskSpec() const
 {
-    SystemModule* self = static_cast<SystemModule*>(userCtx);
-    const uint32_t delayMs = self ? self->restartDelayMs_ : 500U;
-    const char* reason = (self && self->restartReason_[0] != '\0') ? self->restartReason_ : "system";
+    return {"system-reboot", 3072, 2, 1, &SystemModule::restartTask_, const_cast<SystemModule*>(this),
+            TaskRole::Reboot, {TaskCadence::OneShot}};
+}
 
-    vTaskDelay(pdMS_TO_TICKS(delayMs));
-    LOGW("System rebooting now reason=%s", reason);
+void SystemModule::restartTask_(void* userCtx, TaskHealth& health)
+{
+    auto& self = *static_cast<SystemModule*>(userCtx);
+    vTaskDelay(pdMS_TO_TICKS(self.restartDelayMs_));
+    health.beginCycle();
+    health.finish();
+    LOGW("System rebooting now reason=%s free_min=%luB",
+         self.restartReason_, (unsigned long)health.snapshot().minFreeBytes);
     esp_restart();
-    vTaskDelete(nullptr);
 }
 
 bool SystemModule::scheduleRestart_(uint32_t delayMs, const char* reason)
 {
-    bool alreadyScheduled = false;
+    char scheduledReason[sizeof(restartReason_)]{};
+    snprintf(scheduledReason, sizeof(scheduledReason), "%s", (reason && reason[0] != '\0') ? reason : "system");
+
     portENTER_CRITICAL(&restartMux_);
-    alreadyScheduled = restartScheduled_;
-    if (!restartScheduled_) {
+    const bool alreadyScheduled = restartScheduled_;
+    if (alreadyScheduled) {
+        memcpy(scheduledReason, restartReason_, sizeof(scheduledReason));
+    } else {
+        restartDelayMs_ = delayMs;
+        memcpy(restartReason_, scheduledReason, sizeof(restartReason_));
         restartScheduled_ = true;
     }
     portEXIT_CRITICAL(&restartMux_);
 
     if (alreadyScheduled) {
-        LOGW("System reboot already scheduled reason=%s", restartReason_[0] ? restartReason_ : "system");
+        LOGW("System reboot already scheduled reason=%s", scheduledReason);
         return true;
     }
 
-    restartDelayMs_ = delayMs;
-    snprintf(restartReason_, sizeof(restartReason_), "%s", (reason && reason[0] != '\0') ? reason : "system");
-
-    const BaseType_t ok = xTaskCreatePinnedToCore(&SystemModule::restartTaskStatic_,
-                                                  "system-reboot",
-                                                  3072,
-                                                  this,
-                                                  2,
-                                                  nullptr,
-                                                  1);
-    if (ok != pdPASS) {
+    if (!startDeferredTask()) {
         portENTER_CRITICAL(&restartMux_);
         restartScheduled_ = false;
         portEXIT_CRITICAL(&restartMux_);
-        LOGE("Failed to create system reboot task reason=%s", restartReason_);
+        LOGE("Failed to create system reboot task reason=%s", scheduledReason);
         return false;
     }
 
     notifyShutdownPending_();
-    LOGW("System reboot scheduled in %lu ms reason=%s", (unsigned long)delayMs, restartReason_);
+    LOGW("System reboot scheduled in %lu ms reason=%s", (unsigned long)delayMs, scheduledReason);
     return true;
 }
 

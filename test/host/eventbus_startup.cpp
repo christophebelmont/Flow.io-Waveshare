@@ -1,8 +1,47 @@
 #include "Core/EventBus/EventBus.h"
+#include "Core/EventBus/EventPayloads.h"
 #include "Core/DataStore/PendingDataKeys.h"
 #include "Core/Log.h"
 #include <Arduino.h>
 #include <cassert>
+#include <esp_timer.h>
+#include <thread>
+
+void testConcurrentProducers()
+{
+    EventBus bus;
+    constexpr unsigned attempts = 2000;
+    unsigned received = 0;
+    bus.subscribe(EventId::ConfigChanged, [](const Event& event, void* context) {
+        assert(event.len == sizeof(uint32_t));
+        assert(*static_cast<const uint32_t*>(event.payload) < attempts);
+        ++*static_cast<unsigned*>(context);
+    }, &received);
+
+    std::thread task([&] {
+        for (uint32_t value = 0; value < attempts; ++value) {
+            bus.post(EventId::ConfigChanged, &value, sizeof(value), ModuleId::ConfigStore);
+        }
+    });
+    std::thread interrupt([&] {
+        for (uint32_t value = 0; value < attempts; ++value) {
+            bus.postFromISR(EventId::ConfigChanged, &value, sizeof(value), ModuleId::ConfigStore);
+        }
+    });
+    for (unsigned pass = 0; pass < attempts; ++pass) {
+        bus.dispatch(4);
+        const auto snapshot = bus.queueSnapshot();
+        assert(snapshot.accepted == snapshot.dequeued + snapshot.queued);
+        assert(snapshot.queued <= snapshot.peak && snapshot.peak <= snapshot.capacity);
+    }
+    task.join();
+    interrupt.join();
+    bus.dispatch(EventBus::QUEUE_LENGTH);
+    const auto snapshot = bus.queueSnapshot();
+    assert(snapshot.accepted + snapshot.fullDrops == 2 * attempts);
+    assert(snapshot.dequeued == received && snapshot.accepted == received);
+    assert(snapshot.fullDrops == snapshot.controlDrops && snapshot.isrDrops <= snapshot.fullDrops);
+}
 
 int main() {
     EventBus bus;
@@ -61,23 +100,42 @@ int main() {
         for (auto count : received) assert(count == round + 2);
         assert(started == 1 && eventbusWarnings.empty());
     }
-    // Actual unretained overflow must still count and report a loss.
+    auto snapshot = bus.queueSnapshot();
+    assert(snapshot.peak == EventBus::QUEUE_LENGTH && snapshot.queued == 0);
+    assert(snapshot.fullDrops == 0 && snapshot.fullRetries == 42);
+    assert(snapshot.accepted == snapshot.dequeued);
+
+    // A brief full queue is visible after draining, and retryable slots keep FIFO order.
+    constexpr uint64_t sinceBootUs = uint64_t{UINT32_MAX} + 1U;
+    fakeEspTimerUs = sinceBootUs;
     for (unsigned i = 0; i < EventBus::QUEUE_LENGTH; ++i) {
         const unsigned value = transitions + i;
-        assert(bus.post(EventId::ConfigChanged, &value, sizeof(value)));
+        assert(bus.post(EventId::ConfigChanged, &value, sizeof(value), ModuleId::ConfigStore));
+        ++fakeEspTimerUs;
     }
     assert(!bus.post(EventId::ConfigChanged));
+    assert(!bus.postFromISR(EventId::AlarmRaised, nullptr, 0, ModuleId::Alarm));
+    assert(!bus.tryPost(EventId::SystemStarted, nullptr, 1));
+    assert(!bus.post(EventId::DataChanged, nullptr, EventBus::MAX_PAYLOAD_SIZE + 1));
+    fakeEspTimerUs = sinceBootUs + 150U;
+    snapshot = bus.queueSnapshot();
+    assert(snapshot.queued == snapshot.capacity);
+    assert(snapshot.fullDrops == 2 && snapshot.isrDrops == 1 && snapshot.controlDrops == 2);
+    assert(snapshot.oversizeDrops == 1 && snapshot.missingPayloadDrops == 1);
+    assert(snapshot.oldestEvent == EventId::ConfigChanged && snapshot.oldestProducer == ModuleId::ConfigStore);
+    assert(snapshot.oldestAgeUs == 150U && snapshot.maxQueueDelayUs == 0);
+    bus.dispatch(EventBus::QUEUE_LENGTH);
+    snapshot = bus.queueSnapshot();
+    assert(snapshot.maxQueueDelayUs == 150U && snapshot.slowestEvent == EventId::ConfigChanged);
+    assert(snapshot.oldestEvent == EventId::None && snapshot.oldestAgeUs == 0U);
+    assert(snapshot.queued == 0 && snapshot.accepted == snapshot.dequeued);
+    assert(eventbusWarnings.empty()); // Publication losses are reported by the Supervisor.
+    assert(!bus.subscribe(EventId::SystemStarted, nullptr, nullptr));
+    assert(bus.queueSnapshot().subscriptionDrops == 1);
+    bus.dispatch(0);
     assert(eventbusWarnings.size() == 1);
-    assert(eventbusWarnings.back().find("drop_total=1") != std::string::npos);
-    // Historical loss totals must not warn again in a loss-free window.
-    fakeMs = 1; bus.dispatch(EventBus::QUEUE_LENGTH);
-    fakeMs = 6001; bus.dispatch(0);
-    const auto warningsAfterLossWindow = eventbusWarnings.size();
-    bool reportedLossWindow = false;
-    for (const auto& warning : eventbusWarnings)
-        reportedLossWindow |= warning.find("post stats 5s: drops=1 ") != std::string::npos;
-    assert(reportedLossWindow);
-    fakeMs = 11001; bus.dispatch(0);
-    assert(eventbusWarnings.size() == warningsAfterLossWindow);
-    puts("EventBus startup: full queue retry without loss, all keys delivered, transition ordering, single SystemStarted, real loss accounting OK");
+    assert(eventbusWarnings.back().find("null_cb") != std::string::npos);
+
+    testConcurrentProducers();
+    puts("EventBus: FIFO, retry, exact peak, latency, diagnostics and concurrent producers OK");
 }

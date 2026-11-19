@@ -41,7 +41,6 @@ public:
     BaseType_t taskCore() const override { return 1; }
     uint16_t taskStackSize() const override { return 4096; }
     uint8_t taskCount() const override { return 1; }
-    const ModuleTaskSpec* taskSpecs() const override { return singleLoopTaskSpec(); }
 
     /** @brief Depends on log hub, datastore, command and event bus. */
     uint8_t dependencyCount() const override { return 4; }

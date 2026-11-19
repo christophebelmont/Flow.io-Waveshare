@@ -221,7 +221,7 @@ void WifiProvisioningModule::loop()
         }
         networkManager_.setNormalServicesStarted(true);
         portalLatched_ = false;
-        vTaskDelay(pdMS_TO_TICKS(250));
+        delayNextCycle(pdMS_TO_TICKS(250));
         return;
     }
 
@@ -235,7 +235,7 @@ void WifiProvisioningModule::loop()
         dns_.processNextRequest();
     }
 
-    vTaskDelay(pdMS_TO_TICKS(20));
+    delayNextCycle(pdMS_TO_TICKS(20));
 }
 
 void WifiProvisioningModule::ensurePortalStarted_()

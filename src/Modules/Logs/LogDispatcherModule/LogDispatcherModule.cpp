@@ -6,25 +6,18 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-struct DispatcherCtx {
-    LogHub* hub;
-    const LogSinkRegistryService* sinks;
-};
-
-static DispatcherCtx g_ctx;
-
-const ModuleTaskSpec* LogDispatcherModule::taskSpecs() const {
-    static ModuleTaskSpec spec;
-    if (!_hub || !_sinkReg) return nullptr;
-    spec = {
+ModuleTaskSpec LogDispatcherModule::taskSpec(uint8_t index) const {
+    if (index != 0U || taskCount() == 0U) return {};
+    return {
         "LogDispatch",
         4096,
         3,
         1,
         &LogDispatcherModule::taskFn,
-        &g_ctx
+        const_cast<LogDispatcherModule*>(this),
+        TaskRole::Primary,
+        {TaskCadence::EventDriven}
     };
-    return &spec;
 }
 
 void LogDispatcherModule::init(ConfigStore& cfg, ServiceRegistry& services) {
@@ -42,26 +35,23 @@ void LogDispatcherModule::init(ConfigStore& cfg, ServiceRegistry& services) {
 
     _hub = static_cast<LogHub*>(hubSvc->ctx);
 
-    g_ctx.hub = _hub;
-    g_ctx.sinks = _sinkReg;
 }
 
-void LogDispatcherModule::taskFn(void* pv) {
-    auto* ctx = static_cast<DispatcherCtx*>(pv);
-    if (!ctx || !ctx->hub || !ctx->sinks) {
-        vTaskDelete(nullptr);
-        return;
-    }
+void LogDispatcherModule::taskFn(void* pv, TaskHealth& health) {
+    auto& self = *static_cast<LogDispatcherModule*>(pv);
+    const auto* sinks = self._sinkReg;
     LogEntry e;
 
     while (true) {
-        if (ctx->hub->dequeue(e, portMAX_DELAY)) {
-            int n = ctx->sinks->count(ctx->sinks->ctx);
+        if (self._hub->dequeue(e, portMAX_DELAY)) {
+            health.beginCycle();
+            int n = sinks->count(sinks->ctx);
 
             for (int i = 0; i < n; ++i) {
-                LogSinkService sink = ctx->sinks->get(ctx->sinks->ctx, i);
+                LogSinkService sink = sinks->get(sinks->ctx, i);
                 if (sink.write) sink.write(sink.ctx, e);
             }
+            health.endCycle();
         }
     }
 }

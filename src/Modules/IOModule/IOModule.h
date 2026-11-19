@@ -41,6 +41,7 @@
 #include "Modules/IOModule/IOProviders/IOProviders.h"
 #include "Modules/IOModule/IORegistry/IORegistry.h"
 #include "Modules/IOModule/IOScheduler/IOScheduler.h"
+#include "Core/DurationSamples.h"
 #include "Modules/IOModule/IOBus/Rs485Bus.h"
 #include "Modules/IOModule/IOScheduler/Rs485TransactionScheduler.h"
 #include <stdio.h>
@@ -61,8 +62,9 @@ public:
     // Analog calculation traces format floating-point values synchronously;
     // allow headroom for the nested newlib vsnprintf/dtoa allocation path.
     uint16_t taskStackSize() const override { return 4096; }
+    TaskTimingContract taskTiming() const override { return {TaskCadence::Periodic, kWorkBudgetUs}; }
     uint8_t taskCount() const override { return 2; }
-    const ModuleTaskSpec* taskSpecs() const override;
+    ModuleTaskSpec taskSpec(uint8_t index) const override;
     UBaseType_t taskStackCaps() const override {
         return MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
     }
@@ -142,8 +144,7 @@ private:
     IoStatus claimOutputs_(const IoId* ids, uint8_t count, uint8_t owner);
     IoStatus outputBootPolicy_(uint8_t slot, IoOutputBootPolicy* out);
     IoStatus ioWriteAnalog_(IoId id, float value, uint32_t tsMs, uint8_t owner);
-    static void serialTask_(void* context);
-    mutable ModuleTaskSpec taskSpecs_[2]{};
+    static void serialTask_(void* context, TaskHealth& health);
     struct AnalogSlot;
     struct DigitalSlot;
 
@@ -166,6 +167,7 @@ private:
 
     static bool tickFastAds_(void* ctx, uint32_t nowMs);
     static bool tickSlowDs_(void* ctx, uint32_t nowMs);
+    void reportDsPollTiming_(uint32_t nowMs);
     static bool tickI2cAnalogs_(void* ctx, uint32_t nowMs);
     static bool tickDigitalInputs_(void* ctx, uint32_t nowMs);
 
@@ -290,7 +292,7 @@ private:
                                             uint8_t edgeMode = IO_EDGE_RISING,
                                             uint32_t counterDebounceUs = 0);
     IAnalogSourceDriver* allocAdsDriver_(const char* driverId, I2CBus* bus, const Ads1115DriverConfig& cfg);
-    IAnalogSourceDriver* allocDsDriver_(const char* driverId, OneWireBus* bus, const uint8_t address[8], const Ds18b20DriverConfig& cfg);
+    Ds18b20Driver* allocDsDriver_(const char* driverId, OneWireBus* bus, const uint8_t address[8], const Ds18b20DriverConfig& cfg);
     IAnalogSourceDriver* allocSht40Driver_(const char* driverId, I2CBus* bus, const Sht40DriverConfig& cfg);
     IAnalogSourceDriver* allocBmp280Driver_(const char* driverId, I2CBus* bus, const Bmp280DriverConfig& cfg);
     IAnalogSourceDriver* allocBme680Driver_(const char* driverId, I2CBus* bus, const Bme680DriverConfig& cfg);
@@ -406,6 +408,20 @@ private:
 
     IORegistry registry_{};
     IOScheduler scheduler_{};
+    static constexpr uint32_t kWorkBudgetUs = 25000U;
+    static constexpr uint8_t kDsProbeCapacity = 2U;
+    struct DsProbe {
+        Ds18b20Driver* driver = nullptr;
+        IOAnalogSource source = IO_SRC_DS18_WATER;
+        Ds18b20Driver::PollStep pendingReport = Ds18b20Driver::PollStep::Idle;
+        DurationSamples durations{};
+        uint64_t startedUs = 0;
+        uint32_t overBudget = 0;
+    };
+    DsProbe dsProbes_[kDsProbeCapacity]{};
+    uint32_t dsPollLastReportMs_ = 0;
+    uint8_t dsProbeCount_ = 0;
+    uint8_t nextDsProbe_ = 0;
     I2CBus* i2cBus_ = nullptr;
     const UartSpec* rs485UartSpec_ = nullptr;
     HardwareSerial rs485Serial_;
@@ -454,7 +470,7 @@ private:
     uint8_t (*gpioDriverPool_)[sizeof(GpioDriver)] = nullptr;
     alignas(PcntCounterDriver) uint8_t gpioCounterDriverPool_[MAX_DIGITAL_INPUTS][sizeof(PcntCounterDriver)]{};
     alignas(Ads1115Driver) uint8_t adsDriverPool_[2][sizeof(Ads1115Driver)]{};
-    alignas(Ds18b20Driver) uint8_t dsDriverPool_[2][sizeof(Ds18b20Driver)]{};
+    alignas(Ds18b20Driver) uint8_t dsDriverPool_[kDsProbeCapacity][sizeof(Ds18b20Driver)]{};
     alignas(Sht40Driver) uint8_t sht40DriverPool_[1][sizeof(Sht40Driver)]{};
     alignas(Bmp280Driver) uint8_t bmp280DriverPool_[1][sizeof(Bmp280Driver)]{};
     alignas(Bme680Driver) uint8_t bme680DriverPool_[1][sizeof(Bme680Driver)]{};

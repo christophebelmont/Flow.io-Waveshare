@@ -280,7 +280,7 @@ void WebInterfaceModule::loop()
         char ip[16] = {0};
         NetworkAccessMode mode = NetworkAccessMode::None;
         if (!getNetworkIp_(ip, sizeof(ip), &mode) || ip[0] == '\0' || mode == NetworkAccessMode::None) {
-            vTaskDelay(pdMS_TO_TICKS(100));
+            delayNextCycle(pdMS_TO_TICKS(100));
             return;
         }
 
@@ -291,7 +291,7 @@ void WebInterfaceModule::loop()
 
         const bool bootNetworkReady = (mode == NetworkAccessMode::AccessPoint) ? true : netReady_;
         if (!bootNetworkReady) {
-            vTaskDelay(pdMS_TO_TICKS(100));
+            delayNextCycle(pdMS_TO_TICKS(100));
             return;
         }
 
@@ -303,7 +303,7 @@ void WebInterfaceModule::loop()
             (uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
         startServer_();
         if (!started_) {
-            vTaskDelay(pdMS_TO_TICKS(1000));
+            delayNextCycle(pdMS_TO_TICKS(1000));
             return;
         }
         const uint32_t minHeapAfterStart = (uint32_t)heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
@@ -327,13 +327,13 @@ void WebInterfaceModule::loop()
     if (uartPaused_) {
         flushLocalLogQueue_();
         if (started_) wsLog_.cleanupClients();
-        vTaskDelay(pdMS_TO_TICKS(40));
+        delayNextCycle(pdMS_TO_TICKS(40));
         return;
     }
 
     if (provisioningOnly_) {
         if (started_) wsLog_.cleanupClients();
-        vTaskDelay(pdMS_TO_TICKS(25));
+        delayNextCycle(pdMS_TO_TICKS(25));
         return;
     }
 
@@ -370,5 +370,5 @@ void WebInterfaceModule::loop()
 
     if (started_) wsLog_.cleanupClients();
 
-    vTaskDelay(pdMS_TO_TICKS(10));
+    delayNextCycle(pdMS_TO_TICKS(10));
 }

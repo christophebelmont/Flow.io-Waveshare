@@ -155,6 +155,7 @@ void ActivityLogModule::loop()
 
     ActivityEvent event{};
     if (persistQueue_ && xQueueReceive(persistQueue_, &event, pdMS_TO_TICKS(1000)) == pdTRUE) {
+        beginTaskWork();
         if (!persist_(event)) {
             ++persistDropCount_;
         }

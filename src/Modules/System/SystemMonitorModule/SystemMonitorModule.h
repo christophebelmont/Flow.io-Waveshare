@@ -4,9 +4,13 @@
  * @brief Periodic system health/metrics reporting module.
  */
 #include "Core/Module.h"
+#include "Core/DurationSamples.h"
+#include "Core/EventBus/EventBus.h"
 #include "Modules/Network/MQTTModule/MqttConfigRouteProducer.h"
 #include "Core/NvsKeys.h"
+#include "Core/ServiceBinding.h"
 #include "Core/Services/Services.h"
+#include "Core/Services/ISystemHealth.h"
 #include "Core/SystemStats.h"
 
 // forward decl to avoid include dependency
@@ -28,13 +32,12 @@ public:
         return MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
     }
     uint8_t taskCount() const override { return 1; }
-    const ModuleTaskSpec* taskSpecs() const override { return singleLoopTaskSpec(); }
 
-    // Only logger is mandatory
-    /** @brief Depends on log hub. */
-    uint8_t dependencyCount() const override { return 1; }
+    /** @brief Depends on log hub and EventBus for diagnostics. */
+    uint8_t dependencyCount() const override { return 2; }
     ModuleId dependency(uint8_t i) const override {
         if (i == 0) return ModuleId::LogHub;
+        if (i == 1) return ModuleId::EventBus;
         return ModuleId::Unknown;
     }
 
@@ -53,13 +56,8 @@ private:
     // The buffer is allocated once during init and retained for the firmware lifetime.
     static constexpr size_t kTaskStatusSnapshotCapacity =
         Limits::Core::Capacity::MaxModuleTasks + 32U;
-    // Per-task running minimum of the FreeRTOS stack high-water mark. The table
-    // is sized for every task visible through uxTaskGetSystemState and is
-    // allocated once in PSRAM so it survives task recreation during the run.
-    static constexpr size_t kStackBaselineCapacity = kTaskStatusSnapshotCapacity;
-    static constexpr size_t kStackBaselineNameLen = configMAX_TASK_NAME_LEN;
-    static constexpr uint32_t kStackBaselineLowFreeBytes = 512U;
-    static constexpr uint32_t kStackBaselineMqttLowFreeBytes = 1536U;
+    static constexpr size_t kTaskHealthReportBatch = 3;
+    static constexpr uint32_t kMinHealthReportIntervalMs = 1000;
     static constexpr uint32_t kHeapWatchSamplePeriodMs = 50U;
     static constexpr uint32_t kHeapWatchTripFreeBytes = 2048U;
     static constexpr uint32_t kHeapWatchRecoverFreeBytes = 8192U;
@@ -71,10 +69,11 @@ private:
     static constexpr size_t kHeapWatchTaskTotalsMax = 12U;
 #endif
 
-    struct StackBaselineEntry {
-        char name[kStackBaselineNameLen] = {0};
-        uint32_t configuredBytes = 0;
-        uint32_t minFreeBytes = 0;
+    struct TaskAlert {
+        uint32_t lateStarts = 0;
+        uint32_t workOverruns = 0;
+        bool lowStack = false;
+        bool overdue = false;
     };
 
     struct HeapWatchSample {
@@ -117,9 +116,17 @@ private:
     const ConfigStoreService* cfgSvc = nullptr;
     const LogHubService* logHub = nullptr;
     const HAService* haSvc_ = nullptr;
+    EventBus* eventBus_ = nullptr;
     TaskStatus_t* taskStatusSnapshot_ = nullptr;
-    StackBaselineEntry* stackBaselines_ = nullptr;
-    size_t stackBaselineCount_ = 0;
+    DurationSamples taskCaptureDurations_{};
+    TaskWakeInterval lastTaskCapture_{};
+    EventBus::QueueSnapshot lastEventBusSnapshot_{};
+    portMUX_TYPE healthSnapshotMux_ = portMUX_INITIALIZER_UNLOCKED;
+    SystemHealthSnapshot healthSnapshot_{};
+    SystemHealthSnapshot readHealthSnapshot_();
+    SystemHealthService healthService_{ServiceBinding::bind<&SystemMonitorModule::readHealthSnapshot_>, this};
+    TaskAlert taskAlerts_[Limits::Core::Capacity::MaxTaskHealthEntries]{};
+    size_t nextTaskHealthReport_ = 0;
     bool haEntitiesRegistered_ = false;
 
     uint32_t lastJsonDumpMs = 0;
@@ -130,6 +137,7 @@ private:
     uint32_t heapWatchTriggerMinFreeBytes_ = 0;
     uint32_t heapWatchTriggerLargestFreeBlock_ = 0;
     uint32_t traceCycleStartMs_ = 0;
+    uint32_t lastHealthReportMs_ = 0;
     uint32_t lastWebWatchdogCheckMs_ = 0;
     uint32_t memoryPressureStateSinceMs_ = 0;
     size_t heapWatchWriteIndex_ = 0;
@@ -142,7 +150,7 @@ private:
     bool heapWatchDumpPending_ = false;
     bool webWatchdogRebootIssued_ = false;
     bool memoryPressureRebootIssued_ = false;
-    bool stackLoggedThisCycle_ = false;
+    bool healthReportedThisCycle_ = false;
     bool heapLoggedThisCycle_ = false;
     bool buffersLoggedThisCycle_ = false;
     MqttConfigRouteProducer* cfgMqttPub_ = nullptr;
@@ -156,8 +164,9 @@ private:
 
     void logBootInfo();
     void logHeapStats();
-    void logTaskStacks();
-    StackBaselineEntry* stackBaselineFor_(const char* taskName);
+    void logTaskHealth(SystemHealthSnapshot::Tasks& summary);
+    void logEventBusHealth(const EventBus::QueueSnapshot& queue);
+    void sampleSystemHealth_();
     void logTrackedBuffers();
     void pollHeapWatch_(uint32_t now);
     void appendHeapWatchSample_(const SystemStatsSnapshot& snap);

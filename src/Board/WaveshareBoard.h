@@ -73,7 +73,7 @@ inline constexpr IoCapacitySpec kWaveshareESP32S3IoCapacity{21, 13, 16, 21, 13, 
  *   settings such as broker host, port, credentials, base topic, and enabled
  *   state are separate module config values stored in NVS.
  */
-inline constexpr MqttCapacitySpec kWaveshareESP32S3MqttCapacity{7168, 8, 8, 48, 24, 16, 2, 240, 80, 80, 192};
+inline constexpr MqttCapacitySpec kWaveshareESP32S3MqttCapacity{8192, 8, 8, 48, 24, 16, 2, 240, 80, 80, 192};
 
 /*
  * MQTT string/payload buffer sizes in bytes.

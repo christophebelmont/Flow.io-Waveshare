@@ -15,7 +15,6 @@ public:
 
     void begin();
     void request();
-    void setWaitForConversion(bool enabled);
     bool getAddress(uint8_t index, uint8_t out[8]) const;
     bool hasAddress(const uint8_t addr[8]) const;
     float readC(const uint8_t addr[8]) const;

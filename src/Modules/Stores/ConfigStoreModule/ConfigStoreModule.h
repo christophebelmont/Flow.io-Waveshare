@@ -18,9 +18,9 @@ public:
     ModuleId moduleId() const override { return ModuleId::ConfigStore; }
     const char* taskName() const override { return "cfg.persist"; }
     BaseType_t taskCore() const override { return 0; }
-    uint16_t taskStackSize() const override { return 3072; }
+    uint16_t taskStackSize() const override { return Limits::Config::PersistenceTaskStackSize; }
+    TaskTimingContract taskTiming() const override { return {TaskCadence::EventDriven}; }
     uint8_t taskCount() const override { return 1; }
-    const ModuleTaskSpec* taskSpecs() const override { return singleLoopTaskSpec(); }
 
     /** @brief Config module depends on log hub. */
     uint8_t dependencyCount() const override { return 1; }

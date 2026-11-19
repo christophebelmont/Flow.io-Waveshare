@@ -576,18 +576,18 @@ void TFTModuleS3::onConfigLoaded(ConfigStore&, ServiceRegistry& services)
 void TFTModuleS3::loop()
 {
     if (!uiStorage_) {
-        delay(500);
+        delayNextCycle(pdMS_TO_TICKS(500));
         return;
     }
 
     if (!cfgData_.enabled) {
         applyBacklight_(false);
-        delay(250);
+        delayNextCycle(pdMS_TO_TICKS(250));
         return;
     }
 
     if (!beginDisplay_()) {
-        delay(500);
+        delayNextCycle(pdMS_TO_TICKS(500));
         return;
     }
 
@@ -596,7 +596,7 @@ void TFTModuleS3::loop()
     const uint32_t now = millis();
     if (!splashHeld_) {
         if ((int32_t)(now - splashHoldUntilMs_) < 0) {
-            delay(30);
+            delayNextCycle(pdMS_TO_TICKS(30));
             return;
         }
         splashHeld_ = true;
@@ -612,7 +612,7 @@ void TFTModuleS3::loop()
         render_(fullRedraw);
         lastRenderedPageCycle_ = pageCycle;
     }
-    delay(30);
+    delayNextCycle(pdMS_TO_TICKS(30));
 }
 
 void TFTModuleS3::onEventStatic_(const Event& e, void* user)

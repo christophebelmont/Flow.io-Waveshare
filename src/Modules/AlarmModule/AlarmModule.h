@@ -24,8 +24,8 @@ public:
     UBaseType_t taskStackCaps() const override {
         return MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
     }
+    TaskTimingContract taskTiming() const override { return {TaskCadence::Periodic, 20000U}; }
     uint8_t taskCount() const override { return 1; }
-    const ModuleTaskSpec* taskSpecs() const override { return singleLoopTaskSpec(); }
 
     uint8_t dependencyCount() const override { return 3; }
     ModuleId dependency(uint8_t i) const override {

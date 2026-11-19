@@ -962,10 +962,10 @@ void AlarmModule::evaluateOnce_(uint32_t nowMs)
 void AlarmModule::loop()
 {
     if (!enabled_) {
-        vTaskDelay(pdMS_TO_TICKS(500));
+        delayNextCycle(pdMS_TO_TICKS(500));
         return;
     }
 
     evaluateOnce_(millis());
-    vTaskDelay(pdMS_TO_TICKS(clampEvalPeriodMs_(evalPeriodMsCfg_)));
+    delayNextCycle(pdMS_TO_TICKS(clampEvalPeriodMs_(evalPeriodMsCfg_)));
 }

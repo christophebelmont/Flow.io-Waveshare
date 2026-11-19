@@ -1054,31 +1054,31 @@ void WifiModule::loop() {
     switch (state) {
 
     case WifiState::Disabled:
-        vTaskDelay(pdMS_TO_TICKS(Limits::Wifi::Timing::DisabledLoopDelayMs));
+        delayNextCycle(pdMS_TO_TICKS(Limits::Wifi::Timing::DisabledLoopDelayMs));
         break;
 
     case WifiState::Idle:
         if (!staRetryEnabled_) {
-            vTaskDelay(pdMS_TO_TICKS(Limits::Wifi::Timing::IdleRetryDisabledLoopDelayMs));
+            delayNextCycle(pdMS_TO_TICKS(Limits::Wifi::Timing::IdleRetryDisabledLoopDelayMs));
             break;
         }
         if (preferredEthernetAvailable_()) {
-            vTaskDelay(pdMS_TO_TICKS(Limits::Wifi::Timing::IdleConnectPollDelayMs));
+            delayNextCycle(pdMS_TO_TICKS(Limits::Wifi::Timing::IdleConnectPollDelayMs));
             break;
         }
         if (initialConnectNotBeforeMs_ != 0U && millis() < initialConnectNotBeforeMs_) {
-            vTaskDelay(pdMS_TO_TICKS(Limits::Wifi::Timing::IdleConnectPollDelayMs));
+            delayNextCycle(pdMS_TO_TICKS(Limits::Wifi::Timing::IdleConnectPollDelayMs));
             break;
         }
         startConnect();
-        vTaskDelay(pdMS_TO_TICKS(Limits::Wifi::Timing::IdlePostConnectDelayMs));
+        delayNextCycle(pdMS_TO_TICKS(Limits::Wifi::Timing::IdlePostConnectDelayMs));
         break;
 
     case WifiState::Connecting:
     {
         if (!staRetryEnabled_ && !WiFi.isConnected()) {
             setState(WifiState::Idle);
-            vTaskDelay(pdMS_TO_TICKS(Limits::Wifi::Timing::IdleConnectPollDelayMs));
+            delayNextCycle(pdMS_TO_TICKS(Limits::Wifi::Timing::IdleConnectPollDelayMs));
             break;
         }
         const wl_status_t wl = WiFi.status();
@@ -1125,7 +1125,7 @@ void WifiModule::loop() {
             }
             setState(WifiState::ErrorWait);
         }
-        vTaskDelay(pdMS_TO_TICKS(Limits::Wifi::Timing::ConnectingLoopDelayMs));
+        delayNextCycle(pdMS_TO_TICKS(Limits::Wifi::Timing::ConnectingLoopDelayMs));
         break;
     }
 
@@ -1154,18 +1154,18 @@ void WifiModule::loop() {
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(Limits::Wifi::Timing::ConnectedLoopDelayMs));
+        delayNextCycle(pdMS_TO_TICKS(Limits::Wifi::Timing::ConnectedLoopDelayMs));
         break;
 
     case WifiState::ErrorWait:
         if (!staRetryEnabled_) {
-            vTaskDelay(pdMS_TO_TICKS(Limits::Wifi::Timing::ErrorWaitLoopDelayMs));
+            delayNextCycle(pdMS_TO_TICKS(Limits::Wifi::Timing::ErrorWaitLoopDelayMs));
             break;
         }
         if ((millis() - stateTs) > Limits::Wifi::Timing::ErrorWaitDurationMs) {
             setState(WifiState::Idle);
         }
-        vTaskDelay(pdMS_TO_TICKS(Limits::Wifi::Timing::ErrorWaitLoopDelayMs));
+        delayNextCycle(pdMS_TO_TICKS(Limits::Wifi::Timing::ErrorWaitLoopDelayMs));
         break;
     }
 }

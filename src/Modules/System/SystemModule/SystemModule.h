@@ -27,7 +27,7 @@ public:
     uint16_t taskStackSize() const override { return 3072; }
     BaseType_t taskCore() const override { return 1; }
     uint8_t taskCount() const override { return factoryResetButtonEnabled_() ? 1U : 0U; }
-    const ModuleTaskSpec* taskSpecs() const override { return singleLoopTaskSpec(); }
+    ModuleTaskSpec deferredTaskSpec() const override;
 
     /** @brief Depends on log hub, command service, config service and event bus. */
     uint8_t dependencyCount() const override { return 4; }
@@ -95,7 +95,7 @@ private:
     static bool cmdPing(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen);
     static bool cmdReboot(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen);
     static bool cmdFactoryReset(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen);
-    static void restartTaskStatic_(void* userCtx);
+    static void restartTask_(void* userCtx, TaskHealth& health);
     bool scheduleRestart_(uint32_t delayMs, const char* reason);
     bool performFactoryReset_();
     bool factoryResetButtonEnabled_() const;

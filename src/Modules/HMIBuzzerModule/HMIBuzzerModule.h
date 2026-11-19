@@ -70,7 +70,6 @@ public:
     BaseType_t taskCore() const override { return 1; }
     uint16_t taskStackSize() const override { return 2048; }
     uint8_t taskCount() const override { return 1; }
-    const ModuleTaskSpec* taskSpecs() const override { return singleLoopTaskSpec(); }
 
     uint8_t dependencyCount() const override { return 5; }
     ModuleId dependency(uint8_t i) const override {

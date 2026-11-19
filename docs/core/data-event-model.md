@@ -146,9 +146,9 @@ La différence principale entre les deux flows n'est pas le mécanisme global, m
 ## Points de surveillance runtime
 
 - EventBus:
-  - `post stats 5s: ...` (`DEBUG`, `WARN` si drops > 0)
-  - `sub stats 5s: ...` (`DEBUG`, `WARN` si rejets/capacité)
-  - `sub reject ...`
+  - `EventQueue`, `EventDelay` et `EventDrop` émis par le [Supervisor](../modules/SystemMonitorModule.md)
+  - `EventDrop` passe en `WARN` sur de nouvelles pertes ou de nouveaux rejets d’abonnement
+  - `sub reject ...` pour le détail des rejets d’abonnement récents
 - MQTT:
   - `queue occ max/boot ...` (`DEBUG`, métrologie max boot)
   - `enqueue reject ...`

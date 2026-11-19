@@ -37,7 +37,6 @@ public:
         return ModuleId::Unknown;
     }
     uint8_t taskCount() const override { return 1U; }
-    const ModuleTaskSpec* taskSpecs() const override { return singleLoopTaskSpec(); }
     // Reserve headroom for calendar conversion, service calls and persistence.
     uint16_t taskStackSize() const override { return 6144U; }
     UBaseType_t taskStackCaps() const override {

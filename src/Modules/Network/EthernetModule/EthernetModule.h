@@ -42,7 +42,6 @@ public:
     uint16_t taskStackSize() const override { return 6144; }
     uint32_t startDelayMs() const override { return 1500U; }
     uint8_t taskCount() const override { return 1; }
-    const ModuleTaskSpec* taskSpecs() const override { return singleLoopTaskSpec(); }
 
     uint8_t dependencyCount() const override { return 3; }
     ModuleId dependency(uint8_t i) const override {

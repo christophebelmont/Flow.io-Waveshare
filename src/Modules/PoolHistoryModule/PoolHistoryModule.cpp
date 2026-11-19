@@ -638,14 +638,14 @@ void PoolHistoryModule::persistIfDue_(uint32_t nowMs, bool force)
 void PoolHistoryModule::loop()
 {
     if (!storage_) {
-        vTaskDelay(pdMS_TO_TICKS(kLoopPeriodMs));
+        delayNextCycle(pdMS_TO_TICKS(kLoopPeriodMs));
         return;
     }
     const uint32_t nowMs = millis();
     uint64_t nowEpoch = 0U;
     LocalDayContext day{};
     if (!currentEpoch_(nowEpoch) || !localDayContext_(nowEpoch, day)) {
-        vTaskDelay(pdMS_TO_TICKS(kLoopPeriodMs));
+        delayNextCycle(pdMS_TO_TICKS(kLoopPeriodMs));
         return;
     }
 
@@ -658,7 +658,7 @@ void PoolHistoryModule::loop()
 
     if (!storage_->initialized) {
         initializeHistory_(day, nowEpoch, nowMs);
-        vTaskDelay(pdMS_TO_TICKS(kLoopPeriodMs));
+        delayNextCycle(pdMS_TO_TICKS(kLoopPeriodMs));
         return;
     }
 
@@ -669,7 +669,7 @@ void PoolHistoryModule::loop()
     const bool intervalUsable = intervalMs <= kMaximumAccrualGapMs;
 
     if (!lockState_()) {
-        vTaskDelay(pdMS_TO_TICKS(kLoopPeriodMs));
+        delayNextCycle(pdMS_TO_TICKS(kLoopPeriodMs));
         return;
     }
     if (intervalUsable && (!dateChanged || sequentialDayChange)) {
@@ -755,5 +755,5 @@ void PoolHistoryModule::loop()
         sampleMetrics_(nowEpoch, nowMs, filtrationKnown, filtrationRunning);
     }
     persistIfDue_(nowMs, transition != PoolHistoryDayTransition::None);
-    vTaskDelay(pdMS_TO_TICKS(kLoopPeriodMs));
+    delayNextCycle(pdMS_TO_TICKS(kLoopPeriodMs));
 }

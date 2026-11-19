@@ -34,7 +34,6 @@ public:
     BaseType_t taskCore() const override { return 1; }
     uint16_t taskStackSize() const override { return 6144; }
     uint8_t taskCount() const override { return 1; }
-    const ModuleTaskSpec* taskSpecs() const override { return singleLoopTaskSpec(); }
     uint32_t startDelayMs() const override {
         return 0U;
     }

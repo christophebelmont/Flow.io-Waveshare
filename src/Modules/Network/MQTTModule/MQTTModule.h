@@ -45,7 +45,6 @@ public:
     const char* taskName() const override { return "mqtt"; }
     BaseType_t taskCore() const override { return 0; }
     uint8_t taskCount() const override { return 1; }
-    const ModuleTaskSpec* taskSpecs() const override { return singleLoopTaskSpec(); }
 
     uint8_t dependencyCount() const override { return 5; }
     ModuleId dependency(uint8_t i) const override {
@@ -66,6 +65,7 @@ public:
     }
     void onStart(ConfigStore& cfg, ServiceRegistry& services) override;
     void loop() override;
+    uint16_t taskMinStackFreeBytes() const override { return 1536; }
     uint16_t taskStackSize() const override { return Limits::Mqtt::TaskStackSize; }
     UBaseType_t taskStackCaps() const override {
         // RX configuration patches and commands synchronously persist to NVS.

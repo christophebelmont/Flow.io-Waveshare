@@ -1380,7 +1380,7 @@ void TimeModule::loop() {
             setState(TimeSyncState::Synced);
         }
         tickScheduler_();
-        vTaskDelay(pdMS_TO_TICKS(250));
+        delayNextCycle(pdMS_TO_TICKS(250));
         return;
     }
 #endif
@@ -1403,7 +1403,7 @@ void TimeModule::loop() {
             serviceNextionWriteBack_(rtcNowMs);
         }
         tickScheduler_();
-        vTaskDelay(pdMS_TO_TICKS(2000));
+        delayNextCycle(pdMS_TO_TICKS(2000));
         return;
     }
 
@@ -1507,7 +1507,7 @@ void TimeModule::loop() {
     }
 
     tickScheduler_();
-    vTaskDelay(pdMS_TO_TICKS(250));
+    delayNextCycle(pdMS_TO_TICKS(250));
 }
 
 void TimeModule::forceResync() {

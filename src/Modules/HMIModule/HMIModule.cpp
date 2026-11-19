@@ -3011,7 +3011,7 @@ void HMIModule::loop()
     portEXIT_CRITICAL(&localDisplayUpdateMux_);
     if (localDisplayUpdateActive) {
         venice_.tick(millis(), ioSvc_, waterTempIoId_);
-        vTaskDelay(pdMS_TO_TICKS(20));
+        delayNextCycle(pdMS_TO_TICKS(20));
         return;
     }
 
@@ -3020,11 +3020,11 @@ void HMIModule::loop()
             driverReady_ = driver_->begin();
             if (!driverReady_) {
                 venice_.tick(millis(), ioSvc_, waterTempIoId_);
-                vTaskDelay(pdMS_TO_TICKS(500));
+                delayNextCycle(pdMS_TO_TICKS(500));
                 return;
             }
             if (!validateDriverDisplayVersion_(driver_ == static_cast<IHmiDriver*>(&nextion_))) {
-                vTaskDelay(pdMS_TO_TICKS(25));
+                delayNextCycle(pdMS_TO_TICKS(25));
                 return;
             }
             resetClockPublishStamps_();
@@ -3046,7 +3046,7 @@ void HMIModule::loop()
             remoteUdpServer_ &&
             remoteUdpServer_->consumeDisplayVersionChanged() &&
             !validateDriverDisplayVersion_(false)) {
-            vTaskDelay(pdMS_TO_TICKS(25));
+            delayNextCycle(pdMS_TO_TICKS(25));
             return;
         }
 
@@ -3191,5 +3191,5 @@ void HMIModule::loop()
 
     if (driver_) driver_->tick(now);
     venice_.tick(now, ioSvc_, waterTempIoId_);
-    vTaskDelay(pdMS_TO_TICKS(25));
+    delayNextCycle(pdMS_TO_TICKS(25));
 }

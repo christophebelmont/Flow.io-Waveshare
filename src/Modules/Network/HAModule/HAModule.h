@@ -31,7 +31,6 @@ public:
         return MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
     }
     uint8_t taskCount() const override { return 1; }
-    const ModuleTaskSpec* taskSpecs() const override { return singleLoopTaskSpec(); }
 
     uint8_t dependencyCount() const override { return 4; }
     ModuleId dependency(uint8_t i) const override {

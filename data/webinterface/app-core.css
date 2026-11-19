@@ -150,6 +150,11 @@ body.menu-icons-disabled:not(.web-icons-disabled) .menu-item{gap:0;}
 .info-card-load-btn.is-loading .refresh-icon-glyph{animation:info-card-loader-spin 1.05s linear infinite;}
 @keyframes info-card-loader-spin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
 .info-list{display:grid;gap:4px;}
+.info-card-footer{display:flex;justify-content:flex-end;margin-top:12px;}
+.info-health-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,235px),1fr));gap:16px 24px;}
+.info-health-grid .info-row{align-items:flex-start;}
+.info-health-grid .info-row-value{overflow-wrap:anywhere;}
+.info-health-status{font-size:13px;color:var(--text-muted);margin:0 0 12px;}
 .system-action-card{grid-column:auto;}
 .info-actions-card{position:sticky;top:18px;}
 .info-action-grid{display:grid;gap:12px;grid-template-columns:1fr;}
@@ -949,7 +954,7 @@ body.web-icons-disabled .control-field-apply{font-size:15px;font-weight:800;lett
 .measure-status-grid .dashboard-measure-card-head .runtime-card-actions{justify-self:end;align-self:center;margin:0;padding:0;}
 .measure-status-grid .dashboard-measure-card-head .runtime-action-dialog-trigger{min-height:0;padding:2px 0;border:0;background:transparent;box-shadow:none;color:var(--primary);font-size:12.5px;font-weight:400;white-space:nowrap;}
 .measure-status-grid .dashboard-measure-card-head .runtime-action-dialog-trigger:hover,.measure-status-grid .dashboard-measure-card-head .runtime-action-dialog-trigger:active{background:transparent;border:0;color:var(--btn-grad-start);text-decoration:underline;}
-.measure-status-grid .dashboard-measure-card-head .runtime-action-dialog-trigger:focus-visible{outline:2px solid var(--primary);outline-offset:2px;}
+.measure-status-grid .dashboard-measure-card-head .runtime-action-dialog-trigger:focus-visible,.info-card-footer .runtime-action-dialog-trigger:focus-visible{outline:2px solid var(--primary);outline-offset:2px;}
 .measure-status-grid .dashboard-measure-card-head .pool-card-icon{width:30px;height:30px;flex-basis:30px;font-size:17px;}
 .measure-status-grid .dashboard-measure-card-head .pool-card-title-wrap h3{font-size:14.5px;font-weight:650;letter-spacing:-0.2px;}
 .measure-status-grid .status-card-summary{margin-top:9px;}
@@ -1367,7 +1372,10 @@ select.runtime-setpoint-input { width: auto; max-width: 120px; text-align: left;
 
 /* Equipment and alarm management popups share the reference card charter. */
 .runtime-management-dialog{--runtime-table-cell-padding-x:24px;width:min(1400px,calc(100% - 32px));padding:0;background:var(--surface);border-radius:22px;}
+.runtime-management-dialog.info-health-dialog{max-width:680px;}
 .runtime-management-dialog .runtime-management-header{align-items:center;margin:0 0 16px;padding:20px 24px;}
+.info-health-dialog .runtime-management-header{margin-bottom:0;}
+.info-health-content{padding:0 var(--runtime-table-cell-padding-x) var(--runtime-table-cell-padding-x);}
 .runtime-management-status{display:flex;align-items:center;gap:12px;flex-shrink:0;}
 .runtime-management-dialog .runtime-management-actions .runtime-management-close{width:40px;height:40px;min-width:0;padding:0;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text-muted);}
 .runtime-management-dialog .runtime-management-actions .runtime-management-close:hover{color:var(--danger);border-color:var(--danger);background:var(--surface-soft);}
@@ -1600,8 +1608,8 @@ select.runtime-setpoint-input { width: auto; max-width: 120px; text-align: left;
 .dash-domain .dashboard-measure-card-head .pool-card-title-wrap{display:flex;align-items:center;height:34px;}
 .dash-domain .dashboard-measure-card-head .pool-card-title-wrap h3{margin:0;font-size:15.5px;font-weight:850;letter-spacing:-0.2px;}
 .dash-domain .dashboard-measure-card-head .runtime-card-actions{position:absolute;top:50%;right:0;transform:translateY(-50%);margin:0;padding:0;display:inline-flex;align-items:center;gap:8px;}
-.dash-domain .dashboard-measure-card-head .runtime-action-dialog-trigger{min-height:0;padding:0;border:0;background:transparent;box-shadow:none;color:var(--primary);font-size:13px;font-weight:600;white-space:nowrap;}
-.dash-domain .dashboard-measure-card-head .runtime-action-dialog-trigger:hover,.dash-domain .dashboard-measure-card-head .runtime-action-dialog-trigger:active{background:transparent;border:0;color:var(--btn-grad-start);text-decoration:underline;}
+:is(.dash-domain .dashboard-measure-card-head,.info-card-footer) .runtime-action-dialog-trigger{min-height:0;padding:0;border:0;background:transparent;box-shadow:none;color:var(--primary);font-size:13px;font-weight:600;white-space:nowrap;}
+:is(.dash-domain .dashboard-measure-card-head,.info-card-footer) .runtime-action-dialog-trigger:is(:hover,:active){background:transparent;border:0;color:var(--btn-grad-start);text-decoration:underline;}
 .dash-domain .status-card-summary{margin:0;color:var(--text-muted);font-size:13px;}
 .dash-domain .status-state-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:0;}
 .dash-domain .status-card-runtime .status-state-grid,.dash-domain .status-card-runtime .status-sonde-slot-grid,.dash-domain .status-card-runtime .status-alarm-slot-grid{margin-top:0;}

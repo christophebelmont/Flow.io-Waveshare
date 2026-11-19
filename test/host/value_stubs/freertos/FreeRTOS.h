@@ -9,3 +9,5 @@ using portMUX_TYPE = std::mutex;
 #define portMUX_INITIALIZER_UNLOCKED {}
 #define portENTER_CRITICAL(m) (m)->lock()
 #define portEXIT_CRITICAL(m) (m)->unlock()
+#define portENTER_CRITICAL_ISR(m) portENTER_CRITICAL(m)
+#define portEXIT_CRITICAL_ISR(m) portEXIT_CRITICAL(m)

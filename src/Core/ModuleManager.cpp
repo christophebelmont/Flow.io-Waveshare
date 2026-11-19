@@ -6,6 +6,7 @@
 #include <Arduino.h>
 #include <esp_heap_caps.h>
 #include <freertos/idf_additions.h>
+#include <new>
 #include "Core/Log.h"
 #include "Core/LogModuleIds.h"
 
@@ -193,12 +194,7 @@ bool ModuleManager::initAll(ConfigStore& cfg, ServiceRegistry& services) {
         ordered[i]->onConfigLoaded(cfg, services);
     }
 
-    taskEntryCount = 0;
-    for (uint8_t i = 0; i < orderedCount; ++i) {
-        Module* module = ordered[i];
-        if (!module) continue;
-        module->resetPrimaryTaskHandle_();
-    }
+    if (!declareTasks_()) return false;
 
     startupEpochMs_ = millis();
     startupFlags_ = (uint8_t)(kStartupPreparedFlag | kStartupActiveFlag);
@@ -246,148 +242,183 @@ bool ModuleManager::startModule_(uint8_t orderedIdx, ConfigStore& cfg, ServiceRe
 
     module->onStart(cfg, services);
 
-    const uint8_t declaredTaskCount = module->taskCount();
-    if (declaredTaskCount > 0) {
-        const ModuleTaskSpec* specs = module->taskSpecs();
-        if (!specs) {
-            Log::error(LOG_MODULE_ID, "taskSpecs missing module=%s taskCount=%u",
-                       toString(module->moduleId()),
-                       (unsigned)declaredTaskCount);
-            return false;
-        }
-
-        for (uint8_t taskIndex = 0; taskIndex < declaredTaskCount; ++taskIndex) {
-            const ModuleTaskSpec spec = specs[taskIndex];
-            if (!isValidTaskSpec(spec)) {
-                Log::error(LOG_MODULE_ID, "invalid task spec module=%s index=%u",
-                           toString(module->moduleId()),
-                           (unsigned)taskIndex);
-                return false;
-            }
-            if (taskEntryCount >= Limits::Core::Capacity::MaxModuleTasks) {
-                Log::error(LOG_MODULE_ID, "task registry full at module=%s limit=%u",
-                           toString(module->moduleId()),
-                           (unsigned)Limits::Core::Capacity::MaxModuleTasks);
-                return false;
-            }
-
-            TaskHandle_t handle = nullptr;
-            const UBaseType_t stackCaps = module->taskStackCaps();
-            Log::debug(LOG_MODULE_ID, "startTask module=%s task=%s core=%ld prio=%u stack=%lu",
-                       toString(module->moduleId()),
-                       spec.name,
-                       (long)spec.coreId,
-                       (unsigned)spec.priority,
-                       (unsigned long)spec.stackSize);
-
-            BaseType_t ok = pdFAIL;
-            const bool useDefaultInternalCaps =
-                ((stackCaps & MALLOC_CAP_SPIRAM) == 0U) &&
-                ((stackCaps & MALLOC_CAP_INTERNAL) != 0U);
-#if (configSUPPORT_STATIC_ALLOCATION == 1)
-            if (!useDefaultInternalCaps) {
-                ok = xTaskCreatePinnedToCoreWithCaps(
-                    spec.entry,
-                    spec.name,
-                    spec.stackSize,
-                    spec.context,
-                    spec.priority,
-                    &handle,
-                    spec.coreId,
-                    stackCaps
-                );
-            } else {
-                ok = xTaskCreatePinnedToCore(
-                    spec.entry,
-                    spec.name,
-                    spec.stackSize,
-                    spec.context,
-                    spec.priority,
-                    &handle,
-                    spec.coreId
-                );
-            }
-#else
-            ok = xTaskCreatePinnedToCore(
-                spec.entry,
-                spec.name,
-                spec.stackSize,
-                spec.context,
-                spec.priority,
-                &handle,
-                spec.coreId
-            );
-#endif
-            if (ok != pdPASS || !handle) {
-                const uint32_t free8 = heap_caps_get_free_size(MALLOC_CAP_8BIT);
-                const uint32_t largest8 = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
-                const uint32_t freeInternal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-                const uint32_t largestInternal = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
-                Log::error(LOG_MODULE_ID,
-                           "startTask failed module=%s task=%s err=%ld stack=%lu caps=%s heap8=%lu largest8=%lu internal=%lu largest_internal=%lu",
-                           toString(module->moduleId()),
-                           spec.name,
-                           (long)ok,
-                           (unsigned long)spec.stackSize,
-                           stackCapsLabel_(stackCaps),
-                           (unsigned long)free8,
-                           (unsigned long)largest8,
-                           (unsigned long)freeInternal,
-                           (unsigned long)largestInternal);
-                return false;
-            }
-
-            const uint32_t free8 = heap_caps_get_free_size(MALLOC_CAP_8BIT);
-            const uint32_t largest8 = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
-            const uint32_t freeInternal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-            const uint32_t largestInternal = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
-            Log::info(LOG_MODULE_ID,
-                      "startTask ok module=%s task=%s stack=%lu caps=%s heap8=%lu largest8=%lu internal=%lu largest_internal=%lu",
-                      toString(module->moduleId()),
-                      spec.name,
-                      (unsigned long)spec.stackSize,
-                      stackCapsLabel_(stackCaps),
-                      (unsigned long)free8,
-                      (unsigned long)largest8,
-                      (unsigned long)freeInternal,
-                      (unsigned long)largestInternal);
-
-            module->setPrimaryTaskHandle_(handle);
-            taskEntries[taskEntryCount++] = {
-                module,
-                handle,
-                taskIndex
-            };
-        }
+    uint8_t startedTasks = 0;
+    for (uint8_t i = 0; i < taskEntryCount; ++i) {
+        TaskEntry& entry = taskEntries[i];
+        if (entry.module != module || entry.deferred) continue;
+        if (!startTask_(entry)) return false;
+        ++startedTasks;
     }
 
     startupStartedMask_ |= (1UL << orderedIdx);
     Log::debug(LOG_MODULE_ID, "startup release: module=%s delay_ms=%lu tasks=%u",
                toString(module->moduleId()),
                (unsigned long)module->startDelayMs(),
-               (unsigned)declaredTaskCount);
+               (unsigned)startedTasks);
     return true;
 }
 
-bool ModuleManager::removeTaskEntry(TaskHandle_t handle)
+void ModuleManager::attachArduinoLoop(const char* name, uint32_t stackBytes, BaseType_t core)
 {
-    if (!handle) return false;
+    TaskEntry& entry = taskEntries[0];
+    entry.spec = {name, stackBytes, 1, core, nullptr, nullptr, TaskRole::ArduinoLoop};
+    entry.id = taskHealthId(ModuleId::Unknown, TaskRole::ArduinoLoop);
+    entry.health.configure(entry.spec.timing);
+    entry.health.requestStart();
+    entry.health.started();
+    taskEntryCount = 1;
+}
+
+bool ModuleManager::declareTasks_()
+{
+    for (uint8_t i = 0; i < orderedCount; ++i) {
+        Module& module = *ordered[i];
+        module.manager_ = this;
+        const uint8_t count = module.taskCount();
+        for (uint8_t index = 0; index < count; ++index) {
+            if (!declareTask_(module, module.taskSpec(index), false)) return false;
+        }
+        const auto deferred = module.deferredTaskSpec();
+        if (deferred.entry && !declareTask_(module, deferred, true)) return false;
+    }
+    return true;
+}
+
+bool ModuleManager::declareDisabledTasks(Module& module)
+{
+    const uint8_t count = module.taskCount();
+    for (uint8_t i = 0; i < count; ++i) {
+        if (!declareTask_(module, module.taskSpec(i), false, TaskHealthState::Disabled)) return false;
+    }
+    return true;
+}
+
+bool ModuleManager::declareTask_(Module& module, const ModuleTaskSpec& spec, bool deferred,
+                                TaskHealthState initialState)
+{
+    const uint16_t id = taskHealthId(module.moduleId(), spec.role);
+    if (!isValidTaskSpec(spec) || spec.minStackFreeBytes == 0U ||
+        spec.minStackFreeBytes > spec.stackSize ||
+        taskEntryCount >= Limits::Core::Capacity::MaxTaskHealthEntries) {
+        Log::error(LOG_MODULE_ID, "invalid task spec or full registry id=%u count=%u",
+                   (unsigned)id, (unsigned)taskEntryCount);
+        return false;
+    }
     for (uint8_t i = 0; i < taskEntryCount; ++i) {
-        if (taskEntries[i].handle != handle) continue;
-
-        Module* module = taskEntries[i].module;
-        if (module && module->getTaskHandle() == handle) {
-            module->resetPrimaryTaskHandle_();
+        if (taskEntries[i].id == id) {
+            Log::error(LOG_MODULE_ID, "duplicate task id=%u", (unsigned)id);
+            return false;
         }
+    }
 
-        for (uint8_t j = i; (uint8_t)(j + 1U) < taskEntryCount; ++j) {
-            taskEntries[j] = taskEntries[j + 1U];
+    TaskEntry& entry = taskEntries[taskEntryCount++];
+    entry.spec = spec;
+    entry.module = &module;
+    entry.owner = this;
+    entry.id = id;
+    entry.deferred = deferred;
+    entry.stackCaps = module.taskStackCaps();
+#if configSUPPORT_STATIC_ALLOCATION
+    entry.withCaps = (entry.stackCaps & MALLOC_CAP_SPIRAM) != 0U ||
+                     (entry.stackCaps & MALLOC_CAP_INTERNAL) == 0U;
+#endif
+    TaskWakeTrace* wakeTrace = nullptr;
+    if (spec.traceWake && initialState == TaskHealthState::Expected) {
+        void* storage = heap_caps_malloc(sizeof(TaskWakeTrace), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (storage) {
+            wakeTrace = new (storage) TaskWakeTrace{};
+            Log::info(LOG_MODULE_ID, "TaskWake trace id=%u capacity=%u psram_b=%lu",
+                      (unsigned)id, (unsigned)TaskWakeTrace::kCapacity, (unsigned long)sizeof(TaskWakeTrace));
+        } else {
+            Log::warn(LOG_MODULE_ID, "TaskWake trace unavailable id=%u: PSRAM allocation failed", (unsigned)id);
         }
-        --taskEntryCount;
-        taskEntries[taskEntryCount] = {};
-        return true;
+    }
+    entry.health.configure(spec.timing, initialState, wakeTrace);
+    return true;
+}
+
+bool ModuleManager::startTask_(TaskEntry& entry)
+{
+    if (!entry.health.requestStart()) return false;
+    const auto& spec = entry.spec;
+    TaskHandle_t handle = nullptr;
+    BaseType_t result;
+#if configSUPPORT_STATIC_ALLOCATION
+    if (entry.withCaps) {
+        result = xTaskCreatePinnedToCoreWithCaps(&ModuleManager::taskEntry_, spec.name, spec.stackSize,
+                                                &entry, spec.priority, &handle, spec.coreId, entry.stackCaps);
+    } else
+#endif
+    {
+        result = xTaskCreatePinnedToCore(&ModuleManager::taskEntry_, spec.name, spec.stackSize,
+                                        &entry, spec.priority, &handle, spec.coreId);
+    }
+
+    const auto level = result == pdPASS && handle ? LogLevel::Info : LogLevel::Error;
+    if (level == LogLevel::Error) entry.health.createFailed();
+
+    Log::logf(level, LOG_MODULE_ID,
+              "startTask id=%u task=%s err=%ld stack=%lu caps=%s internal=%lu largest=%lu",
+              (unsigned)entry.id, spec.name, (long)result, (unsigned long)spec.stackSize,
+              stackCapsLabel_(entry.stackCaps),
+              (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+              (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+    return level == LogLevel::Info;
+}
+
+void ModuleManager::taskEntry_(void* context)
+{
+    auto& entry = *static_cast<TaskEntry*>(context);
+    entry.health.started();
+    if (entry.spec.role == TaskRole::Primary) {
+        entry.module->primaryTaskHandle_.store(xTaskGetCurrentTaskHandle());
+    }
+    entry.spec.entry(entry.spec.context, entry.health);
+    entry.health.finish();
+    entry.owner->reapRequested_.store(true);
+    // The owner frees the task only once it has entered suspension.
+    for (;;) vTaskSuspend(nullptr);
+}
+
+void ModuleManager::reapFinishedTasks()
+{
+    if (!reapRequested_.exchange(false)) return;
+
+    for (uint8_t i = 0; i < taskEntryCount; ++i) {
+        TaskEntry& entry = taskEntries[i];
+        const auto health = entry.health.snapshot();
+        if (health.state != TaskHealthState::Finishing) continue;
+        if (eTaskGetState(health.handle) != eSuspended) {
+            reapRequested_.store(true);
+            continue;
+        }
+        if (entry.spec.role == TaskRole::Primary) entry.module->primaryTaskHandle_.store(nullptr);
+#if configSUPPORT_STATIC_ALLOCATION
+        if (entry.withCaps) {
+            vTaskDeleteWithCaps(health.handle);
+        } else
+#endif
+        {
+            vTaskDelete(health.handle);
+        }
+        entry.health.reaped();
+        Log::info(LOG_MODULE_ID, "task finished id=%u name=%s free_min=%luB",
+                  (unsigned)entry.id, entry.spec.name, (unsigned long)health.minFreeBytes);
+    }
+}
+
+bool ModuleManager::startDeferredTask_(Module& module)
+{
+    for (uint8_t i = 0; i < taskEntryCount; ++i) {
+        TaskEntry& entry = taskEntries[i];
+        if (entry.module == &module && entry.deferred) return startTask_(entry);
     }
     return false;
+}
+
+bool Module::startDeferredTask()
+{
+    return manager_ && manager_->startDeferredTask_(*this);
 }
 
 bool ModuleManager::tickStartup(ConfigStore& cfg, ServiceRegistry& services)

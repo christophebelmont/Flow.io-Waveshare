@@ -23,11 +23,6 @@ void OneWireBus::request() {
     dt_.requestTemperatures();
 }
 
-void OneWireBus::setWaitForConversion(bool enabled) {
-    if (!started_) return;
-    dt_.setWaitForConversion(enabled);
-}
-
 bool OneWireBus::getAddress(uint8_t index, uint8_t out[8]) const {
     if (!started_ || !out) return false;
     return dt_.getAddress(out, index);

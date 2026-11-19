@@ -29,7 +29,6 @@ public:
         return 6144;
     }
     uint8_t taskCount() const override { return 1; }
-    const ModuleTaskSpec* taskSpecs() const override { return singleLoopTaskSpec(); }
     uint32_t startDelayMs() const override {
         return 6000U;
     }

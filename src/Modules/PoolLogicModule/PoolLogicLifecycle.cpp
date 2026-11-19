@@ -1386,7 +1386,7 @@ void PoolLogicModule::loop()
                 LOGI("PoolLogic disabled: pool device writes enabled after adoption");
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(500));
+        delayNextCycle(pdMS_TO_TICKS(500));
         return;
     }
 
@@ -1416,7 +1416,7 @@ void PoolLogicModule::loop()
             bootControlReady_ = true;
             LOGI("PoolLogic boot adoption complete; pool device writes enabled");
         }
-        vTaskDelay(pdMS_TO_TICKS(200));
+        delayNextCycle(pdMS_TO_TICKS(200));
         return;
     }
 
@@ -1424,7 +1424,7 @@ void PoolLogicModule::loop()
         OverrideLock lock(overrideMutex_);
         runControlLoop_(nowMs);
     }
-    vTaskDelay(pdMS_TO_TICKS(200));
+    delayNextCycle(pdMS_TO_TICKS(200));
 }
 
 void PoolLogicModule::onEventStatic_(const Event& e, void* user)

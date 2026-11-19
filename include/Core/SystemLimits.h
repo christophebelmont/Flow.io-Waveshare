@@ -36,7 +36,7 @@ constexpr size_t MaxNvsKeyLen = 15;
 /** @brief FreeRTOS log queue length used by `LogHub` (`LogHubModule::init`).
  *  Sized for high boot/runtime bursts on ESP32-S3 + Arduino 3.x while keeping bounded memory usage. */
 constexpr uint16_t LogQueueLen = 256;
-/** @brief FreeRTOS event queue length used by `EventBus` (`EventBus::QUEUE_LENGTH`).
+/** @brief Static event FIFO length used by `EventBus` (`EventBus::QUEUE_LENGTH`).
  *  Sized to absorb startup bursts while limiting DRAM usage. */
 constexpr uint8_t EventQueueLen = 40;
 /** @brief Maximum number of EventBus subscribers (`EventBus::MAX_SUBSCRIBERS`). */
@@ -52,11 +52,15 @@ namespace Capacity {
 constexpr size_t MaxModules = 32;
 /** @brief Maximum number of declared tasks tracked by `ModuleManager`. */
 constexpr size_t MaxModuleTasks = 32;
+/** @brief Includes the Arduino loop and the deferred restart task. */
+constexpr size_t MaxTaskHealthEntries = MaxModuleTasks + 2U;
 }  // namespace Capacity
 
 namespace Task {
 /** @brief Default FreeRTOS task stack size used by `Module::taskStackSize`. */
 constexpr uint16_t DefaultStackSize = 3072;
+/** @brief Arduino bootstrap stack for the Waveshare profile, in internal RAM. */
+constexpr uint16_t ArduinoLoopStackSize = 6400;
 }  // namespace Task
 
 namespace Timing {
@@ -67,6 +71,9 @@ constexpr uint32_t LoopDelayMs = 10;
 
 /** @brief Configuration tree limits shared by local and remote explorers. */
 namespace Config {
+/** @brief Internal stack of the asynchronous NVS persistence task. */
+constexpr uint16_t PersistenceTaskStackSize = 3584;
+
 namespace Capacity {
 /** @brief Maximum number of unique config branches returned by `ConfigStore::listModules`. */
 // Every variable can belong to a distinct branch; enumeration must cover the full store.

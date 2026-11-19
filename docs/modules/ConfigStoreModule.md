@@ -6,7 +6,9 @@ Expose l'instance globale de `ConfigStore` dans le `ServiceRegistry` sous `Servi
 
 Le contrat exposé couvre les opérations JSON (`applyJson`, exports, inventaire des modules) ainsi que certaines opérations de stockage runtime (`readRuntimeBlob`, `writeRuntimeBlob`, `eraseKey`).
 
-Type: module passif.
+Le module possède une tâche `cfg.persist` sur le cœur 0 pour les écritures
+asynchrones. Sa pile de 3 584 octets reste en RAM interne pendant les
+opérations NVS.
 
 ## Dépendances
 

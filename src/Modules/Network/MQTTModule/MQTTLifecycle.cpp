@@ -549,7 +549,7 @@ void MQTTModule::loop()
     });
 
     if (!txStorage_) {
-        vTaskDelay(pdMS_TO_TICKS(Limits::Mqtt::Timing::DisabledDelayMs));
+        delayNextCycle(pdMS_TO_TICKS(Limits::Mqtt::Timing::DisabledDelayMs));
         return;
     }
 
@@ -558,16 +558,16 @@ void MQTTModule::loop()
             stopClient_(true);
             setState_(MQTTState::Disabled);
         }
-        vTaskDelay(pdMS_TO_TICKS(Limits::Mqtt::Timing::DisabledDelayMs));
+        delayNextCycle(pdMS_TO_TICKS(Limits::Mqtt::Timing::DisabledDelayMs));
         return;
     }
 
     if (!scratch_ && !allocateScratchBuffers_()) {
-        vTaskDelay(pdMS_TO_TICKS(Limits::Mqtt::Timing::DisabledDelayMs));
+        delayNextCycle(pdMS_TO_TICKS(Limits::Mqtt::Timing::DisabledDelayMs));
         return;
     }
     if (!rxQ_ && !allocateRxQueue_()) {
-        vTaskDelay(pdMS_TO_TICKS(Limits::Mqtt::Timing::DisabledDelayMs));
+        delayNextCycle(pdMS_TO_TICKS(Limits::Mqtt::Timing::DisabledDelayMs));
         return;
     }
 
@@ -641,5 +641,5 @@ void MQTTModule::loop()
 
     reportClientTaskStackIfDue_(nowMs);
 
-    vTaskDelay(pdMS_TO_TICKS(Limits::Mqtt::Timing::LoopDelayMs));
+    delayNextCycle(pdMS_TO_TICKS(Limits::Mqtt::Timing::LoopDelayMs));
 }

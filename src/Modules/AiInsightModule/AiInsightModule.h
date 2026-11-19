@@ -43,7 +43,6 @@ public:
         return ModuleId::Unknown;
     }
     uint8_t taskCount() const override { return 1U; }
-    const ModuleTaskSpec* taskSpecs() const override { return singleLoopTaskSpec(); }
     uint16_t taskStackSize() const override { return 8192U; }
     UBaseType_t taskStackCaps() const override {
         return MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;

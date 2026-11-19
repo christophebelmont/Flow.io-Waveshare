@@ -171,6 +171,8 @@ void registerModules(AppContext& ctx, ModuleInstances& modules)
     ctx.moduleManager.add(&modules.mqttModule);
     if (mqttEnabledInPreferences(ctx.preferences)) {
         ctx.moduleManager.add(&modules.haModule);
+    } else {
+        requireSetup(ctx.moduleManager.declareDisabledTasks(modules.haModule), "declare disabled HA task");
     }
     ctx.moduleManager.add(&modules.systemModule);
     ctx.moduleManager.add(&modules.ioModule);
@@ -288,14 +290,16 @@ void setupProfile(AppContext& ctx)
     postInit(ctx, modules);
 }
 
-void loopProfile(AppContext&)
+void loopProfile(AppContext& ctx)
 {
     ModuleInstances& modules = moduleInstances();
     if (modules.haService) {
         releaseIoHomeAssistantDiscoveryHeapIfDone(modules);
         refreshIoHomeAssistantIfNeeded(modules);
     }
-    delay(20);
+    constexpr auto waitTicks = pdMS_TO_TICKS(20);
+    ctx.moduleManager.arduinoLoopHealth().endCycle(waitTicks);
+    vTaskDelay(waitTicks);
 }
 
 }  // namespace Waveshare

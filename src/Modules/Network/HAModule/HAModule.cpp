@@ -1191,13 +1191,14 @@ void HAModule::loop()
         HA_BOOT_TRACE_I("ha boot trace: loop detected completion, deleting task");
         markBootLogCaptureCompleteAfterDiscovery_();
         releaseOneShotResources_();
-        vTaskDelete(nullptr);
+        finishLoopTask();
+        return;
     }
 #endif
     if (anyPending_()) {
         (void)enqueuePending_(MqttPublishPriority::Low);
     }
-    vTaskDelay(pdMS_TO_TICKS(250));
+    delayNextCycle(pdMS_TO_TICKS(250));
 }
 
 void HAModule::onConfigLoaded(ConfigStore&, ServiceRegistry& services)

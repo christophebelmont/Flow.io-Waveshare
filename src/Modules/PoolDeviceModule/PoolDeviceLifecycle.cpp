@@ -423,21 +423,21 @@ void PoolDeviceModule::loop()
 {
     if (!lockState_(pdMS_TO_TICKS(500))) {
         LOGW("PoolDevice loop skipped: state lock timeout");
-        vTaskDelay(pdMS_TO_TICKS(200));
+        delayNextCycle(pdMS_TO_TICKS(200));
         return;
     }
 
     if (!runtimeReady_) {
         if (!configureRuntime_()) {
             unlockState_();
-            vTaskDelay(pdMS_TO_TICKS(250));
+            delayNextCycle(pdMS_TO_TICKS(250));
             return;
         }
     }
 
     tickDevices_(millis());
     unlockState_();
-    vTaskDelay(pdMS_TO_TICKS(20));
+    delayNextCycle(pdMS_TO_TICKS(20));
 }
 
 void PoolDeviceModule::registerDriverHa_(uint8_t slot)

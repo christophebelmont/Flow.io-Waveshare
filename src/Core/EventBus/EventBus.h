@@ -5,14 +5,12 @@
  */
 #include <stdint.h>
 #include <stddef.h>
-#include <string.h>
 
 #include "EventId.h"
 #include "Core/ModuleId.h"
 #include "Core/SystemLimits.h"
 
 #include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
 
 #ifndef EVENTBUS_PROFILE
 #define EVENTBUS_PROFILE 1
@@ -50,14 +48,41 @@ public:
     // Maximum payload size copied into internal queue.
     static constexpr uint8_t MAX_PAYLOAD_SIZE = 48;
 
-    // Maximum number of queued events (FreeRTOS queue length).
+    // Maximum number of queued events.
     static constexpr uint8_t QUEUE_LENGTH = Limits::EventQueueLen;
 
-    /** @brief Construct and initialize the event queue. */
+    enum class QueueId : uint8_t { Dispatch = 1 };
+
+    struct QueueSnapshot {
+        QueueId id = QueueId::Dispatch;
+        uint8_t capacity = QUEUE_LENGTH;
+        uint8_t queued = 0;
+        uint8_t peak = 0;
+        uint32_t accepted = 0;
+        uint32_t dequeued = 0;
+        uint32_t fullDrops = 0;
+        uint32_t fullRetries = 0;
+        uint32_t oversizeDrops = 0;
+        uint32_t missingPayloadDrops = 0;
+        uint32_t isrDrops = 0;
+        uint32_t controlDrops = 0;
+        uint32_t subscriptionDrops = 0;
+        EventId lastDroppedEvent = EventId::None;
+        ModuleId lastDroppedProducer = ModuleId::Unknown;
+        EventId oldestEvent = EventId::None;
+        ModuleId oldestProducer = ModuleId::Unknown;
+        uint64_t oldestAgeUs = 0;
+        EventId slowestEvent = EventId::None;
+        ModuleId slowestProducer = ModuleId::Unknown;
+        uint64_t maxQueueDelayUs = 0;
+    };
+
     EventBus();
     ~EventBus() = default;
+    EventBus(const EventBus&) = delete;
+    EventBus& operator=(const EventBus&) = delete;
 
-    /** @brief Subscribe to an event id (not thread-safe; call during init). */
+    /** @brief Append a subscriber. Its callback and context must outlive dispatch. */
     bool subscribe(EventId id, EventCallback cb, void* user);
 
     /**
@@ -70,7 +95,7 @@ public:
 
     /** @brief Attempt delivery without counting a full queue as a loss.
      * The caller owns the pending event and must retry until accepted.
-     * Invalid payloads or an unavailable queue remain errors. */
+     * Invalid payloads remain errors. */
     bool tryPost(EventId id, const void* payload = nullptr, size_t len = 0,
                  ModuleId producer = ModuleId::Unknown);
 
@@ -80,8 +105,11 @@ public:
                      size_t len = 0,
                      ModuleId producer = ModuleId::Unknown);
 
-    /** @brief Dispatch queued events and call subscribers. */
+    /** @brief Dispatch queued events and call subscribers from the single consumer task. */
     void dispatch(uint16_t maxEvents = 8);
+
+    /** @brief Copy a consistent snapshot from task context. */
+    QueueSnapshot queueSnapshot();
 
 private:
     enum class SubRejectReason : uint8_t {
@@ -106,35 +134,30 @@ private:
     };
 
     struct QueuedEvent {
+        uint64_t admittedUs;
+        alignas(uint64_t) uint8_t data[MAX_PAYLOAD_SIZE];
         EventId id;
-        ModuleId producer = ModuleId::Unknown;
+        ModuleId producer;
         uint8_t len;
-        uint8_t data[MAX_PAYLOAD_SIZE];
     };
 
     Subscriber _subs[MAX_SUBSCRIBERS];
     uint16_t _count = 0;
 
-    QueueHandle_t _queue = nullptr;
-    portMUX_TYPE _statsMux = portMUX_INITIALIZER_UNLOCKED;
-    uint32_t _postOkTotal = 0;
-    uint32_t _postDropTotal = 0;
-    uint32_t _postDropFromIsrTotal = 0;
-    uint32_t _postDropTooLargeTotal = 0;
-    uint32_t _postDropNoQueueTotal = 0;
-    uint32_t _winStartMs = 0;
-    uint32_t _winDropCount = 0;
-    uint32_t _winCurrentDropBurst = 0;
-    uint32_t _winMaxDropBurst = 0;
-    uint32_t _subRejectTotal = 0;
-    uint32_t _subRejectNullCbTotal = 0;
-    uint32_t _subRejectCapacityTotal = 0;
+    QueuedEvent _queue[QUEUE_LENGTH]{};
+    uint8_t _head = 0;
+    uint8_t _tail = 0;
+    portMUX_TYPE _mux = portMUX_INITIALIZER_UNLOCKED;
+    QueueSnapshot _stats{};
     uint32_t _subRejectReportedSeq = 0;
     SubscribeRejectInfo _subRejectRing[SUB_REJECT_RING_CAP]{};
     uint8_t _subRejectWriteIdx = 0;
 
-    bool post_(EventId id, const void* payload, size_t len, ModuleId producer,
-               bool retryOnFull);
+    enum class PostMode : uint8_t { DiscardOnFull, RetryOnFull, FromIsr };
+    bool post_(EventId id, const void* payload, size_t len, ModuleId producer, PostMode mode);
+    bool take_(QueuedEvent& event);
+    void reportSubscribeRejects_();
+    void notePeakUsage_(uint8_t queued, uint16_t subscribers, bool fromIsr);
     void dispatchOne(const QueuedEvent& qe);
     void recordSubscribeReject_(EventId id, EventCallback cb, void* user, SubRejectReason reason);
     static const char* subRejectReasonStr_(uint8_t reason);

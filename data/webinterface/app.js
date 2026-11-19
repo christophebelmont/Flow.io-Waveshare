@@ -272,6 +272,7 @@
           applyProfileUiText();
           syncMenuIconFallbacks();
           renderInfoPanel();
+          renderInfoHealth();
           refreshPoolMeasuresView();
           renderDerivedValuesIfLoaded();
           if (getActivePageId() === 'page-dashboard' && poolConfigLoadedOnce) {
@@ -291,6 +292,7 @@
       applyProfileUiText();
       syncMenuIconFallbacks();
       renderInfoPanel();
+      renderInfoHealth();
       refreshPoolMeasuresView();
       renderDerivedValuesIfLoaded();
       refreshCfgDocLocaleRuntime(true).catch(() => {});
@@ -304,6 +306,7 @@
         applyProfileUiText();
         syncMenuIconFallbacks();
         renderInfoPanel();
+        renderInfoHealth();
         refreshPoolMeasuresView();
         if (getActivePageId() === 'page-dashboard' && poolConfigLoadedOnce) {
           loadPoolConfig(true).catch(() => {});
@@ -1581,6 +1584,89 @@
       return Number.isFinite(n) ? String(Math.trunc(n)) : '-';
     }
 
+    function formatInfoHealthDuration(us) {
+      if (!Number.isFinite(us) || us < 0) return '-';
+      if (us < 1000) return formatInfoCount(us) + ' µs';
+      if (us < 1000000) {
+        return (us / 1000).toLocaleString(currentWebLocaleTag(), { maximumFractionDigits: 2 }) + ' ms';
+      }
+      return formatRuntimeDurationMs(us / 1000);
+    }
+
+    function renderInfoHealth() {
+      if (!infoHealthStatus) return;
+      const snapshot = infoHealthData;
+      const tasks = snapshot && snapshot.tasks;
+      const eventBus = snapshot && snapshot.event_bus;
+      let status = tr('info.health.waiting', 'En attente du premier relevé.');
+      if (infoHealthFetchFailed) {
+        status = tasks || eventBus
+          ? tr('info.health.stale', 'Actualisation indisponible. Dernier relevé affiché.')
+          : tr('info.health.unavailable', 'Mesures de santé indisponibles.');
+      } else if (tasks || eventBus) {
+        status = tr('info.health.age', 'Âge du relevé : {age} · Cumuls depuis le démarrage')
+          .replace('{age}', formatRuntimeDurationMs(snapshot.sample_age_ms));
+      }
+      if (infoHealthStatus.textContent !== status) infoHealthStatus.textContent = status;
+
+      infoTaskHealth.hidden = !tasks;
+      if (tasks) {
+        const lowest = tasks.lowest_stack;
+        const longest = tasks.longest_work;
+        const margin = lowest
+          ? lowest.task + ' · ' + formatInfoCount(lowest.free_b) + ' / ' + formatInfoCount(lowest.threshold_b) + ' B'
+          : '-';
+        renderInfoMetricRows(infoTaskHealthRows, [
+          [tr('info.health.running', 'Tâches en cours'), formatInfoCount(tasks.running)],
+          [tr('info.health.lowStacks', 'Piles sous le seuil'), formatInfoCount(tasks.below_stack)],
+          [tr('info.health.lowestStack', 'Marge la plus faible (libre / seuil)'), margin],
+          [tr('info.health.lateStarts', 'Réveils tardifs'), formatInfoCount(tasks.late_starts)],
+          [tr('info.health.overruns', 'Budgets de travail dépassés'), formatInfoCount(tasks.work_overruns)],
+          [tr('info.health.longestWork', 'Travail le plus long'), longest
+            ? longest.task + ' · ' + formatInfoHealthDuration(longest.duration_us) : '-']
+        ]);
+      }
+      infoEventBusHealth.hidden = !eventBus;
+      if (eventBus) {
+        const capacity = formatInfoCount(eventBus.capacity);
+        renderInfoMetricRows(infoEventBusHealthRows, [
+          [tr('info.health.queued', 'Occupation'), formatInfoCount(eventBus.queued) + ' / ' + capacity],
+          [tr('info.health.peak', 'Pic d’occupation'), formatInfoCount(eventBus.peak) + ' / ' + capacity],
+          [tr('info.health.oldest', 'Âge de l’événement en tête'), formatInfoHealthDuration(eventBus.oldest_age_us)],
+          [tr('info.health.delay', 'Latence maximale en file'), formatInfoHealthDuration(eventBus.max_delay_us)],
+          [tr('info.health.drops', 'Publications perdues'), formatInfoCount(eventBus.drops)],
+          [tr('info.health.controlDrops', 'Dont événements de contrôle'), formatInfoCount(eventBus.control_drops)],
+          [tr('info.health.retries', 'Tentatives à rejouer'), formatInfoCount(eventBus.retries)]
+        ]);
+      }
+    }
+
+    async function refreshInfoHealth() {
+      if (!isInfoPageVisible() || !infoHealthDialog?.open) return;
+      if (infoHealthRefreshPromise) return infoHealthRefreshPromise;
+
+      infoHealthRefreshPromise = fetchOkJson('/api/system/health', { cache: 'no-store' }, 'system health')
+        .then((data) => {
+          infoHealthData = data;
+          infoHealthFetchFailed = false;
+        })
+        .catch(() => {
+          infoHealthFetchFailed = true;
+        })
+        .finally(() => {
+          infoHealthRefreshPromise = null;
+          renderInfoHealth();
+        });
+      return infoHealthRefreshPromise;
+    }
+
+    function openInfoHealthDialog() {
+      if (!infoHealthDialog || infoHealthDialog.open) return;
+      renderInfoHealth();
+      infoHealthDialog.showModal();
+      return refreshInfoHealth();
+    }
+
     function formatInfoNetworkType(value) {
       const normalized = normalizeNetworkType(value);
       if (normalized === 'ethernet') return tr('info.netType.ethernet', 'Ethernet');
@@ -1716,6 +1802,7 @@
         await refreshInfoFlowDomains(true);
       } catch (err) {
       }
+      await refreshInfoHealth();
       renderInfoPanel();
     }
 
@@ -2085,6 +2172,7 @@
       }
       if (pageId !== 'page-info') {
         stopInfoPolling();
+        if (infoHealthDialog?.open) infoHealthDialog.close();
       }
       pages.forEach((el) => el.classList.toggle('active', el.id === pageId));
       menuItems.forEach((el) => el.classList.toggle('active', el.dataset.page === pageId));
@@ -2269,6 +2357,14 @@
     const systemStatusText = document.getElementById('systemStatusText');
     const infoStatusChip = document.getElementById('infoStatusChip');
     const infoGrid = document.getElementById('infoGrid');
+    const infoHealthDialog = document.getElementById('infoHealthDialog');
+    const infoHealthOpen = document.getElementById('infoHealthOpen');
+    const infoHealthClose = document.getElementById('infoHealthClose');
+    const infoHealthStatus = document.getElementById('infoHealthStatus');
+    const infoTaskHealth = document.getElementById('infoTaskHealth');
+    const infoTaskHealthRows = document.getElementById('infoTaskHealthRows');
+    const infoEventBusHealth = document.getElementById('infoEventBusHealth');
+    const infoEventBusHealthRows = document.getElementById('infoEventBusHealthRows');
     const infoSystemGrid = document.getElementById('infoSystemGrid');
     const infoWifiGrid = document.getElementById('infoWifiGrid');
     const infoMqttGrid = document.getElementById('infoMqttGrid');
@@ -2516,6 +2612,9 @@
     let infoFlowLastAttemptAt = 0;
     let infoFlowLastSuccessAt = 0;
     let infoFlowRefreshPromise = null;
+    let infoHealthData = null;
+    let infoHealthFetchFailed = false;
+    let infoHealthRefreshPromise = null;
     const runtimeMeasureDomainKeys = Object.freeze(['mode', 'equipements', 'sondes', 'alarm']);
     let runtimeManifestDomainCache = null;
     let runtimeManifestDomainLoadPromise = null;
@@ -3230,6 +3329,11 @@
     if (openLogsOverlayBtn) {
       openLogsOverlayBtn.addEventListener('click', openLogsOverlay);
     }
+    infoHealthOpen?.addEventListener('click', openInfoHealthDialog);
+    infoHealthClose?.replaceChildren(buildRuntimeActionIcon('close'));
+    infoHealthDialog?.addEventListener('close', () => {
+      if (isPageActive('page-info')) infoHealthOpen?.focus();
+    });
     if (closeLogsOverlayBtn) {
       closeLogsOverlayBtn.addEventListener('click', closeLogsOverlay);
     }

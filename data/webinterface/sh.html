@@ -535,6 +535,9 @@
           <div class="info-main-column">
             <div class="card info-card info-system-table-card">
               <div id="infoGrid" class="info-list info-system-table" aria-live="polite"></div>
+              <div class="info-card-footer">
+                <button id="infoHealthOpen" class="secondary runtime-action-dialog-trigger" type="button" aria-haspopup="dialog" aria-controls="infoHealthDialog" data-i18n="info.health.details">Détails...</button>
+              </div>
             </div>
             <div class="card info-card info-legal-card">
               <div class="config-section info-panel">
@@ -652,6 +655,27 @@
       </section>
     </main>
   </div>
+  <dialog id="infoHealthDialog" class="runtime-action-dialog runtime-management-dialog info-health-dialog" aria-labelledby="infoHealthTitle">
+    <div class="runtime-management-header">
+      <h2 id="infoHealthTitle" data-i18n="info.health.title">Santé du système</h2>
+      <form class="btn-row runtime-management-actions" method="dialog">
+        <button id="infoHealthClose" class="secondary runtime-management-close" type="submit" aria-label="Fermer" data-i18n-aria-label="dashboard.action.close" autofocus>×</button>
+      </form>
+    </div>
+    <div class="info-health-content">
+      <p id="infoHealthStatus" class="info-health-status" role="status">En attente du premier relevé.</p>
+      <div class="info-health-grid">
+        <section id="infoTaskHealth" hidden>
+          <h3 class="info-card-header">FreeRTOS</h3>
+          <div id="infoTaskHealthRows" class="info-list"></div>
+        </section>
+        <section id="infoEventBusHealth" hidden>
+          <h3 class="info-card-header">EventBus</h3>
+          <div id="infoEventBusHealthRows" class="info-list"></div>
+        </section>
+      </div>
+    </div>
+  </dialog>
   <dialog id="accountDialog" class="account-dialog" aria-labelledby="accountDialogTitle">
     <div class="account-dialog-head">
       <h2 id="accountDialogTitle" class="ui-heading-inline"><span class="ui-msr" aria-hidden="true">manage_accounts</span><span data-i18n="users.account.title">Mon compte</span></h2>

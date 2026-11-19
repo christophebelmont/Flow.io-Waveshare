@@ -43,7 +43,6 @@ public:
         return 4096;
     }
     uint8_t taskCount() const override { return 1; }
-    const ModuleTaskSpec* taskSpecs() const override { return singleLoopTaskSpec(); }
 
     uint8_t dependencyCount() const override {
         // Keep AP provisioning web startup independent from heavy app modules.

@@ -185,7 +185,7 @@ void EthernetModule::loop()
 
     switch (state_) {
         case EthernetState::Disabled:
-            vTaskDelay(pdMS_TO_TICKS(300));
+            delayNextCycle(pdMS_TO_TICKS(300));
             break;
 
         case EthernetState::Starting:
@@ -194,21 +194,21 @@ void EthernetModule::loop()
             } else {
                 setState_(EthernetState::ErrorWait);
             }
-            vTaskDelay(pdMS_TO_TICKS(80));
+            delayNextCycle(pdMS_TO_TICKS(80));
             break;
 
         case EthernetState::WaitingIp:
             if (gotIp_) {
                 setState_(EthernetState::Connected);
             }
-            vTaskDelay(pdMS_TO_TICKS(120));
+            delayNextCycle(pdMS_TO_TICKS(120));
             break;
 
         case EthernetState::Connected:
             if (!gotIp_) {
                 setState_(EthernetState::WaitingIp);
             }
-            vTaskDelay(pdMS_TO_TICKS(150));
+            delayNextCycle(pdMS_TO_TICKS(150));
             break;
 
         case EthernetState::ErrorWait:
@@ -221,7 +221,7 @@ void EthernetModule::loop()
                      esp_err_to_name((esp_err_t)lastStartFailureErr_));
                 setState_(EthernetState::Starting);
             }
-            vTaskDelay(pdMS_TO_TICKS(200));
+            delayNextCycle(pdMS_TO_TICKS(200));
             break;
     }
 }

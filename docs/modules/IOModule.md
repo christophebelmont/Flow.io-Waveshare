@@ -66,6 +66,20 @@ Jobs planifiés en interne:
 - `ds_slow`
 - `din_poll`
 
+`ds_slow` lance une conversion ou lit une sonde DS18B20 par cycle I/O.
+Chaque sonde active suit la période `io/drivers/ds18b20/poll_ms` (10 s
+par défaut). Lorsque les deux sondes sont actives, la sonde d’air
+démarre une demi-période après celle d’eau. Le pilote attend 750 ms
+entre le lancement de la conversion et sa lecture, sans bloquer I/O.
+
+`DsPoll` identifie la sonde par `source` (2 pour l’eau, 3 pour l’air)
+et la dernière étape par `step` (`convert` ou `read`). Les temps sont
+mesurés en microsecondes monotones. `steps` compte les conversions
+lancées et les lectures traitées depuis le démarrage.
+`over_io_budget` compte celles qui dépassent à elles seules le budget
+I/O de 25 ms. Le journal émet au plus une ligne par sonde toutes les
+cinq secondes.
+
 ## Services exposés
 
 - `io` -> `IOServiceV2`

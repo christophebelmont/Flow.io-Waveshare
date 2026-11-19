@@ -17,8 +17,8 @@ public:
     ModuleId dependency(uint8_t i) const override {
         return (i == 0) ? ModuleId::LogHub : ModuleId::Unknown;
     }
+    TaskTimingContract taskTiming() const override { return {TaskCadence::EventDriven}; }
     uint8_t taskCount() const override { return 1; }
-    const ModuleTaskSpec* taskSpecs() const override { return singleLoopTaskSpec(); }
     uint16_t taskStackSize() const override { return 4096; }
     UBaseType_t taskPriority() const override { return 1; }
     BaseType_t taskCore() const override { return 1; }

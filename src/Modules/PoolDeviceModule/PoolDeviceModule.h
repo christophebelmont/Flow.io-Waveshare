@@ -53,8 +53,8 @@ public:
     ModuleId runtimeUiProviderModuleId() const override { return moduleId(); }
     const char* taskName() const override { return "pooldev"; }
     BaseType_t taskCore() const override { return 1; }
+    TaskTimingContract taskTiming() const override { return {TaskCadence::Periodic, 25000U}; }
     uint8_t taskCount() const override { return 1; }
-    const ModuleTaskSpec* taskSpecs() const override { return singleLoopTaskSpec(); }
 
     uint8_t dependencyCount() const override { return 6; }
     ModuleId dependency(uint8_t i) const override {

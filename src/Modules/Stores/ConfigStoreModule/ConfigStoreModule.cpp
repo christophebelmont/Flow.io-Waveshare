@@ -276,6 +276,7 @@ void ConfigStoreModule::loop() {
 
     PersistenceRequest req{};
     if (xQueueReceive(persistenceQ_, &req, portMAX_DELAY) == pdTRUE) {
+        beginTaskWork();
         processPersistence_(req);
     }
 }

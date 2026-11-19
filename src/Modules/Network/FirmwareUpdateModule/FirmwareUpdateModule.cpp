@@ -2464,7 +2464,7 @@ void FirmwareUpdateModule::init(ConfigStore& cfg, ServiceRegistry& services)
 void FirmwareUpdateModule::loop()
 {
     if (!manifestMetadata_) {
-        vTaskDelay(pdMS_TO_TICKS(60));
+        delayNextCycle(pdMS_TO_TICKS(60));
         return;
     }
 
@@ -2506,7 +2506,7 @@ void FirmwareUpdateModule::loop()
     portENTER_CRITICAL(&lock_);
     if (busy_) {
         portEXIT_CRITICAL(&lock_);
-        vTaskDelay(pdMS_TO_TICKS(60));
+        delayNextCycle(pdMS_TO_TICKS(60));
         return;
     }
     if (nextionRebootQueued_) {
@@ -2529,7 +2529,7 @@ void FirmwareUpdateModule::loop()
         }
     } else {
         portEXIT_CRITICAL(&lock_);
-        vTaskDelay(pdMS_TO_TICKS(60));
+        delayNextCycle(pdMS_TO_TICKS(60));
         return;
     }
     portEXIT_CRITICAL(&lock_);
@@ -2609,5 +2609,5 @@ void FirmwareUpdateModule::loop()
     activeSentBytes_ = 0;
     portEXIT_CRITICAL(&lock_);
 
-    vTaskDelay(pdMS_TO_TICKS(20));
+    delayNextCycle(pdMS_TO_TICKS(20));
 }

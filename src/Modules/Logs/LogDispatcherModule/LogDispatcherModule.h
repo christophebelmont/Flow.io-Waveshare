@@ -16,7 +16,7 @@ public:
     /** @brief Module id. */
     ModuleId moduleId() const override { return ModuleId::LogDispatcher; }
     uint8_t taskCount() const override { return (_hub && _sinkReg) ? 1 : 0; }
-    const ModuleTaskSpec* taskSpecs() const override;
+    ModuleTaskSpec taskSpec(uint8_t index) const override;
     UBaseType_t taskStackCaps() const override {
         return MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
     }
@@ -32,7 +32,7 @@ public:
     void init(ConfigStore& cfg, ServiceRegistry& services) override;
 
 private:
-    static void taskFn(void* pv);
+    static void taskFn(void* pv, TaskHealth& health);
 
     ServiceRegistry* _services = nullptr;
     LogHub* _hub = nullptr;

@@ -10,6 +10,7 @@
 #include <WiFi.h>                ///< only for RSSI (optional)
 #include <esp_heap_caps.h>
 #include <esp_system.h>
+#include <esp_timer.h>
 #include <new>
 #include <string.h>
 #ifdef CONFIG_HEAP_TASK_TRACKING
@@ -182,6 +183,12 @@ void SystemMonitorModule::init(ConfigStore& cfg, ServiceRegistry& services) {
     cfgSvc  = services.get<ConfigStoreService>(ServiceId::ConfigStore);
     logHub  = services.get<LogHubService>(ServiceId::LogHub);
     haSvc_  = services.get<HAService>(ServiceId::Ha);
+    if (const auto* eventBus = services.get<EventBusService>(ServiceId::EventBus)) {
+        eventBus_ = eventBus->bus;
+    }
+    if (!services.add(ServiceId::SystemHealth, &healthService_)) {
+        LOGE("System health service registration failed");
+    }
 
 #if defined(configUSE_TRACE_FACILITY) && (configUSE_TRACE_FACILITY == 1)
     constexpr uint32_t taskSnapshotCaps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
@@ -201,20 +208,6 @@ void SystemMonitorModule::init(ConfigStore& cfg, ServiceRegistry& services) {
              taskSnapshotMemory);
     }
 
-    stackBaselines_ = static_cast<StackBaselineEntry*>(
-        heap_caps_calloc(kStackBaselineCapacity, sizeof(StackBaselineEntry), taskSnapshotCaps)
-    );
-    if (stackBaselines_) {
-        LOGI("Stack baseline allocated capacity=%u bytes=%lu memory=%s",
-             (unsigned)kStackBaselineCapacity,
-             (unsigned long)(kStackBaselineCapacity * sizeof(StackBaselineEntry)),
-             taskSnapshotMemory);
-    } else {
-        LOGW("Stack baseline unavailable capacity=%u bytes=%lu memory=%s",
-             (unsigned)kStackBaselineCapacity,
-             (unsigned long)(kStackBaselineCapacity * sizeof(StackBaselineEntry)),
-             taskSnapshotMemory);
-    }
 #endif
 
 #if FLOW_WEB_HEAP_FORENSICS
@@ -377,211 +370,250 @@ void SystemMonitorModule::logHeapStats() {
     }
 }
 
-SystemMonitorModule::StackBaselineEntry* SystemMonitorModule::stackBaselineFor_(const char* taskName)
+namespace {
+const char* taskStateLabel(TaskHealthState state)
 {
-    if (!taskName || !taskName[0]) taskName = "-";
-
-    for (size_t i = 0; i < stackBaselineCount_; ++i) {
-        if (strcmp(stackBaselines_[i].name, taskName) == 0) {
-            return &stackBaselines_[i];
-        }
+    switch (state) {
+        case TaskHealthState::Expected: return "expected";
+        case TaskHealthState::Starting: return "starting";
+        case TaskHealthState::Running: return "running";
+        case TaskHealthState::Finishing: return "finishing";
+        case TaskHealthState::Finished: return "finished";
+        case TaskHealthState::CreateFailed: return "create_failed";
+        case TaskHealthState::Disabled: return "disabled";
     }
-    if (!stackBaselines_ || stackBaselineCount_ >= kStackBaselineCapacity) {
-        return nullptr;
-    }
-
-    StackBaselineEntry& entry = stackBaselines_[stackBaselineCount_++];
-    entry = StackBaselineEntry{};
-    snprintf(entry.name, sizeof(entry.name), "%s", taskName);
-    entry.minFreeBytes = UINT32_MAX;
-    return &entry;
+    return "unknown";
 }
 
-void SystemMonitorModule::logTaskStacks() {
-#if defined(configUSE_TRACE_FACILITY) && (configUSE_TRACE_FACILITY == 1)
-    const UBaseType_t liveTaskCount = uxTaskGetNumberOfTasks();
-    if (liveTaskCount == 0U) {
-        LOGD("Stack none");
-        return;
+const char* taskCadenceLabel(TaskCadence cadence)
+{
+    switch (cadence) {
+        case TaskCadence::Periodic: return "periodic";
+        case TaskCadence::EventDriven: return "event";
+        case TaskCadence::OneShot: return "one_shot";
     }
-    TaskStatus_t* const liveTasks = taskStatusSnapshot_;
-    if (!liveTasks) {
-        LOGW("Stack snapshot unavailable (persistent buffer not allocated tasks=%u)",
-             (unsigned)liveTaskCount);
-        return;
+    return "unknown";
+}
+
+void reportTaskHealth(const ModuleManager::TaskEntry& entry, const TaskHealthSnapshot& snapshot,
+                      uint64_t nowUs, bool overdue)
+{
+    const auto& spec = entry.spec;
+    const auto& timing = snapshot.timing;
+    const uint64_t progressUs = timing.cycles && timing.lastProgressUs
+        ? timing.lastProgressUs : snapshot.startedUs;
+    const uint64_t ageMs = snapshot.state == TaskHealthState::Running && nowUs >= progressUs
+        ? (nowUs - progressUs) / 1000U : 0U;
+
+    LOGI("TaskSpec id=%u name=%s core=%ld prio=%u stack_b=%lu min_b=%u mode=%s budget_us=%lu slack_us=%lu",
+         (unsigned)entry.id, spec.name, (long)spec.coreId, (unsigned)spec.priority,
+         (unsigned long)spec.stackSize, (unsigned)spec.minStackFreeBytes, taskCadenceLabel(spec.timing.cadence),
+         (unsigned long)spec.timing.workBudgetUs, (unsigned long)spec.timing.wakeToleranceUs);
+    char freeBytes[11] = "-";
+    if (snapshot.stackSamples) snprintf(freeBytes, sizeof(freeBytes), "%lu", (unsigned long)snapshot.minFreeBytes);
+    LOGI("TaskHealth id=%u gen=%lu state=%s samples=%lu free_b=%s cycles=%lu overdue=%u age_ms=%llu",
+         (unsigned)entry.id, (unsigned long)snapshot.generation, taskStateLabel(snapshot.state),
+         (unsigned long)snapshot.stackSamples, freeBytes, (unsigned long)timing.cycles, (unsigned)overdue,
+         (unsigned long long)ageMs);
+    LOGI("TaskTime id=%u late=%lu over=%lu max_work_us=%llu max_cycle_us=%llu wait_us=%lu",
+         (unsigned)entry.id, (unsigned long)timing.lateStarts, (unsigned long)timing.workOverruns,
+         (unsigned long long)timing.maxWorkUs, (unsigned long long)timing.maxCycleUs,
+         (unsigned long)timing.expectedWaitUs);
+}
+
+void reportWakeSample(uint16_t taskId, const TaskWakeSample& sample, bool captureOverlap)
+{
+    LOGI("TaskWake id=%u due_us=%llu run_us=%llu late_us=%llu wait_us=%lu capture=%u",
+         (unsigned)taskId, (unsigned long long)sample.expectedUs, (unsigned long long)sample.actualUs,
+         (unsigned long long)sample.lateUs(), (unsigned long)sample.waitUs, (unsigned)captureOverlap);
+    if (sample.moduleDelayReturnedUs != 0U) {
+        const uint64_t waitStartedUs = sample.expectedUs - sample.waitUs;
+        LOGI("TaskWakeWait id=%u run_us=%llu module_us=%llu/%lu loop_us=%llu/%lu",
+             (unsigned)taskId, (unsigned long long)sample.actualUs,
+             (unsigned long long)(sample.moduleDelayReturnedUs - waitStartedUs),
+             (unsigned long)sample.moduleWaitUs,
+             (unsigned long long)(sample.actualUs - sample.moduleDelayReturnedUs),
+             (unsigned long)(sample.waitUs - sample.moduleWaitUs));
     }
-    if (liveTaskCount > kTaskStatusSnapshotCapacity) {
-        LOGW("Stack snapshot capacity exceeded tasks=%u capacity=%u",
-             (unsigned)liveTaskCount,
-             (unsigned)kTaskStatusSnapshotCapacity);
-        return;
-    }
-    const UBaseType_t captured =
-        uxTaskGetSystemState(liveTasks, (UBaseType_t)kTaskStatusSnapshotCapacity, nullptr);
-    if (captured == 0U) {
-        LOGD("Stack none");
-        return;
-    }
-    if (!stackBaselines_) {
-        static bool warnedNoBaseline = false;
-        if (!warnedNoBaseline) {
-            warnedNoBaseline = true;
-            LOGW("Stack baseline unavailable (PSRAM allocation failed)");
-        }
-        return;
+}
+
+void reportTaskWake(const ModuleManager::TaskEntry& entry,
+                    const TaskWakeInterval& previousCapture, const TaskWakeInterval& capture)
+{
+    const auto batch = entry.health.pendingWakeSamples();
+    if (batch.count == 0U && batch.dropped == 0U) return;
+
+    unsigned captureCount = 0;
+    TaskWakeSample worstCapture{};
+    TaskWakeSample worstOther{};
+    for (uint8_t i = 0; i < batch.count; ++i) {
+        TaskWakeSample sample;
+        if (!entry.health.takeWakeSample(sample)) break;
+        const bool overlapsCapture = capture.overlaps(sample) || previousCapture.overlaps(sample);
+        if (overlapsCapture) ++captureCount;
+        auto& worst = overlapsCapture ? worstCapture : worstOther;
+        if (sample.lateUs() > worst.lateUs()) worst = sample;
     }
 
-    // Drop ModuleManager task entries whose task has already ended so the
-    // module task registry stays bounded across self-deleting tasks.
-    uint16_t removedEndedTasks = 0U;
-    if (moduleManager) {
-        uint8_t i = 0U;
-        while (i < moduleManager->getTaskEntryCount()) {
-            const ModuleManager::TaskEntry* entry = moduleManager->getTaskEntry(i);
-            if (!entry || !entry->handle) {
-                ++i;
-                continue;
-            }
-            bool live = false;
+    LOGI("TaskWakeStats id=%u samples=%u capture=%u dropped=%lu",
+         (unsigned)entry.id, (unsigned)batch.count, captureCount, (unsigned long)batch.dropped);
+    if (worstCapture.actualUs != 0U) reportWakeSample(entry.id, worstCapture, true);
+    if (worstOther.actualUs != 0U) reportWakeSample(entry.id, worstOther, false);
+}
+}  // namespace
+
+void SystemMonitorModule::logTaskHealth(SystemHealthSnapshot::Tasks& summary)
+{
+    if (!moduleManager) return;
+    const size_t taskCount = moduleManager->getTaskEntryCount();
+    if (taskCount == 0U) return;
+    const TaskWakeInterval previousCapture = lastTaskCapture_;
+    TaskWakeInterval capture{};
+
+#if configUSE_TRACE_FACILITY
+    static_assert(kTaskStatusSnapshotCapacity <= 64U, "Task snapshot mask is too small");
+    const uint64_t captureStartedUs = esp_timer_get_time();
+    UBaseType_t captured = 0;
+    if (taskStatusSnapshot_) {
+        captured = uxTaskGetSystemState(taskStatusSnapshot_, kTaskStatusSnapshotCapacity, nullptr);
+        capture = {captureStartedUs, uint64_t(esp_timer_get_time())};
+        lastTaskCapture_ = capture;
+        taskCaptureDurations_.record(capture.endUs - capture.startUs);
+        if (captured == 0U) {
+            LOGW("Task stack snapshot unavailable capacity=%u tasks=%u",
+                 (unsigned)kTaskStatusSnapshotCapacity, (unsigned)uxTaskGetNumberOfTasks());
+        }
+    }
+    uint64_t matched = 0;
+#endif
+
+    const uint64_t nowUs = esp_timer_get_time();
+    for (uint8_t i = 0; i < taskCount; ++i) {
+        const auto& entry = moduleManager->getTaskEntry(i);
+        auto snapshot = entry.health.snapshot();
+#if configUSE_TRACE_FACILITY
+        if (snapshot.handle && snapshot.startedUs <= captureStartedUs) {
             for (UBaseType_t t = 0; t < captured; ++t) {
-                if (liveTasks[t].xHandle == entry->handle) {
-                    live = true;
-                    break;
+                const auto& live = taskStatusSnapshot_[t];
+                if (live.xHandle != snapshot.handle) continue;
+                matched |= uint64_t{1} << t;
+                if (live.eCurrentState != eDeleted && snapshot.state == TaskHealthState::Running) {
+                    snapshot = entry.health.recordStack(snapshot.handle, snapshot.generation,
+                                                        live.usStackHighWaterMark);
                 }
-            }
-            if (live || !moduleManager->removeTaskEntry(entry->handle)) {
-                ++i;
-                continue;
-            }
-            ++removedEndedTasks;
-        }
-    }
-
-    static constexpr char kStackPrefix[] = "Stack ";
-    static constexpr size_t kLineMsgBudget = (size_t)LOG_MSG_MAX - sizeof(kStackPrefix);
-    static constexpr uint8_t kMaxTasksPerLine = 3U;
-    char line[kLineMsgBudget + 1];
-    size_t off = 0U;
-    uint8_t tasksOnLine = 0U;
-    line[0] = '\0';
-
-    uint16_t observedTasks = 0U;
-    uint16_t lowTasks = 0U;
-    uint16_t overflowTasks = 0U;
-
-    for (UBaseType_t t = 0; t < captured; ++t) {
-        const TaskHandle_t handle = liveTasks[t].xHandle;
-        if (!handle) continue;
-
-        const ModuleTaskSpec* spec = nullptr;
-        ModuleId moduleId = ModuleId::Unknown;
-        if (moduleManager) {
-            const uint8_t moduleTaskCount = moduleManager->getTaskEntryCount();
-            for (uint8_t m = 0U; m < moduleTaskCount; ++m) {
-                const ModuleManager::TaskEntry* entry = moduleManager->getTaskEntry(m);
-                if (!entry || entry->handle != handle || !entry->module) continue;
-                const ModuleTaskSpec* specs = entry->module->taskSpecs();
-                if (specs && entry->taskIndex < entry->module->taskCount()) {
-                    spec = &specs[entry->taskIndex];
-                }
-                moduleId = entry->module->moduleId();
                 break;
             }
         }
+#endif
+        const bool low = snapshot.stackSamples && snapshot.minFreeBytes < entry.spec.minStackFreeBytes;
+        const bool overdue = snapshot.state == TaskHealthState::Running &&
+                             snapshot.timing.overdue(nowUs, entry.spec.timing);
+        if (snapshot.state == TaskHealthState::Running) ++summary.running;
+        if (low) ++summary.belowStackThreshold;
+        summary.lateStarts += snapshot.timing.lateStarts;
+        summary.workOverruns += snapshot.timing.workOverruns;
+        if (snapshot.stackSamples) {
+            auto& lowest = summary.lowestMargin;
+            const auto margin = int64_t(snapshot.minFreeBytes) - entry.spec.minStackFreeBytes;
+            const auto lowestMargin = int64_t(lowest.freeBytes) - lowest.thresholdBytes;
+            if (!lowest.task || margin < lowestMargin) {
+                lowest = {entry.spec.name, snapshot.minFreeBytes, entry.spec.minStackFreeBytes};
+            }
+        }
+        auto& longest = summary.longestWork;
+        if (snapshot.timing.cycles && (!longest.task || snapshot.timing.maxWorkUs > longest.durationUs)) {
+            longest = {entry.spec.name, snapshot.timing.maxWorkUs};
+        }
+        auto& previous = taskAlerts_[i];
+        const bool critical = entry.spec.timing.workBudgetUs != 0U;
+        if ((low && !previous.lowStack) ||
+            (critical && ((overdue && !previous.overdue) ||
+                          snapshot.timing.lateStarts > previous.lateStarts ||
+                          snapshot.timing.workOverruns > previous.workOverruns))) {
+            LOGW("Task alert id=%u name=%s low_stack=%u overdue=%u late=%lu over=%lu",
+                 (unsigned)entry.id, entry.spec.name, (unsigned)low, (unsigned)overdue,
+                 (unsigned long)snapshot.timing.lateStarts, (unsigned long)snapshot.timing.workOverruns);
+        }
+        previous = {snapshot.timing.lateStarts, snapshot.timing.workOverruns, low, overdue};
 
-        const uint32_t minFree = (uint32_t)uxTaskGetStackHighWaterMark(handle);
-        StackBaselineEntry* base = stackBaselineFor_(liveTasks[t].pcTaskName);
-        if (!base) continue;
-        if (minFree < base->minFreeBytes) {
-            base->minFreeBytes = minFree;
+        if ((i + taskCount - nextTaskHealthReport_) % taskCount < kTaskHealthReportBatch) {
+            reportTaskHealth(entry, snapshot, nowUs, overdue);
         }
-        if (base->configuredBytes == 0U && spec) {
-            base->configuredBytes = spec->stackSize;
-        }
-
-        const uint32_t observedMin = base->minFreeBytes;
-        const bool hasKnownStack = (spec != nullptr) && (base->configuredBytes > 0U);
-        const uint32_t lowThreshold =
-            (moduleId == ModuleId::Mqtt) ? kStackBaselineMqttLowFreeBytes : kStackBaselineLowFreeBytes;
-        // Only tasks with a known configured size are assessed against a safety
-        // margin. IDF-internal tasks (idle, ipc, timer, ...) use fixed stacks
-        // that are never resized and would otherwise raise false positives. A
-        // zero watermark is always reported, whatever the task.
-        const bool isOverflow = (observedMin == 0U);
-        const bool isLow = hasKnownStack && (observedMin < lowThreshold);
-        const bool warn = isLow || isOverflow;
-
-        ++observedTasks;
-        if (isOverflow) ++overflowTasks;
-        if (isLow) ++lowTasks;
-
-        char entry[96];
-        int ew;
-        if (hasKnownStack) {
-            ew = snprintf(entry, sizeof(entry), "%s/%s@c%ld min=%lu/%luB%s",
-                          toString(moduleId),
-                          spec->name ? spec->name : "?",
-                          (long)spec->coreId,
-                          (unsigned long)observedMin,
-                          (unsigned long)base->configuredBytes,
-                          warn ? "!" : "");
-        } else {
-            ew = snprintf(entry, sizeof(entry), "%s min=%luB%s",
-                          (liveTasks[t].pcTaskName && liveTasks[t].pcTaskName[0])
-                              ? liveTasks[t].pcTaskName
-                              : "-",
-                          (unsigned long)observedMin,
-                          warn ? "!" : "");
-        }
-        if (ew < 0) continue;
-
-        const size_t entryLen = (size_t)ew;
-        const size_t sepLen = (tasksOnLine > 0U) ? 1U : 0U;
-        if (tasksOnLine > 0U &&
-            (tasksOnLine >= kMaxTasksPerLine || (off + sepLen + entryLen) > kLineMsgBudget)) {
-            LOGD("Stack %s", line);
-            off = 0U;
-            line[0] = '\0';
-            tasksOnLine = 0U;
-        }
-        if ((off + ((tasksOnLine > 0U) ? 1U : 0U) + entryLen) > kLineMsgBudget) {
-            continue;
-        }
-        if (tasksOnLine > 0U) {
-            line[off++] = ' ';
-            line[off] = '\0';
-        }
-        memcpy(line + off, entry, entryLen + 1U);
-        off += entryLen;
-        ++tasksOnLine;
+        if (entry.spec.traceWake) reportTaskWake(entry, previousCapture, capture);
     }
+    nextTaskHealthReport_ = (nextTaskHealthReport_ + kTaskHealthReportBatch) % taskCount;
 
-    if (observedTasks == 0U) {
-        LOGD("Stack none");
-    } else if (tasksOnLine > 0U) {
-        LOGD("Stack %s", line);
+#if configUSE_TRACE_FACILITY
+    if (taskStatusSnapshot_) {
+        LOGI("TaskCapture start_us=%llu last_us=%llu max_us=%llu samples=%lu tasks=%u",
+             (unsigned long long)captureStartedUs,
+             (unsigned long long)taskCaptureDurations_.lastUs,
+             (unsigned long long)taskCaptureDurations_.maxUs,
+             (unsigned long)taskCaptureDurations_.count,
+             (unsigned)captured);
     }
-
-    if (overflowTasks > 0U) {
-        LOGW("Stack baseline overflow tasks=%u observed=%u",
-             (unsigned)overflowTasks,
-             (unsigned)observedTasks);
-    } else {
-        LOGD("Stack baseline tasks=%u low=%u",
-             (unsigned)observedTasks,
-             (unsigned)lowTasks);
-    }
-
-    if (removedEndedTasks > 0U) {
-        LOGD("Stack pruned ended tasks=%u", (unsigned)removedEndedTasks);
-    }
+    for (UBaseType_t t = 0; t < captured; ++t) {
+        if ((matched & (uint64_t{1} << t)) != 0U) continue;
+        const auto& task = taskStatusSnapshot_[t];
+        if (task.eCurrentState == eDeleted) continue;
+#if configTASKLIST_INCLUDE_COREID
+        const long core = task.xCoreID == tskNO_AFFINITY ? -1L : task.xCoreID;
 #else
-    static bool warnedNoTraceFacility = false;
-    if (!warnedNoTraceFacility) {
-        warnedNoTraceFacility = true;
-        LOGW("Stack task monitoring disabled (configUSE_TRACE_FACILITY not enabled)");
+        const long core = -1;
+#endif
+        // TaskStatus_t's name points into the TCB, which may already be freed.
+        Log::logf(task.usStackHighWaterMark ? LogLevel::Debug : LogLevel::Warn, LOG_MODULE_ID,
+                  "SdkTask id=%u core=%ld prio=%u free_b=%lu",
+                  (unsigned)task.xTaskNumber, core, (unsigned)task.uxBasePriority,
+                  (unsigned long)task.usStackHighWaterMark);
     }
 #endif
+}
+
+void SystemMonitorModule::logEventBusHealth(const EventBus::QueueSnapshot& queue)
+{
+    LOGI("EventQueue id=%u queued=%u cap=%u peak=%u accepted=%lu dequeued=%lu retries=%lu",
+         (unsigned)queue.id, (unsigned)queue.queued, (unsigned)queue.capacity, (unsigned)queue.peak,
+         (unsigned long)queue.accepted, (unsigned long)queue.dequeued, (unsigned long)queue.fullRetries);
+    LOGI("EventDelay id=%u head=%u head_src=%u age_us=%llu slowest=%u slow_src=%u max_us=%llu",
+         (unsigned)queue.id, (unsigned)queue.oldestEvent, (unsigned)queue.oldestProducer,
+         (unsigned long long)queue.oldestAgeUs, (unsigned)queue.slowestEvent,
+         (unsigned)queue.slowestProducer, (unsigned long long)queue.maxQueueDelayUs);
+
+    const bool losses = queue.fullDrops != lastEventBusSnapshot_.fullDrops ||
+                        queue.oversizeDrops != lastEventBusSnapshot_.oversizeDrops ||
+                        queue.missingPayloadDrops != lastEventBusSnapshot_.missingPayloadDrops ||
+                        queue.subscriptionDrops != lastEventBusSnapshot_.subscriptionDrops;
+    Log::logf(losses ? LogLevel::Warn : LogLevel::Info, LOG_MODULE_ID,
+              "EventDrop id=%u full=%lu oversize=%lu no_payload=%lu isr=%lu control=%lu sub=%lu last=%u src=%u",
+              (unsigned)queue.id, (unsigned long)queue.fullDrops, (unsigned long)queue.oversizeDrops,
+              (unsigned long)queue.missingPayloadDrops, (unsigned long)queue.isrDrops,
+              (unsigned long)queue.controlDrops, (unsigned long)queue.subscriptionDrops,
+              (unsigned)queue.lastDroppedEvent, (unsigned)queue.lastDroppedProducer);
+    lastEventBusSnapshot_ = queue;
+}
+
+SystemHealthSnapshot SystemMonitorModule::readHealthSnapshot_()
+{
+    portENTER_CRITICAL(&healthSnapshotMux_);
+    const auto summary = healthSnapshot_;
+    portEXIT_CRITICAL(&healthSnapshotMux_);
+    return summary;
+}
+
+void SystemMonitorModule::sampleSystemHealth_()
+{
+    SystemHealthSnapshot summary{};
+    logTaskHealth(summary.tasks);
+    if (eventBus_) {
+        summary.eventBusAvailable = true;
+        summary.eventBus = eventBus_->queueSnapshot();
+        logEventBusHealth(summary.eventBus);
+    }
+    summary.sampledAtUs = esp_timer_get_time();
+    portENTER_CRITICAL(&healthSnapshotMux_);
+    healthSnapshot_ = summary;
+    portEXIT_CRITICAL(&healthSnapshotMux_);
 }
 
 void SystemMonitorModule::logTrackedBuffers()
@@ -1148,22 +1180,24 @@ void SystemMonitorModule::loop() {
 
     if (traceCycleStartMs_ == 0U) {
         traceCycleStartMs_ = now;
-        stackLoggedThisCycle_ = false;
+        healthReportedThisCycle_ = false;
         heapLoggedThisCycle_ = false;
         buffersLoggedThisCycle_ = false;
     }
 
     while ((uint32_t)(now - traceCycleStartMs_) >= periodMs) {
         traceCycleStartMs_ += periodMs;
-        stackLoggedThisCycle_ = false;
+        healthReportedThisCycle_ = false;
         heapLoggedThisCycle_ = false;
         buffersLoggedThisCycle_ = false;
     }
 
     const uint32_t cycleElapsedMs = (uint32_t)(now - traceCycleStartMs_);
-    if (!stackLoggedThisCycle_) {
-        logTaskStacks();
-        stackLoggedThisCycle_ = true;
+    if (!healthReportedThisCycle_ && (lastHealthReportMs_ == 0U ||
+                                  now - lastHealthReportMs_ >= kMinHealthReportIntervalMs)) {
+        sampleSystemHealth_();
+        lastHealthReportMs_ = now;
+        healthReportedThisCycle_ = true;
     }
     if (!heapLoggedThisCycle_ && cycleElapsedMs >= heapOffsetMs) {
         logHeapStats();
@@ -1174,5 +1208,5 @@ void SystemMonitorModule::loop() {
         buffersLoggedThisCycle_ = true;
     }
 
-    vTaskDelay(pdMS_TO_TICKS(25));
+    delayNextCycle(pdMS_TO_TICKS(25));
 }

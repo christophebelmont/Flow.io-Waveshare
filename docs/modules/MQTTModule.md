@@ -24,7 +24,7 @@ Type: module actif.
 
 - core: `0`
 - task: `mqtt`
-- stack: `Limits::Mqtt::TaskStackSize` (`5712`)
+- pile du module en RAM interne via `Limits::Mqtt::TaskStackSize` (8 192 octets sur Waveshare)
 - loop delay: `Limits::Mqtt::Timing::LoopDelayMs` (`50 ms`)
 
 ## Services exposés

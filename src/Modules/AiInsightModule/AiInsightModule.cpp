@@ -664,5 +664,5 @@ void AiInsightModule::loop()
 {
     processWeatherRequest_();
     processPoolInsightRequest_();
-    vTaskDelay(pdMS_TO_TICKS(kLoopDelayMs));
+    delayNextCycle(pdMS_TO_TICKS(kLoopDelayMs));
 }

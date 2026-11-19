@@ -8,9 +8,11 @@
 #include "Core/SystemLimits.h"
 #include "Runtime.h"
 #include "ServiceRegistry.h"
+#include "TaskHealth.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <atomic>
 
 /**
  * @brief Base class for active modules backed by a FreeRTOS task.
@@ -20,8 +22,12 @@ struct ModuleTaskSpec {
     uint32_t stackSize;
     UBaseType_t priority;
     BaseType_t coreId;
-    TaskFunction_t entry;
+    void (*entry)(void*, TaskHealth&);
     void* context;
+    TaskRole role = TaskRole::Primary;
+    TaskTimingContract timing{};
+    uint16_t minStackFreeBytes = kDefaultTaskMinFreeBytes;
+    bool traceWake = false;
 };
 
 class Module {
@@ -54,8 +60,11 @@ public:
 
     /** @brief Number of declared FreeRTOS tasks owned by this module. */
     virtual uint8_t taskCount() const { return 0; }
-    /** @brief Array of declared FreeRTOS tasks owned by this module. */
-    virtual const ModuleTaskSpec* taskSpecs() const { return nullptr; }
+    /** @brief Descriptor of a declared task. The default runs loop() in task 0. */
+    virtual ModuleTaskSpec taskSpec(uint8_t index) const {
+        return index == 0U && taskCount() != 0U ? singleLoopTaskSpec() : ModuleTaskSpec{};
+    }
+    virtual ModuleTaskSpec deferredTaskSpec() const { return {}; }
 
     /** @brief Stack size for the FreeRTOS task. */
     virtual uint16_t taskStackSize() const { return Limits::Core::Task::DefaultStackSize; }
@@ -69,45 +78,75 @@ public:
     virtual uint32_t startDelayMs() const { return 0U; }
 
     /** @brief Get the first started FreeRTOS task handle for this module. */
-    TaskHandle_t getTaskHandle() const { return primaryTaskHandle_; }
+    TaskHandle_t getTaskHandle() const { return primaryTaskHandle_.load(); }
 
     /** @brief Whether this module owns at least one declared task. */
     virtual bool hasTask() const { return taskCount() > 0; }
 
 protected:
+    virtual TaskTimingContract taskTiming() const { return {}; }
+    virtual uint16_t taskMinStackFreeBytes() const { return kDefaultTaskMinFreeBytes; }
+
+    bool startDeferredTask();
+
+    // Called by a primary loop when its work is complete. The framework's
+    // cooperative delay still follows loop(), after this module-specific wait.
+    void delayNextCycle(TickType_t ticks) {
+        if (loopHealth_) {
+            loopHealth_->endCycle(ticks + loopDelayTicks(), ticks);
+            loopRecorded_ = true;
+        }
+        vTaskDelay(ticks);
+        if (loopHealth_) loopHealth_->recordModuleDelayReturn();
+    }
+
+    // Event-driven loops mark the start after successfully receiving work.
+    void beginTaskWork() {
+        if (loopHealth_) loopHealth_->beginCycle();
+    }
+
+    void finishLoopTask() { loopFinishRequested_ = true; }
+
     /** @brief Helper for classic "loop() in one task" modules. */
-    const ModuleTaskSpec* singleLoopTaskSpec() const {
-        singleLoopTaskSpecCache_ = {
+    ModuleTaskSpec singleLoopTaskSpec() const {
+        return {
             taskName(),
             (uint32_t)taskStackSize(),
             taskPriority(),
             taskCore(),
             &Module::taskEntry,
-            const_cast<Module*>(this)
+            const_cast<Module*>(this),
+            TaskRole::Primary,
+            taskTiming(),
+            taskMinStackFreeBytes()
         };
-        return &singleLoopTaskSpecCache_;
     }
 
 private:
     friend class ModuleManager;
 
-    static void taskEntry(void* arg) {
-        Module* self = static_cast<Module*>(arg);
-        if (!self) {
-            vTaskDelete(nullptr);
-            return;
-        }
-        while (true) {
-            self->loop();
-            vTaskDelay(pdMS_TO_TICKS(Limits::Core::Timing::LoopDelayMs));
-        }
+    static constexpr TickType_t loopDelayTicks() {
+        return pdMS_TO_TICKS(Limits::Core::Timing::LoopDelayMs);
     }
 
-    void resetPrimaryTaskHandle_() { primaryTaskHandle_ = nullptr; }
-    void setPrimaryTaskHandle_(TaskHandle_t handle) {
-        if (!primaryTaskHandle_) primaryTaskHandle_ = handle;
+    static void taskEntry(void* arg, TaskHealth& health) {
+        auto& self = *static_cast<Module*>(arg);
+        self.loopHealth_ = &health;
+        self.loopFinishRequested_ = false;
+        const TaskCadence cadence = health.cadence();
+        while (!self.loopFinishRequested_) {
+            self.loopRecorded_ = false;
+            if (cadence == TaskCadence::Periodic) health.beginCycle();
+            self.loop();
+            if (!self.loopRecorded_) health.endCycle(loopDelayTicks());
+            if (!self.loopFinishRequested_) vTaskDelay(loopDelayTicks());
+        }
+        self.loopHealth_ = nullptr;
     }
 
-    TaskHandle_t primaryTaskHandle_ = nullptr;
-    mutable ModuleTaskSpec singleLoopTaskSpecCache_{};
+    std::atomic<TaskHandle_t> primaryTaskHandle_{nullptr};
+    class ModuleManager* manager_ = nullptr;
+    TaskHealth* loopHealth_ = nullptr;
+    bool loopFinishRequested_ = false;
+    bool loopRecorded_ = false;
 };

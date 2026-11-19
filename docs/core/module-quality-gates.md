@@ -577,7 +577,7 @@ Rôle: transport MQTT, producteurs runtime/config, commandes entrantes.
 
 Points forts:
 
-- capacités Waveshare dans `WaveshareBoard.h`: stack `7168`, RX queue `8`,
+- capacités Waveshare dans `WaveshareBoard.h`: stack `8192`, RX queue `8`,
   producteurs `24`, jobs `192`, queues `80/80/128`
 - buffers Waveshare explicites: topic `70`, dynamic topic `160`, rx payload
   `384`, ack/reply/publish `1536`
