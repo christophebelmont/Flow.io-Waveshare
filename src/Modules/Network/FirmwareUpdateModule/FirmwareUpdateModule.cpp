@@ -241,6 +241,20 @@ bool candidateFilesystemIsValid_(const char* label, const char* version, const c
     return valid;
 }
 
+static void otaMonitor_(const char* phase)
+{
+    constexpr uint32_t internal = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    constexpr uint32_t external = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+    LOGI("[OTA] phase=%s ms=%lu ram=%lu ram_largest=%lu ram_min=%lu psram=%lu psram_largest=%lu stack_free_bytes=%lu",
+         phase, (unsigned long)millis(),
+         (unsigned long)heap_caps_get_free_size(internal),
+         (unsigned long)heap_caps_get_largest_free_block(internal),
+         (unsigned long)heap_caps_get_minimum_free_size(internal),
+         (unsigned long)heap_caps_get_free_size(external),
+         (unsigned long)heap_caps_get_largest_free_block(external),
+         (unsigned long)uxTaskGetStackHighWaterMark(nullptr));
+}
+
 bool cloneActiveReleaseFilesystem_(char* errOut, size_t errOutLen)
 {
     const esp_partition_t* source = esp_partition_find_first(
@@ -254,19 +268,45 @@ bool cloneActiveReleaseFilesystem_(char* errOut, size_t errOutLen)
     if (!source || !destination || source->size != destination->size) {
         return writeSimpleError_(errOut, errOutLen, "release filesystem slots unavailable");
     }
+    LOGI("[OTA] phase=clone_start source=%s destination=%s bytes=%lu",
+         source->label, destination->label, (unsigned long)source->size);
+    otaMonitor_("clone_before");
+    const uint32_t cloneStartMs = millis();
+    const uint32_t eraseStartMs = millis();
     if (esp_partition_erase_range(destination, 0U, destination->size) != ESP_OK) {
+        LOGE("[OTA] phase=clone_erase_failed elapsed_ms=%lu",
+             (unsigned long)(millis() - eraseStartMs));
+        otaMonitor_("clone_erase_failed");
         return writeSimpleError_(errOut, errOutLen, "inactive filesystem erase failed");
     }
+    LOGI("[OTA] phase=clone_erase_done elapsed_ms=%lu",
+         (unsigned long)(millis() - eraseStartMs));
+    otaMonitor_("clone_erase_done");
     uint8_t buffer[1024]{};
+    const uint32_t copyStartMs = millis();
+    size_t nextProgress = 256U * 1024U;
     for (size_t offset = 0U; offset < source->size; offset += sizeof(buffer)) {
         const size_t count = ((source->size - offset) < sizeof(buffer))
                                  ? (source->size - offset)
                                  : sizeof(buffer);
         if (esp_partition_read(source, offset, buffer, count) != ESP_OK ||
             esp_partition_write(destination, offset, buffer, count) != ESP_OK) {
+            LOGE("[OTA] phase=clone_failed offset=%lu elapsed_ms=%lu",
+                 (unsigned long)offset, (unsigned long)(millis() - cloneStartMs));
+            otaMonitor_("clone_failed");
             return writeSimpleError_(errOut, errOutLen, "inactive filesystem clone failed");
         }
+        const size_t copied = offset + count;
+        if (copied >= nextProgress) {
+            LOGI("[OTA] phase=clone_progress copied=%lu total=%lu elapsed_ms=%lu",
+                 (unsigned long)copied, (unsigned long)source->size,
+                 (unsigned long)(millis() - copyStartMs));
+            otaMonitor_("clone_progress");
+            nextProgress += 256U * 1024U;
+        }
     }
+    LOGI("[OTA] phase=clone_done elapsed_ms=%lu", (unsigned long)(millis() - cloneStartMs));
+    otaMonitor_("clone_done");
     return true;
 }
 
@@ -1018,6 +1058,7 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                "downloading",
                job.operationId);
 
+    otaMonitor_("firmware_start");
     HTTPClient http;
     configureDownloadHttp_(http);
     if (!http.begin(url)) {
@@ -1027,6 +1068,8 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
 
     const int code = http.GET();
     const int32_t contentLength = http.getSize();
+    LOGI("[OTA] phase=firmware_http code=%d length=%ld", code, (long)contentLength);
+    otaMonitor_("firmware_http");
     if (code != HTTP_CODE_OK) {
         writeHttpCodeFailedError_("fichier de mise a jour", url, http, code, errOut, errOutLen);
         http.end();
@@ -1055,26 +1098,38 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
         http.end();
         return false;
     }
-    // The legacy remote firmware route remains independently usable. Seed the
-    // paired inactive filesystem with the currently running release so the new
-    // application never boots against an empty or older filesystem slot.
-    if (!cloneActiveReleaseFilesystem_(errOut, errOutLen)) {
-        http.end();
-        return false;
-    }
     if (contentLength > 0 && (size_t)contentLength > updatePartition->size) {
         writeSimpleError_(errOut, errOutLen, "ota image too large for partition");
         http.end();
         return false;
     }
 
+    // Pause periodic WebInterface work before the first flash erase. HTTP OTA
+    // progress and RAM-backed status remain available while the task is paused.
     attachWebInterfaceSvcIfNeeded_();
-    if (webInterfaceSvc_ && webInterfaceSvc_->setPaused) {
+    const bool pauseWeb = webInterfaceSvc_ && webInterfaceSvc_->setPaused;
+    if (pauseWeb) {
         webInterfaceSvc_->setPaused(webInterfaceSvc_->ctx, true);
     }
 
+    // Keep the inactive filesystem paired with the new firmware slot.
+    LOGI("[UPGRADE] stage=filesystem_clone_begin operation_id=%lu",
+         (unsigned long)job.operationId);
+    if (!cloneActiveReleaseFilesystem_(errOut, errOutLen)) {
+        LOGE("[UPGRADE] stage=filesystem_clone_failed operation_id=%lu",
+             (unsigned long)job.operationId);
+        if (pauseWeb) webInterfaceSvc_->setPaused(webInterfaceSvc_->ctx, false);
+        http.end();
+        return false;
+    }
+    LOGI("[UPGRADE] stage=filesystem_clone_done operation_id=%lu",
+         (unsigned long)job.operationId);
+    LOGI("[UPGRADE] stage=firmware_write_begin operation_id=%lu size=%ld",
+         (unsigned long)job.operationId, (long)contentLength);
+
     char failMsg[128] = {0};
     const size_t beginSize = (contentLength > 0) ? (size_t)contentLength : (size_t)UPDATE_SIZE_UNKNOWN;
+    otaMonitor_("firmware_write_begin");
     if (!Update.begin(beginSize, U_FLASH)) {
         snprintf(failMsg, sizeof(failMsg), "ota begin failed (%u)", (unsigned)Update.getError());
     } else {
@@ -1082,6 +1137,9 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
         int32_t remaining = contentLength;
         uint8_t buf[Limits::FirmwareUpdate::Http::StreamChunkBytes];
         uint32_t lastReadMs = millis();
+        const uint32_t writeStartMs = millis();
+        size_t writtenTotal = 0U;
+        size_t nextWriteProgress = 256U * 1024U;
 
         while (http.connected() && (contentLength <= 0 || remaining > 0)) {
             const size_t avail = stream ? stream->available() : 0;
@@ -1112,6 +1170,14 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
             }
 
             onProgressChunk_((uint32_t)wr);
+            writtenTotal += wr;
+            if (writtenTotal >= nextWriteProgress) {
+                LOGI("[OTA] phase=firmware_write_progress bytes=%lu expected=%ld elapsed_ms=%lu",
+                     (unsigned long)writtenTotal, (long)contentLength,
+                     (unsigned long)(millis() - writeStartMs));
+                otaMonitor_("firmware_write_progress");
+                nextWriteProgress += 256U * 1024U;
+            }
 
             if (contentLength > 0) {
                 remaining -= rd;
@@ -1121,6 +1187,10 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
             }
         }
 
+        LOGI("[OTA] phase=firmware_stream_end bytes=%lu expected=%ld elapsed_ms=%lu",
+             (unsigned long)writtenTotal, (long)contentLength,
+             (unsigned long)(millis() - writeStartMs));
+        otaMonitor_("firmware_stream_end");
         if (failMsg[0] == '\0' && contentLength > 0 && remaining > 0) {
             snprintf(failMsg, sizeof(failMsg), "incomplete download");
         }
@@ -1132,13 +1202,17 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
         }
     }
 
-    if (webInterfaceSvc_ && webInterfaceSvc_->setPaused) {
-        webInterfaceSvc_->setPaused(webInterfaceSvc_->ctx, false);
-    }
+    if (pauseWeb) webInterfaceSvc_->setPaused(webInterfaceSvc_->ctx, false);
 
     http.end();
+    otaMonitor_("firmware_write_end");
+    LOGI("[UPGRADE] stage=firmware_write_%s operation_id=%lu",
+         failMsg[0] == '\0' ? "done" : "failed",
+         (unsigned long)job.operationId);
 
     if (failMsg[0] != '\0') {
+        LOGE("[OTA] phase=firmware_error reason=%s", failMsg);
+        otaMonitor_("firmware_error");
         writeSimpleError_(errOut, errOutLen, failMsg);
         return false;
     }
@@ -1149,6 +1223,7 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
         writeSimpleError_(errOut, errOutLen, "failed to persist update completion");
         return false;
     }
+    otaMonitor_("firmware_reboot");
     setStatus_(UpdateState::Rebooting,
                FirmwareUpdateTarget::Waveshare,
                100,
@@ -1368,6 +1443,7 @@ bool FirmwareUpdateModule::runSpiffsUpdate_(const UpdateJob& job, char* errOut, 
                "downloading",
                job.operationId);
 
+    otaMonitor_("spiffs_start");
     HTTPClient http;
     configureDownloadHttp_(http);
     if (!http.begin(url)) {
@@ -1377,6 +1453,7 @@ bool FirmwareUpdateModule::runSpiffsUpdate_(const UpdateJob& job, char* errOut, 
 
     const int code = http.GET();
     const int32_t contentLength = http.getSize();
+    LOGI("[OTA] phase=spiffs_http code=%d length=%ld", code, (long)contentLength);
     if (code != HTTP_CODE_OK) {
         writeHttpCodeFailedError_("fichier de mise a jour", url, http, code, errOut, errOutLen);
         http.end();
@@ -1423,6 +1500,7 @@ bool FirmwareUpdateModule::runSpiffsUpdate_(const UpdateJob& job, char* errOut, 
                  (int)contentLength,
                  activePartition ? (unsigned)activePartition->size : 0U);
     } else {
+        otaMonitor_("spiffs_erase_before");
         SPIFFS.end();
         if (esp_partition_erase_range(activePartition, 0U, activePartition->size) != ESP_OK) {
             snprintf(failMsg, sizeof(failMsg), "spiffs erase failed");
@@ -1438,6 +1516,7 @@ bool FirmwareUpdateModule::runSpiffsUpdate_(const UpdateJob& job, char* errOut, 
         streamedBytes = http.writeToStream(&partitionStream);
     }
     http.end();
+    otaMonitor_("spiffs_write_end");
 
     if (failMsg[0] == '\0' && partitionStream.overflowed()) {
         snprintf(failMsg, sizeof(failMsg), "spiffs image exceeds active slot");
@@ -1453,6 +1532,8 @@ bool FirmwareUpdateModule::runSpiffsUpdate_(const UpdateJob& job, char* errOut, 
                  (unsigned)activePartition->size);
     }
     if (failMsg[0] != '\0') {
+        LOGE("[OTA] phase=spiffs_error reason=%s", failMsg);
+        otaMonitor_("spiffs_error");
         (void)remountActiveFilesystem();
         writeSimpleError_(errOut, errOutLen, failMsg);
         return false;

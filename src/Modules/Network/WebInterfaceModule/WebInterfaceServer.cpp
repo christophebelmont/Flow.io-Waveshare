@@ -220,7 +220,11 @@ static bool extractSessionCookie_(AsyncWebServerRequest* request, char* out, siz
 {
     if (!request || !out || outLen == 0U) return false;
     out[0] = '\0';
-    const String cookieHeader = request->header("Cookie");
+    // Reuse the request-owned header value instead of copying its String
+    // on every authenticated HTTP request.
+    const AsyncWebHeader* cookie = request->getHeader("Cookie");
+    if (!cookie) return false;
+    const String& cookieHeader = cookie->value();
     if (cookieHeader.isEmpty()) return false;
 
     const size_t nameLen = strlen(kSessionCookieName);
@@ -230,16 +234,18 @@ static bool extractSessionCookie_(AsyncWebServerRequest* request, char* out, siz
         // Skip spaces and separators.
         while (start < total && (cookieHeader[start] == ' ' || cookieHeader[start] == ';')) ++start;
         // Compare cookie name.
-        if (start + (int)nameLen <= total && cookieHeader.substring(start, start + nameLen) == kSessionCookieName) {
+        if (start + (int)nameLen <= total &&
+            memcmp(cookieHeader.c_str() + start, kSessionCookieName, nameLen) == 0) {
             int eq = start + nameLen;
             while (eq < total && cookieHeader[eq] == ' ') ++eq;
             if (eq < total && cookieHeader[eq] == '=') {
                 ++eq;
                 int end = eq;
                 while (end < total && cookieHeader[end] != ';') ++end;
-                const String value = cookieHeader.substring(eq, end);
-                if (!value.isEmpty() && (size_t)value.length() < outLen) {
-                    memcpy(out, value.c_str(), value.length() + 1U);
+                const size_t valueLen = (size_t)(end - eq);
+                if (valueLen > 0U && valueLen < outLen) {
+                    memcpy(out, cookieHeader.c_str() + eq, valueLen);
+                    out[valueLen] = '\0';
                     return true;
                 }
             }
@@ -456,7 +462,7 @@ static int32_t requestIntParam_(AsyncWebServerRequest* request,
     if (!request || !name || !request->hasParam(name)) return fallback;
     const AsyncWebParameter* param = request->getParam(name);
     if (!param) return fallback;
-    const String value = param->value();
+    const String& value = param->value();
     const char* raw = value.c_str();
     char* end = nullptr;
     const long parsed = strtol(raw, &end, 10);
@@ -4390,6 +4396,7 @@ static const char kWebSerialLogPage[] PROGMEM = R"HTML(
       <button id="runtimelog" type="button">Runtime</button>
       <button id="pause" type="button">Pause</button>
       <button id="clear" type="button">Clear</button>
+      <button id="exporttxt" type="button">Exporter TXT</button>
       <a href="/webinterface">Retour UI</a>
     </div>
   </div>
@@ -4402,6 +4409,7 @@ static const char kWebSerialLogPage[] PROGMEM = R"HTML(
   const runtimeLogBtn = document.getElementById('runtimelog');
   const pauseBtn = document.getElementById('pause');
   const clearBtn = document.getElementById('clear');
+  const exportBtn = document.getElementById('exporttxt');
   let paused = false;
   let ws = null;
 
@@ -4538,6 +4546,26 @@ static const char kWebSerialLogPage[] PROGMEM = R"HTML(
       bootlogBtn.disabled = false;
     }
   };
+
+  exportBtn.addEventListener('click', () => {
+    // Export exactly the lines currently shown, including boot/runtime history.
+    // No extra request or device-side buffer allocation is required.
+    const lines = Array.from(out.querySelectorAll('.line'), (node) => node.textContent || '');
+    if (!lines.length) {
+      status.textContent = "Aucun log à exporter";
+      return;
+    }
+    const blob = new Blob([lines.join('\\n') + '\\n'], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    link.href = url;
+    link.download = 'flowio-logs-' + stamp + '.txt';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
 
   pauseBtn.addEventListener('click', () => {
     paused = !paused;
@@ -8530,6 +8558,14 @@ void WebInterfaceModule::startServer_()
         LOGI("WebInterface WS handlers disabled in provisioning-only mode");
     }
     WebMemoryDiagnostics::sample("routes_ready");
+    // Resolve the SPIFFS asset fingerprint on the Web task, not in AsyncTCP.
+    // /api/web/meta may be requested immediately after server startup.
+    if (spiffsReady_) {
+        const uint32_t fingerprintStartedMs = millis();
+        const char* assetVersion = webAssetVersion_();
+        LOGI("Web asset fingerprint ready version=%s elapsed_ms=%lu",
+             assetVersion, (unsigned long)(millis() - fingerprintStartedMs));
+    }
     server_.begin();
     WebMemoryDiagnostics::sample("listening");
     started_ = true;

@@ -2220,6 +2220,7 @@
     const logsOverlay = document.getElementById('logsOverlay');
     const openLogsOverlayBtn = document.getElementById('openLogsOverlay');
     const closeLogsOverlayBtn = document.getElementById('closeLogsOverlay');
+    const exportLogsTxtBtn = document.getElementById('exportLogsTxt');
     const activityLogList = document.getElementById('activityLogList');
     const activityLogStatus = document.getElementById('activityLogStatus');
     const activityRefreshBtn = document.getElementById('activityRefreshBtn');
@@ -3201,6 +3202,29 @@
         if (term) term.textContent = '';
         updateLogModeUi();
         connectLogSocket();
+      });
+    }
+    if (exportLogsTxtBtn) {
+      exportLogsTxtBtn.addEventListener('click', () => {
+        if (!term) return;
+        // textContent preserves visible log text and excludes terminal styling.
+        const contents = term.innerText || term.textContent || '';
+        if (!contents.trim()) {
+          setWsStatusText('Aucun log à exporter');
+          return;
+        }
+        const blob = new Blob([contents.replace(/\\r?\\n/g, '\\r\\n') + '\\r\\n'], {
+          type: 'text/plain;charset=utf-8'
+        });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'flowio-' + logViewMode + '-logs-' +
+          new Date().toISOString().replace(/[:.]/g, '-') + '.txt';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
       });
     }
     if (openLogsOverlayBtn) {
