@@ -1613,9 +1613,13 @@
       if (tasks) {
         const lowest = tasks.lowest_stack;
         const longest = tasks.longest_work;
-        const margin = lowest
+        let margin = lowest
           ? lowest.task + ' · ' + formatInfoCount(lowest.free_b) + ' / ' + formatInfoCount(lowest.threshold_b) + ' B'
           : '-';
+        if (lowest && Number.isFinite(lowest.sample_age_ms)) {
+          margin += ' · ' + tr('info.health.stackAge', 'Mesuré il y a {age}')
+            .replace('{age}', formatRuntimeDurationMs(lowest.sample_age_ms));
+        }
         renderInfoMetricRows(infoTaskHealthRows, [
           [tr('info.health.running', 'Tâches en cours'), formatInfoCount(tasks.running)],
           [tr('info.health.lowStacks', 'Piles sous le seuil'), formatInfoCount(tasks.below_stack)],

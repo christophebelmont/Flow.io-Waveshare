@@ -388,7 +388,7 @@ void ModuleManager::reapFinishedTasks()
         TaskEntry& entry = taskEntries[i];
         const auto health = entry.health.snapshot();
         if (health.state != TaskHealthState::Finishing) continue;
-        if (eTaskGetState(health.handle) != eSuspended) {
+        if (!entry.health.canReap() || eTaskGetState(health.handle) != eSuspended) {
             reapRequested_.store(true);
             continue;
         }

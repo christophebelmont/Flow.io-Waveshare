@@ -351,6 +351,7 @@
     "info.health.title": "System health",
     "info.health.details": "Details...",
     "info.health.waiting": "Waiting for the first sample.",
+    "info.health.stackAge": "Measured {age} ago",
     "info.health.stale": "Refresh unavailable. Showing the last sample.",
     "info.health.unavailable": "Health metrics unavailable.",
     "info.health.age": "Sample age: {age} · Totals since startup",

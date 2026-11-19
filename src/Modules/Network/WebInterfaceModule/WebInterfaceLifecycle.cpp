@@ -15,6 +15,23 @@
 #include <Arduino.h>
 #include <esp_heap_caps.h>
 
+TaskStackSource WebInterfaceModule::externalTaskStackSource()
+{
+    return {"async_tcp", CONFIG_ASYNC_TCP_STACK_SIZE, 1024U,
+            acquireAsyncTaskStack_, nullptr, this};
+}
+
+TaskStackReadStatus WebInterfaceModule::acquireAsyncTaskStack_(void* ctx, TaskHandle_t& handle,
+                                                            uint32_t& generation)
+{
+    auto& self = *static_cast<WebInterfaceModule*>(ctx);
+    // AsyncTCP 3.6.x creates this shared task lazily and retains it for the boot.
+    if (!self.asyncTaskHandle_) self.asyncTaskHandle_ = xTaskGetHandle("async_tcp");
+    handle = self.asyncTaskHandle_;
+    generation = 1U;
+    return handle ? TaskStackReadStatus::Acquired : TaskStackReadStatus::Unavailable;
+}
+
 bool WebInterfaceModule::setPaused_(bool paused)
 {
     uartPaused_ = paused;
@@ -181,80 +198,6 @@ void WebInterfaceModule::loop()
 {
     WebMemoryDiagnostics::poll();
 
-    // [MEM] Low-overhead, always-on memory telemetry. Sample once per second
-    // to catch short-lived pressure, summarize every 15 seconds, and report
-    // sudden internal RAM drops or threshold crossings immediately.
-    static uint32_t lastMemSampleMs = 0U;
-    static uint32_t lastMemReportMs = 0U;
-    static uint32_t previousInternalFree = 0U;
-    static uint32_t windowInternalLow = UINT32_MAX;
-    static uint32_t windowLargestLow = UINT32_MAX;
-    static bool memSampled = false;
-    static bool wasLow = false;
-    const uint32_t memNowMs = millis();
-    if (!memSampled || (uint32_t)(memNowMs - lastMemSampleMs) >= 1000U) {
-        lastMemSampleMs = memNowMs;
-        constexpr uint32_t internalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
-        constexpr uint32_t psramCaps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
-        const uint32_t internalFree = (uint32_t)heap_caps_get_free_size(internalCaps);
-        const uint32_t internalLargest = (uint32_t)heap_caps_get_largest_free_block(internalCaps);
-        const uint32_t internalMinimum = (uint32_t)heap_caps_get_minimum_free_size(internalCaps);
-        const uint32_t psramFree = (uint32_t)heap_caps_get_free_size(psramCaps);
-        const uint32_t psramLargest = (uint32_t)heap_caps_get_largest_free_block(psramCaps);
-        const uint32_t psramMinimum = (uint32_t)heap_caps_get_minimum_free_size(psramCaps);
-        // Largest allocatable block / total free memory is a useful
-        // fragmentation proxy (not an allocator-internal fragmentation metric).
-        const uint32_t internalFragPct = internalFree > 0U
-            ? (uint32_t)(100ULL * (internalFree - internalLargest) / internalFree) : 0U;
-        const uint32_t psramFragPct = psramFree > 0U
-            ? (uint32_t)(100ULL * (psramFree - psramLargest) / psramFree) : 0U;
-        // ESP-IDF high-water marks are bytes, including for the Web task.
-        const uint32_t stackFreeBytes = (uint32_t)uxTaskGetStackHighWaterMark(nullptr);
-        // AsyncTCP creates this task lazily. Zero means unavailable/not started.
-        uint32_t asyncStackFreeBytes = 0U;
-#if defined(INCLUDE_xTaskGetHandle) && (INCLUDE_xTaskGetHandle == 1)
-        const TaskHandle_t asyncTask = xTaskGetHandle("async_tcp");
-        if (asyncTask != nullptr) {
-            asyncStackFreeBytes = (uint32_t)uxTaskGetStackHighWaterMark(asyncTask);
-        }
-#endif
-        if (internalFree < windowInternalLow) windowInternalLow = internalFree;
-        if (internalLargest < windowLargestLow) windowLargestLow = internalLargest;
-        const bool low = internalFree < 40000U || internalLargest < 16000U || stackFreeBytes < 512U || (asyncStackFreeBytes > 0U && asyncStackFreeBytes < 1024U);
-        const bool suddenDrop = memSampled && previousInternalFree > internalFree &&
-                                previousInternalFree - internalFree >= 8192U;
-        const bool periodic = !memSampled || (uint32_t)(memNowMs - lastMemReportMs) >= 15000U;
-        if (periodic || suddenDrop || (low && !wasLow)) {
-            const char* tag = low ? "[MEM-LOW]" : (suddenDrop ? "[MEM-DROP]" : "[MEM]");
-            if (low || suddenDrop) {
-                LOGW("%s ms=%lu int_free=%lu int_largest=%lu int_frag_pct=%lu int_min=%lu win_free_min=%lu win_largest_min=%lu psram_free=%lu psram_largest=%lu psram_frag_pct=%lu psram_min=%lu web_stack_free_bytes=%lu async_stack_free_bytes=%lu",
-                     tag, (unsigned long)memNowMs, (unsigned long)internalFree,
-                     (unsigned long)internalLargest, (unsigned long)internalFragPct,
-                     (unsigned long)internalMinimum,
-                     (unsigned long)windowInternalLow, (unsigned long)windowLargestLow,
-                     (unsigned long)psramFree, (unsigned long)psramLargest,
-                     (unsigned long)psramFragPct, (unsigned long)psramMinimum, (unsigned long)stackFreeBytes,
-                     (unsigned long)asyncStackFreeBytes);
-            } else {
-                LOGI("%s ms=%lu int_free=%lu int_largest=%lu int_frag_pct=%lu int_min=%lu win_free_min=%lu win_largest_min=%lu psram_free=%lu psram_largest=%lu psram_frag_pct=%lu psram_min=%lu web_stack_free_bytes=%lu async_stack_free_bytes=%lu",
-                     tag, (unsigned long)memNowMs, (unsigned long)internalFree,
-                     (unsigned long)internalLargest, (unsigned long)internalFragPct,
-                     (unsigned long)internalMinimum,
-                     (unsigned long)windowInternalLow, (unsigned long)windowLargestLow,
-                     (unsigned long)psramFree, (unsigned long)psramLargest,
-                     (unsigned long)psramFragPct, (unsigned long)psramMinimum, (unsigned long)stackFreeBytes,
-                     (unsigned long)asyncStackFreeBytes);
-            }
-            if (periodic) {
-                lastMemReportMs = memNowMs;
-                windowInternalLow = internalFree;
-                windowLargestLow = internalLargest;
-            }
-        }
-        previousInternalFree = internalFree;
-        wasLow = low;
-        memSampled = true;
-    }
     if (webStartLedPulseActive_ && (int32_t)(millis() - webStartLedPulseUntilMs_) >= 0) {
         if (hmiSvc_ && hmiSvc_->setStatusLedAutoWifiMode && webStartLedPrevAutoModeValid_) {
             hmiSvc_->setStatusLedAutoWifiMode(hmiSvc_->ctx, webStartLedPrevAutoMode_);

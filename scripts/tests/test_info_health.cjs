@@ -53,7 +53,7 @@ async function main() {
     sample_age_ms: 550,
     tasks: {
       running: 23, below_stack: 0, late_starts: 4, work_overruns: 1,
-      lowest_stack: { task: 'io<test>', free_b: 700, threshold_b: 512 },
+      lowest_stack: { task: 'io<test>', free_b: 700, threshold_b: 512, sample_age_ms: 250 },
       longest_work: { task: 'poollogic', duration_us: 2500 }
     },
     event_bus: { capacity: 40, queued: 0, peak: 40, max_delay_us: 35, drops: 1, control_drops: 1, retries: 2 }
@@ -63,6 +63,7 @@ async function main() {
   assert(!context.infoTaskHealth.hidden && !context.infoEventBusHealth.hidden);
   assert.match(context.infoHealthStatus.textContent, /550 ms/);
   assert.match(context.infoTaskHealthRows.innerHTML, /io&lt;test&gt; · 700 \/ 512 B/);
+  assert.match(context.infoTaskHealthRows.innerHTML, /Mesuré il y a 250 ms/);
   assert.match(context.infoTaskHealthRows.innerHTML, /poollogic · 2,5 ms/);
   assert.match(context.infoEventBusHealthRows.innerHTML, /0 \/ 40.*40 \/ 40/);
   assert.match(context.infoEventBusHealthRows.innerHTML, /35 µs/);

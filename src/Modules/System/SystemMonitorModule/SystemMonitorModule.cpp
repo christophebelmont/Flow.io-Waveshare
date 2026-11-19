@@ -6,12 +6,14 @@
 #include "Core/BufferUsageTracker.h"
 #include "Core/ModuleManager.h"   ///< required for iteration
 #include "Core/Services/ILogger.h"
+#include "Core/SaturatingCounter.h"
 #include <Arduino.h>
 #include <WiFi.h>                ///< only for RSSI (optional)
 #include <esp_heap_caps.h>
 #include <esp_system.h>
 #include <esp_timer.h>
 #include <new>
+#include <algorithm>
 #include <string.h>
 #ifdef CONFIG_HEAP_TASK_TRACKING
 #include <esp_heap_task_info.h>
@@ -190,25 +192,33 @@ void SystemMonitorModule::init(ConfigStore& cfg, ServiceRegistry& services) {
         LOGE("System health service registration failed");
     }
 
-#if defined(configUSE_TRACE_FACILITY) && (configUSE_TRACE_FACILITY == 1)
-    constexpr uint32_t taskSnapshotCaps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
-    constexpr const char* taskSnapshotMemory = "PSRAM";
-    taskStatusSnapshot_ = static_cast<TaskStatus_t*>(
-        heap_caps_calloc(kTaskStatusSnapshotCapacity, sizeof(TaskStatus_t), taskSnapshotCaps)
-    );
-    if (taskStatusSnapshot_) {
-        LOGI("Task snapshot allocated capacity=%u bytes=%lu memory=%s",
-             (unsigned)kTaskStatusSnapshotCapacity,
-             (unsigned long)(kTaskStatusSnapshotCapacity * sizeof(TaskStatus_t)),
-             taskSnapshotMemory);
-    } else {
-        LOGW("Task snapshot unavailable capacity=%u bytes=%lu memory=%s",
-             (unsigned)kTaskStatusSnapshotCapacity,
-             (unsigned long)(kTaskStatusSnapshotCapacity * sizeof(TaskStatus_t)),
-             taskSnapshotMemory);
+    if (cmdSvc_ && !cmdSvc_->registerHandler(cmdSvc_->ctx, "sysmon.capture_tasks", requestTaskCapture_, this)) {
+        LOGE("Task capture command registration failed");
     }
-
-#endif
+    if (moduleManager) {
+        for (uint8_t i = 0; i < moduleManager->getCount(); ++i) {
+            if (moduleManager->getModule(i)->externalTaskStackSource().acquire) ++externalStackCount_;
+        }
+        const size_t capacity = Limits::Core::Capacity::MaxTaskHealthEntries + externalStackCount_;
+        void* storage = heap_caps_malloc(capacity * sizeof(StackSlot), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (storage) {
+            stackSlots_ = static_cast<StackSlot*>(storage);
+            for (size_t i = 0; i < capacity; ++i) new (&stackSlots_[i]) StackSlot{};
+            size_t index = Limits::Core::Capacity::MaxTaskHealthEntries;
+            for (uint8_t i = 0; i < moduleManager->getCount(); ++i) {
+                auto* module = moduleManager->getModule(i);
+                const auto source = module->externalTaskStackSource();
+                if (!source.acquire) continue;
+                stackSlots_[index].source = source;
+                stackSlots_[index++].id = taskHealthId(module->moduleId(), TaskRole::Library);
+            }
+            LOGI("Task stack sampler psram_b=%lu external=%u period_ms=%lu",
+                 (unsigned long)(capacity * sizeof(StackSlot)), (unsigned)externalStackCount_,
+                 (unsigned long)kStackSamplePeriodMs);
+        } else {
+            LOGW("Task stack sampler unavailable: PSRAM allocation failed");
+        }
+    }
 
 #if FLOW_WEB_HEAP_FORENSICS
     heapWatchSamples_ = static_cast<HeapWatchSample*>(
@@ -467,44 +477,11 @@ void SystemMonitorModule::logTaskHealth(SystemHealthSnapshot::Tasks& summary)
     if (!moduleManager) return;
     const size_t taskCount = moduleManager->getTaskEntryCount();
     if (taskCount == 0U) return;
-    const TaskWakeInterval previousCapture = lastTaskCapture_;
-    TaskWakeInterval capture{};
-
-#if configUSE_TRACE_FACILITY
-    static_assert(kTaskStatusSnapshotCapacity <= 64U, "Task snapshot mask is too small");
-    const uint64_t captureStartedUs = esp_timer_get_time();
-    UBaseType_t captured = 0;
-    if (taskStatusSnapshot_) {
-        captured = uxTaskGetSystemState(taskStatusSnapshot_, kTaskStatusSnapshotCapacity, nullptr);
-        capture = {captureStartedUs, uint64_t(esp_timer_get_time())};
-        lastTaskCapture_ = capture;
-        taskCaptureDurations_.record(capture.endUs - capture.startUs);
-        if (captured == 0U) {
-            LOGW("Task stack snapshot unavailable capacity=%u tasks=%u",
-                 (unsigned)kTaskStatusSnapshotCapacity, (unsigned)uxTaskGetNumberOfTasks());
-        }
-    }
-    uint64_t matched = 0;
-#endif
-
     const uint64_t nowUs = esp_timer_get_time();
     for (uint8_t i = 0; i < taskCount; ++i) {
         const auto& entry = moduleManager->getTaskEntry(i);
         auto snapshot = entry.health.snapshot();
-#if configUSE_TRACE_FACILITY
-        if (snapshot.handle && snapshot.startedUs <= captureStartedUs) {
-            for (UBaseType_t t = 0; t < captured; ++t) {
-                const auto& live = taskStatusSnapshot_[t];
-                if (live.xHandle != snapshot.handle) continue;
-                matched |= uint64_t{1} << t;
-                if (live.eCurrentState != eDeleted && snapshot.state == TaskHealthState::Running) {
-                    snapshot = entry.health.recordStack(snapshot.handle, snapshot.generation,
-                                                        live.usStackHighWaterMark);
-                }
-                break;
-            }
-        }
-#endif
+        const auto stack = readTaskStack_(entry.id);
         const bool low = snapshot.stackSamples && snapshot.minFreeBytes < entry.spec.minStackFreeBytes;
         const bool overdue = snapshot.state == TaskHealthState::Running &&
                              snapshot.timing.overdue(nowUs, entry.spec.timing);
@@ -517,7 +494,7 @@ void SystemMonitorModule::logTaskHealth(SystemHealthSnapshot::Tasks& summary)
             const auto margin = int64_t(snapshot.minFreeBytes) - entry.spec.minStackFreeBytes;
             const auto lowestMargin = int64_t(lowest.freeBytes) - lowest.thresholdBytes;
             if (!lowest.task || margin < lowestMargin) {
-                lowest = {entry.spec.name, snapshot.minFreeBytes, entry.spec.minStackFreeBytes};
+                lowest = {entry.spec.name, snapshot.minFreeBytes, entry.spec.minStackFreeBytes, stack.sampledAtUs};
             }
         }
         auto& longest = summary.longestWork;
@@ -538,35 +515,156 @@ void SystemMonitorModule::logTaskHealth(SystemHealthSnapshot::Tasks& summary)
 
         if ((i + taskCount - nextTaskHealthReport_) % taskCount < kTaskHealthReportBatch) {
             reportTaskHealth(entry, snapshot, nowUs, overdue);
+            if (stack.samples) {
+                LOGI("TaskStack id=%u gen=%lu free_b=%lu age_ms=%llu last_us=%llu max_us=%llu",
+                     (unsigned)entry.id, (unsigned long)stack.generation, (unsigned long)stack.freeBytes,
+                     (unsigned long long)((nowUs - stack.sampledAtUs) / 1000U),
+                     (unsigned long long)stack.lastDurationUs, (unsigned long long)stack.maxDurationUs);
+            }
         }
-        if (entry.spec.traceWake) reportTaskWake(entry, previousCapture, capture);
+        if (entry.spec.traceWake) reportTaskWake(entry, {}, lastTaskCapture_);
     }
     nextTaskHealthReport_ = (nextTaskHealthReport_ + kTaskHealthReportBatch) % taskCount;
-
-#if configUSE_TRACE_FACILITY
-    if (taskStatusSnapshot_) {
-        LOGI("TaskCapture start_us=%llu last_us=%llu max_us=%llu samples=%lu tasks=%u",
-             (unsigned long long)captureStartedUs,
-             (unsigned long long)taskCaptureDurations_.lastUs,
-             (unsigned long long)taskCaptureDurations_.maxUs,
-             (unsigned long)taskCaptureDurations_.count,
-             (unsigned)captured);
+    if (!stackSlots_) return;
+    for (uint8_t i = 0; i < externalStackCount_; ++i) {
+        const auto& slot = stackSlots_[Limits::Core::Capacity::MaxTaskHealthEntries + i];
+        const auto sample = readTaskStack_(slot.id);
+        if (!sample.samples) continue;
+        const auto& source = slot.source;
+        if (sample.freeBytes < source.minFreeBytes) ++summary.belowStackThreshold;
+        auto& lowest = summary.lowestMargin;
+        if (!lowest.task || int64_t(sample.freeBytes) - source.minFreeBytes <
+                            int64_t(lowest.freeBytes) - lowest.thresholdBytes) {
+            lowest = {source.name, sample.freeBytes, source.minFreeBytes, sample.sampledAtUs};
+        }
+        LOGI("TaskStack id=%u name=%s gen=%lu free_b=%lu min_b=%u age_ms=%llu max_us=%llu",
+             (unsigned)slot.id, source.name, (unsigned long)sample.generation, (unsigned long)sample.freeBytes,
+             (unsigned)source.minFreeBytes, (unsigned long long)((nowUs - sample.sampledAtUs) / 1000U),
+             (unsigned long long)sample.maxDurationUs);
     }
-    for (UBaseType_t t = 0; t < captured; ++t) {
-        if ((matched & (uint64_t{1} << t)) != 0U) continue;
-        const auto& task = taskStatusSnapshot_[t];
+}
+
+TaskStackSample SystemMonitorModule::readTaskStack_(uint16_t taskId)
+{
+    TaskStackSample result{};
+    if (!stackSlots_) return result;
+    portENTER_CRITICAL(&stackSamplesMux_);
+    const size_t capacity = Limits::Core::Capacity::MaxTaskHealthEntries + externalStackCount_;
+    for (size_t i = 0; i < capacity; ++i) {
+        if (stackSlots_[i].id == taskId) {
+            result = stackSlots_[i].sample;
+            break;
+        }
+    }
+    portEXIT_CRITICAL(&stackSamplesMux_);
+    return result;
+}
+
+void SystemMonitorModule::sampleTaskStack_(uint32_t nowMs)
+{
+    if (!stackSlots_ || !moduleManager || nowMs - lastStackSampleMs_ < kStackSamplePeriodMs) return;
+    lastStackSampleMs_ = nowMs;
+    const uint8_t taskCount = moduleManager->getTaskEntryCount();
+    const uint8_t count = taskCount + externalStackCount_;
+    if (count == 0U) return;
+    const uint8_t index = nextStackSample_ % count;
+    nextStackSample_ = (index + 1U) % count;
+    const bool external = index >= taskCount;
+    auto& slot = stackSlots_[external ? Limits::Core::Capacity::MaxTaskHealthEntries + index - taskCount : index];
+    TaskHandle_t handle = nullptr;
+    uint32_t generation = 0;
+    TaskHealth* health = nullptr;
+    if (external) {
+        const auto status = slot.source.acquire(slot.source.context, handle, generation);
+        if (status != TaskStackReadStatus::Acquired) {
+            if (status == TaskStackReadStatus::Unavailable) {
+                portENTER_CRITICAL(&stackSamplesMux_);
+                slot.sample = {};
+                portEXIT_CRITICAL(&stackSamplesMux_);
+            }
+            return;
+        }
+    } else {
+        const auto& entry = moduleManager->getTaskEntry(index);
+        health = &entry.health;
+        TaskHealthSnapshot snapshot{};
+        if (!health->acquireStackRead(snapshot)) return;
+        handle = snapshot.handle;
+        generation = snapshot.generation;
+        portENTER_CRITICAL(&stackSamplesMux_);
+        slot.id = entry.id;
+        portEXIT_CRITICAL(&stackSamplesMux_);
+    }
+
+    const uint64_t startedUs = esp_timer_get_time();
+    const uint32_t freeBytes = uxTaskGetStackHighWaterMark(handle);
+    const uint64_t endedUs = esp_timer_get_time();
+    if (health) {
+        health->recordStack(handle, generation, freeBytes);
+        health->releaseStackRead();
+    } else if (slot.source.release) {
+        slot.source.release(slot.source.context);
+    }
+    portENTER_CRITICAL(&stackSamplesMux_);
+    auto& sample = slot.sample;
+    if (sample.generation != generation) sample = {};
+    sample.generation = generation;
+    sample.sampledAtUs = endedUs;
+    sample.freeBytes = std::min(sample.freeBytes, freeBytes);
+    sample.lastDurationUs = endedUs - startedUs;
+    sample.maxDurationUs = std::max(sample.maxDurationUs, sample.lastDurationUs);
+    incrementSaturated(sample.samples);
+    portEXIT_CRITICAL(&stackSamplesMux_);
+}
+
+bool SystemMonitorModule::requestTaskCapture_(void* ctx, const CommandRequest&, char* reply, size_t replyLen)
+{
+#if configUSE_TRACE_FACILITY
+    static_cast<SystemMonitorModule*>(ctx)->captureRequested_.store(true);
+    const int written = snprintf(reply, replyLen, "{\"ok\":true,\"queued\":true}");
+#else
+    (void)ctx;
+    snprintf(reply, replyLen, "{\"ok\":false,\"error\":\"trace_unavailable\"}");
+    return false;
+#endif
+#if configUSE_TRACE_FACILITY
+    return written > 0 && size_t(written) < replyLen;
+#endif
+}
+
+void SystemMonitorModule::captureTasksIfRequested_()
+{
+#if configUSE_TRACE_FACILITY
+    if (!captureRequested_.exchange(false)) return;
+    auto* tasks = static_cast<TaskStatus_t*>(heap_caps_calloc(
+        kTaskStatusSnapshotCapacity, sizeof(TaskStatus_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!tasks) {
+        LOGW("Task capture unavailable: PSRAM allocation failed");
+        return;
+    }
+    const uint64_t startedUs = esp_timer_get_time();
+    const UBaseType_t captured = uxTaskGetSystemState(tasks, kTaskStatusSnapshotCapacity, nullptr);
+    const uint64_t endedUs = esp_timer_get_time();
+    lastTaskCapture_ = {startedUs, endedUs};
+    taskCaptureDurations_.record(endedUs - startedUs);
+    LOGI("TaskCapture start_us=%llu last_us=%llu max_us=%llu samples=%lu tasks=%u",
+         (unsigned long long)startedUs, (unsigned long long)taskCaptureDurations_.lastUs,
+         (unsigned long long)taskCaptureDurations_.maxUs, (unsigned long)taskCaptureDurations_.count,
+         (unsigned)captured);
+    if (captured == 0U) LOGW("Task capture unavailable capacity=%u", (unsigned)kTaskStatusSnapshotCapacity);
+    for (UBaseType_t i = 0; i < captured; ++i) {
+        const auto& task = tasks[i];
         if (task.eCurrentState == eDeleted) continue;
 #if configTASKLIST_INCLUDE_COREID
         const long core = task.xCoreID == tskNO_AFFINITY ? -1L : task.xCoreID;
 #else
         const long core = -1;
 #endif
-        // TaskStatus_t's name points into the TCB, which may already be freed.
-        Log::logf(task.usStackHighWaterMark ? LogLevel::Debug : LogLevel::Warn, LOG_MODULE_ID,
-                  "SdkTask id=%u core=%ld prio=%u free_b=%lu",
-                  (unsigned)task.xTaskNumber, core, (unsigned)task.uxBasePriority,
-                  (unsigned long)task.usStackHighWaterMark);
+        // The SDK task name points into a TCB that may already have been freed.
+        LOGI("SdkTask id=%u core=%ld prio=%u free_b=%lu", (unsigned)task.xTaskNumber, core,
+             (unsigned)task.uxBasePriority, (unsigned long)task.usStackHighWaterMark);
     }
+    heap_caps_free(tasks);
 #endif
 }
 
@@ -1164,6 +1262,9 @@ void SystemMonitorModule::loop() {
     }
 
     const uint32_t now = millis();
+    captureTasksIfRequested_();
+    sampleTaskStack_(now);
+    pollMemoryMetrics_(now);
 #if FLOW_WEB_HEAP_FORENSICS
     pollHeapWatch_(now);
     logPendingHeapAllocFailure_();
@@ -1209,4 +1310,72 @@ void SystemMonitorModule::loop() {
     }
 
     delayNextCycle(pdMS_TO_TICKS(25));
+}
+
+void SystemMonitorModule::pollMemoryMetrics_(uint32_t nowMs)
+{
+    // [MEM] Low-overhead, always-on memory telemetry. Sample once per second
+    // to catch short-lived pressure, summarize every 15 seconds, and report
+    // sudden internal RAM drops or threshold crossings immediately.
+    static uint32_t lastMemSampleMs = 0U;
+    static uint32_t lastMemReportMs = 0U;
+    static uint32_t previousInternalFree = 0U;
+    static uint32_t windowInternalLow = UINT32_MAX;
+    static uint32_t windowLargestLow = UINT32_MAX;
+    static bool memSampled = false;
+    static bool wasLow = false;
+    const uint32_t memNowMs = nowMs;
+    if (!memSampled || (uint32_t)(memNowMs - lastMemSampleMs) >= 1000U) {
+        lastMemSampleMs = memNowMs;
+        constexpr uint32_t internalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+        constexpr uint32_t psramCaps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+        const uint32_t internalFree = (uint32_t)heap_caps_get_free_size(internalCaps);
+        const uint32_t internalLargest = (uint32_t)heap_caps_get_largest_free_block(internalCaps);
+        const uint32_t internalMinimum = (uint32_t)heap_caps_get_minimum_free_size(internalCaps);
+        const uint32_t psramFree = (uint32_t)heap_caps_get_free_size(psramCaps);
+        const uint32_t psramLargest = (uint32_t)heap_caps_get_largest_free_block(psramCaps);
+        const uint32_t psramMinimum = (uint32_t)heap_caps_get_minimum_free_size(psramCaps);
+        // Largest allocatable block / total free memory is a useful
+        // fragmentation proxy (not an allocator-internal fragmentation metric).
+        const uint32_t internalFragPct = internalFree > 0U
+            ? (uint32_t)(100ULL * (internalFree - internalLargest) / internalFree) : 0U;
+        const uint32_t psramFragPct = psramFree > 0U
+            ? (uint32_t)(100ULL * (psramFree - psramLargest) / psramFree) : 0U;
+        const auto webStack = readTaskStack_(taskHealthId(ModuleId::WebInterface, TaskRole::Primary));
+        const auto asyncStack = readTaskStack_(taskHealthId(ModuleId::WebInterface, TaskRole::Library));
+        const uint32_t stackFreeBytes = webStack.samples ? webStack.freeBytes : 0U;
+        const uint32_t asyncStackFreeBytes = asyncStack.samples ? asyncStack.freeBytes : 0U;
+        if (internalFree < windowInternalLow) windowInternalLow = internalFree;
+        if (internalLargest < windowLargestLow) windowLargestLow = internalLargest;
+        const bool low = internalFree < 40000U || internalLargest < 16000U || (webStack.samples && stackFreeBytes < 512U) || (asyncStack.samples && asyncStackFreeBytes < 1024U);
+        const bool suddenDrop = memSampled && previousInternalFree > internalFree &&
+                                previousInternalFree - internalFree >= 8192U;
+        const bool periodic = !memSampled || (uint32_t)(memNowMs - lastMemReportMs) >= 15000U;
+        if (periodic || suddenDrop || (low && !wasLow)) {
+            const char* tag = low ? "[MEM-LOW]" : (suddenDrop ? "[MEM-DROP]" : "[MEM]");
+            const auto level = low || suddenDrop ? LogLevel::Warn : LogLevel::Info;
+            Log::logf(level, LOG_MODULE_ID,
+                      "%s ms=%lu int_free=%lu int_largest=%lu int_frag_pct=%lu int_min=%lu",
+                      tag, (unsigned long)memNowMs, (unsigned long)internalFree,
+                      (unsigned long)internalLargest, (unsigned long)internalFragPct,
+                      (unsigned long)internalMinimum);
+            Log::logf(level, LOG_MODULE_ID,
+                      "%s ms=%lu win_free_min=%lu win_largest_min=%lu psram_free=%lu psram_largest=%lu",
+                      tag, (unsigned long)memNowMs, (unsigned long)windowInternalLow,
+                      (unsigned long)windowLargestLow, (unsigned long)psramFree, (unsigned long)psramLargest);
+            Log::logf(level, LOG_MODULE_ID,
+                      "%s ms=%lu psram_frag_pct=%lu psram_min=%lu web_stack_free_bytes=%lu async_stack_free_bytes=%lu",
+                      tag, (unsigned long)memNowMs, (unsigned long)psramFragPct,
+                      (unsigned long)psramMinimum, (unsigned long)stackFreeBytes,
+                      (unsigned long)asyncStackFreeBytes);
+            if (periodic) {
+                lastMemReportMs = memNowMs;
+                windowInternalLow = internalFree;
+                windowLargestLow = internalLargest;
+            }
+        }
+        previousInternalFree = internalFree;
+        wasLow = low;
+        memSampled = true;
+    }
 }

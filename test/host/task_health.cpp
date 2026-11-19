@@ -105,12 +105,17 @@ int main()
     testWakeTrace(later, periodic);
     TaskHealth health;
     health.configure(periodic);
+    TaskHealthSnapshot readSnapshot{};
+    assert(!health.acquireStackRead(readSnapshot) && !health.canReap());
     assert(health.requestStart() && !health.requestStart());
     fakeEspTimerUs = start;
     health.started();
     auto snapshot = health.snapshot();
     assert(snapshot.state == TaskHealthState::Running && snapshot.generation == 1);
     assert(snapshot.handle == fakeCurrentTask && snapshot.startedUs == start);
+    assert(health.acquireStackRead(readSnapshot));
+    assert(readSnapshot.handle == fakeCurrentTask && readSnapshot.generation == 1U);
+    assert(!health.acquireStackRead(readSnapshot));
     health.recordStack(fakeCurrentTask, 1, 800);
     fakeStackFree = 700;
     health.beginCycle();
@@ -119,6 +124,9 @@ int main()
     health.finish();
     snapshot = health.snapshot();
     assert(snapshot.state == TaskHealthState::Finishing);
+    assert(!health.canReap() && !health.acquireStackRead(readSnapshot));
+    health.releaseStackRead();
+    assert(health.canReap());
     assert(snapshot.stackSamples == 2 && snapshot.minFreeBytes == 700);
     assert(snapshot.timing.cycles == 1 && snapshot.timing.expectedWaitUs == 5000);
     health.recordStack(fakeCurrentTask, 1, 0);

@@ -52,12 +52,17 @@ public:
     void setModuleManager(ModuleManager* mm) { moduleManager = mm; }
 
 private:
-    // Covers all ModuleManager-owned tasks plus FreeRTOS/network runtime tasks.
-    // The buffer is allocated once during init and retained for the firmware lifetime.
+    // Capacity of the optional, on-demand SDK snapshot.
     static constexpr size_t kTaskStatusSnapshotCapacity =
         Limits::Core::Capacity::MaxModuleTasks + 32U;
     static constexpr size_t kTaskHealthReportBatch = 3;
     static constexpr uint32_t kMinHealthReportIntervalMs = 1000;
+    static constexpr uint32_t kStackSamplePeriodMs = 100;
+    struct StackSlot {
+        TaskStackSource source{};
+        TaskStackSample sample{};
+        uint16_t id = 0;
+    };
     static constexpr uint32_t kHeapWatchSamplePeriodMs = 50U;
     static constexpr uint32_t kHeapWatchTripFreeBytes = 2048U;
     static constexpr uint32_t kHeapWatchRecoverFreeBytes = 8192U;
@@ -117,14 +122,21 @@ private:
     const LogHubService* logHub = nullptr;
     const HAService* haSvc_ = nullptr;
     EventBus* eventBus_ = nullptr;
-    TaskStatus_t* taskStatusSnapshot_ = nullptr;
+    StackSlot* stackSlots_ = nullptr;
+    uint8_t externalStackCount_ = 0;
+    uint8_t nextStackSample_ = 0;
+    uint32_t lastStackSampleMs_ = 0;
+    portMUX_TYPE stackSamplesMux_ = portMUX_INITIALIZER_UNLOCKED;
+    std::atomic<bool> captureRequested_{false};
     DurationSamples taskCaptureDurations_{};
     TaskWakeInterval lastTaskCapture_{};
     EventBus::QueueSnapshot lastEventBusSnapshot_{};
     portMUX_TYPE healthSnapshotMux_ = portMUX_INITIALIZER_UNLOCKED;
     SystemHealthSnapshot healthSnapshot_{};
     SystemHealthSnapshot readHealthSnapshot_();
-    SystemHealthService healthService_{ServiceBinding::bind<&SystemMonitorModule::readHealthSnapshot_>, this};
+    TaskStackSample readTaskStack_(uint16_t taskId);
+    SystemHealthService healthService_{ServiceBinding::bind<&SystemMonitorModule::readHealthSnapshot_>, this,
+                                      ServiceBinding::bind<&SystemMonitorModule::readTaskStack_>};
     TaskAlert taskAlerts_[Limits::Core::Capacity::MaxTaskHealthEntries]{};
     size_t nextTaskHealthReport_ = 0;
     bool haEntitiesRegistered_ = false;
@@ -165,6 +177,10 @@ private:
     void logBootInfo();
     void logHeapStats();
     void logTaskHealth(SystemHealthSnapshot::Tasks& summary);
+    void sampleTaskStack_(uint32_t nowMs);
+    void captureTasksIfRequested_();
+    void pollMemoryMetrics_(uint32_t nowMs);
+    static bool requestTaskCapture_(void* ctx, const CommandRequest&, char* reply, size_t replyLen);
     void logEventBusHealth(const EventBus::QueueSnapshot& queue);
     void sampleSystemHealth_();
     void logTrackedBuffers();

@@ -139,20 +139,22 @@ void MQTTModule::onRuntimeInitialSnapshotComplete_()
     }
 }
 
-void MQTTModule::reportClientTaskStackIfDue_(uint32_t nowMs)
+void MQTTModule::reportClientResourcesIfDue_(uint32_t nowMs)
 {
     if (!mqttClientStackReportPending_ ||
         (int32_t)(nowMs - mqttClientStackReportDueMs_) < 0) {
         return;
     }
 
-    TaskHandle_t mqttTask = xTaskGetHandle("mqtt_task");
-    if (!mqttTask) {
+    const auto stack = systemHealth_ && systemHealth_->taskStack
+        ? systemHealth_->taskStack(systemHealth_->ctx, taskHealthId(moduleId(), TaskRole::Library))
+        : TaskStackSample{};
+    if (!stack.samples) {
         mqttClientStackReportDueMs_ = nowMs + 5000U;
         return;
     }
 
-    const UBaseType_t minimumFreeBytes = uxTaskGetStackHighWaterMark(mqttTask);
+    const uint32_t minimumFreeBytes = stack.freeBytes;
     const uint32_t configuredBytes = Limits::Mqtt::Client::TaskStackSize;
     const uint32_t maximumUsedBytes = minimumFreeBytes < configuredBytes
         ? configuredBytes - (uint32_t)minimumFreeBytes
@@ -400,6 +402,8 @@ void MQTTModule::handleEvent_(const Event& e)
 
 void MQTTModule::init(ConfigStore& cfg, ServiceRegistry& services)
 {
+    clientStackMutex_ = xSemaphoreCreateMutex();
+    if (!clientStackMutex_) LOGW("Client task stack monitoring unavailable: mutex allocation failed");
     constexpr uint8_t kCfgModuleId = (uint8_t)ConfigModuleId::Mqtt;
     constexpr uint8_t kCfgBranchId = kMqttCfgBranch;
     cfg.registerVar(hostVar_, kCfgModuleId, kCfgBranchId);
@@ -528,8 +532,9 @@ void MQTTModule::onConfigLoaded(ConfigStore&, ServiceRegistry& services)
     runtimeProducerCore_.rebuildRoutes();
 }
 
-void MQTTModule::onStart(ConfigStore&, ServiceRegistry&)
+void MQTTModule::onStart(ConfigStore&, ServiceRegistry& services)
 {
+    systemHealth_ = services.get<SystemHealthService>(ServiceId::SystemHealth);
     if (!txStorage_) return;
     (void)allocateScratchBuffers_();
     (void)allocateRxQueue_();
@@ -639,7 +644,7 @@ void MQTTModule::loop()
             break;
     }
 
-    reportClientTaskStackIfDue_(nowMs);
+    reportClientResourcesIfDue_(nowMs);
 
     delayNextCycle(pdMS_TO_TICKS(Limits::Mqtt::Timing::LoopDelayMs));
 }

@@ -1,12 +1,14 @@
 #pragma once
 
 #include "Core/EventBus/EventBus.h"
+#include "Core/TaskHealth.h"
 
 struct SystemHealthSnapshot {
     struct StackMargin {
         const char* task = nullptr;
         uint32_t freeBytes = 0;
         uint16_t thresholdBytes = 0;
+        uint64_t sampledAtUs = 0;
     };
     struct WorkDuration {
         const char* task = nullptr;
@@ -30,4 +32,5 @@ struct SystemHealthSnapshot {
 struct SystemHealthService {
     SystemHealthSnapshot (*snapshot)(void* ctx);
     void* ctx;
+    TaskStackSample (*taskStack)(void* ctx, uint16_t taskId) = nullptr;
 };

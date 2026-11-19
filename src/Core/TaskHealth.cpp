@@ -124,6 +124,33 @@ TaskHealthSnapshot TaskHealth::recordStack(TaskHandle_t handle, uint32_t generat
     return snapshot;
 }
 
+bool TaskHealth::acquireStackRead(TaskHealthSnapshot& snapshot)
+{
+    portENTER_CRITICAL(&mux_);
+    const bool available = stats_.state == TaskHealthState::Running && stats_.handle && !stackReadActive_;
+    if (available) {
+        stackReadActive_ = true;
+        snapshot = stats_;
+    }
+    portEXIT_CRITICAL(&mux_);
+    return available;
+}
+
+void TaskHealth::releaseStackRead()
+{
+    portENTER_CRITICAL(&mux_);
+    stackReadActive_ = false;
+    portEXIT_CRITICAL(&mux_);
+}
+
+bool TaskHealth::canReap()
+{
+    portENTER_CRITICAL(&mux_);
+    const bool ready = stats_.state == TaskHealthState::Finishing && !stackReadActive_;
+    portEXIT_CRITICAL(&mux_);
+    return ready;
+}
+
 void TaskHealth::beginCycle()
 {
     const uint64_t nowUs = esp_timer_get_time();

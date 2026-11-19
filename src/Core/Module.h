@@ -65,6 +65,7 @@ public:
         return index == 0U && taskCount() != 0U ? singleLoopTaskSpec() : ModuleTaskSpec{};
     }
     virtual ModuleTaskSpec deferredTaskSpec() const { return {}; }
+    virtual TaskStackSource externalTaskStackSource() { return {}; }
 
     /** @brief Stack size for the FreeRTOS task. */
     virtual uint16_t taskStackSize() const { return Limits::Core::Task::DefaultStackSize; }

@@ -43,6 +43,7 @@ public:
         return 4096;
     }
     uint8_t taskCount() const override { return 1; }
+    TaskStackSource externalTaskStackSource() override;
 
     uint8_t dependencyCount() const override {
         // Keep AP provisioning web startup independent from heavy app modules.
@@ -70,6 +71,8 @@ public:
     bool provisioningOnly() const { return provisioningOnly_; }
 
 private:
+    static TaskStackReadStatus acquireAsyncTaskStack_(void* ctx, TaskHandle_t& handle, uint32_t& generation);
+    TaskHandle_t asyncTaskHandle_ = nullptr;
     static constexpr int kServerPort = 80;
     static constexpr size_t kLocalLogLineMax = 192;
 

@@ -16,6 +16,7 @@
 #include "Core/ServiceBinding.h"
 #include "Core/SystemLimits.h"
 #include "Core/ConfigDefaults.h"
+#include "Core/Services/ISystemHealth.h"
 #include "Core/RuntimeSnapshotProvider.h"
 #include "Modules/Network/MQTTModule/MqttConfigRouteProducer.h"
 #include "Core/Services/Services.h"
@@ -45,6 +46,7 @@ public:
     const char* taskName() const override { return "mqtt"; }
     BaseType_t taskCore() const override { return 0; }
     uint8_t taskCount() const override { return 1; }
+    TaskStackSource externalTaskStackSource() override;
 
     uint8_t dependencyCount() const override { return 5; }
     ModuleId dependency(uint8_t i) const override {
@@ -255,6 +257,9 @@ private:
     uint32_t stateTs_ = 0;
 
     esp_mqtt_client_handle_t client_ = nullptr;
+    SemaphoreHandle_t clientStackMutex_ = nullptr;
+    std::atomic<TaskHandle_t> clientStackTask_{nullptr};
+    uint32_t clientStackGeneration_ = 1;
     bool clientStarted_ = false;
     bool clientConfigDirty_ = true;
     bool suppressDisconnectEvent_ = false;
@@ -266,6 +271,7 @@ private:
     const AlarmService* alarmSvc_ = nullptr;
     const LogHubService* logHub_ = nullptr;
     EventBus* eventBus_ = nullptr;
+    const SystemHealthService* systemHealth_ = nullptr;
     DataStore* dataStore_ = nullptr;
 
     char deviceId_[Limits::Mqtt::Buffers::DeviceId] = {0};
@@ -343,7 +349,9 @@ private:
     void setState_(MQTTState s);
     static void onRuntimeInitialSnapshotCompleteStatic_(void* ctx);
     void onRuntimeInitialSnapshotComplete_();
-    void reportClientTaskStackIfDue_(uint32_t nowMs);
+    void reportClientResourcesIfDue_(uint32_t nowMs);
+    static TaskStackReadStatus acquireClientTaskStack_(void* ctx, TaskHandle_t& handle, uint32_t& generation);
+    static void releaseClientTaskStack_(void* ctx);
     bool allocateTxStorage_();
     bool allocateScratchBuffers_();
     bool allocateRxQueue_();

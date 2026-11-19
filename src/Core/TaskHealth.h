@@ -6,7 +6,7 @@
 
 #include "Core/ModuleId.h"
 
-enum class TaskRole : uint8_t { Primary = 0, Rs485 = 1, Reboot = 2, ArduinoLoop = 3 };
+enum class TaskRole : uint8_t { Primary = 0, Rs485 = 1, Reboot = 2, ArduinoLoop = 3, Library = 4 };
 enum class TaskCadence : uint8_t { Periodic, EventDriven, OneShot };
 enum class TaskHealthState : uint8_t { Expected, Starting, Running, Finishing, Finished, CreateFailed, Disabled };
 
@@ -93,6 +93,27 @@ struct TaskHealthSnapshot {
     TaskTiming timing{};
 };
 
+struct TaskStackSample {
+    uint64_t sampledAtUs = 0;
+    uint64_t lastDurationUs = 0;
+    uint64_t maxDurationUs = 0;
+    uint32_t freeBytes = UINT32_MAX;
+    uint32_t generation = 0;
+    uint32_t samples = 0;
+};
+
+enum class TaskStackReadStatus : uint8_t { Unavailable, Busy, Acquired };
+
+/** The owner keeps a library task alive between acquire() and release(). */
+struct TaskStackSource {
+    const char* name = nullptr;
+    uint32_t stackBytes = 0;
+    uint16_t minFreeBytes = kDefaultTaskMinFreeBytes;
+    TaskStackReadStatus (*acquire)(void*, TaskHandle_t&, uint32_t&) = nullptr;
+    void (*release)(void*) = nullptr;
+    void* context = nullptr;
+};
+
 /** One stable register slot. The task owns timing updates; readers copy a snapshot. */
 class TaskHealth {
 public:
@@ -111,6 +132,9 @@ public:
     void finish();
     void reaped();
     TaskHealthSnapshot recordStack(TaskHandle_t handle, uint32_t generation, uint32_t freeBytes);
+    bool acquireStackRead(TaskHealthSnapshot& snapshot);
+    void releaseStackRead();
+    bool canReap();
     void beginCycle();
     void endCycle(TickType_t waitTicks = 0, TickType_t moduleWaitTicks = 0);
     void recordModuleDelayReturn();
@@ -122,4 +146,5 @@ private:
     TaskWakeTrace* wakeTrace_ = nullptr;
     TaskHealthSnapshot stats_{};
     portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
+    bool stackReadActive_ = false;
 };

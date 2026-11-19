@@ -7307,7 +7307,7 @@ void WebInterfaceModule::startServer_()
         const auto* service = services_ ? services_->get<SystemHealthService>(ServiceId::SystemHealth) : nullptr;
         const auto snapshot = service && service->snapshot ? service->snapshot(service->ctx) : SystemHealthSnapshot{};
         constexpr size_t capacity = JSON_OBJECT_SIZE(4) + JSON_OBJECT_SIZE(6) +
-                                    JSON_OBJECT_SIZE(3) + JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(8);
+                                    JSON_OBJECT_SIZE(4) + JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(8);
         StaticJsonDocument<capacity> doc;
         doc["ok"] = true;
         if (snapshot.sampledAtUs != 0U) {
@@ -7322,6 +7322,9 @@ void WebInterfaceModule::startServer_()
                 lowest["task"] = margin.task;
                 lowest["free_b"] = margin.freeBytes;
                 lowest["threshold_b"] = margin.thresholdBytes;
+                if (margin.sampledAtUs) {
+                    lowest["sample_age_ms"] = (uint64_t(esp_timer_get_time()) - margin.sampledAtUs) / 1000U;
+                }
             }
             if (const auto& duration = snapshot.tasks.longestWork; duration.task) {
                 auto longest = tasks.createNestedObject("longest_work");

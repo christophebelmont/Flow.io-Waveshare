@@ -351,6 +351,7 @@
     "info.health.title": "Santé du système",
     "info.health.details": "Détails...",
     "info.health.waiting": "En attente du premier relevé.",
+    "info.health.stackAge": "Mesuré il y a {age}",
     "info.health.stale": "Actualisation indisponible. Dernier relevé affiché.",
     "info.health.unavailable": "Mesures de santé indisponibles.",
     "info.health.age": "Âge du relevé : {age} · Cumuls depuis le démarrage",

@@ -41,6 +41,32 @@ const char* tlsEspHint(esp_err_t err)
 }
 }
 
+TaskStackSource MQTTModule::externalTaskStackSource()
+{
+    return {"mqtt_task", Limits::Mqtt::Client::TaskStackSize, 512U,
+            acquireClientTaskStack_, releaseClientTaskStack_, this};
+}
+
+TaskStackReadStatus MQTTModule::acquireClientTaskStack_(void* ctx, TaskHandle_t& handle,
+                                                     uint32_t& generation)
+{
+    auto& self = *static_cast<MQTTModule*>(ctx);
+    if (!self.clientStackMutex_) return TaskStackReadStatus::Unavailable;
+    if (xSemaphoreTake(self.clientStackMutex_, 0) != pdTRUE) return TaskStackReadStatus::Busy;
+    handle = self.clientStackTask_.load();
+    generation = self.clientStackGeneration_;
+    if (!handle) {
+        xSemaphoreGive(self.clientStackMutex_);
+        return TaskStackReadStatus::Unavailable;
+    }
+    return TaskStackReadStatus::Acquired;
+}
+
+void MQTTModule::releaseClientTaskStack_(void* ctx)
+{
+    xSemaphoreGive(static_cast<MQTTModule*>(ctx)->clientStackMutex_);
+}
+
 bool MQTTModule::ensureClient_()
 {
     if (client_ && !clientConfigDirty_) return true;
@@ -123,15 +149,19 @@ bool MQTTModule::ensureClient_()
 void MQTTModule::stopClient_(bool intentional)
 {
     if (!client_) return;
+    if (clientStackMutex_) xSemaphoreTake(clientStackMutex_, portMAX_DELAY);
     if (intentional) suppressDisconnectEvent_ = true;
     (void)esp_mqtt_client_stop(client_);
+    clientStackTask_.store(nullptr);
+    ++clientStackGeneration_;
+    if (clientStackMutex_) xSemaphoreGive(clientStackMutex_);
     clientStarted_ = false;
 }
 
 void MQTTModule::destroyClient_()
 {
     if (!client_) return;
-    (void)esp_mqtt_client_stop(client_);
+    stopClient_(false);
     (void)esp_mqtt_client_destroy(client_);
     client_ = nullptr;
     clientStarted_ = false;
@@ -222,6 +252,8 @@ void MQTTModule::onConnect_(bool)
         setMqttRuntimeFullSnapshotPublished(*dataStore_, false);
     }
     setState_(MQTTState::Connected);
+    // ESP-MQTT dispatches its event loop from the client task.
+    clientStackTask_.store(xTaskGetCurrentTaskHandle());
     mqttClientStackReportDueMs_ = millis() + Limits::Mqtt::Timing::ClientStackReportDelayMs;
     mqttClientStackReportPending_ = true;
 
