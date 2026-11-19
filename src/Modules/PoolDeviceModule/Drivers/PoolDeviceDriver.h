@@ -63,8 +63,6 @@ private:
     void finishReconnectRead_(bool moreReads, uint32_t now);
     void observeRunning_(uint32_t now);
     bool startupFeedbackPending_(uint32_t now) const;
-    void requestReconciliation_(uint32_t now);
-    void reconcileObservation_(uint32_t now);
     bool modeMatches_(uint16_t status, const PoolDeviceTarget& target) const;
     void linkFailure_(uint8_t result, uint32_t now);
     // After a read outage renew both critical observations before reconciling.
@@ -72,8 +70,15 @@ private:
     Operation firstRead_() const;
     Operation uncertainWrite_ = Operation::None;
     static constexpr uint32_t DeliveryBudgetMs = 15000;
-    static constexpr uint32_t SetpointRepairIntervalMs = 5000;
+    // AquaGem accepts RS485 setpoints only after its power-on warmup.
+    static constexpr uint32_t AquaGemPowerOnDelayMs = 60000;
+    // AquaGem exposes measured speed only; do not require 1-RPM convergence
+    // to acknowledge a command when the running state and write ACK match.
+    static constexpr float AquaGemFeedbackToleranceRpm = 75.0f;
     bool runVerified_ = false;
+    bool commandConfirmed_ = false;
+    bool aquaGemFirstRead_ = false;
+    uint32_t aquaGemWriteReadyAtMs_ = 0;
     bool runningObserved_ = false;
     uint32_t runningSinceMs_ = 0;
     uint32_t runningObservationAtMs_ = 0;
@@ -100,7 +105,6 @@ private:
     bool limitValid_ = false;
     float maximumTemperature_ = 0;
     uint32_t nextPollAt_ = 0;
-    uint32_t setpointRepairAt_ = 0;
     uint32_t statusAt_ = 0;
     uint32_t levelAt_ = 0;
     bool statusValid_ = false;

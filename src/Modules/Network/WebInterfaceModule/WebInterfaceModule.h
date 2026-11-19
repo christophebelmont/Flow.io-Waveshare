@@ -30,6 +30,7 @@
 
 struct BoardSpec;
 struct WebJsonBuffer;
+class ModbusTcpServerModule;
 
 class WebInterfaceModule : public Module {
 public:
@@ -69,6 +70,7 @@ public:
     void loop() override;
     void setProvisioningOnly(bool enabled) { provisioningOnly_ = enabled; }
     bool provisioningOnly() const { return provisioningOnly_; }
+    void setModbusTcpServerModule(ModbusTcpServerModule* module) { modbusTcp_ = module; }
 
 private:
     static TaskStackReadStatus acquireAsyncTaskStack_(void* ctx, TaskHandle_t& handle, uint32_t& generation);
@@ -206,6 +208,7 @@ private:
     bool localLogSinkRegistered_ = false;
     const FirmwareUpdateService* fwUpdateSvc_ = nullptr;
     ServiceRegistry* services_ = nullptr;
+    ModbusTcpServerModule* modbusTcp_ = nullptr;
     bool provisioningOnly_ = false;
     bool provisioningDisableAfterConfigured_ = false;
     bool provisioningRequireMqttForConfigured_ = false;

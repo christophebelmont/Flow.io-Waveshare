@@ -6,7 +6,12 @@
 
 #include <stdint.h>
 
-constexpr uint8_t MODBUS_MAX_REGISTERS_PER_REQUEST = 32U;
+// Modbus application protocol limits (FC03/04: 125, FC16: 123).
+// The storage bound also covers the largest read response. Keep these
+// separate so a large read never permits an oversized FC16 write.
+constexpr uint8_t MODBUS_MAX_READ_REGISTERS = 125U;
+constexpr uint8_t MODBUS_MAX_WRITE_REGISTERS = 123U;
+constexpr uint8_t MODBUS_MAX_REGISTERS_PER_REQUEST = MODBUS_MAX_READ_REGISTERS;
 constexpr uint16_t MODBUS_TRANSACTION_INVALID = 0U;
 
 enum ModbusFunction : uint8_t {
@@ -94,12 +99,17 @@ struct ModbusResponse {
     uint8_t exceptionCode = 0U;
     uint16_t registerAddress = 0U;
     uint16_t registerCount = 0U;
+    /** Scheduler diagnostics for completed RTU transactions (milliseconds). */
+    uint32_t queueWaitMs = 0U;
+    uint32_t rtuResponseMs = 0U;
     uint16_t values[MODBUS_MAX_REGISTERS_PER_REQUEST]{};
 };
 
 struct ModbusMasterStats {
     bool ready = false;
     uint8_t queued = 0U;
+    uint8_t queuedPeak = 0U;
+    uint32_t queueRejected = 0U;
     uint32_t submitted = 0U;
     uint32_t completed = 0U;
     uint32_t timeouts = 0U;

@@ -148,6 +148,7 @@ ModbusResultCode Rs485TransactionScheduler::submit_(const ModbusRequest& request
     const unsigned reserved = request.priority == MODBUS_PRIORITY_SAFETY ? 0 :
         request.operation == RegisterOperation::Read ? 1 : 2;
     if (!freeSlot || freeCount <= reserved) {
+        ++statsData_.queueRejected;
         LOGD("Modbus submit rejected owner=%u slave=%u reason=queue_full",
              request.ownerId, request.slaveAddress);
         unlock_();
@@ -156,6 +157,7 @@ ModbusResultCode Rs485TransactionScheduler::submit_(const ModbusRequest& request
 
     const uint16_t id = allocateTransactionId_();
     if (id == MODBUS_TRANSACTION_INVALID) {
+        ++statsData_.queueRejected;
         unlock_();
         return MODBUS_RESULT_QUEUE_FULL;
     }
@@ -169,6 +171,12 @@ ModbusResultCode Rs485TransactionScheduler::submit_(const ModbusRequest& request
     freeSlot->response.transactionId = id;
     outTransactionId = id;
     ++statsData_.submitted;
+    uint8_t currentlyQueued = 0U;
+    for (const Slot& slot : storage_->slots)
+        if (slot.state == SlotState::Queued || slot.state == SlotState::Active)
+            ++currentlyQueued;
+    if (currentlyQueued > statsData_.queuedPeak)
+        statsData_.queuedPeak = currentlyQueued;
     LOGD("Modbus queued id=%u owner=%u slave=%u fc=0x%02X reg=0x%04X count=%u priority=%u",
          id, request.ownerId, request.slaveAddress, request.function,
          request.registerAddress, request.registerCount, request.priority);
@@ -319,7 +327,12 @@ void Rs485TransactionScheduler::finish_(Slot& slot,
     slot.response.state = (result == MODBUS_RESULT_OK)
                               ? MODBUS_TRANSACTION_COMPLETE
                               : MODBUS_TRANSACTION_FAILED;
-    availableAtMs_ = busAvailableAt(slot.request.line, slot.sentAtMs, millis(),
+    const uint32_t doneAtMs = millis();
+    if (slot.sentAtMs != 0U) {
+        slot.response.queueWaitMs = slot.sentAtMs - slot.enqueuedAttemptAtMs;
+        slot.response.rtuResponseMs = doneAtMs - slot.sentAtMs;
+    }
+    availableAtMs_ = busAvailableAt(slot.request.line, slot.sentAtMs, doneAtMs,
                                     result != MODBUS_RESULT_OK || slot.abandoned);
     LOGD("Modbus done id=%u slave=%u result=%s exception=0x%02X total_ms=%lu abandoned=%u",
          slot.transactionId, slot.request.slaveAddress, resultName(result),

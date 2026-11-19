@@ -176,6 +176,7 @@ void registerModules(AppContext& ctx, ModuleInstances& modules)
     }
     ctx.moduleManager.add(&modules.systemModule);
     ctx.moduleManager.add(&modules.ioModule);
+    ctx.moduleManager.add(&modules.modbusTcpServerModule);
     ctx.moduleManager.add(&modules.poolLogicModule);
     ctx.moduleManager.add(&modules.poolDeviceModule);
     ctx.moduleManager.add(&modules.poolHistoryModule);
@@ -276,6 +277,8 @@ void setupProfile(AppContext& ctx)
     modules.poolDeviceModule.configureDomainStatus(*ctx.domain, &Profiles::Waveshare::IoLayout::bindingPortExists);
     configureIoModule(ctx, modules);
     configurePoolDevices(ctx, modules);
+    modules.modbusTcpServerModule.setPoolDeviceModule(&modules.poolDeviceModule);
+    modules.webInterfaceModule.setModbusTcpServerModule(&modules.modbusTcpServerModule);
 
     // Keep PoolLogic runtime snapshots first so HA-critical state (including
     // heat_assist reason) stays available even when runtime route capacity is reached.

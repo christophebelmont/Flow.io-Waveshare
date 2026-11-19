@@ -1,0 +1,73 @@
+{
+  "_meta": {
+    "generated": true,
+    "locale": "fr",
+    "version": 1
+  },
+  "docs": {
+    "network/modbus-tcp": {
+      "label_t": "cfgmods.network.modbusTcp.label"
+    },
+    "network/modbus-tcp/502": {
+      "label_t": "cfgmods.network.modbusTcp.502.label"
+    },
+    "network/modbus-tcp/503": {
+      "label_t": "cfgmods.network.modbusTcp.503.label"
+    },
+    "network/modbus-tcp/504": {
+      "label_t": "cfgmods.network.modbusTcp.504.label"
+    }
+  },
+  "meta": {
+    "enum_sets": {
+      "modbus_tcp_mode": [
+        {
+          "value": 0,
+          "label_t": "cfgdocs.modbus.options.none"
+        },
+        {
+          "value": 1,
+          "label_t": "cfgdocs.modbus.options.device"
+        },
+        {
+          "value": 2,
+          "label_t": "cfgdocs.modbus.options.manual"
+        }
+      ],
+      "modbus_tcp_parity": [
+        {
+          "value": 0,
+          "label_t": "cfgdocs.modbus.options.parity.none"
+        },
+        {
+          "value": 1,
+          "label_t": "cfgdocs.modbus.options.parity.even"
+        },
+        {
+          "value": 2,
+          "label_t": "cfgdocs.modbus.options.parity.odd"
+        }
+      ],
+      "modbus_tcp_stop": [
+        {
+          "value": 1,
+          "label": "1"
+        },
+        {
+          "value": 2,
+          "label": "2"
+        }
+      ],
+      "modbus_tcp_error": [
+        {
+          "value": 0,
+          "label_t": "cfgdocs.modbus.options.exception"
+        },
+        {
+          "value": 1,
+          "label_t": "cfgdocs.modbus.options.silent"
+        }
+      ]
+    }
+  }
+}

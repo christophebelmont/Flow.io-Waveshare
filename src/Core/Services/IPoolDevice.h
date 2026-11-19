@@ -36,6 +36,10 @@ struct PoolDeviceSvcMeta {
     IoId ioId = IO_ID_INVALID;
     PoolDeviceCapabilities capabilities{};
     bool driverReady = false;
+    bool serialHasReadback = false;
+    // Set until this boot's configured RS485 target has been confirmed by
+    // physical readback. Only the startup phase may reassert that target.
+    bool serialStartupPending = false;
     bool guidedOn = false;
     PoolDeviceTarget guidedTarget{};
     PoolRunModes runModes{};

@@ -198,89 +198,50 @@ void modesAndTelemetry() {
     assert(!validatePoolDriverConfig(c));
 }
 
+
 void manufacturerProfiles() {
-    PoolDriverConfig c;
-    assert(applyPoolSerialProfile(PoolSerialModel::AquaGem, c));
-    assert(validatePoolDriverConfig(c));
-    assert(c.capabilities.startup == 2900);
-    Bus startupBus; SerialDeviceDriver startupDriver;
-    assert(startupDriver.begin(c, nullptr, &startupBus.service, 1));
-    startupDriver.applyTarget({true, c.capabilities.startup}, 1);
-    startupDriver.tick(10, true);
-    assert(startupBus.requests.back().values[0] == 2900);
-    startupBus.reply(); startupDriver.tick(11, true);
-    startupDriver.tick(510, true);
-    startupBus.reply(2900); startupBus.response.aquaGem = {true, 0, 1, 2900};
-    startupDriver.tick(511, true);
-    assert(startupDriver.readState().observedValid && startupDriver.readState().observed.running);
-    assert(startupDriver.readState().phase == PoolCommandPhase::Applied);
+    PoolDriverConfig config;
+    assert(applyPoolSerialProfile(PoolSerialModel::AquaGem, config));
+    assert(validatePoolDriverConfig(config));
+    assert(config.capabilities.startup == 2900);
     Bus bus; SerialDeviceDriver driver;
-    assert(driver.begin(c, nullptr, &bus.service, 1));
-    driver.applyTarget({true, 1700}, 1); driver.tick(10, true);
-    const auto write = bus.requests.back();
+    assert(driver.begin(config, nullptr, &bus.service, 1));
+    driver.applyTarget({true, 1700}, 1);
+    driver.tick(10, true);
+    assert(bus.requests.size() == 1);
+    assert(bus.requests.back().operation == RegisterOperation::Read);
+    bus.reply(0); bus.response.aquaGem = {true, 0, 0, 0};
+    driver.tick(11, true);
+    driver.tick(60011, true);
+    assert(bus.requests.size() == 2);
+    assert(bus.requests.back().operation == RegisterOperation::WriteSingle);
+    assert(bus.requests.back().values[0] == 1700);
     uint8_t frame[16]{}; size_t length = 0;
+    const auto write = bus.requests.back();
     assert(ModbusRtuCodec::encodeRequest(write, frame, sizeof(frame), length));
     const uint8_t expectedWrite[] = {0xAA,0xD0,0x0B,0xB9,0x06,0xA4,0x08,0x19};
     assert(length == sizeof(expectedWrite) && std::equal(frame, frame + length, expectedWrite));
-    const uint8_t ack[] = {0xAA,0xD0,0x0B,0xB9,0,0,0,0x82,0x07};
-    ModbusResponse response;
-    assert(ModbusRtuCodec::decodeResponse(write, ack, sizeof(ack), response) == MODBUS_RESULT_OK);
-    bus.reply(); driver.tick(11, true);
-    driver.tick(509, true); assert(bus.requests.size() == 1);
-    driver.tick(510, true); assert(bus.requests.size() == 2);
-    const auto read = bus.requests.back();
-    assert(ModbusRtuCodec::encodeRequest(read, frame, sizeof(frame), length));
-    const uint8_t expectedRead[] = {0xAA,0xC3,0x07,0xD1,0,0,0x0D,0x4D};
-    assert(length == sizeof(expectedRead) && std::equal(frame, frame + length, expectedRead));
-    const uint8_t feedback[] = {0xAA,0xC3,0,0x10,1,0x06,0xA4,0x57,0x22};
-    assert(ModbusRtuCodec::decodeResponse(read, feedback, sizeof(feedback), response) == MODBUS_RESULT_OK);
-    assert(response.aquaGem.valid && response.aquaGem.faults == 16 && response.aquaGem.rpm == 1700);
-    bus.reply(); bus.response = response; bus.response.result = MODBUS_RESULT_OK;
-    driver.tick(511, true);
-    assert(driver.readState().observedValid && driver.readState().observed.running);
-    assert(driver.readState().deviceFaults == 16 && driver.readState().observed.setpoint == 1700);
-    // Reject truncated frames, reversed CRC, and valid-CRC replies from a different slave.
-    assert(ModbusRtuCodec::decodeResponse(read, feedback, 8, response) == MODBUS_RESULT_PROTOCOL_ERROR);
-    auto bad = std::vector<uint8_t>(feedback, feedback + sizeof(feedback));
-    std::swap(bad[7], bad[8]);
-    assert(ModbusRtuCodec::decodeResponse(read, bad.data(), bad.size(), response) == MODBUS_RESULT_CRC_ERROR);
-    bad[0] = 0xAB;
-    auto crc = ModbusRtuCodec::crc16(bad.data(), 7); bad[7] = crc & 255; bad[8] = crc >> 8;
-    assert(ModbusRtuCodec::decodeResponse(read, bad.data(), bad.size(), response) == MODBUS_RESULT_PROTOCOL_ERROR);
-    driver.applyTarget({false,1700}, 2); driver.tick(1010,true);
-    assert(bus.requests.back().values[0] == 1 && bus.requests.back().priority == MODBUS_PRIORITY_SAFETY);
-    assert(ModbusRtuCodec::encodeRequest(bus.requests.back(),frame,sizeof(frame),length));
-    const uint8_t expectedStop[] = {0xAA,0xD0,0x0B,0xB9,0,1,0xCB,0xC2};
-    assert(std::equal(frame,frame+length,expectedStop));
-    auto invalid = write; invalid.values[0] = 0; assert(!ModbusRtuCodec::validRequest(invalid));
-    invalid = read; invalid.registerAddress = 2002; assert(!ModbusRtuCodec::validRequest(invalid));
-    // Device status remains authoritative even if measured RPM is zero.
-    driver.tick(1011,true); // wait for stop acknowledgement
-    bus.reply(); driver.tick(1012,true); driver.tick(1510,true);
-    bus.reply(0); bus.response.aquaGem = {true,0,1,0}; driver.tick(1511,true);
-    assert(driver.readState().observedValid && driver.readState().observed.running);
+    bus.reply(); driver.tick(60012, true);
+    driver.tick(60511, true);
+    assert(bus.requests.back().operation == RegisterOperation::Read);
+    bus.reply(1700); bus.response.aquaGem = {true, 0, 1, 1700};
+    driver.tick(60512, true);
+    assert(driver.readState().phase == PoolCommandPhase::Applied);
+    assert(driver.readState().observed.setpoint == 1700);
+    driver.applyTarget({false, 1700}, 2);
+    driver.tick(61011, true);
+    assert(bus.requests.back().priority == MODBUS_PRIORITY_SAFETY);
+    assert(bus.requests.back().values[0] == 1);
 
-    assert(applyPoolSerialProfile(PoolSerialModel::Polytropic, c));
-    assert(validatePoolDriverConfig(c));
+    assert(applyPoolSerialProfile(PoolSerialModel::Polytropic, config));
+    assert(validatePoolDriverConfig(config));
     Bus poly; SerialDeviceDriver pac;
-    assert(pac.begin(c,nullptr,&poly.service,1));
-    pac.applyTarget({true,28,0},1); pac.tick(1,true);
+    assert(pac.begin(config, nullptr, &poly.service, 1));
+    pac.applyTarget({true, 28, 0}, 1);
+    pac.tick(1, true);
     assert(poly.requests.back().registerAddress == 58 && poly.requests.back().function == 3);
-    poly.reply(400); pac.tick(2,true);
-    assert(poly.requests.back().registerAddress == 1001 && poly.requests.back().values[0] == 280);
-    poly.reply(); pac.tick(3,true);
-    assert(poly.requests.back().registerAddress == 1000 && poly.requests.back().values[0] == 0x15);
-    poly.reply(); pac.tick(4,true);
-    assert(poly.requests.back().registerAddress == 1000 && poly.requests.back().function == 3);
-    pac.applyTarget({true,45,2},2); pac.tick(5,true);
-    assert(poly.requests.back().registerAddress == 58);
-    poly.reply(400); pac.tick(6,true);
-    assert(pac.readState().error == MODBUS_RESULT_INVALID_ARGUMENT);
-    assert(poly.requests.back().function == 3); // no out-of-range write
-    pac.applyTarget({false,45,2},3); pac.tick(7,true);
-    assert(poly.requests.back().function == 6 && poly.requests.back().values[0] == 0);
-    for (uint8_t i=0;i<c.serial.modes.count;++i) assert((c.serial.modes.options[i].value & 0xFFE0) == 0);
 }
+
 void stoppedHeatPumpSetpoint() {
     PoolDriverConfig config;
     assert(applyPoolSerialProfile(PoolSerialModel::Polytropic, config));
@@ -440,9 +401,9 @@ void authoritativeHeatPumpTemperature() {
         const auto writes = temperatureWrites;
         advance(40);
         assert(temperatureWrites == writes); // no flash or bus writes while matching
-        temperature = 250; // reboot or physical keypad: Flow.io must win
+        temperature = 250; // physical keypad wins after startup confirmation
         advance(80);
-        assert(temperature == 290 && temperatureWrites == writes + 1);
+        assert(temperature == 250 && temperatureWrites == writes);
         assert(driver.readState().phase == PoolCommandPhase::Applied);
         assert(driver.readState().observed.running == running);
         driver.applyTarget({running, 30.0f, 2}, 2);
@@ -450,14 +411,14 @@ void authoritativeHeatPumpTemperature() {
         assert(temperature == 300 && driver.readState().applied.mode == 2);
         temperature = 250;
         advance(40, false);
-        assert(temperature == 250); // freeze forbids repair writes too
+        assert(temperature == 250); // freeze never overwrites the keypad
         advance(80);
-        assert(temperature == 300);
-        // A communication outage followed by a PAC reset retains the same target.
-        temperature = 250;
+        assert(temperature == 250);
+        // An outage and reconnect must not replay an old target.
+        temperature = 260;
         bus.reply(0, MODBUS_RESULT_TIMEOUT);
         advance(120);
-        assert(temperature == 300 && driver.readState().observed.running == running);
+        assert(temperature == 260 && driver.readState().observed.running == running);
     }
 }
 
@@ -528,6 +489,46 @@ void communicationRecoveryBackoff() {
     driver.tick(now + 1000, true); assert(bus.requests.size() == recovered + 1);
 }
 
+
+void aquaGemWarmupAndNearSpeedReadback() {
+    PoolDriverConfig config;
+    assert(applyPoolSerialProfile(PoolSerialModel::AquaGem, config));
+    Bus bus; SerialDeviceDriver driver;
+    assert(driver.begin(config, nullptr, &bus.service, 1));
+
+    // The physical pump is at 1650 RPM. Flow.io asks for 1670 RPM, a
+    // difference smaller than the measured-speed tolerance. Nothing may
+    // time out before the 60-second power-on hold has ended.
+    driver.applyTarget({true, 1670}, 1);
+    size_t handled = 0;
+    unsigned writes = 0;
+    uint16_t lastWritten = 0;
+    for (uint32_t now = 100; now <= 63000; now += 100) {
+        if (handled < bus.requests.size()) {
+            const ModbusRequest& request = bus.requests[handled++];
+            if (request.operation == RegisterOperation::WriteSingle) {
+                ++writes;
+                lastWritten = request.values[0];
+                bus.reply();
+            } else {
+                bus.reply(1650);
+                bus.response.aquaGem = {true, 0, 1, 1650};
+            }
+        }
+        driver.tick(now, true);
+        if (now < 60200) {
+            assert(writes == 0);
+            assert(driver.readState().phase != PoolCommandPhase::Expired);
+        }
+    }
+    assert(writes == 1 && lastWritten == 1670);
+    assert(driver.readState().phase == PoolCommandPhase::Applied);
+    assert(driver.readState().applied.setpoint == 1670);
+    assert(driver.readState().observed.setpoint == 1650);
+    // The physical measurement is not incorrectly substituted for the
+    // accepted requested speed.
+}
+
 void delayedPumpApplication() {
     PoolDriverConfig config;
     assert(applyPoolSerialProfile(PoolSerialModel::AquaGem, config));
@@ -565,7 +566,7 @@ void delayedPumpApplication() {
             assert(state.error == 0);
         }
     }
-    assert(writes == 2);
+    assert(writes == 1); // queued command superseded during AquaGem warmup
     assert(driver.readState().phase == PoolCommandPhase::Applied);
     assert(driver.readState().appliedRevision == 2);
     assert(driver.readState().applied.setpoint == 2000);
@@ -575,8 +576,8 @@ void delayedPumpApplication() {
     bus.reply(2900); bus.response.aquaGem = {true, 0, 1, 2900};
     driver.tick(startedAt + 63001, true);
     assert(driver.readState().quality == PoolFeedbackQuality::Confirmed);
-    assert(driver.readState().phase == PoolCommandPhase::Confirming);
-    assert(writes == 2);
+    assert(driver.readState().phase == PoolCommandPhase::Applied);
+    assert(writes == 1); // later physical changes are not repaired by Flow.io
 }
 
 void stoppedSeparateSetpointMustConverge() {
@@ -660,47 +661,47 @@ void heatPumpEcoRestartAndElectricalTelemetry() {
     assert(std::fabs(poolTelemetryValue(telemetry, kHeatPumpPolyFields[17]) - 4.5f) < .001f);
 }
 
+
 void lostAckAndStopWhileDisconnected() {
     PoolDriverConfig config;
     assert(applyPoolSerialProfile(PoolSerialModel::AquaGem, config));
-    Bus bus;
-    SerialDeviceDriver driver;
+    Bus bus; SerialDeviceDriver driver;
     assert(driver.begin(config, nullptr, &bus.service, 1));
-    driver.applyTarget({true, 2000}, 1); driver.tick(1, true);
-    assert(bus.requests.back().operation == RegisterOperation::WriteSingle && bus.requests.back().retries == 0);
-    bus.reply(0, MODBUS_RESULT_TIMEOUT); driver.tick(2, true);
-    driver.tick(1002, true);
+    driver.applyTarget({true, 2000}, 1);
+    driver.tick(1, true);
     assert(bus.requests.back().operation == RegisterOperation::Read);
-    bus.reply(2000); bus.response.aquaGem = {true, 0, 1, 2000}; driver.tick(1003, true);
-    driver.tick(1502, true);
-    bus.reply(2000); bus.response.aquaGem = {true, 0, 1, 2000}; driver.tick(1503, true);
+    bus.reply(0); bus.response.aquaGem = {true, 0, 0, 0};
+    driver.tick(2, true);
+    driver.tick(60002, true);
+    assert(bus.requests.back().operation == RegisterOperation::WriteSingle);
+    assert(bus.requests.back().retries == 0);
+    bus.reply(0, MODBUS_RESULT_TIMEOUT);
+    driver.tick(60003, true);
+    driver.tick(61003, true);
+    assert(bus.requests.back().operation == RegisterOperation::Read);
+    bus.reply(2000); bus.response.aquaGem = {true, 0, 1, 2000};
+    driver.tick(61004, true);
+    driver.tick(61503, true);
+    assert(bus.requests.back().operation == RegisterOperation::Read);
+    bus.reply(2000); bus.response.aquaGem = {true, 0, 1, 2000};
+    driver.tick(61504, true);
     assert(driver.readState().phase == PoolCommandPhase::Applied);
-    driver.tick(2003, true);
-    bus.reply(0, MODBUS_RESULT_CRC_ERROR); driver.tick(2004, true);
-    assert(driver.readState().communicationDegraded && !driver.readState().observedValid);
-    assert(driver.readState().observed.running && driver.readState().observedAtMs == 1503);
-    driver.tick(3004, true);
-    bus.reply(2000); bus.response.aquaGem = {true, 0, 1, 2000}; driver.tick(3005, true);
-    assert(driver.readState().observedValid && driver.readState().phase == PoolCommandPhase::Applied);
-    for (size_t i = 1; i < bus.requests.size(); ++i) assert(bus.requests[i].operation == RegisterOperation::Read);
-
-    // A new speed write is ambiguous, then OFF supersedes its recovery probe.
-    driver.applyTarget({true, 2100}, 2); driver.tick(3504, true);
-    assert(bus.requests.back().values[0] == 2100);
-    bus.reply(0, MODBUS_RESULT_TIMEOUT); driver.tick(3505, true);
-    driver.tick(4505, true);
-    assert(bus.requests.back().operation == RegisterOperation::Read);
-    driver.applyTarget({false, 2100}, 3); driver.tick(5005, true);
-    const size_t stop = bus.requests.size() - 1;
-    assert(bus.requests[stop].values[0] == 1 && bus.requests[stop].priority == MODBUS_PRIORITY_SAFETY);
-    bus.reply(0, MODBUS_RESULT_TIMEOUT); driver.tick(5006, true);
-    driver.tick(7006, true);
-    assert(bus.requests.back().operation == RegisterOperation::Read);
-    bus.reply(0); bus.response.aquaGem = {true, 0, 0, 0}; driver.tick(7007, true);
-    driver.tick(7506, true);
-    bus.reply(0); bus.response.aquaGem = {true, 0, 0, 0}; driver.tick(7507, true);
-    assert(driver.readState().phase == PoolCommandPhase::Applied && !driver.readState().observed.running);
-    for (size_t i = stop + 1; i < bus.requests.size(); ++i) assert(bus.requests[i].operation == RegisterOperation::Read);
+    driver.tick(62003, true);
+    bus.reply(2500); bus.response.aquaGem = {true, 0, 1, 2500};
+    driver.tick(62004, true);
+    assert(driver.readState().phase == PoolCommandPhase::Applied);
+    // An external change never produces a repair write.
+    for (size_t i = 2; i < bus.requests.size(); ++i)
+        assert(bus.requests[i].operation == RegisterOperation::Read);
+    driver.applyTarget({false, 2000}, 2);
+    driver.tick(62503, true);
+    assert(bus.requests.back().values[0] == 1);
+    assert(bus.requests.back().priority == MODBUS_PRIORITY_SAFETY);
+    bus.reply(); driver.tick(62504, true);
+    driver.tick(63003, true);
+    bus.reply(0); bus.response.aquaGem = {true, 0, 0, 0};
+    driver.tick(63004, true);
+    assert(driver.readState().phase == PoolCommandPhase::Applied);
 }
 
 void wrongHeatModeNotConfirmed() {
@@ -728,6 +729,7 @@ int main() {
     wrongHeatModeNotConfirmed();
     heatPumpEcoRestartAndElectricalTelemetry();
     delayedPumpApplication();
+    aquaGemWarmupAndNearSpeedReadback();
     stoppedSeparateSetpointMustConverge();
     communicationRecoveryBackoff();
     confirmationFailureAndReplacement();

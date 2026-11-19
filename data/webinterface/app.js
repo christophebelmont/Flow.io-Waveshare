@@ -11169,6 +11169,9 @@
     function cfgPathLabel(pathValue) {
       const cleanPath = nettoyerNomFlowCfg(pathValue);
       if (!cleanPath) return 'Racine';
+      // Display-only label: keep the original Config Store paths for all API calls.
+      const modbusPort = cleanPath.match(/^network\/modbus-tcp\/(502|503|504)$/i);
+      if (modbusPort) return 'Port ' + modbusPort[1];
       const meta = configPathMeta(cleanPath);
       if (meta && typeof meta.label === 'string' && meta.label.length > 0) {
         return meta.label;
@@ -13506,7 +13509,35 @@
       if (isTftSensorRuntimeUiDoc(doc)) await loadDataValueCatalog();
     }
 
+    let modbusDeviceOptions = null;
+    let modbusDeviceOptionsLoadedAt = 0;
+    async function ensureModbusDeviceOptions() {
+      // Fetch only on opening a Modbus Config Store branch; never while
+      // loading the dashboard. Cache briefly to limit ESP32 HTTP pressure.
+      if (Array.isArray(modbusDeviceOptions) &&
+          Date.now() - modbusDeviceOptionsLoadedAt < 60000) return;
+      try {
+        const res = await fetchWithBusyRetry('/api/modbus/ports', { cache: 'no-store' });
+        const data = await res.json();
+        if (!res.ok || !data || data.ok !== true || !Array.isArray(data.devices)) return;
+        modbusDeviceOptions = data.devices
+          .filter(item => Number.isInteger(Number(item.id)) && Number(item.id) >= 0 && Number(item.id) < 16)
+          .map(item => ({
+            value: Number(item.id),
+            label: String(item.label || ('Equipement ' + (Number(item.id) + 1))).trim()
+              + ' (' + String(item.baud || '-') + ' bauds)'
+          }));
+        modbusDeviceOptionsLoadedAt = Date.now();
+      } catch (err) {
+        // Keep the standard numeric field as fallback when diagnostic
+        // endpoint is temporarily unavailable.
+      }
+    }
+
     function configEnumOptionsForField(moduleName, key, doc) {
+      if (/^modbustcp50[234]$/.test(String(moduleName || '').toLowerCase()) &&
+          key === 'device_id' && Array.isArray(modbusDeviceOptions) &&
+          modbusDeviceOptions.length > 0) return modbusDeviceOptions;
       const options = (doc && Array.isArray(doc._enumOptions)) ? doc._enumOptions : null;
       if (!options) return null;
       if (isWaveshareProfile() && isPoolLogicDeviceSlotField(moduleName, key, doc)) {
@@ -14047,6 +14078,11 @@
 
     function configConditionMatches(condition, value) {
       if (!condition || typeof condition !== 'object') return true;
+      // Backward compatible equality and "not equal" for modes such as
+      // Modbus TCP -> Aucun where additional RS485 fields must disappear.
+      if (Object.prototype.hasOwnProperty.call(condition, 'not_equals')) {
+        return Number(value) !== Number(condition.not_equals);
+      }
       return Number(value) === Number(condition.equals);
     }
 
@@ -14484,6 +14520,17 @@
         flowCfgApplyBtn.hidden = perFieldApply;
       }
       const keys = Object.keys(data).sort();
+      // Put the RS485 mode first; when set to "Aucun" the remainder of
+      // the fields are hidden, making a disabled port a compact single row.
+      if (/^modbustcp50[234]$/.test(String(moduleName || '').toLowerCase())) {
+        const order = ['mode', 'device_id', 'baud', 'parity',
+          'stop_bits', 'timeout_ms', 'error_mode'];
+        keys.sort((left, right) => {
+          const a = order.indexOf(left);
+          const b = order.indexOf(right);
+          return (a < 0 ? 99 : a) - (b < 0 ? 99 : b);
+        });
+      }
       if (sectionTitle && keys.length > 0) {
         const sectionEl = document.createElement('div');
         sectionEl.className = 'control-section-title';
@@ -14932,6 +14979,9 @@
           throw new Error('lecture module impossible');
         }
         await ensureCfgDocsForModule(m);
+        if (/^modbustcp50[234]$/.test(m.toLowerCase())) {
+          await ensureModbusDeviceOptions();
+        }
         if (m.startsWith('tft/s3/sensors/slot')) {
           await loadTftSensorDataValueInfo(m);
         }

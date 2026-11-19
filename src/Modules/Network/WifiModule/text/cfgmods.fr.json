@@ -32,6 +32,18 @@
       {
         "display": "network/mqtt",
         "store": "mqtt"
+      },
+      {
+        "display": "network/modbus-tcp/502",
+        "store": "modbustcp502"
+      },
+      {
+        "display": "network/modbus-tcp/503",
+        "store": "modbustcp503"
+      },
+      {
+        "display": "network/modbus-tcp/504",
+        "store": "modbustcp504"
       }
     ],
     "cfg_tree_virtual_branches": [
@@ -41,7 +53,16 @@
           "ethernet",
           "wifi",
           "time",
-          "mqtt"
+          "mqtt",
+          "modbus-tcp"
+        ]
+      },
+      {
+        "display": "network/modbus-tcp",
+        "children": [
+          "502",
+          "503",
+          "504"
         ]
       }
     ]

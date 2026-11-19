@@ -11,6 +11,13 @@
 #include "Core/Services/IModbusMaster.h"
 #include "Modules/IOModule/IOBus/IRs485Transport.h"
 
+// Largest legal standard Modbus RTU read response or FC16 request is
+// 255 bytes including CRC: 5 + 2*125, or 9 + 2*123 respectively.
+static_assert(5U + 2U * MODBUS_MAX_READ_REGISTERS <= RS485_MAX_FRAME_BYTES,
+              "RS485 receive buffer too small for 125-register reads");
+static_assert(9U + 2U * MODBUS_MAX_WRITE_REGISTERS <= RS485_MAX_FRAME_BYTES,
+              "RS485 transmit buffer too small for 123-register writes");
+
 class Rs485TransactionScheduler {
 public:
     explicit Rs485TransactionScheduler(IRs485Transport& bus);

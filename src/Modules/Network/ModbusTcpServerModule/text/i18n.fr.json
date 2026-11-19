@@ -1,0 +1,28 @@
+{
+  "translations": {
+    "cfgmods.network.modbusTcp.label": "Modbus TCP",
+    "cfgdocs.modbus.mode.label": "Paramètres RS485",
+    "cfgdocs.modbus.mode.help": "Aucun désactive le port TCP. Équipement Flow.io réutilise un périphérique RS485 existant. Manuel permet une vitesse et une parité spécifiques. Redémarrage nécessaire.",
+    "cfgdocs.modbus.device.label": "Équipement RS485 Flow.io",
+    "cfgdocs.modbus.device.help": "Identifiant de l’équipement existant dans Flow.io (0 à 15).",
+    "cfgdocs.modbus.baud.label": "Débit RS485 (bauds)",
+    "cfgdocs.modbus.parity.label": "Parité RS485",
+    "cfgdocs.modbus.stop.label": "Bits d’arrêt",
+    "cfgdocs.modbus.timeout.label": "Timeout Modbus (ms)",
+    "cfgdocs.modbus.timeout.help": "Délai maximal pour une transaction RTU, y compris la file d'attente.",
+    "cfgdocs.modbus.error.label": "En cas d’erreur Modbus",
+    "cfgdocs.modbus.error.help": "Répondre avec une exception Modbus standard ou garder le silence.",
+    "cfgdocs.modbus.restart.help": "Les modifications des ports TCP prennent effet au prochain redémarrage de Flow.io.",
+    "cfgmods.network.modbusTcp.502.label": "TCP 502",
+    "cfgmods.network.modbusTcp.503.label": "TCP 503",
+    "cfgmods.network.modbusTcp.504.label": "TCP 504",
+    "cfgdocs.modbus.options.none": "Aucun (port désactivé)",
+    "cfgdocs.modbus.options.device": "Équipement Flow.io",
+    "cfgdocs.modbus.options.manual": "Configuration manuelle",
+    "cfgdocs.modbus.options.parity.none": "Aucune",
+    "cfgdocs.modbus.options.parity.even": "Paire",
+    "cfgdocs.modbus.options.parity.odd": "Impaire",
+    "cfgdocs.modbus.options.exception": "Exception Modbus",
+    "cfgdocs.modbus.options.silent": "Rester muet"
+  }
+}
