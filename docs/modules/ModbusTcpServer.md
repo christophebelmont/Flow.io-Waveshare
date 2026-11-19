@@ -80,12 +80,13 @@ persistante sans fermeture FIN/RST visible côté Flow.io. Avec **deux sockets
 maximum par port**, les nouveaux clients peuvent se connecter puis être
 immédiatement rejetés, sans avoir reçu de réponse Modbus.
 
-La récupération automatique s'applique **seulement lorsque le port est plein
-et qu'un nouveau client se présente** : Flow.io libère au plus une session
-complètement inactive depuis **30 secondes**, en excluant les trames
-partielles, transactions RS485 en cours et réponses TCP en cours.
-Une connexion persistante régulièrement utilisée n'est donc pas évincée.
-Le nombre maximal de clients reste **deux par port**.
+La détection proactive FIN/RST (sondage toutes les 250 ms) et les
+sondes keepalive sont décrites en fin de document. **En complément**, lorsque
+le port est plein et qu'un nouveau client se présente, Flow.io peut libérer
+au plus une session complètement inactive depuis **30 secondes**, en
+excluant les trames partielles, transactions RS485 en cours et réponses TCP
+en cours. Une connexion persistante régulièrement utilisée n'est pas
+évincée pour simple inactivité. Le nombre maximal reste **deux par port**.
 
 Contrôler `GET /api/modbus/ports` (session authentifiée), port 502 :
 - `stats.clients` : clients actuellement admis (maximum 2).

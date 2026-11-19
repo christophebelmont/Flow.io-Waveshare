@@ -1,7 +1,7 @@
 # Commandes partagées sur les équipements RS485
 
-Implémentation expérimentale sur la branche `feature/modbus-server`. Les
-interverrouillages de Flow.io restent prioritaires sur les commandes externes.
+Implémentation proposée pour intégration sur la branche `dev` de Flow.io.
+Les interverrouillages restent prioritaires sur les commandes externes.
 
 ## Politique de commande
 
