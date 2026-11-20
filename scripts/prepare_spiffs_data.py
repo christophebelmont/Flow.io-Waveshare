@@ -153,7 +153,7 @@ if src_dir.exists():
 
     # A/B OTA migration marker: only images produced by the new paired
     # release exporter contain this file. A legacy filesystem (without the
-    # marker) is eligible for one automatic transition after a verified boot.
+    # marker) is eligible for an explicit two-click migration, never auto-OTA.
     (staging_dir / "ota-paired-v1.marker").write_text(
         "flowio-paired-ota-v1\n", encoding="utf-8"
     )
