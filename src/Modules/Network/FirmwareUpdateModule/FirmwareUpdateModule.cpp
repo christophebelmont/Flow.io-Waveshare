@@ -729,6 +729,10 @@ bool FirmwareUpdateModule::statusJson_(char* out, size_t outLen)
     const esp_partition_t* bootApp = esp_ota_get_boot_partition();
     doc["app_slot"] = activeApp ? activeApp->label : "unknown";
     doc["boot_slot"] = bootApp ? bootApp->label : "unknown";
+    // Record ESP-IDF reset cause after an interrupted transaction. In
+    // particular this distinguishes a watchdog/panic reset from a clean
+    // software reboot and does not depend on persistent serial logs.
+    doc["reset_reason"] = (unsigned)esp_reset_reason();
     doc["spiffs_valid"] = ReleaseStorage::validateReleaseFilesystem();
     doc["migration_pending"] = ReleaseStorage::legacyPairedMigrationNeeded();
     if (hasLastReceipt) {
