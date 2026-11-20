@@ -1154,7 +1154,7 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
     manifest.get()[manifestLen] = '\0';
 
     DynamicJsonDocument doc(1024U);
-    if (deserializeJson(doc, manifest.get(), manifestLen) != DeserializationError::Ok ||
+    if (deserializeJson(doc, static_cast<const char*>(manifest.get()), manifestLen) != DeserializationError::Ok ||
         !doc.is<JsonObjectConst>()) {
         return writeSimpleError_(errOut, errOutLen, "paired release manifest invalid JSON");
     }
