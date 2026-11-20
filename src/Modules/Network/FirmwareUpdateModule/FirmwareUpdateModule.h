@@ -193,6 +193,10 @@ private:
     // one synchronization domain without exposing the transaction internals.
     bool localReleaseActive_ = false;
     LocalReleaseTransaction localRelease_{};
+    // Only the OTA worker may create a remote paired-release transaction
+    // while busy_ is set; the old UI cannot bypass that admission control.
+    TaskHandle_t remoteReleaseWorker_ = nullptr;
+    uint32_t remoteReleaseOperationId_ = 0U;
 
     static bool cmdStatus_(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen);
     static bool cmdWaveshare_(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen);
