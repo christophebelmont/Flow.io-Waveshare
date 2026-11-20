@@ -28,7 +28,6 @@ public:
         return ModuleId::Unknown;
     }
     uint8_t taskCount() const override { return 1; }
-    const ModuleTaskSpec* taskSpecs() const override { return singleLoopTaskSpec(); }
     uint16_t taskStackSize() const override { return 4096; }
     void init(ConfigStore& cfg, ServiceRegistry& services) override;
     void onConfigLoaded(ConfigStore& cfg, ServiceRegistry&) override;
