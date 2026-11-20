@@ -59,6 +59,7 @@ public:
     ModuleId runtimeUiProviderModuleId() const override { return moduleId(); }
     const char* taskName() const override { return "io"; }
     BaseType_t taskCore() const override { return 1; }
+    UBaseType_t taskPriority() const override { return 11; }
     // Analog calculation traces format floating-point values synchronously;
     // allow headroom for the nested newlib vsnprintf/dtoa allocation path.
     uint16_t taskStackSize() const override { return 4096; }

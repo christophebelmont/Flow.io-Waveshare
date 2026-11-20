@@ -57,8 +57,12 @@ Le profil Waveshare lui associe en plus:
 
 - core: `1`
 - task: `io`
+- priorité: `11`
 - stack: `4096` octets (inclut la marge pour le formatage flottant des traces analogiques)
 - boucle: `10 ms`
+
+La tâche `rs485` utilise la priorité `12` sur le même cœur. Elle reprend
+avant les acquisitions IO, qui reprennent avant AsyncTCP de priorité `10`.
 
 Jobs planifiés en interne:
 

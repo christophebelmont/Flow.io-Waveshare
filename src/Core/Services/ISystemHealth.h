@@ -33,4 +33,5 @@ struct SystemHealthService {
     SystemHealthSnapshot (*snapshot)(void* ctx);
     void* ctx;
     TaskStackSample (*taskStack)(void* ctx, uint16_t taskId) = nullptr;
+    TaskRuntimeReader wakeRuntimeReader{};
 };

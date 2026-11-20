@@ -5,8 +5,8 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_BASE = 32768
 
 def load_catalog():
-    entries = json.loads((ROOT / 'src/Core/Values/catalog.json').read_text())['values']
-    equipment = json.loads((ROOT / 'src/Core/Values/equipment_metrics.json').read_text())
+    entries = json.loads((ROOT / 'src/Core/Values/catalog.json').read_text(encoding='utf-8'))['values']
+    equipment = json.loads((ROOT / 'src/Core/Values/equipment_metrics.json').read_text(encoding='utf-8'))
     for slot in range(equipment['slots']):
         for metric in equipment['metrics']:
             metric_offset = metric['id']
@@ -31,7 +31,7 @@ def load_catalog():
     return entries
 
 def write_header():
-    equipment = json.loads((ROOT / 'src/Core/Values/equipment_metrics.json').read_text())
+    equipment = json.loads((ROOT / 'src/Core/Values/equipment_metrics.json').read_text(encoding='utf-8'))
     symbols = ['#pragma once', '#include <stdint.h>', '// Generated stable metric identities; never renumber existing entries.', 'enum class EquipmentMetric : uint8_t {']
     for metric in equipment['metrics']:
         symbol = ''.join(part.capitalize() for part in metric['key'].split('_'))
@@ -40,7 +40,7 @@ def write_header():
     for name, value in [('Base', equipment['base']), ('Stride', equipment['stride']),
                         ('LegacyStride', equipment['legacy_stride']), ('Slots', equipment['slots'])]:
         symbols.append(f'inline constexpr uint16_t EquipmentValue{name} = {value};')
-    (ROOT/'src/Core/Generated/EquipmentMetric_Generated.h').write_text('\n'.join(symbols)+'\n')
+    (ROOT/'src/Core/Generated/EquipmentMetric_Generated.h').write_text('\n'.join(symbols)+'\n', encoding='utf-8')
     out = ['#pragma once', '// Generated from Core/Values/catalog.json; no runtime value storage.',
            '#include "Core/Values/Value.h"', '#include <string.h>',
            'enum class DataValueKind : uint8_t { Analog, Counter, Derived, Tank, Uptime, Digital, Equipment, EquipmentBinary };',
@@ -55,7 +55,7 @@ def write_header():
         'inline ValueId dataValueReference(const char* text, size_t length) { for (const auto& d : kDataValues) if (strlen(d.reference) == length && memcmp(d.reference, text, length) == 0) return d.id; return VALUE_INVALID; }']
     out += ['inline bool dataValueIsEquipment(const DataValueDescriptor& d) { return d.kind == DataValueKind::Equipment || d.kind == DataValueKind::EquipmentBinary; }',
         'inline bool dataValueIsBinary(const DataValueDescriptor& d) { return d.kind == DataValueKind::Digital || d.kind == DataValueKind::EquipmentBinary; }']
-    (ROOT/'src/Core/Generated/DataValueCatalog_Generated.h').write_text('\n'.join(out)+'\n')
+    (ROOT/'src/Core/Generated/DataValueCatalog_Generated.h').write_text('\n'.join(out)+'\n', encoding='utf-8')
 
 def runtime_entries():
     return [dict(id=RUNTIME_BASE+v['id'], runtimeId=RUNTIME_BASE+v['id'], dataValueId=v['id'], module='datastore', moduleId=0,

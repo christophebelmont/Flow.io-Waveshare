@@ -74,7 +74,7 @@ public:
 
 private:
     static TaskStackReadStatus acquireAsyncTaskStack_(void* ctx, TaskHandle_t& handle, uint32_t& generation);
-    TaskHandle_t asyncTaskHandle_ = nullptr;
+    std::atomic<TaskHandle_t> asyncTaskHandle_{nullptr};
     static constexpr int kServerPort = 80;
     static constexpr size_t kLocalLogLineMax = 192;
 

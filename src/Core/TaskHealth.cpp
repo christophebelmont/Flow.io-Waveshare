@@ -49,8 +49,32 @@ bool TaskTiming::overdue(uint64_t nowUs, const TaskTimingContract& contract) con
            nowUs > lastProgressUs + expectedWaitUs + contract.wakeToleranceUs;
 }
 
+void TaskWaitSample::recordRuntime(const TaskRuntimeSnapshot& before, const TaskRuntimeSnapshot& after)
+{
+    if (!before.available || !after.available) return;
+    runtimeWindowUs = static_cast<uint32_t>(after.endedUs - before.startedUs);
+    probeUs = static_cast<uint32_t>((before.endedUs - before.startedUs) +
+                                   (after.endedUs - after.startedUs));
+    for (uint8_t i = 0; i < after.count; ++i) {
+        const auto& current = after.tasks[i];
+        for (uint8_t j = 0; j < before.count; ++j) {
+            const auto& previous = before.tasks[j];
+            if (previous.taskId != current.taskId || previous.generation != current.generation) continue;
+            const uint32_t elapsed = current.counterUs - previous.counterUs;
+            accountedCpuUs += elapsed;
+            ++matchedTasks;
+            TaskCpuContribution candidate{elapsed, current.taskId};
+            for (auto& entry : top) {
+                if (candidate.durationUs > entry.durationUs) std::swap(candidate, entry);
+            }
+            break;
+        }
+    }
+}
+
 void TaskWakeTrace::push(const TaskWakeSample& sample)
 {
+    if (sample.lateUs() > worst_.lateUs()) worst_ = sample;
     if (count_ == kCapacity) {
         incrementSaturated(dropped_);
         return;
@@ -163,6 +187,8 @@ void TaskHealth::beginCycle()
             wakeTrace_->moduleDelayReturnedUs_,
             timing.expectedWaitUs,
             wakeTrace_->moduleWaitUs_,
+            wakeTrace_->moduleWait_,
+            wakeTrace_->loopWait_,
         });
     }
     portEXIT_CRITICAL(&mux_);
@@ -175,6 +201,10 @@ void TaskHealth::endCycle(TickType_t waitTicks, TickType_t moduleWaitTicks)
     if (wakeTrace_) {
         wakeTrace_->moduleDelayReturnedUs_ = 0U;
         wakeTrace_->moduleWaitUs_ = waitTicksToUs(moduleWaitTicks);
+        if (wakeTrace_->moduleWait_.startedUs || wakeTrace_->loopWait_.startedUs) {
+            wakeTrace_->moduleWait_ = {};
+            wakeTrace_->loopWait_ = {};
+        }
     }
     portENTER_CRITICAL(&mux_);
     stats_.timing.end(nowUs, waitUs, contract_);
@@ -184,14 +214,41 @@ void TaskHealth::endCycle(TickType_t waitTicks, TickType_t moduleWaitTicks)
 void TaskHealth::recordModuleDelayReturn()
 {
     if (wakeTrace_) wakeTrace_->moduleDelayReturnedUs_ = esp_timer_get_time();
+    recordDelayReturn(TaskWaitStage::Module);
+}
+
+void TaskHealth::recordDelayStart(TaskWaitStage stage, TickType_t ticks)
+{
+    if (!wakeTrace_) return;
+    auto& wait = stage == TaskWaitStage::Module ? wakeTrace_->moduleWait_ : wakeTrace_->loopWait_;
+    if (auto* runtime = wakeTrace_->runtime_; runtime && runtime->reader.read) {
+        runtime->reader.read(runtime->reader.context, runtime->before);
+    }
+    wait.requestedTicks = ticks;
+    wait.startedUs = esp_timer_get_time();
+    wait.startTick = xTaskGetTickCount();
+}
+
+void TaskHealth::recordDelayReturn(TaskWaitStage stage)
+{
+    if (!wakeTrace_) return;
+    auto& wait = stage == TaskWaitStage::Module ? wakeTrace_->moduleWait_ : wakeTrace_->loopWait_;
+    if (wait.startedUs == 0U) return;
+    wait.endedUs = esp_timer_get_time();
+    wait.endTick = xTaskGetTickCount();
+    if (auto* runtime = wakeTrace_->runtime_; runtime && runtime->reader.read) {
+        runtime->reader.read(runtime->reader.context, runtime->after);
+        wait.recordRuntime(runtime->before, runtime->after);
+    }
 }
 
 TaskWakeBatch TaskHealth::pendingWakeSamples()
 {
     if (!wakeTrace_) return {};
     portENTER_CRITICAL(&mux_);
-    const TaskWakeBatch batch{wakeTrace_->count_, wakeTrace_->dropped_};
+    const TaskWakeBatch batch{wakeTrace_->count_, wakeTrace_->dropped_, wakeTrace_->worst_};
     wakeTrace_->dropped_ = 0U;
+    wakeTrace_->worst_ = {};
     portEXIT_CRITICAL(&mux_);
     return batch;
 }

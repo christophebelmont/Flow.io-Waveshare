@@ -18,7 +18,7 @@
 TaskStackSource WebInterfaceModule::externalTaskStackSource()
 {
     return {"async_tcp", CONFIG_ASYNC_TCP_STACK_SIZE, 1024U,
-            acquireAsyncTaskStack_, nullptr, this};
+            acquireAsyncTaskStack_, nullptr, this, CONFIG_ASYNC_TCP_RUNNING_CORE};
 }
 
 TaskStackReadStatus WebInterfaceModule::acquireAsyncTaskStack_(void* ctx, TaskHandle_t& handle,
@@ -26,8 +26,11 @@ TaskStackReadStatus WebInterfaceModule::acquireAsyncTaskStack_(void* ctx, TaskHa
 {
     auto& self = *static_cast<WebInterfaceModule*>(ctx);
     // AsyncTCP 3.6.x creates this shared task lazily and retains it for the boot.
-    if (!self.asyncTaskHandle_) self.asyncTaskHandle_ = xTaskGetHandle("async_tcp");
-    handle = self.asyncTaskHandle_;
+    handle = self.asyncTaskHandle_.load();
+    if (!handle) {
+        handle = xTaskGetHandle("async_tcp");
+        if (handle) self.asyncTaskHandle_.store(handle);
+    }
     generation = 1U;
     return handle ? TaskStackReadStatus::Acquired : TaskStackReadStatus::Unavailable;
 }

@@ -12,6 +12,7 @@
 #include <esp_heap_caps.h>
 #include <esp_system.h>
 #include <esp_timer.h>
+#include <freertos/idf_additions.h>
 #include <new>
 #include <algorithm>
 #include <string.h>
@@ -445,6 +446,22 @@ void reportWakeSample(uint16_t taskId, const TaskWakeSample& sample, bool captur
              (unsigned long long)(sample.actualUs - sample.moduleDelayReturnedUs),
              (unsigned long)(sample.waitUs - sample.moduleWaitUs));
     }
+    const TaskWaitSample* waits[] = {&sample.moduleWait, &sample.loopWait};
+    for (unsigned stage = 0; stage < 2U; ++stage) {
+        const auto& wait = *waits[stage];
+        if (wait.endedUs == 0U) continue;
+        LOGI("TaskWait id=%u stage=%u start_us=%llu end_us=%llu ticks=%lu/%lu",
+             (unsigned)taskId, stage, (unsigned long long)wait.startedUs, (unsigned long long)wait.endedUs,
+             (unsigned long)wait.elapsedTicks(), (unsigned long)wait.requestedTicks);
+        LOGI("TaskWaitCpu id=%u stage=%u window_us=%lu probe_us=%lu accounted_us=%lu matched=%u",
+             (unsigned)taskId, stage, (unsigned long)wait.runtimeWindowUs, (unsigned long)wait.probeUs,
+             (unsigned long)wait.accountedCpuUs, (unsigned)wait.matchedTasks);
+        LOGI("TaskWaitTop id=%u stage=%u cpu_us=%u:%lu,%u:%lu,%u:%lu",
+             (unsigned)taskId, stage,
+             (unsigned)wait.top[0].taskId, (unsigned long)wait.top[0].durationUs,
+             (unsigned)wait.top[1].taskId, (unsigned long)wait.top[1].durationUs,
+             (unsigned)wait.top[2].taskId, (unsigned long)wait.top[2].durationUs);
+    }
 }
 
 void reportTaskWake(const ModuleManager::TaskEntry& entry,
@@ -465,8 +482,12 @@ void reportTaskWake(const ModuleManager::TaskEntry& entry,
         if (sample.lateUs() > worst.lateUs()) worst = sample;
     }
 
-    LOGI("TaskWakeStats id=%u samples=%u capture=%u dropped=%lu",
-         (unsigned)entry.id, (unsigned)batch.count, captureCount, (unsigned long)batch.dropped);
+    const bool worstOverlaps = capture.overlaps(batch.worst) || previousCapture.overlaps(batch.worst);
+    auto& worst = worstOverlaps ? worstCapture : worstOther;
+    if (batch.worst.lateUs() > worst.lateUs()) worst = batch.worst;
+    LOGI("TaskWakeStats id=%u samples=%u capture=%u dropped=%lu max_us=%llu",
+         (unsigned)entry.id, (unsigned)batch.count, captureCount, (unsigned long)batch.dropped,
+         (unsigned long long)batch.worst.lateUs());
     if (worstCapture.actualUs != 0U) reportWakeSample(entry.id, worstCapture, true);
     if (worstOther.actualUs != 0U) reportWakeSample(entry.id, worstOther, false);
 }
@@ -558,6 +579,48 @@ TaskStackSample SystemMonitorModule::readTaskStack_(uint16_t taskId)
     }
     portEXIT_CRITICAL(&stackSamplesMux_);
     return result;
+}
+
+void SystemMonitorModule::readCore1Runtime_(TaskRuntimeSnapshot& out)
+{
+    out.count = 0U;
+    out.available = false;
+    out.startedUs = esp_timer_get_time();
+#if configUSE_TRACE_FACILITY && configGENERATE_RUN_TIME_STATS && CONFIG_FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER
+    if (!moduleManager) return;
+    const auto caller = xTaskGetCurrentTaskHandle();
+    auto append = [&out](TaskHandle_t handle, uint16_t id, uint32_t generation) {
+        if (out.count == TaskRuntimeSnapshot::kCapacity) return;
+        TaskStatus_t status{};
+        // eReady skips the state query and pdFALSE skips the stack scan.
+        vTaskGetInfo(handle, &status, pdFALSE, eReady);
+        if (status.xCoreID == 1) {
+            out.tasks[out.count++] = {static_cast<uint32_t>(status.ulRunTimeCounter), generation, id};
+        }
+    };
+    for (uint8_t i = 0; i < moduleManager->getTaskEntryCount(); ++i) {
+        const auto& entry = moduleManager->getTaskEntry(i);
+        if (entry.spec.coreId != 1) continue;
+        TaskHealthSnapshot snapshot{};
+        if (!entry.health.acquireStackRead(snapshot)) continue;
+        if (snapshot.handle != caller) append(snapshot.handle, entry.id, snapshot.generation);
+        entry.health.releaseStackRead();
+    }
+    if (stackSlots_) {
+        for (uint8_t i = 0; i < externalStackCount_; ++i) {
+            const auto& slot = stackSlots_[Limits::Core::Capacity::MaxTaskHealthEntries + i];
+            if (slot.source.coreId != 1 || !readTaskStack_(slot.id).samples) continue;
+            TaskHandle_t handle = nullptr;
+            uint32_t generation = 0;
+            if (slot.source.acquire(slot.source.context, handle, generation) != TaskStackReadStatus::Acquired) continue;
+            append(handle, slot.id, generation);
+            if (slot.source.release) slot.source.release(slot.source.context);
+        }
+    }
+    append(xTaskGetIdleTaskHandleForCore(1), taskHealthId(ModuleId::Unknown, TaskRole::IdleCore1), 1U);
+    out.available = out.count < TaskRuntimeSnapshot::kCapacity;
+#endif
+    out.endedUs = esp_timer_get_time();
 }
 
 void SystemMonitorModule::sampleTaskStack_(uint32_t nowMs)

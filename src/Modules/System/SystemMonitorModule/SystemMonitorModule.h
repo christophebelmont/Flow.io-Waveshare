@@ -135,8 +135,10 @@ private:
     SystemHealthSnapshot healthSnapshot_{};
     SystemHealthSnapshot readHealthSnapshot_();
     TaskStackSample readTaskStack_(uint16_t taskId);
+    void readCore1Runtime_(TaskRuntimeSnapshot& out);
     SystemHealthService healthService_{ServiceBinding::bind<&SystemMonitorModule::readHealthSnapshot_>, this,
-                                      ServiceBinding::bind<&SystemMonitorModule::readTaskStack_>};
+                                      ServiceBinding::bind<&SystemMonitorModule::readTaskStack_>,
+                                      {ServiceBinding::bind<&SystemMonitorModule::readCore1Runtime_>, this}};
     TaskAlert taskAlerts_[Limits::Core::Capacity::MaxTaskHealthEntries]{};
     size_t nextTaskHealthReport_ = 0;
     bool haEntitiesRegistered_ = false;

@@ -79,14 +79,39 @@ par relevé en rotation et les sources externes à chaque rapport.
 | `TaskTime` | Démarrages tardifs, dépassements du budget, durée maximale de travail, intervalle maximal entre passages et dernière attente programmée. |
 | `TaskStack` | Identifiant, génération, minimum libre, âge et durée du relevé individuel. |
 | `TaskCapture` | Sur demande explicite, début et durée de l’appel `uxTaskGetSystemState()` en microsecondes monotones, maximum depuis le démarrage, nombre de captures et nombre de tâches retournées. Cette mesure exclut le traitement et l’impression des relevés. |
-| `TaskWakeStats` | Pour IO et RS485, nouveaux retards analysés, nombre dont le retard chevauche une capture et nombre d’échantillons refusés lorsque le tampon PSRAM de 32 entrées est plein. |
+| `TaskWakeStats` | Pour IO et RS485, retards analysés, chevauchements avec une capture, échantillons refusés lorsque le tampon PSRAM de 32 entrées est plein et `max_us` sur tous les retards de l’intervalle. Le pire retard est conservé même après saturation. |
 | `TaskWake` | Plus grand retard avec chevauchement et plus grand retard sans chevauchement lorsqu’ils existent. `due_us` est l’échéance nominale, `run_us` le retour au début du cycle et `late_us` leur écart, sur la même horloge monotone que `TaskCapture` et `DsPoll`. |
 | `TaskWakeWait` | Pour IO, durée observée/nominale pour l’attente propre au module (`module_us`), puis pour l’intervalle entre son retour et le cycle suivant (`loop_us`). |
+| `TaskWait` | Début et fin exacts d’un appel d’attente IO, avec ticks écoulés/demandés. `stage=0` correspond au délai du module, `stage=1` au délai de la boucle commune. |
+| `TaskWaitCpu` | Fenêtre de comparaison CPU (`window_us`), temps écoulé dans les relevés (`probe_us`), temps CPU attribué (`accounted_us`) et nombre de tâches retrouvées dans les deux relevés (`matched`). |
+| `TaskWaitTop` | Trois contributions CPU les plus élevées pendant l’attente, au format `identifiant:microsecondes`. |
 
 La tâche `sysmon` compare la fenêtre `[due_us, run_us)` à la dernière
 capture globale à la demande. Un chevauchement signale une coïncidence temporelle. La mesure
 observe l’exécution du cycle et utilise la durée nominale des ticks pour
 l’échéance. Elle ne mesure pas l’instant où FreeRTOS rend la tâche prête.
+
+Les compteurs CPU sont prélevés par un lecteur du service `system_health`
+juste avant et après chaque attente d’IO. Ce lecteur utilise les tâches
+du registre fixées au cœur 1, les sources externes déclarées sur ce cœur
+et sa tâche Idle. Les lectures individuelles `vTaskGetInfo()` demandent
+uniquement les informations de tâche, avec le parcours de pile désactivé.
+La réservation de handle employée pour les piles protège également ces
+lectures. Les tableaux de travail et les traces sont alloués en PSRAM.
+
+L’identifiant 4100 désigne AsyncTCP, 512 LogDispatch, 5633 RS485 et 5 Idle
+du cœur 1. Les autres tâches Flow.io conservent leur identifiant numérique
+habituel. Les compteurs runtime du SDK sont en microsecondes sur ce profil.
+Le calcul traite leur débordement et écarte les tâches dont la génération
+a changé entre les deux relevés.
+
+La fenêtre CPU comprend l’attente demandée, son éventuel dépassement et
+les relevés eux-mêmes. Les compteurs représentent l’attribution CPU de
+FreeRTOS, qui peut inclure le temps d’interruptions imputé à la tâche
+interrompue. Les tâches SDK hors registre et celles sans affinité fixe
+restent hors de cette comptabilisation. Ces mesures donnent les tâches
+actives pendant la fenêtre. Une trace d’ordonnancement reste nécessaire
+pour connaître précisément l’instant où IO devient prête.
 
 `wait_us` indique la dernière attente prévue par le chemin réellement exécuté.
 L’intervalle entre débuts de cycles inclut le travail, cette attente et

@@ -4,6 +4,87 @@
 #include <cassert>
 #include <esp_timer.h>
 
+static uint32_t runtimeCounter = 0;
+
+static void readRuntime(void*, TaskRuntimeSnapshot& out)
+{
+    out.startedUs = fakeEspTimerUs;
+    out.tasks[0] = {runtimeCounter, 1U, 4100U};
+    out.count = 1U;
+    out.available = true;
+    fakeEspTimerUs += 25;
+    out.endedUs = fakeEspTimerUs;
+}
+
+static void testDetailedWaits()
+{
+    TaskWakeTrace trace;
+    TaskWakeRuntimeTrace runtime;
+    runtime.reader = {readRuntime, nullptr};
+    TaskHealth health;
+    health.configure({TaskCadence::Periodic, 25000, 2000}, TaskHealthState::Expected, &trace, &runtime);
+    assert(health.requestStart());
+    fakeEspTimerUs = 1000000U;
+    health.started();
+    health.beginCycle();
+    fakeEspTimerUs += 100;
+    health.endCycle(20, 10);
+    fakeTaskTick = UINT32_MAX - 5U;
+    health.recordDelayStart(TaskWaitStage::Module, 10);
+    fakeEspTimerUs += 13000;
+    fakeTaskTick += 13;
+    runtimeCounter += 12000;
+    health.recordModuleDelayReturn();
+    health.recordDelayStart(TaskWaitStage::Loop, 10);
+    fakeEspTimerUs += 12000;
+    fakeTaskTick += 12;
+    runtimeCounter += 11000;
+    health.recordDelayReturn(TaskWaitStage::Loop);
+    health.beginCycle();
+    const auto batch = health.pendingWakeSamples();
+    assert(batch.count == 1 && batch.worst.lateUs() == 5100U);
+    TaskWakeSample sample;
+    assert(health.takeWakeSample(sample));
+    assert(sample.moduleWait.elapsedTicks() == 13 && sample.loopWait.elapsedTicks() == 12);
+    assert(sample.moduleWait.requestedTicks == 10 && sample.loopWait.requestedTicks == 10);
+    assert(sample.moduleWait.endedUs - sample.moduleWait.startedUs == 13000U);
+    assert(sample.loopWait.endedUs - sample.loopWait.startedUs == 12000U);
+    assert(sample.moduleWait.probeUs == 50 && sample.loopWait.probeUs == 50);
+    assert(sample.moduleWait.runtimeWindowUs == 13050 && sample.loopWait.runtimeWindowUs == 12050);
+    assert(sample.moduleWait.top[0].taskId == 4100 && sample.moduleWait.top[0].durationUs == 12000);
+    assert(sample.loopWait.top[0].durationUs == 11000 && sample.loopWait.matchedTasks == 1);
+    assert(sample.actualUs - sample.loopWait.endedUs == 25U);
+}
+
+static void testRuntimeDifferences()
+{
+    TaskRuntimeSnapshot before, after;
+    before.available = after.available = true;
+    before.startedUs = 100;
+    before.endedUs = 150;
+    after.startedUs = 2100;
+    after.endedUs = 2200;
+    before.count = after.count = 4;
+    before.tasks[0] = {UINT32_MAX - 100U, 1U, 4100U};
+    before.tasks[1] = {1000U, 1U, 512U};
+    before.tasks[2] = {1000U, 1U, 5633U};
+    before.tasks[3] = {1000U, 1U, 5U};
+    after.tasks[0] = {1900U, 1U, 5U};
+    after.tasks[1] = {100U, 1U, 4100U}; // CPU counter rollover.
+    after.tasks[2] = {1800U, 1U, 512U};
+    after.tasks[3] = {9000U, 2U, 5633U}; // Same identifier, a recreated task.
+    TaskWaitSample wait;
+    wait.recordRuntime(before, after);
+    assert(wait.matchedTasks == 3 && wait.accountedCpuUs == 1901U);
+    assert(wait.top[0].taskId == 5 && wait.top[0].durationUs == 900U);
+    assert(wait.top[1].taskId == 512 && wait.top[2].taskId == 4100);
+    assert(wait.probeUs == 150 && wait.runtimeWindowUs == 2100);
+    after.available = false;
+    TaskWaitSample unavailable;
+    unavailable.recordRuntime(before, after);
+    assert(unavailable.matchedTasks == 0);
+}
+
 static void testWakeTrace(uint64_t start, const TaskTimingContract& contract)
 {
     TaskWakeTrace trace;
@@ -57,6 +138,18 @@ static void testWakeTrace(uint64_t start, const TaskTimingContract& contract)
     }
     assert(!health.takeWakeSample(sample));
     assert(health.snapshot().timing.lateStarts == TaskWakeTrace::kCapacity + 4U);
+    // Preserve the worst event even when it arrives after the queue fills.
+    for (unsigned i = 0; i < TaskWakeTrace::kCapacity; ++i) {
+        health.endCycle(1);
+        fakeEspTimerUs += 3001;
+        health.beginCycle();
+    }
+    health.endCycle(1);
+    fakeEspTimerUs += 100000;
+    health.beginCycle();
+    const auto overflow = health.pendingWakeSamples();
+    assert(overflow.count == TaskWakeTrace::kCapacity && overflow.dropped == 1);
+    assert(overflow.worst.lateUs() == 99000U);
 }
 
 int main()
@@ -102,6 +195,8 @@ int main()
 
     int task = 0;
     fakeCurrentTask = &task;
+    testDetailedWaits();
+    testRuntimeDifferences();
     testWakeTrace(later, periodic);
     TaskHealth health;
     health.configure(periodic);

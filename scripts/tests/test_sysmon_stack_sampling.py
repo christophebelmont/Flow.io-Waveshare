@@ -35,7 +35,7 @@ class SysmonStackSamplingTests(unittest.TestCase):
     def test_sampling_and_explicit_capture(self):
         source = (ROOT / 'src/Modules/System/SystemMonitorModule/SystemMonitorModule.cpp').read_text()
         production = '\n\n'.join(method(source, name) for name in (
-            'readTaskStack_', 'sampleTaskStack_', 'requestTaskCapture_', 'captureTasksIfRequested_'))
+            'readTaskStack_', 'sampleTaskStack_', 'readCore1Runtime_', 'requestTaskCapture_', 'captureTasksIfRequested_'))
         fixture = (ROOT / 'test/host/sysmon_stack_sampling.cpp').read_text()
         with tempfile.TemporaryDirectory(prefix='flow-sysmon-') as tmp:
             cpp, exe = Path(tmp) / 'test.cpp', Path(tmp) / 'test'

@@ -3946,12 +3946,12 @@ ModuleTaskSpec IOModule::taskSpec(uint8_t index) const
     if (index != 1U) {
         auto spec = Module::taskSpec(index);
         spec.traceWake = index == 0U;
+        spec.traceWakeRuntime = index == 0U;
         return spec;
     }
-    // AsyncTCP handlers run at priority 10. Service UART deadlines above them:
-    // a long HTTP serialization must not postpone RX/TX progress. This task
-    // only advances the non-blocking transport and yields every tick.
-    constexpr UBaseType_t serialPriority = 11;
+    // Service UART deadlines above acquisitions (11) and AsyncTCP (10).
+    // This task advances the non-blocking transport and yields every tick.
+    constexpr UBaseType_t serialPriority = 12;
     static_assert(serialPriority < configMAX_PRIORITIES, "RS485 task priority out of range");
     return {"rs485", 3072, serialPriority, taskCore(), &IOModule::serialTask_,
             const_cast<IOModule*>(this), TaskRole::Rs485, {TaskCadence::Periodic, 1000U, 1000U},

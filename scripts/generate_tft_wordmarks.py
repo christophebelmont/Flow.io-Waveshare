@@ -65,7 +65,7 @@ def main() -> None:
             lines.append("    " + ", ".join(f"0x{p:04X}" for p in pixels[start:start + 12]) + ",")
         lines.extend(["};", f"static_assert(sizeof({prefix}Bitmap) / sizeof(uint16_t) ==",
                       f"              {prefix}Width * {prefix}Height, \"Invalid wordmark dimensions\");", ""])
-    (ROOT / "src/Modules/TFTModuleS3/FlowIoWordmarkBitmaps.h").write_text("\n".join(lines))
+    (ROOT / "src/Modules/TFTModuleS3/FlowIoWordmarkBitmaps.h").write_text("\n".join(lines), encoding="utf-8")
 
 
 if __name__ == "__main__":

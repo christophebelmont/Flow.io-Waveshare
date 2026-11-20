@@ -6,7 +6,7 @@
 
 #include "Core/ModuleId.h"
 
-enum class TaskRole : uint8_t { Primary = 0, Rs485 = 1, Reboot = 2, ArduinoLoop = 3, Library = 4 };
+enum class TaskRole : uint8_t { Primary = 0, Rs485 = 1, Reboot = 2, ArduinoLoop = 3, Library = 4, IdleCore1 = 5 };
 enum class TaskCadence : uint8_t { Periodic, EventDriven, OneShot };
 enum class TaskHealthState : uint8_t { Expected, Starting, Running, Finishing, Finished, CreateFailed, Disabled };
 
@@ -41,12 +41,64 @@ struct TaskTiming {
     bool overdue(uint64_t nowUs, const TaskTimingContract& contract) const;
 };
 
+struct TaskRuntimeCounter {
+    uint32_t counterUs = 0;
+    uint32_t generation = 0;
+    uint16_t taskId = 0;
+};
+
+struct TaskRuntimeSnapshot {
+    static constexpr uint8_t kCapacity = 64;
+    TaskRuntimeCounter tasks[kCapacity]{};
+    uint64_t startedUs = 0;
+    uint64_t endedUs = 0;
+    uint8_t count = 0;
+    bool available = false;
+};
+
+struct TaskRuntimeReader {
+    void (*read)(void*, TaskRuntimeSnapshot&) = nullptr;
+    void* context = nullptr;
+};
+
+/** Scratch storage used only by a task whose waits have CPU diagnostics enabled. */
+struct TaskWakeRuntimeTrace {
+    TaskRuntimeReader reader{};
+    TaskRuntimeSnapshot before{};
+    TaskRuntimeSnapshot after{};
+};
+
+enum class TaskWaitStage : uint8_t { Module, Loop };
+
+struct TaskCpuContribution {
+    uint32_t durationUs = 0;
+    uint16_t taskId = 0;
+};
+
+struct TaskWaitSample {
+    uint64_t startedUs = 0;
+    uint64_t endedUs = 0;
+    TickType_t startTick = 0;
+    TickType_t endTick = 0;
+    TickType_t requestedTicks = 0;
+    uint32_t runtimeWindowUs = 0;
+    uint32_t probeUs = 0;
+    uint32_t accountedCpuUs = 0;
+    uint8_t matchedTasks = 0;
+    TaskCpuContribution top[3]{};
+
+    TickType_t elapsedTicks() const { return endTick - startTick; }
+    void recordRuntime(const TaskRuntimeSnapshot& before, const TaskRuntimeSnapshot& after);
+};
+
 struct TaskWakeSample {
     uint64_t expectedUs = 0;
     uint64_t actualUs = 0;
     uint64_t moduleDelayReturnedUs = 0;
     uint32_t waitUs = 0;
     uint32_t moduleWaitUs = 0;
+    TaskWaitSample moduleWait{};
+    TaskWaitSample loopWait{};
 
     uint64_t lateUs() const { return actualUs - expectedUs; }
 };
@@ -63,6 +115,7 @@ struct TaskWakeInterval {
 struct TaskWakeBatch {
     uint8_t count = 0;
     uint32_t dropped = 0;
+    TaskWakeSample worst{};
 };
 
 /** Optional PSRAM storage. Queue operations are serialized by the owning TaskHealth. */
@@ -78,6 +131,10 @@ private:
     uint32_t dropped_ = 0;
     uint8_t nextRead_ = 0;
     uint8_t count_ = 0;
+    TaskWakeSample worst_{};
+    TaskWaitSample moduleWait_{};
+    TaskWaitSample loopWait_{};
+    TaskWakeRuntimeTrace* runtime_ = nullptr;
 
     void push(const TaskWakeSample& sample);
     bool pop(TaskWakeSample& sample);
@@ -112,6 +169,7 @@ struct TaskStackSource {
     TaskStackReadStatus (*acquire)(void*, TaskHandle_t&, uint32_t&) = nullptr;
     void (*release)(void*) = nullptr;
     void* context = nullptr;
+    int8_t coreId = -1;
 };
 
 /** One stable register slot. The task owns timing updates; readers copy a snapshot. */
@@ -119,10 +177,11 @@ class TaskHealth {
 public:
     /** Set once before creating the task. */
     void configure(TaskTimingContract contract, TaskHealthState state = TaskHealthState::Expected,
-                   TaskWakeTrace* wakeTrace = nullptr) {
+                   TaskWakeTrace* wakeTrace = nullptr, TaskWakeRuntimeTrace* runtime = nullptr) {
         contract_ = contract;
         stats_.state = state;
         wakeTrace_ = wakeTrace;
+        if (wakeTrace_) wakeTrace_->runtime_ = runtime;
     }
     TaskCadence cadence() const { return contract_.cadence; }
     TaskHealthSnapshot snapshot();
@@ -138,6 +197,8 @@ public:
     void beginCycle();
     void endCycle(TickType_t waitTicks = 0, TickType_t moduleWaitTicks = 0);
     void recordModuleDelayReturn();
+    void recordDelayStart(TaskWaitStage stage, TickType_t ticks);
+    void recordDelayReturn(TaskWaitStage stage);
     TaskWakeBatch pendingWakeSamples();
     bool takeWakeSample(TaskWakeSample& sample);
 

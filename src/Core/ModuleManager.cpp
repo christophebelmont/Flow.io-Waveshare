@@ -9,6 +9,7 @@
 #include <new>
 #include "Core/Log.h"
 #include "Core/LogModuleIds.h"
+#include "Core/Services/ISystemHealth.h"
 
 #define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::CoreModuleManager)
 
@@ -323,6 +324,7 @@ bool ModuleManager::declareTask_(Module& module, const ModuleTaskSpec& spec, boo
                      (entry.stackCaps & MALLOC_CAP_INTERNAL) == 0U;
 #endif
     TaskWakeTrace* wakeTrace = nullptr;
+    TaskWakeRuntimeTrace* runtimeTrace = nullptr;
     if (spec.traceWake && initialState == TaskHealthState::Expected) {
         void* storage = heap_caps_malloc(sizeof(TaskWakeTrace), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (storage) {
@@ -333,7 +335,18 @@ bool ModuleManager::declareTask_(Module& module, const ModuleTaskSpec& spec, boo
             Log::warn(LOG_MODULE_ID, "TaskWake trace unavailable id=%u: PSRAM allocation failed", (unsigned)id);
         }
     }
-    entry.health.configure(spec.timing, initialState, wakeTrace);
+    if (wakeTrace && spec.traceWakeRuntime && wakeRuntimeReader_.read) {
+        void* storage = heap_caps_malloc(sizeof(TaskWakeRuntimeTrace), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (storage) {
+            runtimeTrace = new (storage) TaskWakeRuntimeTrace{};
+            runtimeTrace->reader = wakeRuntimeReader_;
+            Log::info(LOG_MODULE_ID, "TaskWake CPU id=%u psram_b=%lu", (unsigned)id,
+                      (unsigned long)sizeof(TaskWakeRuntimeTrace));
+        } else {
+            Log::warn(LOG_MODULE_ID, "TaskWake CPU unavailable id=%u: PSRAM allocation failed", (unsigned)id);
+        }
+    }
+    entry.health.configure(spec.timing, initialState, wakeTrace, runtimeTrace);
     return true;
 }
 
@@ -459,6 +472,9 @@ bool ModuleManager::tickStartup(ConfigStore& cfg, ServiceRegistry& services)
 }
 
 void ModuleManager::wireCoreServices(ServiceRegistry& services, ConfigStore& config) {
+  if (const auto* health = services.get<SystemHealthService>(ServiceId::SystemHealth)) {
+      wakeRuntimeReader_ = health->wakeRuntimeReader;
+  }
 
   auto* ebService = services.get<EventBusService>(ServiceId::EventBus);
   if (ebService && ebService->bus) {

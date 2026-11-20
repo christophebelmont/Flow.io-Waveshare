@@ -138,7 +138,7 @@ def _expected_filesystem_size():
         raise RuntimeError(
             "partition table not found; set board_build.partitions in platformio.ini"
         )
-    for row in csv.reader(path.read_text().splitlines()):
+    for row in csv.reader(path.read_text(encoding="utf-8").splitlines()):
         if not row or row[0].lstrip().startswith("#"):
             continue
         _, kind, subtype, _, size = [field.strip() for field in row[:5]]

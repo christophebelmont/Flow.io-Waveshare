@@ -28,6 +28,7 @@ struct ModuleTaskSpec {
     TaskTimingContract timing{};
     uint16_t minStackFreeBytes = kDefaultTaskMinFreeBytes;
     bool traceWake = false;
+    bool traceWakeRuntime = false;
 };
 
 class Module {
@@ -97,6 +98,7 @@ protected:
             loopHealth_->endCycle(ticks + loopDelayTicks(), ticks);
             loopRecorded_ = true;
         }
+        if (loopHealth_) loopHealth_->recordDelayStart(TaskWaitStage::Module, ticks);
         vTaskDelay(ticks);
         if (loopHealth_) loopHealth_->recordModuleDelayReturn();
     }
@@ -140,7 +142,11 @@ private:
             if (cadence == TaskCadence::Periodic) health.beginCycle();
             self.loop();
             if (!self.loopRecorded_) health.endCycle(loopDelayTicks());
-            if (!self.loopFinishRequested_) vTaskDelay(loopDelayTicks());
+            if (!self.loopFinishRequested_) {
+                health.recordDelayStart(TaskWaitStage::Loop, loopDelayTicks());
+                vTaskDelay(loopDelayTicks());
+                health.recordDelayReturn(TaskWaitStage::Loop);
+            }
         }
         self.loopHealth_ = nullptr;
     }

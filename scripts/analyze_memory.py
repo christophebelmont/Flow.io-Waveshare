@@ -80,7 +80,7 @@ def analyze(text):
 def stack_usage(directory):
     rows = []
     for path in Path(directory).rglob('*.su'):
-        for line in path.read_text(errors='replace').splitlines():
+        for line in path.read_text(encoding='utf-8', errors='replace').splitlines():
             parts = line.rsplit('\t', 2)
             if len(parts) == 3 and parts[1].isdigit():
                 rows.append(dict(function=parts[0], bytes=int(parts[1]), kind=parts[2]))
@@ -93,7 +93,7 @@ def main():
     parser.add_argument('--json', action='store_true')
     parser.add_argument('--stack-usage', type=Path, help='Build directory containing compiler .su files')
     args = parser.parse_args()
-    result = analyze(args.log.read_text(errors='replace'))
+    result = analyze(args.log.read_text(encoding='utf-8', errors='replace'))
     if args.stack_usage:
         result['compiler_frames'] = stack_usage(args.stack_usage)
     if args.json:

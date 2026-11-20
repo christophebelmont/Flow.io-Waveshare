@@ -2312,6 +2312,7 @@
     const logsOverlay = document.getElementById('logsOverlay');
     const openLogsOverlayBtn = document.getElementById('openLogsOverlay');
     const closeLogsOverlayBtn = document.getElementById('closeLogsOverlay');
+    const copyLogsBtn = document.getElementById('copyLogs');
     const exportLogsTxtBtn = document.getElementById('exportLogsTxt');
     const activityLogList = document.getElementById('activityLogList');
     const activityLogStatus = document.getElementById('activityLogStatus');
@@ -3307,11 +3308,55 @@
         connectLogSocket();
       });
     }
+    function getDisplayedLogText() {
+      // Read the rendered text without terminal styling.
+      return term ? (term.innerText || term.textContent || '') : '';
+    }
+
+    async function copyLogText(contents) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(contents);
+        return;
+      }
+      // The Clipboard API is unavailable on the device's local HTTP interface.
+      const previousFocus = document.activeElement;
+      const input = document.createElement('textarea');
+      input.value = contents;
+      input.readOnly = true;
+      input.tabIndex = -1;
+      input.setAttribute('aria-hidden', 'true');
+      input.style.position = 'fixed';
+      input.style.opacity = '0';
+      document.body.appendChild(input);
+      try {
+        input.focus({ preventScroll: true });
+        input.select();
+        if (!document.execCommand('copy')) throw new Error('Copie refusée');
+      } finally {
+        input.remove();
+        if (previousFocus) previousFocus.focus({ preventScroll: true });
+      }
+    }
+
+    if (copyLogsBtn) {
+      copyLogsBtn.addEventListener('click', async () => {
+        const contents = getDisplayedLogText();
+        if (!contents.trim()) {
+          setWsStatusText('Aucun log à copier');
+          return;
+        }
+        try {
+          await copyLogText(contents);
+          setWsStatusText('Logs copiés dans le presse-papiers');
+        } catch (err) {
+          setWsStatusText('Copie des logs impossible');
+        }
+      });
+    }
     if (exportLogsTxtBtn) {
       exportLogsTxtBtn.addEventListener('click', () => {
         if (!term) return;
-        // textContent preserves visible log text and excludes terminal styling.
-        const contents = term.innerText || term.textContent || '';
+        const contents = getDisplayedLogText();
         if (!contents.trim()) {
           setWsStatusText('Aucun log à exporter');
           return;
