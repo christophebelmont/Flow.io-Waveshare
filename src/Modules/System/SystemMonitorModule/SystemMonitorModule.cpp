@@ -196,6 +196,9 @@ void SystemMonitorModule::init(ConfigStore& cfg, ServiceRegistry& services) {
     if (cmdSvc_ && !cmdSvc_->registerHandler(cmdSvc_->ctx, "sysmon.capture_tasks", requestTaskCapture_, this)) {
         LOGD("Task capture command registration failed");
     }
+    if (cmdSvc_ && !cmdSvc_->registerHandler(cmdSvc_->ctx, "sysmon.diagnostics_mode", setDiagnosticsMode_, this)) {
+        LOGD("Diagnostics mode command registration failed");
+    }
     if (moduleManager) {
         for (uint8_t i = 0; i < moduleManager->getCount(); ++i) {
             if (moduleManager->getModule(i)->externalTaskStackSource().acquire) ++externalStackCount_;
@@ -680,18 +683,50 @@ void SystemMonitorModule::sampleTaskStack_(uint32_t nowMs)
     portEXIT_CRITICAL(&stackSamplesMux_);
 }
 
+bool SystemMonitorModule::setDiagnosticsMode_(void* ctx, const CommandRequest& req,
+                                              char* reply, size_t replyLen)
+{
+    if (!ctx || !reply || !replyLen) return false;
+    auto& self = *static_cast<SystemMonitorModule*>(ctx);
+    const char* requested = req.args ? req.args : "";
+    if (strcmp(requested, "normal") == 0) {
+        self.diagnosticsMode_.store(0U);
+        snprintf(reply, replyLen, "{\"ok\":true,\"mode\":\"normal\"}");
+        return true;
+    }
+    if (strcmp(requested, "detailed") == 0) {
+        self.diagnosticsMode_.store(1U);
+        snprintf(reply, replyLen, "{\"ok\":true,\"mode\":\"detailed\"}");
+        return true;
+    }
+    snprintf(reply, replyLen,
+             "{\"ok\":false,\"error\":\"expected_args_normal_or_detailed\"}");
+    return false;
+}
+
 bool SystemMonitorModule::requestTaskCapture_(void* ctx, const CommandRequest&, char* reply, size_t replyLen)
 {
+    if (!ctx || !reply || !replyLen) return false;
 #if configUSE_TRACE_FACILITY
-    static_cast<SystemMonitorModule*>(ctx)->captureRequested_.store(true);
-    const int written = snprintf(reply, replyLen, "{\"ok\":true,\"queued\":true}");
+    auto& self = *static_cast<SystemMonitorModule*>(ctx);
+    // One snapshot, on the low-priority sysmon task, not IO or AsyncTCP.
+    // Limit operator-triggered captures so they cannot saturate the scheduler.
+    constexpr uint32_t kCaptureCooldownMs = 10000U;
+    const uint32_t nowMs = millis();
+    uint32_t previous = self.lastTaskCaptureRequestMs_.load();
+    do {
+        if (previous != 0U && nowMs - previous < kCaptureCooldownMs) {
+            snprintf(reply, replyLen, "{\"ok\":false,\"error\":\"capture_cooldown\"}");
+            return false;
+        }
+    } while (!self.lastTaskCaptureRequestMs_.compare_exchange_weak(previous, nowMs));
+    self.captureRequested_.store(true);
+    const int written = snprintf(reply, replyLen,
+                                 "{\"ok\":true,\"queued\":true,\"mode\":\"capture_once\"}");
+    return written > 0 && size_t(written) < replyLen;
 #else
-    (void)ctx;
     snprintf(reply, replyLen, "{\"ok\":false,\"error\":\"trace_unavailable\"}");
     return false;
-#endif
-#if configUSE_TRACE_FACILITY
-    return written > 0 && size_t(written) < replyLen;
 #endif
 }
 
@@ -1332,7 +1367,12 @@ void SystemMonitorModule::loop() {
     }
     pollWebWatchdog_(now);
 
-    const uint32_t periodMs = (cfgData_.tracePeriodMs > 0) ? (uint32_t)cfgData_.tracePeriodMs : 5000U;
+    // Runtime-only detailed mode increases log cadence, never per-cycle CPU
+    // sampling. In normal mode honor configuration with a safe 5s floor.
+    const uint32_t configuredPeriodMs =
+        (cfgData_.tracePeriodMs > 0) ? (uint32_t)cfgData_.tracePeriodMs : 5000U;
+    const uint32_t periodMs = diagnosticsMode_.load() == 1U
+        ? 2000U : (configuredPeriodMs < 5000U ? 5000U : configuredPeriodMs);
     const uint32_t heapOffsetMs = periodMs / 3U;
     const uint32_t bufOffsetMs = (periodMs * 2U) / 3U;
 
