@@ -189,6 +189,27 @@ def _write_release_package(version):
         archive.writestr("manifest.json", manifest_bytes)
         archive.write(firmware, "firmware.bin")
         archive.write(filesystem, "spiffs.bin")
+
+    # HTTP releases use the same *flat* binary/ directory as the historical
+    # firmware and SPIFFS images. Preserve legacy filenames and manifest.json:
+    # older Flow.io installations continue using the repository unchanged.
+    remote_manifest = {
+        **manifest,
+        "firmware": {
+            **manifest["firmware"],
+            "file": firmware.name,
+        },
+        "filesystem": {
+            **manifest["filesystem"],
+            "file": filesystem.name,
+        },
+    }
+    remote_bytes = (json.dumps(remote_manifest, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    versioned_release = out_dir / f"flowio-release-{version}.json"
+    versioned_release.write_bytes(remote_bytes)
+    # Default/current release for the firmware-embedded rescue interface.
+    (out_dir / "release.json").write_bytes(remote_bytes)
+    print(f"[export_binaries] remote paired release -> {versioned_release.relative_to(_project_dir())}")
     print(f"[export_binaries] release package -> {package.relative_to(_project_dir())}")
 
 
