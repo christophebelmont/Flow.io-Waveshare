@@ -1686,10 +1686,15 @@ bool FirmwareUpdateModule::beginLocalRelease_(const char* manifestJson,
     portEXIT_CRITICAL(&lock_);
 
     localRelease_ = candidate;
+    LOGI("[OTA] paired transaction checkpoint begin operation_id=%lu stack_free_bytes=%u",
+         (unsigned long)candidate.operationId,
+         (unsigned)uxTaskGetStackHighWaterMark(nullptr));
     if (!saveCountersBeforeUpdate_(errOut, errOutLen)) {
+        LOGE("[OTA] paired transaction checkpoint failed: %s", errOut ? errOut : "-");
         resetLocalRelease_();
         return false;
     }
+    LOGI("[OTA] paired transaction checkpoint OK; persisting prepared receipt");
     if (!persistReceipt_(FirmwareUpdateTarget::Waveshare,
                          candidate.operationId,
                          FirmwareUpdateReceiptState::Running)) {
