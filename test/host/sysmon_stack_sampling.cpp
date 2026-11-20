@@ -63,8 +63,7 @@ unsigned uxTaskGetSystemState(TaskStatus_t* tasks, unsigned, void*) {
     return 1;
 }
 void logMessage(const char*, ...) {}
-#define LOGI(...) logMessage(__VA_ARGS__)
-#define LOGW(...) logMessage(__VA_ARGS__)
+#define LOGD(...) logMessage(__VA_ARGS__)
 #define configUSE_TRACE_FACILITY 1
 #define configTASKLIST_INCLUDE_COREID 1
 #define configGENERATE_RUN_TIME_STATS 1

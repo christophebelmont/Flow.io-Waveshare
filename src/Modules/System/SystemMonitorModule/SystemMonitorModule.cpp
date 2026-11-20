@@ -86,7 +86,7 @@ MemoryPressureState applyMemoryPressureHysteresis_(const SystemStatsSnapshot& sn
 
     // Escalation uses the strict thresholds above immediately. Recovery needs
     // extra margin so short-lived heap allocations cannot make adjacent states
-    // alternate and emit a warning on every sysmon pass.
+    // alternate and emit a trace on every sysmon pass.
     switch (previous) {
     case MemoryPressureState::Panic:
         if (freeBytes < 8000U || largestBytes < 3072U) return previous;
@@ -190,11 +190,11 @@ void SystemMonitorModule::init(ConfigStore& cfg, ServiceRegistry& services) {
         eventBus_ = eventBus->bus;
     }
     if (!services.add(ServiceId::SystemHealth, &healthService_)) {
-        LOGE("System health service registration failed");
+        LOGD("System health service registration failed");
     }
 
     if (cmdSvc_ && !cmdSvc_->registerHandler(cmdSvc_->ctx, "sysmon.capture_tasks", requestTaskCapture_, this)) {
-        LOGE("Task capture command registration failed");
+        LOGD("Task capture command registration failed");
     }
     if (moduleManager) {
         for (uint8_t i = 0; i < moduleManager->getCount(); ++i) {
@@ -213,11 +213,11 @@ void SystemMonitorModule::init(ConfigStore& cfg, ServiceRegistry& services) {
                 stackSlots_[index].source = source;
                 stackSlots_[index++].id = taskHealthId(module->moduleId(), TaskRole::Library);
             }
-            LOGI("Task stack sampler psram_b=%lu external=%u period_ms=%lu",
+            LOGD("Task stack sampler psram_b=%lu external=%u period_ms=%lu",
                  (unsigned long)(capacity * sizeof(StackSlot)), (unsigned)externalStackCount_,
                  (unsigned long)kStackSamplePeriodMs);
         } else {
-            LOGW("Task stack sampler unavailable: PSRAM allocation failed");
+            LOGD("Task stack sampler unavailable: PSRAM allocation failed");
         }
     }
 
@@ -228,15 +228,15 @@ void SystemMonitorModule::init(ConfigStore& cfg, ServiceRegistry& services) {
                          MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
     );
     if (heapWatchSamples_) {
-        LOGI("HeapWatch history allocated in PSRAM bytes=%lu",
+        LOGD("HeapWatch history allocated in PSRAM bytes=%lu",
              (unsigned long)(kHeapWatchSampleCount * sizeof(HeapWatchSample)));
     } else {
-        LOGW("HeapWatch history unavailable: PSRAM allocation failed bytes=%lu",
+        LOGD("HeapWatch history unavailable: PSRAM allocation failed bytes=%lu",
              (unsigned long)(kHeapWatchSampleCount * sizeof(HeapWatchSample)));
     }
     const esp_err_t allocHookErr = heap_caps_register_failed_alloc_callback(&onHeapAllocFailed_);
     if (allocHookErr != ESP_OK) {
-        LOGW("Heap alloc-fail hook registration failed err=%d", (int)allocHookErr);
+        LOGD("Heap alloc-fail hook registration failed err=%d", (int)allocHookErr);
     }
 #endif
 }
@@ -304,7 +304,7 @@ void SystemMonitorModule::registerHaEntities_(ServiceRegistry& services)
     if (ok) {
         haEntitiesRegistered_ = true;
     } else {
-        LOGW("HA registration failed: system monitor entities");
+        LOGD("HA registration failed: system monitor entities");
     }
 }
 
@@ -324,11 +324,11 @@ void SystemMonitorModule::onConfigLoaded(ConfigStore&, ServiceRegistry& services
 }
 
 void SystemMonitorModule::logBootInfo() {
-    LOGI("Reset reason=%s", SystemStats::resetReasonStr());
-    LOGI("CPU=%luMHz", (unsigned long)ESP.getCpuFreqMHz());
+    LOGD("Reset reason=%s", SystemStats::resetReasonStr());
+    LOGD("CPU=%luMHz", (unsigned long)ESP.getCpuFreqMHz());
     const bool psramOk = psramFound();
     const uint32_t psramSizeBytes = ESP.getPsramSize();
-    LOGI("PSRAM found=%s size=%luKB free=%luKB",
+    LOGD("PSRAM found=%s size=%luKB free=%luKB",
          psramOk ? "yes" : "no",
          (unsigned long)(psramSizeBytes / 1024U),
          (unsigned long)(ESP.getFreePsram() / 1024U));
@@ -416,17 +416,17 @@ void reportTaskHealth(const ModuleManager::TaskEntry& entry, const TaskHealthSna
     const uint64_t ageMs = snapshot.state == TaskHealthState::Running && nowUs >= progressUs
         ? (nowUs - progressUs) / 1000U : 0U;
 
-    LOGI("TaskSpec id=%u name=%s core=%ld prio=%u stack_b=%lu min_b=%u mode=%s budget_us=%lu slack_us=%lu",
+    LOGD("TaskSpec id=%u name=%s core=%ld prio=%u stack_b=%lu min_b=%u mode=%s budget_us=%lu slack_us=%lu",
          (unsigned)entry.id, spec.name, (long)spec.coreId, (unsigned)spec.priority,
          (unsigned long)spec.stackSize, (unsigned)spec.minStackFreeBytes, taskCadenceLabel(spec.timing.cadence),
          (unsigned long)spec.timing.workBudgetUs, (unsigned long)spec.timing.wakeToleranceUs);
     char freeBytes[11] = "-";
     if (snapshot.stackSamples) snprintf(freeBytes, sizeof(freeBytes), "%lu", (unsigned long)snapshot.minFreeBytes);
-    LOGI("TaskHealth id=%u gen=%lu state=%s samples=%lu free_b=%s cycles=%lu overdue=%u age_ms=%llu",
+    LOGD("TaskHealth id=%u gen=%lu state=%s samples=%lu free_b=%s cycles=%lu overdue=%u age_ms=%llu",
          (unsigned)entry.id, (unsigned long)snapshot.generation, taskStateLabel(snapshot.state),
          (unsigned long)snapshot.stackSamples, freeBytes, (unsigned long)timing.cycles, (unsigned)overdue,
          (unsigned long long)ageMs);
-    LOGI("TaskTime id=%u late=%lu over=%lu max_work_us=%llu max_cycle_us=%llu wait_us=%lu",
+    LOGD("TaskTime id=%u late=%lu over=%lu max_work_us=%llu max_cycle_us=%llu wait_us=%lu",
          (unsigned)entry.id, (unsigned long)timing.lateStarts, (unsigned long)timing.workOverruns,
          (unsigned long long)timing.maxWorkUs, (unsigned long long)timing.maxCycleUs,
          (unsigned long)timing.expectedWaitUs);
@@ -434,12 +434,12 @@ void reportTaskHealth(const ModuleManager::TaskEntry& entry, const TaskHealthSna
 
 void reportWakeSample(uint16_t taskId, const TaskWakeSample& sample, bool captureOverlap)
 {
-    LOGI("TaskWake id=%u due_us=%llu run_us=%llu late_us=%llu wait_us=%lu capture=%u",
+    LOGD("TaskWake id=%u due_us=%llu run_us=%llu late_us=%llu wait_us=%lu capture=%u",
          (unsigned)taskId, (unsigned long long)sample.expectedUs, (unsigned long long)sample.actualUs,
          (unsigned long long)sample.lateUs(), (unsigned long)sample.waitUs, (unsigned)captureOverlap);
     if (sample.moduleDelayReturnedUs != 0U) {
         const uint64_t waitStartedUs = sample.expectedUs - sample.waitUs;
-        LOGI("TaskWakeWait id=%u run_us=%llu module_us=%llu/%lu loop_us=%llu/%lu",
+        LOGD("TaskWakeWait id=%u run_us=%llu module_us=%llu/%lu loop_us=%llu/%lu",
              (unsigned)taskId, (unsigned long long)sample.actualUs,
              (unsigned long long)(sample.moduleDelayReturnedUs - waitStartedUs),
              (unsigned long)sample.moduleWaitUs,
@@ -450,13 +450,13 @@ void reportWakeSample(uint16_t taskId, const TaskWakeSample& sample, bool captur
     for (unsigned stage = 0; stage < 2U; ++stage) {
         const auto& wait = *waits[stage];
         if (wait.endedUs == 0U) continue;
-        LOGI("TaskWait id=%u stage=%u start_us=%llu end_us=%llu ticks=%lu/%lu",
+        LOGD("TaskWait id=%u stage=%u start_us=%llu end_us=%llu ticks=%lu/%lu",
              (unsigned)taskId, stage, (unsigned long long)wait.startedUs, (unsigned long long)wait.endedUs,
              (unsigned long)wait.elapsedTicks(), (unsigned long)wait.requestedTicks);
-        LOGI("TaskWaitCpu id=%u stage=%u window_us=%lu probe_us=%lu accounted_us=%lu matched=%u",
+        LOGD("TaskWaitCpu id=%u stage=%u window_us=%lu probe_us=%lu accounted_us=%lu matched=%u",
              (unsigned)taskId, stage, (unsigned long)wait.runtimeWindowUs, (unsigned long)wait.probeUs,
              (unsigned long)wait.accountedCpuUs, (unsigned)wait.matchedTasks);
-        LOGI("TaskWaitTop id=%u stage=%u cpu_us=%u:%lu,%u:%lu,%u:%lu",
+        LOGD("TaskWaitTop id=%u stage=%u cpu_us=%u:%lu,%u:%lu,%u:%lu",
              (unsigned)taskId, stage,
              (unsigned)wait.top[0].taskId, (unsigned long)wait.top[0].durationUs,
              (unsigned)wait.top[1].taskId, (unsigned long)wait.top[1].durationUs,
@@ -485,7 +485,7 @@ void reportTaskWake(const ModuleManager::TaskEntry& entry,
     const bool worstOverlaps = capture.overlaps(batch.worst) || previousCapture.overlaps(batch.worst);
     auto& worst = worstOverlaps ? worstCapture : worstOther;
     if (batch.worst.lateUs() > worst.lateUs()) worst = batch.worst;
-    LOGI("TaskWakeStats id=%u samples=%u capture=%u dropped=%lu max_us=%llu",
+    LOGD("TaskWakeStats id=%u samples=%u capture=%u dropped=%lu max_us=%llu",
          (unsigned)entry.id, (unsigned)batch.count, captureCount, (unsigned long)batch.dropped,
          (unsigned long long)batch.worst.lateUs());
     if (worstCapture.actualUs != 0U) reportWakeSample(entry.id, worstCapture, true);
@@ -528,7 +528,7 @@ void SystemMonitorModule::logTaskHealth(SystemHealthSnapshot::Tasks& summary)
             (critical && ((overdue && !previous.overdue) ||
                           snapshot.timing.lateStarts > previous.lateStarts ||
                           snapshot.timing.workOverruns > previous.workOverruns))) {
-            LOGW("Task alert id=%u name=%s low_stack=%u overdue=%u late=%lu over=%lu",
+            LOGD("Task alert id=%u name=%s low_stack=%u overdue=%u late=%lu over=%lu",
                  (unsigned)entry.id, entry.spec.name, (unsigned)low, (unsigned)overdue,
                  (unsigned long)snapshot.timing.lateStarts, (unsigned long)snapshot.timing.workOverruns);
         }
@@ -537,7 +537,7 @@ void SystemMonitorModule::logTaskHealth(SystemHealthSnapshot::Tasks& summary)
         if ((i + taskCount - nextTaskHealthReport_) % taskCount < kTaskHealthReportBatch) {
             reportTaskHealth(entry, snapshot, nowUs, overdue);
             if (stack.samples) {
-                LOGI("TaskStack id=%u gen=%lu free_b=%lu age_ms=%llu last_us=%llu max_us=%llu",
+                LOGD("TaskStack id=%u gen=%lu free_b=%lu age_ms=%llu last_us=%llu max_us=%llu",
                      (unsigned)entry.id, (unsigned long)stack.generation, (unsigned long)stack.freeBytes,
                      (unsigned long long)((nowUs - stack.sampledAtUs) / 1000U),
                      (unsigned long long)stack.lastDurationUs, (unsigned long long)stack.maxDurationUs);
@@ -558,7 +558,7 @@ void SystemMonitorModule::logTaskHealth(SystemHealthSnapshot::Tasks& summary)
                             int64_t(lowest.freeBytes) - lowest.thresholdBytes) {
             lowest = {source.name, sample.freeBytes, source.minFreeBytes, sample.sampledAtUs};
         }
-        LOGI("TaskStack id=%u name=%s gen=%lu free_b=%lu min_b=%u age_ms=%llu max_us=%llu",
+        LOGD("TaskStack id=%u name=%s gen=%lu free_b=%lu min_b=%u age_ms=%llu max_us=%llu",
              (unsigned)slot.id, source.name, (unsigned long)sample.generation, (unsigned long)sample.freeBytes,
              (unsigned)source.minFreeBytes, (unsigned long long)((nowUs - sample.sampledAtUs) / 1000U),
              (unsigned long long)sample.maxDurationUs);
@@ -702,7 +702,7 @@ void SystemMonitorModule::captureTasksIfRequested_()
     auto* tasks = static_cast<TaskStatus_t*>(heap_caps_calloc(
         kTaskStatusSnapshotCapacity, sizeof(TaskStatus_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!tasks) {
-        LOGW("Task capture unavailable: PSRAM allocation failed");
+        LOGD("Task capture unavailable: PSRAM allocation failed");
         return;
     }
     const uint64_t startedUs = esp_timer_get_time();
@@ -710,11 +710,11 @@ void SystemMonitorModule::captureTasksIfRequested_()
     const uint64_t endedUs = esp_timer_get_time();
     lastTaskCapture_ = {startedUs, endedUs};
     taskCaptureDurations_.record(endedUs - startedUs);
-    LOGI("TaskCapture start_us=%llu last_us=%llu max_us=%llu samples=%lu tasks=%u",
+    LOGD("TaskCapture start_us=%llu last_us=%llu max_us=%llu samples=%lu tasks=%u",
          (unsigned long long)startedUs, (unsigned long long)taskCaptureDurations_.lastUs,
          (unsigned long long)taskCaptureDurations_.maxUs, (unsigned long)taskCaptureDurations_.count,
          (unsigned)captured);
-    if (captured == 0U) LOGW("Task capture unavailable capacity=%u", (unsigned)kTaskStatusSnapshotCapacity);
+    if (captured == 0U) LOGD("Task capture unavailable capacity=%u", (unsigned)kTaskStatusSnapshotCapacity);
     for (UBaseType_t i = 0; i < captured; ++i) {
         const auto& task = tasks[i];
         if (task.eCurrentState == eDeleted) continue;
@@ -724,7 +724,7 @@ void SystemMonitorModule::captureTasksIfRequested_()
         const long core = -1;
 #endif
         // The SDK task name points into a TCB that may already have been freed.
-        LOGI("SdkTask id=%u core=%ld prio=%u free_b=%lu", (unsigned)task.xTaskNumber, core,
+        LOGD("SdkTask id=%u core=%ld prio=%u free_b=%lu", (unsigned)task.xTaskNumber, core,
              (unsigned)task.uxBasePriority, (unsigned long)task.usStackHighWaterMark);
     }
     heap_caps_free(tasks);
@@ -733,25 +733,19 @@ void SystemMonitorModule::captureTasksIfRequested_()
 
 void SystemMonitorModule::logEventBusHealth(const EventBus::QueueSnapshot& queue)
 {
-    LOGI("EventQueue id=%u queued=%u cap=%u peak=%u accepted=%lu dequeued=%lu retries=%lu",
+    LOGD("EventQueue id=%u queued=%u cap=%u peak=%u accepted=%lu dequeued=%lu retries=%lu",
          (unsigned)queue.id, (unsigned)queue.queued, (unsigned)queue.capacity, (unsigned)queue.peak,
          (unsigned long)queue.accepted, (unsigned long)queue.dequeued, (unsigned long)queue.fullRetries);
-    LOGI("EventDelay id=%u head=%u head_src=%u age_us=%llu slowest=%u slow_src=%u max_us=%llu",
+    LOGD("EventDelay id=%u head=%u head_src=%u age_us=%llu slowest=%u slow_src=%u max_us=%llu",
          (unsigned)queue.id, (unsigned)queue.oldestEvent, (unsigned)queue.oldestProducer,
          (unsigned long long)queue.oldestAgeUs, (unsigned)queue.slowestEvent,
          (unsigned)queue.slowestProducer, (unsigned long long)queue.maxQueueDelayUs);
 
-    const bool losses = queue.fullDrops != lastEventBusSnapshot_.fullDrops ||
-                        queue.oversizeDrops != lastEventBusSnapshot_.oversizeDrops ||
-                        queue.missingPayloadDrops != lastEventBusSnapshot_.missingPayloadDrops ||
-                        queue.subscriptionDrops != lastEventBusSnapshot_.subscriptionDrops;
-    Log::logf(losses ? LogLevel::Warn : LogLevel::Info, LOG_MODULE_ID,
-              "EventDrop id=%u full=%lu oversize=%lu no_payload=%lu isr=%lu control=%lu sub=%lu last=%u src=%u",
-              (unsigned)queue.id, (unsigned long)queue.fullDrops, (unsigned long)queue.oversizeDrops,
-              (unsigned long)queue.missingPayloadDrops, (unsigned long)queue.isrDrops,
-              (unsigned long)queue.controlDrops, (unsigned long)queue.subscriptionDrops,
-              (unsigned)queue.lastDroppedEvent, (unsigned)queue.lastDroppedProducer);
-    lastEventBusSnapshot_ = queue;
+    LOGD("EventDrop id=%u full=%lu oversize=%lu no_payload=%lu isr=%lu control=%lu sub=%lu last=%u src=%u",
+         (unsigned)queue.id, (unsigned long)queue.fullDrops, (unsigned long)queue.oversizeDrops,
+         (unsigned long)queue.missingPayloadDrops, (unsigned long)queue.isrDrops,
+         (unsigned long)queue.controlDrops, (unsigned long)queue.subscriptionDrops,
+         (unsigned)queue.lastDroppedEvent, (unsigned)queue.lastDroppedProducer);
 }
 
 SystemHealthSnapshot SystemMonitorModule::readHealthSnapshot_()
@@ -873,7 +867,7 @@ void SystemMonitorModule::armHeapWatchDump_(const SystemStatsSnapshot& snap, con
 #ifdef CONFIG_HEAP_TASK_TRACKING
     captureHeapWatchTaskTotals_();
 #endif
-    LOGW("HeapWatch trip captured reason=%s free=%lu min=%lu largest=%lu",
+    LOGD("HeapWatch trip captured reason=%s free=%lu min=%lu largest=%lu",
          heapWatchTriggerReason_,
          (unsigned long)heapWatchTriggerFreeBytes_,
          (unsigned long)heapWatchTriggerMinFreeBytes_,
@@ -883,7 +877,7 @@ void SystemMonitorModule::armHeapWatchDump_(const SystemStatsSnapshot& snap, con
 void SystemMonitorModule::dumpHeapWatchWindow_() const
 {
     if (!heapWatchSamples_ || heapWatchFrozenCount_ == 0U) {
-        LOGW("HeapWatch window unavailable");
+        LOGD("HeapWatch window unavailable");
         return;
     }
 
@@ -896,7 +890,7 @@ void SystemMonitorModule::dumpHeapWatchWindow_() const
         const size_t idx = (startIndex + i) % kHeapWatchSampleCount;
         const HeapWatchSample& sample = heapWatchSamples_[idx];
         const long dtMs = (long)sample.uptimeMs - (long)heapWatchTriggerMs_;
-        LOGW("HeapWatch win dt=%ld total_free=%lu total_min=%lu total_largest=%lu internal_free=%lu internal_min=%lu internal_largest=%lu",
+        LOGD("HeapWatch win dt=%ld total_free=%lu total_min=%lu total_largest=%lu internal_free=%lu internal_min=%lu internal_largest=%lu",
              dtMs,
              (unsigned long)sample.freeBytes,
              (unsigned long)sample.minFreeBytes,
@@ -947,14 +941,14 @@ void SystemMonitorModule::captureHeapWatchTaskTotals_()
 void SystemMonitorModule::dumpHeapWatchTaskTotals_() const
 {
     if (heapWatchTaskTotalCount_ == 0U) {
-        LOGW("HeapWatch tasks unavailable");
+        LOGD("HeapWatch tasks unavailable");
         return;
     }
 
     for (size_t i = 0; i < heapWatchTaskTotalCount_; ++i) {
         const HeapWatchTaskTotal& total = heapWatchTaskTotals_[i];
         if (total.sizeBytes == 0U && total.blockCount == 0U) continue;
-        LOGW("HeapWatch task=%s alloc=%lu blocks=%lu",
+        LOGD("HeapWatch task=%s alloc=%lu blocks=%lu",
              total.taskName[0] ? total.taskName : "-",
              (unsigned long)total.sizeBytes,
              (unsigned long)total.blockCount);
@@ -964,7 +958,7 @@ void SystemMonitorModule::dumpHeapWatchTaskTotals_() const
 
 void SystemMonitorModule::dumpHeapWatch_()
 {
-    LOGW("HeapWatch dump reason=%s trigger_free=%lu trigger_min=%lu trigger_largest=%lu captured=%u dump_last=%u sample_ms=%lu",
+    LOGD("HeapWatch dump reason=%s trigger_free=%lu trigger_min=%lu trigger_largest=%lu captured=%u dump_last=%u sample_ms=%lu",
          heapWatchTriggerReason_[0] ? heapWatchTriggerReason_ : "-",
          (unsigned long)heapWatchTriggerFreeBytes_,
          (unsigned long)heapWatchTriggerMinFreeBytes_,
@@ -1020,7 +1014,7 @@ void SystemMonitorModule::pollHeapWatch_(uint32_t now)
     }
 
     if (heapWatchTripActive_ && snap.heap.internalFreeBytes >= kHeapWatchRecoverFreeBytes) {
-        LOGI("HeapWatch recovered internal_free=%lu internal_min=%lu internal_largest=%lu",
+        LOGD("HeapWatch recovered internal_free=%lu internal_min=%lu internal_largest=%lu",
              (unsigned long)snap.heap.internalFreeBytes,
              (unsigned long)snap.heap.internalMinFreeBytes,
              (unsigned long)snap.heap.internalLargestFreeBlock);
@@ -1039,7 +1033,7 @@ void SystemMonitorModule::logPendingHeapAllocFailure_()
 
     SystemStatsSnapshot snap{};
     SystemStats::collect(snap);
-    LOGW("Heap alloc failed size=%lu caps=0x%08lx func=%s total_free=%lu total_min=%lu total_largest=%lu internal_free=%lu internal_min=%lu internal_largest=%lu",
+    LOGD("Heap alloc failed size=%lu caps=0x%08lx func=%s total_free=%lu total_min=%lu total_largest=%lu internal_free=%lu internal_min=%lu internal_largest=%lu",
          (unsigned long)size,
          (unsigned long)caps,
          functionName ? functionName : "-",
@@ -1088,7 +1082,7 @@ void SystemMonitorModule::pollMemoryPressureReboot_(uint32_t now)
         memoryPressureStateSinceMs_ = now;
         memoryPressureRebootIssued_ = false;
         if (!suppressTransitionLog) {
-            LOGW("Memory pressure -> %s internal_free=%lu internal_largest=%lu internal_frag=%u%%%s",
+            LOGD("Memory pressure -> %s internal_free=%lu internal_largest=%lu internal_frag=%u%%%s",
                  memoryPressureStateStr_(state),
                  (unsigned long)snap.heap.internalFreeBytes,
                  (unsigned long)snap.heap.internalLargestFreeBlock,
@@ -1113,7 +1107,7 @@ void SystemMonitorModule::pollMemoryPressureReboot_(uint32_t now)
     if (!shouldReboot) return;
 
     memoryPressureRebootIssued_ = true;
-    LOGE("Memory pressure persisted (%s %lums), reboot requested internal_free=%lu internal_largest=%lu internal_frag=%u%%",
+    LOGD("Memory pressure persisted (%s %lums), reboot requested internal_free=%lu internal_largest=%lu internal_frag=%u%%",
          memoryPressureStateStr_(state),
          (unsigned long)heldMs,
          (unsigned long)snap.heap.internalFreeBytes,
@@ -1220,7 +1214,7 @@ void SystemMonitorModule::pollWebWatchdog_(uint32_t now)
     // Reboot escalation must only happen when the web loop itself stops progressing.
     if (!loopStale) {
         if (webWatchdogConsecutiveFailures_ > 0U) {
-            LOGI("Web watchdog recovered failures=%u loop_age=%lu clients=%u",
+            LOGD("Web watchdog recovered failures=%u loop_age=%lu clients=%u",
                  (unsigned)webWatchdogConsecutiveFailures_,
                  (unsigned long)loopAgeMs,
                  (unsigned)activeClients);
@@ -1247,7 +1241,7 @@ void SystemMonitorModule::pollWebWatchdog_(uint32_t now)
     const uint8_t maxFailures =
         (maxFailuresCfg < kWebWatchdogMaxFailuresCap) ? maxFailuresCfg : kWebWatchdogMaxFailuresCap;
 
-    LOGW("Web watchdog fail=%u/%u loop_stale=%d loop_age=%lu stale=%lu clients=%u client_idle=%lu ws_ms=%lu http_ms=%lu",
+    LOGD("Web watchdog fail=%u/%u loop_stale=%d loop_age=%lu stale=%lu clients=%u client_idle=%lu ws_ms=%lu http_ms=%lu",
          (unsigned)webWatchdogConsecutiveFailures_,
          (unsigned)maxFailures,
          (int)loopStale,
@@ -1260,13 +1254,13 @@ void SystemMonitorModule::pollWebWatchdog_(uint32_t now)
 
     if (webWatchdogConsecutiveFailures_ < maxFailures) return;
     if (!cfgData_.webWatchdogAutoReboot) {
-        LOGE("Web watchdog reached threshold but auto-reboot is disabled");
+        LOGD("Web watchdog reached threshold but auto-reboot is disabled");
         return;
     }
     if (webWatchdogRebootIssued_) return;
     webWatchdogRebootIssued_ = true;
 
-    LOGE("Web watchdog threshold reached, reboot requested");
+    LOGD("Web watchdog threshold reached, reboot requested");
     if (cmdSvc_ && cmdSvc_->execute) {
         char reply[160] = {0};
         (void)cmdSvc_->execute(cmdSvc_->ctx, "system.reboot", "{}", nullptr, systemActor(), reply, sizeof(reply));
@@ -1416,21 +1410,17 @@ void SystemMonitorModule::pollMemoryMetrics_(uint32_t nowMs)
         const bool periodic = !memSampled || (uint32_t)(memNowMs - lastMemReportMs) >= 15000U;
         if (periodic || suddenDrop || (low && !wasLow)) {
             const char* tag = low ? "[MEM-LOW]" : (suddenDrop ? "[MEM-DROP]" : "[MEM]");
-            const auto level = low || suddenDrop ? LogLevel::Warn : LogLevel::Info;
-            Log::logf(level, LOG_MODULE_ID,
-                      "%s ms=%lu int_free=%lu int_largest=%lu int_frag_pct=%lu int_min=%lu",
-                      tag, (unsigned long)memNowMs, (unsigned long)internalFree,
-                      (unsigned long)internalLargest, (unsigned long)internalFragPct,
-                      (unsigned long)internalMinimum);
-            Log::logf(level, LOG_MODULE_ID,
-                      "%s ms=%lu win_free_min=%lu win_largest_min=%lu psram_free=%lu psram_largest=%lu",
-                      tag, (unsigned long)memNowMs, (unsigned long)windowInternalLow,
-                      (unsigned long)windowLargestLow, (unsigned long)psramFree, (unsigned long)psramLargest);
-            Log::logf(level, LOG_MODULE_ID,
-                      "%s ms=%lu psram_frag_pct=%lu psram_min=%lu web_stack_free_bytes=%lu async_stack_free_bytes=%lu",
-                      tag, (unsigned long)memNowMs, (unsigned long)psramFragPct,
-                      (unsigned long)psramMinimum, (unsigned long)stackFreeBytes,
-                      (unsigned long)asyncStackFreeBytes);
+            LOGD("%s ms=%lu int_free=%lu int_largest=%lu int_frag_pct=%lu int_min=%lu",
+                 tag, (unsigned long)memNowMs, (unsigned long)internalFree,
+                 (unsigned long)internalLargest, (unsigned long)internalFragPct,
+                 (unsigned long)internalMinimum);
+            LOGD("%s ms=%lu win_free_min=%lu win_largest_min=%lu psram_free=%lu psram_largest=%lu",
+                 tag, (unsigned long)memNowMs, (unsigned long)windowInternalLow,
+                 (unsigned long)windowLargestLow, (unsigned long)psramFree, (unsigned long)psramLargest);
+            LOGD("%s ms=%lu psram_frag_pct=%lu psram_min=%lu web_stack_free_bytes=%lu async_stack_free_bytes=%lu",
+                 tag, (unsigned long)memNowMs, (unsigned long)psramFragPct,
+                 (unsigned long)psramMinimum, (unsigned long)stackFreeBytes,
+                 (unsigned long)asyncStackFreeBytes);
             if (periodic) {
                 lastMemReportMs = memNowMs;
                 windowInternalLow = internalFree;

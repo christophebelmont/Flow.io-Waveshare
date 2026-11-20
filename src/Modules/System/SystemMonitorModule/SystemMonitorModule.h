@@ -130,7 +130,6 @@ private:
     std::atomic<bool> captureRequested_{false};
     DurationSamples taskCaptureDurations_{};
     TaskWakeInterval lastTaskCapture_{};
-    EventBus::QueueSnapshot lastEventBusSnapshot_{};
     portMUX_TYPE healthSnapshotMux_ = portMUX_INITIALIZER_UNLOCKED;
     SystemHealthSnapshot healthSnapshot_{};
     SystemHealthSnapshot readHealthSnapshot_();

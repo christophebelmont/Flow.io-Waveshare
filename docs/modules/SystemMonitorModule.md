@@ -9,6 +9,9 @@ Supervision périodique:
 
 Type: module actif.
 
+Tous les logs émis par `sysmon` utilisent le niveau `DEBUG`, y compris
+les alertes mémoire et les diagnostics du watchdog web.
+
 ## Dépendances
 
 - `loghub`
@@ -69,7 +72,7 @@ tâche Flow.io jusqu’à la fin du relevé. Le parcours de sa pile s’effectue
 en dehors des sections critiques. Le registre conserve le minimum final
 relevé par les tâches terminées.
 
-Les rapports sont émis au niveau `INFO`, avec trois tâches du registre
+Les rapports sont émis au niveau `DEBUG`, avec trois tâches du registre
 par relevé en rotation et les sources externes à chaque rapport.
 
 | Trace | Champs |
