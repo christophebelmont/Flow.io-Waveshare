@@ -5,6 +5,7 @@
 #include "SystemMonitorModule.h"
 #include "Core/BufferUsageTracker.h"
 #include "Core/ModuleManager.h"   ///< required for iteration
+#include "Core/CommandRegistry.h"  // Full CommandRequest for runtime mode args.
 #include "Core/Services/ILogger.h"
 #include "Core/SaturatingCounter.h"
 #include <Arduino.h>
@@ -759,8 +760,16 @@ void SystemMonitorModule::captureTasksIfRequested_()
         const long core = -1;
 #endif
         // The SDK task name points into a TCB that may already have been freed.
+#if configGENERATE_RUN_TIME_STATS
+        // Cumulative runtime counter for a manually requested one-shot capture.
+        // This is not a per-cycle sample and adds no work to the IO task.
+        LOGD("SdkTask id=%u core=%ld prio=%u free_b=%lu runtime_counter=%lu",
+             (unsigned)task.xTaskNumber, core, (unsigned)task.uxBasePriority,
+             (unsigned long)task.usStackHighWaterMark, (unsigned long)task.ulRunTimeCounter);
+#else
         LOGD("SdkTask id=%u core=%ld prio=%u free_b=%lu", (unsigned)task.xTaskNumber, core,
              (unsigned)task.uxBasePriority, (unsigned long)task.usStackHighWaterMark);
+#endif
     }
     heap_caps_free(tasks);
 #endif
