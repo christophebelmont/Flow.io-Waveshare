@@ -1779,6 +1779,13 @@ bool FirmwareUpdateModule::beginLocalImage_(uint32_t transactionId,
     if (!transactionGuard.acquired()) {
         return writeSimpleError_(errOut, errOutLen, "upgrade synchronization unavailable");
     }
+    // A remote paired transaction owns its upload/validation methods. Do not
+    // permit an asynchronous Web upload callback to finish or alter the same
+    // transaction while the OTA worker is still receiving its image.
+    if (remoteReleaseWorker_ != nullptr &&
+        remoteReleaseWorker_ != xTaskGetCurrentTaskHandle()) {
+        return writeSimpleError_(errOut, errOutLen, "remote paired release owns image transaction");
+    }
     if (!isLocalReleaseImageTarget_(target)) {
         return writeSimpleError_(errOut, errOutLen, "unsupported release image target");
     }
@@ -1898,6 +1905,13 @@ bool FirmwareUpdateModule::writeLocalImage_(uint32_t transactionId,
     if (!transactionGuard.acquired()) {
         return writeSimpleError_(errOut, errOutLen, "upgrade synchronization unavailable");
     }
+    // A remote paired transaction owns its upload/validation methods. Do not
+    // permit an asynchronous Web upload callback to finish or alter the same
+    // transaction while the OTA worker is still receiving its image.
+    if (remoteReleaseWorker_ != nullptr &&
+        remoteReleaseWorker_ != xTaskGetCurrentTaskHandle()) {
+        return writeSimpleError_(errOut, errOutLen, "remote paired release owns image transaction");
+    }
     if (!isLocalReleaseImageTarget_(target)) {
         return writeSimpleError_(errOut, errOutLen, "unsupported release image target");
     }
@@ -1949,6 +1963,13 @@ bool FirmwareUpdateModule::endLocalImage_(uint32_t transactionId,
     SemaphoreGuard transactionGuard(localReleaseMutex_);
     if (!transactionGuard.acquired()) {
         return writeSimpleError_(errOut, errOutLen, "upgrade synchronization unavailable");
+    }
+    // A remote paired transaction owns its upload/validation methods. Do not
+    // permit an asynchronous Web upload callback to finish or alter the same
+    // transaction while the OTA worker is still receiving its image.
+    if (remoteReleaseWorker_ != nullptr &&
+        remoteReleaseWorker_ != xTaskGetCurrentTaskHandle()) {
+        return writeSimpleError_(errOut, errOutLen, "remote paired release owns image transaction");
     }
     if (!isLocalReleaseImageTarget_(target)) {
         return writeSimpleError_(errOut, errOutLen, "unsupported release image target");
