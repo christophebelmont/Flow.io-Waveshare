@@ -3946,7 +3946,9 @@ ModuleTaskSpec IOModule::taskSpec(uint8_t index) const
     if (index != 1U) {
         auto spec = Module::taskSpec(index);
         spec.traceWake = index == 0U;
-        spec.traceWakeRuntime = index == 0U;
+        // Diagnostic Wi-Fi: disable per-cycle CPU runtime snapshots for IO.
+        // Keep lightweight wake/stack diagnostics and all IO/RS485 priorities unchanged.
+        spec.traceWakeRuntime = false;
         return spec;
     }
     // Service UART deadlines above acquisitions (11) and AsyncTCP (10).
