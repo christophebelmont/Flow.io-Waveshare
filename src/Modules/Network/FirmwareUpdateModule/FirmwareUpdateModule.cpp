@@ -237,7 +237,10 @@ bool candidateFilesystemIsValid_(const char* label, const char* version, const c
     if (!label || label[0] == '\0') return false;
     fs::SPIFFSFS candidate;
     if (!candidate.begin(false, "/candidate", 4, label)) return false;
-    const bool valid = ReleaseStorage::validateReleaseFilesystem(candidate, version, hardware);
+    // A complete paired release must contain the new UI migration marker.
+    // A legacy SPIFFS image must never be accepted as the final A/B pair.
+    const bool valid = ReleaseStorage::validateReleaseFilesystem(candidate, version, hardware) &&
+                       candidate.exists("/ota-paired-v1.marker");
     candidate.end();
     return valid;
 }
@@ -720,6 +723,14 @@ bool FirmwareUpdateModule::statusJson_(char* out, size_t outLen)
     doc["progress"] = snap.progress;
     doc["ts_ms"] = snap.updatedAtMs;
     doc["msg"] = snap.msg;
+    // Boot evidence is necessary to distinguish an old slot/rollback from
+    // an OTA status receipt carried across a restart.
+    const esp_partition_t* activeApp = esp_ota_get_running_partition();
+    const esp_partition_t* bootApp = esp_ota_get_boot_partition();
+    doc["app_slot"] = activeApp ? activeApp->label : "unknown";
+    doc["boot_slot"] = bootApp ? bootApp->label : "unknown";
+    doc["spiffs_valid"] = ReleaseStorage::validateReleaseFilesystem();
+    doc["migration_pending"] = ReleaseStorage::legacyPairedMigrationNeeded();
     if (hasLastReceipt) {
         JsonObject receipt = doc.createNestedObject("last_operation");
         receipt["operation_id"] = lastReceipt.operationId;
