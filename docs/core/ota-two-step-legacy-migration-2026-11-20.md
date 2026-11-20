@@ -9,7 +9,7 @@
 ## Procédure utilisateur initiale
 
 1. Depuis l'ancienne interface, choisir la version de transition `flowios3-VERSION.bin` et cliquer **Firmware**. Le **moteur historique**, déjà installé, copie le SPIFFS courant vers le slot associé à la nouvelle application, écrit le nouveau firmware dans le slot inactif, puis redémarre. **Ne pas cliquer sur SPIFFS avant ce redémarrage.**
-2. Le nouveau firmware démarre avec le SPIFFS historique, vérifié par son `/release.json` et les ressources Web essentielles. Il ne lance **aucune mise à jour automatique**. L'ancienne interface reste donc visible.
+2. Le nouveau firmware démarre avec le SPIFFS historique, reconnu par la présence de son interface Web historique (index et script d'application, compressés ou non), sans exiger de `/release.json` ni de marqueur OTA nouveau. Il ne lance **aucune mise à jour automatique**. L'ancienne interface reste donc visible.
 3. Depuis cette ancienne interface, cliquer **SPIFFS** pour *finaliser la migration*. Ce bouton ne fait plus d'OTA SPIFFS indépendante : le firmware de transition convertit l'URL historique `flowios3-spiffs-VERSION.bin` en `flowio-release-VERSION.json`. La version doit être **identique** à celle du firmware de transition.
 4. Le nouveau moteur télécharge ce manifeste et les deux binaires versionnés référencés, écrit le SPIFFS et le firmware dans les **slots inactifs**, valide les tailles, SHA-256, métadonnées (`Flow.IO`, version, matériel) et la présence de `/ota-paired-v1.marker`, puis effectue le commit A/B et redémarre.
 5. Le nouveau SPIFFS contient l'interface moderne : **une seule ligne FlowIOS3 (Firmware + SPIFFS OTA A/B)**, plus Nextion. Les opérations distantes ultérieures utilisent le manifeste versionné.
@@ -20,7 +20,7 @@ La migration se déroule normalement en **deux clics et deux redémarrages**. Le
 
 - **Aucun chemin d'écriture directe du SPIFFS actif via `runSpiffsUpdate_`.** Le bouton historique sert exclusivement de déclencheur de la transaction groupée et n'est accepté qu'en présence d'un SPIFFS ancien valide.
 - Si le firmware de transition échoue à monter un SPIFFS ancien valide, les protections de démarrage existantes continuent de s'appliquer ; un retour arrière ESP-IDF peut intervenir.
-- Le firmware de transition accepte temporairement un SPIFFS historique **cohérent avec lui-même**, même lorsque son numéro de version diffère de celui du firmware de transition. Cette concession est limitée au démarrage transitoire.
+- Le firmware de transition accepte temporairement un SPIFFS historique **montable et possédant ses fichiers Web essentiels**, même lorsque son numéro de version diffère de celui du firmware de transition. Cette concession est limitée au démarrage transitoire.
 - Si le téléchargement, une empreinte ou les métadonnées échouent pendant la finalisation, le couple actuellement exécuté reste actif ; le moteur n'active pas de nouveau slot.
 - La transaction locale et distante exige que le SPIFFS cible soit **une image nouvelle groupée**, avec marqueur, et que les partitions cibles n'empiètent pas sur les partitions actives.
 - Le bouton **SPIFFS** ne peut plus être utilisé après une migration réussie. Un appel direct `/fwupdate/spiffs` est alors rejeté.
