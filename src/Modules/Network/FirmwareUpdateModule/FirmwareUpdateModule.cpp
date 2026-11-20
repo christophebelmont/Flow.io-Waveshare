@@ -1246,8 +1246,14 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
         // Prepare the inactive partition BEFORE starting the HTTP transfer,
         // so a lengthy flash erase cannot starve an open TCP download.
         success = beginLocalImage_(transactionId, target, expectedSize, errOut, errOutLen);
-        if (!success) break;
+        if (!success) {
+            LOGE("[OTA] target preparation failed target=%s reason=%s",
+                 targetStr_(target), errOut ? errOut : "-");
+            break;
+        }
 
+        LOGI("[OTA] beginning HTTP artifact target=%s size=%lu",
+             targetStr_(target), (unsigned long)expectedSize);
         HTTPClient artifactHttp;
         configureDownloadHttp_(artifactHttp);
         if (!artifactHttp.begin(urls[imageIndex])) {
@@ -1263,13 +1269,26 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                 uint8_t chunk[1024]{};
                 size_t received = 0U;
                 uint32_t lastProgressMs = millis();
+                uint32_t lastLogMs = lastProgressMs;
+                size_t lastLoggedBytes = 0U;
                 while (success && received < expectedSize) {
                     const size_t available = stream ? stream->available() : 0U;
                     if (available == 0U) {
+                        const uint32_t idleMs = millis() - lastProgressMs;
                         if (!artifactHttp.connected() ||
-                            millis() - lastProgressMs > Limits::FirmwareUpdate::Http::StreamReadTimeoutMs) {
+                            idleMs > Limits::FirmwareUpdate::Http::StreamReadTimeoutMs) {
+                            LOGE("[OTA] HTTP interrupted target=%s received=%lu/%lu idle_ms=%lu connected=%u",
+                                 targetStr_(target), (unsigned long)received,
+                                 (unsigned long)expectedSize, (unsigned long)idleMs,
+                                 artifactHttp.connected() ? 1U : 0U);
                             success = writeSimpleError_(errOut, errOutLen, "release download interrupted");
                             break;
+                        }
+                        if (millis() - lastLogMs >= 5000U) {
+                            LOGW("[OTA] HTTP waiting target=%s received=%lu/%lu idle_ms=%lu",
+                                 targetStr_(target), (unsigned long)received,
+                                 (unsigned long)expectedSize, (unsigned long)idleMs);
+                            lastLogMs = millis();
                         }
                         vTaskDelay(1);
                         continue;
@@ -1291,6 +1310,15 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                     if (!success) break;
                     received += (size_t)rd;
                     lastProgressMs = millis();
+                    if (received - lastLoggedBytes >= 256U * 1024U ||
+                        received == expectedSize) {
+                        LOGI("[OTA] HTTP progress target=%s received=%lu/%lu stack_free_bytes=%u",
+                             targetStr_(target), (unsigned long)received,
+                             (unsigned long)expectedSize,
+                             (unsigned)uxTaskGetStackHighWaterMark(nullptr));
+                        lastLoggedBytes = received;
+                        lastLogMs = lastProgressMs;
+                    }
                     vTaskDelay(1);
                 }
                 if (success && received != expectedSize) {
@@ -1300,7 +1328,35 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
             artifactHttp.end();
         }
         if (success) {
-            success = endLocalImage_(transactionId, target, errOut, errOutLen);
+            // The transport count and flash transaction count MUST agree
+            // before an image can be finalized. A mismatched stage/counter
+            // reveals unexpected concurrent mutation or an upload boundary
+            // bug instead of producing a misleading SHA/short-image error.
+            size_t flashed = 0U;
+            unsigned stage = 0U;
+            bool transactionMatches = false;
+            {
+                SemaphoreGuard imageGuard(localReleaseMutex_);
+                if (imageGuard.acquired()) {
+                    flashed = localRelease_.received;
+                    stage = (unsigned)localRelease_.stage;
+                    transactionMatches = localTransactionMatches_(transactionId);
+                }
+            }
+            if (!transactionMatches || flashed != expectedSize) {
+                LOGE("[OTA] stream/flash mismatch target=%s flashed=%lu expected=%lu stage=%u transaction=%u",
+                     targetStr_(target), (unsigned long)flashed,
+                     (unsigned long)expectedSize, stage, transactionMatches ? 1U : 0U);
+                success = writeSimpleError_(errOut, errOutLen, "release transport/flash counter mismatch");
+            } else {
+                LOGI("[OTA] transport and flash counters match target=%s bytes=%lu",
+                     targetStr_(target), (unsigned long)flashed);
+                success = endLocalImage_(transactionId, target, errOut, errOutLen);
+                if (!success) {
+                    LOGE("[OTA] image finalization failed target=%s reason=%s",
+                         targetStr_(target), errOut ? errOut : "-");
+                }
+            }
         }
     }
 
