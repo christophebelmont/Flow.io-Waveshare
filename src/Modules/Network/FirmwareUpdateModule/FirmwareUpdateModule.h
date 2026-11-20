@@ -26,7 +26,10 @@ public:
     const char* taskName() const override { return "fwupdate"; }
     BaseType_t taskCore() const override { return 0; }
     uint16_t taskStackSize() const override {
-        return 6144;
+        // Remote paired OTA nests JSON validation and partition preparation
+        // inside the worker. Allow 2 KiB headroom over the historical
+        // firmware-only updater; actual free stack is logged at each stage.
+        return 8192;
     }
     uint8_t taskCount() const override { return 1; }
     uint32_t startDelayMs() const override {
