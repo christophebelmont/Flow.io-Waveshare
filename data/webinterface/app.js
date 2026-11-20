@@ -2706,16 +2706,9 @@
       {
         key: 'flowio',
         title: 'FlowIOS3',
-        subtitle: 'Firmware Waveshare',
+        subtitle: 'Firmware + SPIFFS (OTA A/B)',
         icon: 'layers',
         tone: 'blue'
-      },
-      {
-        key: 'spiffs',
-        title: 'SPIFFS',
-        subtitle: 'Fichiers système',
-        icon: 'memory',
-        tone: 'green'
       },
       {
         key: 'nextion',
