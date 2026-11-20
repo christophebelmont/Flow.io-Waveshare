@@ -10,6 +10,7 @@
 #include <SPIFFS.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
+#include <string.h>
 
 namespace {
 
@@ -17,6 +18,21 @@ fs::SPIFFSFS gRuntimeFilesystem;
 ReleaseSlot gRunningSlot = ReleaseSlot::A;
 bool gReleaseReady = false;
 bool gRuntimeReady = false;
+bool gLegacyFilesystem = false;
+constexpr const char* kPairedMarker = "/ota-paired-v1.marker";
+
+bool validLegacyFilesystem_()
+{
+    File descriptor = SPIFFS.open("/release.json", FILE_READ);
+    StaticJsonDocument<256> doc;
+    if (!descriptor) return false;
+    const bool parsed = deserializeJson(doc, descriptor) == DeserializationError::Ok;
+    descriptor.close();
+    if (!parsed) return false;
+    const char* version = doc["version"] | "";
+    if (!version[0] || strlen(version) >= 32U) return false;
+    return ReleaseStorage::validateReleaseFilesystem(SPIFFS, version, "WaveshareESP32S3");
+}
 
 ReleaseSlot slotFromPartition(const esp_partition_t* partition)
 {
@@ -43,6 +59,7 @@ bool beginReleaseFilesystem()
     const esp_partition_t* running = esp_ota_get_running_partition();
     gRunningSlot = slotFromPartition(running);
     gReleaseReady = SPIFFS.begin(false, "/spiffs", 10, filesystemLabel(gRunningSlot));
+    gLegacyFilesystem = gReleaseReady && !SPIFFS.exists(kPairedMarker) && validLegacyFilesystem_();
     if (!gReleaseReady && runningApplicationIsPending(running)) {
         // setup cannot reach the normal startup-complete confirmation without
         // its release filesystem, so reject the candidate immediately.
@@ -132,6 +149,11 @@ bool validateReleaseFilesystem(fs::FS& filesystem,
     return valid;
 }
 
+bool legacyPairedMigrationNeeded()
+{
+    return gLegacyFilesystem;
+}
+
 bool confirmPendingApplication()
 {
     const esp_partition_t* running = esp_ota_get_running_partition();
@@ -140,7 +162,7 @@ bool confirmPendingApplication()
     esp_ota_img_states_t state = ESP_OTA_IMG_UNDEFINED;
     if (esp_ota_get_state_partition(running, &state) != ESP_OK) return false;
     if (state != ESP_OTA_IMG_PENDING_VERIFY) return true;
-    if (!validateReleaseFilesystem()) {
+    if (!validateReleaseFilesystem() && !gLegacyFilesystem) {
         (void)esp_ota_mark_app_invalid_rollback_and_reboot();
         return false;
     }
