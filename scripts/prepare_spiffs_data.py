@@ -151,5 +151,12 @@ if src_dir.exists():
         encoding="utf-8",
     )
 
+    # A/B OTA migration marker: only images produced by the new paired
+    # release exporter contain this file. A legacy filesystem (without the
+    # marker) is eligible for one automatic transition after a verified boot.
+    (staging_dir / "ota-paired-v1.marker").write_text(
+        "flowio-paired-ota-v1\n", encoding="utf-8"
+    )
+
     env.Replace(PROJECT_DATA_DIR=str(staging_dir), PROJECTDATA_DIR=str(staging_dir))
     print(f"[prepare_spiffs_data] staging {src_dir} -> {staging_dir}")
