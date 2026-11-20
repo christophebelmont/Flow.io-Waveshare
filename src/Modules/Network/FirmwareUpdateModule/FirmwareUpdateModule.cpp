@@ -1163,8 +1163,12 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
         return writeSimpleError_(errOut, errOutLen, "paired release manifest transfer incomplete");
     }
     manifest.get()[manifestLen] = '\0';
+    LOGI("[OTA] manifest received bytes=%u stack_free_bytes=%u internal_ram=%u",
+         (unsigned)manifestLen,
+         (unsigned)uxTaskGetStackHighWaterMark(nullptr),
+         (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
 
-    DynamicJsonDocument doc(1024U);
+    DynamicJsonDocument doc(2048U);
     if (deserializeJson(doc, static_cast<const char*>(manifest.get()), manifestLen) != DeserializationError::Ok ||
         !doc.is<JsonObjectConst>()) {
         return writeSimpleError_(errOut, errOutLen, "paired release manifest invalid JSON");
@@ -1173,6 +1177,8 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
     // exactly the version of the firmware already installed by the first
     // (legacy) click. Do not silently install a different published release.
     const char* releaseVersion = doc["version"] | "";
+    LOGI("[OTA] manifest parsed version=%s stack_free_bytes=%u",
+         releaseVersion, (unsigned)uxTaskGetStackHighWaterMark(nullptr));
     if (job.target == FirmwareUpdateTarget::Spiffs &&
         strcmp(releaseVersion, FirmwareVersion::Core) != 0) {
         return writeSimpleError_(errOut, errOutLen,
@@ -1206,10 +1212,17 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
     // Avoid in-place JSON serialization: ArduinoJson may refer to strings
     // inside the input buffer. Keep the original manifest and let the
     // transaction validate its versioned artifact names for remote OTA only.
+    LOGI("[OTA] preparing paired release stack_free_bytes=%u",
+         (unsigned)uxTaskGetStackHighWaterMark(nullptr));
     uint32_t transactionId = 0U;
     bool success = beginLocalRelease_(manifest.get(), manifestLen, &transactionId,
                                       errOut, errOutLen);
+    if (!success) {
+        LOGE("[OTA] paired release preparation failed: %s", errOut ? errOut : "-");
+    }
     if (success) {
+        LOGI("[OTA] paired release preparation complete stack_free_bytes=%u",
+             (unsigned)uxTaskGetStackHighWaterMark(nullptr));
         LOGI("[OTA] paired release begin id=%lu slot=%s fs=%lu fw=%lu",
              (unsigned long)transactionId,
              ReleaseStorage::inactiveSlot() == ReleaseSlot::A ? "A" : "B",
@@ -1578,9 +1591,16 @@ bool FirmwareUpdateModule::beginLocalRelease_(const char* manifestJson,
     if (!manifestJson || manifestLen == 0U || manifestLen > 1024U) {
         return writeSimpleError_(errOut, errOutLen, "invalid release manifest");
     }
-    StaticJsonDocument<1024> doc;
-    const auto jsonError = deserializeJson(doc, manifestJson, manifestLen);
+    // This is called from the remote OTA worker, which is already several
+    // stack frames deep. Keep the JSON tree on the heap, and NEVER mutate the
+    // manifest buffer that has already been parsed by the caller.
+    DynamicJsonDocument doc(2048U);
+    if (doc.capacity() == 0U) {
+        return writeSimpleError_(errOut, errOutLen, "release manifest json memory unavailable");
+    }
+    const auto jsonError = deserializeJson(doc, static_cast<const char*>(manifestJson), manifestLen);
     if (jsonError || !doc.is<JsonObjectConst>()) {
+        LOGE("[OTA] paired release second parse failed: %s", jsonError.c_str());
         return writeSimpleError_(errOut, errOutLen, "invalid release manifest json");
     }
     const uint32_t format = doc["format"] | 0U;
