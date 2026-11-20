@@ -23,15 +23,15 @@ constexpr const char* kPairedMarker = "/ota-paired-v1.marker";
 
 bool validLegacyFilesystem_()
 {
-    File descriptor = SPIFFS.open("/release.json", FILE_READ);
-    StaticJsonDocument<256> doc;
-    if (!descriptor) return false;
-    const bool parsed = deserializeJson(doc, descriptor) == DeserializationError::Ok;
-    descriptor.close();
-    if (!parsed) return false;
-    const char* version = doc["version"] | "";
-    if (!version[0] || strlen(version) >= 32U) return false;
-    return ReleaseStorage::validateReleaseFilesystem(SPIFFS, version, "WaveshareESP32S3");
+    // Pre-migration releases CANNOT be required to carry the new paired OTA
+    // marker or the new /release.json descriptor.  Verify only that this is
+    // a mounted, usable historical Web UI; the freshly downloaded candidate
+    // is validated strictly (version, hardware, SHA-256, paired marker).
+    const bool hasIndex = SPIFFS.exists("/webinterface/index.html") ||
+                          SPIFFS.exists("/webinterface/index.html.gz");
+    const bool hasApp = SPIFFS.exists("/webinterface/app.js") ||
+                        SPIFFS.exists("/webinterface/app.js.gz");
+    return hasIndex && hasApp;
 }
 
 ReleaseSlot slotFromPartition(const esp_partition_t* partition)
@@ -59,6 +59,8 @@ bool beginReleaseFilesystem()
     const esp_partition_t* running = esp_ota_get_running_partition();
     gRunningSlot = slotFromPartition(running);
     gReleaseReady = SPIFFS.begin(false, "/spiffs", 10, filesystemLabel(gRunningSlot));
+    // Absence of the new marker is expected after the first firmware-only
+    // upgrade: the historical updater cloned its existing SPIFFS to this slot.
     gLegacyFilesystem = gReleaseReady && !SPIFFS.exists(kPairedMarker) && validLegacyFilesystem_();
     if (!gReleaseReady && runningApplicationIsPending(running)) {
         // setup cannot reach the normal startup-complete confirmation without
