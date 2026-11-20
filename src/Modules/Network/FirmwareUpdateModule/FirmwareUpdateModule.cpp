@@ -1169,6 +1169,15 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
         !doc.is<JsonObjectConst>()) {
         return writeSimpleError_(errOut, errOutLen, "paired release manifest invalid JSON");
     }
+    // In the transitional SPIFFS-button path the remote release must be
+    // exactly the version of the firmware already installed by the first
+    // (legacy) click. Do not silently install a different published release.
+    const char* releaseVersion = doc["version"] | "";
+    if (job.target == FirmwareUpdateTarget::Spiffs &&
+        strcmp(releaseVersion, FirmwareVersion::Core) != 0) {
+        return writeSimpleError_(errOut, errOutLen,
+                                 "paired release version does not match transition firmware");
+    }
     const char* fsFile = doc["filesystem"]["file"] | "";
     const char* fwFile = doc["firmware"]["file"] | "";
     const uint32_t fsSize = doc["filesystem"]["size"] | 0U;
