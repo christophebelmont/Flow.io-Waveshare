@@ -3517,7 +3517,11 @@
       const phase = String(session && session.phase ? session.phase : 'idle');
       if (phase === 'target') return tr('updates.title.target', 'Préparation de la mise à jour');
       if (phase === 'download') return tr('updates.title.download', 'Téléchargement de la mise à jour');
-      if (phase === 'flash') return tr('updates.title.flash', 'Mise à jour du firmware');
+      if (phase === 'flash') {
+        const paired = ['flowios3', 'waveshare', 'esp32s3'].includes(String(session && session.target || '').toLowerCase());
+        return paired ? 'Mise à jour du firmware et du SPIFFS'
+          : tr('updates.title.flash', 'Mise à jour du firmware');
+      }
       if (phase === 'reboot') return tr('updates.title.reboot', 'Redémarrage de l’appareil');
       if (phase === 'reconnect') return tr('updates.title.reconnect', 'Reconnexion de l’appareil');
       if (phase === 'done') return tr('updates.title.done', 'Mise à jour terminée');
@@ -4133,7 +4137,6 @@
       if (!key) return false;
       if (isWaveshareProfile()) {
         return key === 'flowios3' || key === 'esp32s3' || key === 'waveshare'
-          || key === 'spiffs' || key === 'flowios3-spiffs' || key === 'esp32s3-spiffs' || key === 'waveshare-spiffs'
           || key === 'nextion';
       }
       if (isFlowIOProfile()) {
@@ -4492,7 +4495,9 @@
       icon.setAttribute('aria-hidden', 'true');
       icon.textContent = 'system_update_alt';
       const label = document.createElement('span');
-      label.textContent = tr('updates.updateButton', 'Mettre à jour');
+      label.textContent = row && row.key === 'flowio'
+        ? 'Mettre à jour Flow.io (Firmware + SPIFFS)'
+        : tr('updates.updateButton', 'Mettre à jour');
       button.appendChild(icon);
       button.appendChild(label);
       const isNextion = row && row.key === 'nextion';
@@ -4509,7 +4514,13 @@
           return checkFirmwareUpdates();
         }
         if (!confirmUpgradeLaunch(selectedEntry)) return;
-        return startUpgrade(selectedEntry.target, selectedEntry.url, selectedEntry.endpoint);
+        // A firmware-only URL is not safe: resolve the paired A/B manifest
+        // of the selected version. The build exporter publishes this layout.
+        const pairedUrl = row && row.key === 'flowio'
+          ? new URL('flowio-release-' + encodeURIComponent(selectedEntry.version) + '.json',
+                    selectedEntry.url).href
+          : selectedEntry.url;
+        return startUpgrade(selectedEntry.target, pairedUrl, selectedEntry.endpoint);
       });
       control.appendChild(button);
       return control;
