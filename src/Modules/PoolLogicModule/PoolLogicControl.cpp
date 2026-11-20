@@ -671,6 +671,8 @@ PoolLogicModule::DeviceControlInfo PoolLogicModule::readDeviceControlInfo_(uint8
         poolSvc_->meta(poolSvc_->ctx, deviceSlot, &metadata) != POOLDEV_SVC_OK) return info;
     info.available = true;
     info.guidedOn = metadata.guidedOn;
+    info.sharedRs485 = metadata.serialHasReadback;
+    info.serialStartupPending = metadata.serialStartupPending;
     info.forced = metadata.control.mode != ActuatorControlMode::Guided;
     info.enabled = metadata.enabled != 0;
     info.unit = metadata.capabilities.unit;
@@ -938,12 +940,28 @@ void PoolLogicModule::applyDeviceControl_(uint8_t deviceSlot,
     // When the actual state does not follow the requested state, retry at a
     // bounded cadence instead of spamming the downstream pool-device service.
     const auto info = readDeviceControlInfo_(deviceSlot);
-    const bool guidedMismatch = info.available && info.guidedOn != desired;
+    // After its boot command is confirmed, a shared RS485 device owns its
+    // readback: do not repair the difference after a physical-panel command.
+    // During boot only, a still-unconfirmed initial request is retried when
+    // safe (e.g. after filtration has made the heater dependency available).
     const bool forced = info.available && info.forced;
-    const bool needRetry = !forced && fsm.known && fsm.on != desired && (uint32_t)(nowMs - fsm.lastCmdMs) >= 5000U;
+    const bool guidedMismatch = !info.sharedRs485 &&
+        info.available && info.guidedOn != desired;
+    const bool retryDue = (uint32_t)(nowMs - fsm.lastCmdMs) >= 5000U;
+    const bool startupRetry = info.sharedRs485 && info.serialStartupPending &&
+        !forced && (!fsm.known || fsm.on != desired) && retryDue;
+    const bool rejectedRetry = info.sharedRs485 &&
+        fsm.rejectedSubmissionPending && retryDue && (!forced || !desired);
+    const bool safetyRetry = info.sharedRs485 && info.blockReason != 0 &&
+        !desired && fsm.known && fsm.on && retryDue;
+    const bool normalRetry = !info.sharedRs485 && !forced &&
+        fsm.known && fsm.on != desired && retryDue;
 
-    if (desiredChanged || guidedMismatch || needRetry) {
-        if (writeDeviceDesired_(deviceSlot, desired)) {
+    if (desiredChanged || guidedMismatch || startupRetry ||
+        rejectedRetry || safetyRetry || normalRetry) {
+        const bool accepted = writeDeviceDesired_(deviceSlot, desired);
+        fsm.rejectedSubmissionPending = info.sharedRs485 && !accepted;
+        if (accepted) {
             LOGI("%s %s", desired ? "Start" : "Stop", label ? label : "Pool Device");
             if (desiredChanged) {
                 emitDeviceActivity_(true, desired, deviceSlot, label, ActivityReason::Auto);

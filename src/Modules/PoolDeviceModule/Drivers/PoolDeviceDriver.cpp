@@ -171,6 +171,9 @@ bool SerialDeviceDriver::begin(const PoolDriverConfig& config, const IOServiceV2
     lastCommunicationAtMs_ = state_.changedAtMs;
     communicationResponseSeen_ = false;
     communicationMonitoringStarted_ = false;
+    aquaGemFirstRead_ = false;
+    aquaGemWriteReadyAtMs_ = 0;
+    commandConfirmed_ = false;
     return true;
 }
 
@@ -341,6 +344,7 @@ void SerialDeviceDriver::applyTarget(const PoolDeviceTarget& t, uint32_t revisio
     reconnectRead_ = t.running && state_.communicationDegraded && config_.serial.hasFeedback
         ? firstRead_() : Operation::None;
     runVerified_ = false;
+    commandConfirmed_ = false;
     stopRepeats_ = 0;
     stopRetryAt_ = 0;
     deliveryExpired_ = false;
@@ -421,7 +425,6 @@ void SerialDeviceDriver::commandAcknowledged_(uint32_t now)
     applied_(sentTarget_, sentRevision_, now);
     nextPollAt_ = now;
     runVerified_ = !config_.serial.hasFeedback;
-    if (config_.serial.startupFeedbackDelayMs) setpointRepairAt_ = now + SetpointRepairIntervalMs;
     if (!sentTarget_.running && config_.serial.hasFeedback) {
         stopRetryAt_ = now + (1000U << stopRepeats_);
     }
@@ -465,8 +468,14 @@ bool SerialDeviceDriver::observedTargetReached_() const
     if (!state_.applied.running && serial.control == PoolSerialControl::SetpointOrStop) return true;
     // Compare with the normalized wire target, within the feedback register's
     // resolution. An acknowledgement or an old startup RPM is not convergence.
-    return std::fabs(double(state_.observed.setpoint) - state_.applied.setpoint) <=
-        double(serial.feedbackUnitsPerRaw) * 0.5;
+    // AquaGem reports the physical RPM, not a separate register containing
+    // the requested speed. Small deviations (e.g. 1650 measured for a 1670
+    // request) must not create a false command timeout after an acknowledged
+    // write. Keep exact wire-resolution matching for other devices.
+    const double tolerance = serial.model == PoolSerialModel::AquaGem
+        ? double(AquaGemFeedbackToleranceRpm)
+        : double(serial.feedbackUnitsPerRaw) * 0.5;
+    return std::fabs(double(state_.observed.setpoint) - state_.applied.setpoint) <= tolerance;
 }
 
 void SerialDeviceDriver::reconcileWrite_(uint32_t now)
@@ -504,17 +513,10 @@ void SerialDeviceDriver::reconcileWrite_(uint32_t now)
 
 void SerialDeviceDriver::finishReconnectRead_(bool moreReads, uint32_t now)
 {
+    (void)now;
+    // Reconnecting never authorizes replay of a stale Flow.io target. The
+    // physical state will be adopted by PoolDevice after a complete readback.
     reconnectRead_ = moreReads ? Operation::Feedback : Operation::None;
-    if (!moreReads && state_.appliedValid && state_.appliedRevision == revision_) {
-        const bool runningMatches = state_.observed.running == target_.running && modeMatches_(lastStatusWord_, target_);
-        const bool setpointMatches = config_.serial.control == PoolSerialControl::SetpointOrStop ||
-            std::fabs(state_.observed.setpoint - state_.applied.setpoint) <= config_.serial.feedbackUnitsPerRaw * 0.5f;
-        if (!runningMatches || !setpointMatches) {
-            // The device lost its settings during the outage. Give PoolDevice
-            // a full control tick to re-evaluate interlocks before any write.
-            requestReconciliation_(now);
-        }
-    }
 }
 
 void SerialDeviceDriver::observeRunning_(uint32_t now)
@@ -528,41 +530,6 @@ void SerialDeviceDriver::observeRunning_(uint32_t now)
 bool SerialDeviceDriver::startupFeedbackPending_(uint32_t now) const
 {
     return runningObserved_ && uint32_t(now - runningSinceMs_) < config_.serial.startupFeedbackDelayMs;
-}
-
-void SerialDeviceDriver::requestReconciliation_(uint32_t now)
-{
-    state_.appliedValid = false;
-    state_.phase = PoolCommandPhase::Confirming;
-    stopAcknowledged_ = false;
-    runVerified_ = false;
-    speedRevision_ = 0;
-    limitValid_ = false;
-    confirmation_ = Operation::None;
-    deliveryAt_ = now;
-    // Return control to PoolDevice so interlocks can supersede this request.
-    retryAt_ = now + 1;
-}
-
-void SerialDeviceDriver::reconcileObservation_(uint32_t now)
-{
-    if (!state_.appliedValid || state_.appliedRevision != revision_ || deliveryExpired_) return;
-    // Once ON was confirmed, an observed stop is a new physical restart.
-    // A start that never takes effect remains subject to the delivery budget.
-    if (target_.running && runVerified_ && !state_.observed.running) {
-        requestReconciliation_(now);
-        return;
-    }
-    const auto& serial = config_.serial;
-    const bool repairTemperature = serial.model == PoolSerialModel::Polytropic;
-    const bool repairSpeed = serial.startupFeedbackDelayMs && target_.running &&
-        state_.observed.running && !startupFeedbackPending_(now);
-    if (operation_ == Operation::Feedback && (repairTemperature || repairSpeed) &&
-        std::fabs(state_.observed.setpoint - state_.applied.setpoint) > serial.feedbackUnitsPerRaw * 0.5f &&
-        due(now, setpointRepairAt_)) {
-        requestReconciliation_(now);
-        setpointRepairAt_ = now + SetpointRepairIntervalMs;
-    }
 }
 
 void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
@@ -642,6 +609,19 @@ void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
         case Operation::Status:
             lastStatusWord_ = r.values[0];
             state_.observed.running = (r.values[0] & config_.serial.runningMask) != 0;
+            if (config_.serial.model == PoolSerialModel::Polytropic) {
+                // A stopped PAC reports no meaningful mode bits; retain the
+                // last configured mode instead of silently selecting index 0.
+                state_.observed.mode = target_.mode;
+                const uint16_t modeBits = uint16_t(lastStatusWord_ & 0x0FU);
+                for (uint8_t mode = 0; mode < config_.serial.modes.count; ++mode) {
+                    if (state_.observed.running &&
+                        (config_.serial.modes.options[mode].value & 0x0FU) == modeBits) {
+                        state_.observed.mode = mode;
+                        break;
+                    }
+                }
+            }
             statusAt_ = now; statusValid_ = true; break;
         case Operation::Feedback: {
             const auto& c = config_.serial;
@@ -652,6 +632,16 @@ void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
                 if (!r.aquaGem.valid) { statusValid_ = levelValid_ = false; failed_(MODBUS_RESULT_PROTOCOL_ERROR, now); return; }
                 state_.observed.running = (r.aquaGem.status & 1) != 0;
                 state_.deviceFaults = r.aquaGem.faults;
+                // First successful read is the conservative earliest known
+                // power-on time. Re-arm after a confirmed communication loss.
+                if (c.model == PoolSerialModel::AquaGem &&
+                    (!aquaGemFirstRead_ || state_.communicationLost)) {
+                    aquaGemFirstRead_ = true;
+                    aquaGemWriteReadyAtMs_ = now + AquaGemPowerOnDelayMs;
+                    LOGI("AquaGem power-on guard active: first_read_ms=%lu writes_after_ms=%lu",
+                         (unsigned long)now, (unsigned long)aquaGemWriteReadyAtMs_);
+                    state_.communicationLost = false;
+                }
                 statusAt_ = now; statusValid_ = true;
             } else if (c.runningSource == PoolRunningSource::FeedbackThreshold) {
                 state_.observed.running = state_.observed.setpoint > c.runningThreshold;
@@ -681,7 +671,6 @@ void SerialDeviceDriver::consume_(const ModbusResponse& r, uint32_t now)
             nextPollAt_ = now + config_.serial.pollMs;
         }
     }
-    if (operation_ == Operation::Status || operation_ == Operation::Feedback) reconcileObservation_(now);
     state_.changedAtMs = now;
 }
 void SerialDeviceDriver::tick(uint32_t now, bool enabled)
@@ -690,12 +679,18 @@ void SerialDeviceDriver::tick(uint32_t now, bool enabled)
         communicationMonitoringStarted_ = true;
         lastCommunicationAtMs_ = now;
     }
-    if (enabled && !deliveryStarted_) {
+    // Do not start the delivery budget while AquaGem cannot accept commands.
+    const bool aquaGemWaiting = config_.serial.model == PoolSerialModel::AquaGem &&
+        (!aquaGemFirstRead_ || !due(now, aquaGemWriteReadyAtMs_));
+    if (enabled && !deliveryStarted_ && !aquaGemWaiting) {
         deliveryStarted_ = true;
         deliveryAt_ = now;
     }
-    if (enabled && target_.running && !runVerified_ &&
-        now - deliveryAt_ >= DeliveryBudgetMs && !deliveryExpired_) {
+    // The delivery clock starts only when the device is permitted to accept
+    // a write. In particular, AquaGem's 60-second power-on hold must never
+    // consume the ordinary 15-second command timeout before any RS485 write.
+    if (enabled && deliveryStarted_ && target_.running && !runVerified_ &&
+        uint32_t(now - deliveryAt_) >= DeliveryBudgetMs && !deliveryExpired_) {
         if (transaction_ != MODBUS_TRANSACTION_INVALID) bus_->cancelOwner(bus_->ctx, owner_);
         transaction_ = MODBUS_TRANSACTION_INVALID;
         operation_ = confirmation_ = uncertainWrite_ = reconnectRead_ = Operation::None;
@@ -760,12 +755,21 @@ void SerialDeviceDriver::tick(uint32_t now, bool enabled)
     if (!config_.serial.hasFeedback && uint32_t(now - state_.observedAtMs) >= config_.serial.staleMs) {
         state_.observedValid = false; state_.quality = PoolFeedbackQuality::Stale;
     }
+    if (enabled && deliveryStarted_ && !commandConfirmed_ &&
+        state_.appliedValid && state_.appliedRevision == revision_ &&
+        (uint32_t)(now - deliveryAt_) >=
+            (config_.serial.model == PoolSerialModel::AquaGem
+                ? AquaGemPowerOnDelayMs + DeliveryBudgetMs : DeliveryBudgetMs))
+        deliveryExpired_ = true;
     if (deliveryExpired_) state_.phase = PoolCommandPhase::Expired;
     else if (uncertainWrite_ != Operation::None) state_.phase = PoolCommandPhase::VerifyingWrite;
     else if (state_.appliedValid && state_.appliedRevision == revision_) {
-        state_.phase = !config_.serial.hasFeedback ||
-            (confirmation_ == Operation::None && observedTargetReached_())
-            ? PoolCommandPhase::Applied : PoolCommandPhase::Confirming;
+        // A confirmed command stays confirmed. Later changes originate from
+        // the RS485 equipment/display and must not be "repaired" by this driver.
+        if (!config_.serial.hasFeedback ||
+            (confirmation_ == Operation::None && observedTargetReached_()))
+            commandConfirmed_ = true;
+        state_.phase = commandConfirmed_ ? PoolCommandPhase::Applied : PoolCommandPhase::Confirming;
     }
     for (uint8_t i = 0; i < POOL_TELEMETRY_BLOCKS; ++i) {
         auto& t = state_.telemetry;
@@ -775,7 +779,15 @@ void SerialDeviceDriver::tick(uint32_t now, bool enabled)
     }
     if (!writable_(enabled) || transaction_ != MODBUS_TRANSACTION_INVALID || !due(now, retryAt_) || !due(now, nextRequestAt_)) return;
     retryAt_ = 0;
-    if (!target_.running && state_.appliedValid && state_.appliedRevision == revision_ &&
+    if (aquaGemWaiting) {
+        // Read feedback during the 60-second hold. Any Flow.io target stays
+        // pending; never send a premature AquaGem write (including OFF).
+        if (due(now, nextPollAt_) && submit_(Operation::Feedback, now))
+            nextPollAt_ = now + config_.serial.pollMs;
+        return;
+    }
+    if (!target_.running && !commandConfirmed_ &&
+        state_.appliedValid && state_.appliedRevision == revision_ &&
         state_.observedValid && state_.observed.running && confirmation_ == Operation::None &&
         due(now, stopRetryAt_)) {
         // OFF remains pending until physically confirmed. Reissue paced stops

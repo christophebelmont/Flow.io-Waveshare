@@ -24,8 +24,17 @@ bool ModbusRtuCodec::validRequest(const ModbusRequest& r)
     if (r.protocol == RegisterWireProtocol::ModbusRtu) {
         if (r.responseLayout != RegisterResponseLayout::Standard) return false;
         if (r.function != 0x03 && r.function != 0x04 && r.function != 0x06 && r.function != 0x10) return false;
+        // Standard Modbus RTU uses a one-byte byte-count field. The legal
+        // maxima differ: 125 registers for reads, 123 for FC16 writes.
+        if ((operation(r) == RegisterOperation::Read &&
+             r.registerCount > MODBUS_MAX_READ_REGISTERS) ||
+            (operation(r) == RegisterOperation::WriteMultiple &&
+             r.registerCount > MODBUS_MAX_WRITE_REGISTERS)) return false;
     } else if (r.protocol == RegisterWireProtocol::VendorRegisterRtu) {
-        if (!r.function || uint8_t(r.operation) > uint8_t(RegisterOperation::WriteMultiple)) return false;
+        // Preserve the vendor dialect's previous size bound. The response
+        // may contain an additional register address beyond standard RTU.
+        if (r.registerCount > 32U ||
+            !r.function || uint8_t(r.operation) > uint8_t(RegisterOperation::WriteMultiple)) return false;
     } else return false;
     if (r.responseLayout == RegisterResponseLayout::AddressByteCount &&
         operation(r) == RegisterOperation::WriteMultiple) return false;

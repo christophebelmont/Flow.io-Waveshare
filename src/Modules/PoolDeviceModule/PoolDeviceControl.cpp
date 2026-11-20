@@ -58,20 +58,10 @@ uint8_t PoolDeviceModule::activeCount_() const
     return count;
 }
 
-PoolDeviceSvcStatus PoolDeviceModule::svcMetaImpl_(uint8_t slot, PoolDeviceSvcMeta* outMeta) const
+void PoolDeviceModule::fillMetaLocked_(uint8_t slot, PoolDeviceSvcMeta* outMeta) const
 {
-    if (!outMeta) return POOLDEV_SVC_ERR_INVALID_ARG;
-    if (!lockState_()) return POOLDEV_SVC_ERR_NOT_READY;
-    if (slot >= POOL_DEVICE_MAX) {
-        unlockState_();
-        return POOLDEV_SVC_ERR_UNKNOWN_SLOT;
-    }
+    // Caller holds stateMutex_. This helper never waits or allocates.
     const PoolDeviceSlot& s = slots_[slot];
-    if (!s.used) {
-        unlockState_();
-        return POOLDEV_SVC_ERR_UNKNOWN_SLOT;
-    }
-
     *outMeta = PoolDeviceSvcMeta{};
     outMeta->slot = slot;
     outMeta->used = 1;
@@ -82,6 +72,10 @@ PoolDeviceSvcStatus PoolDeviceModule::svcMetaImpl_(uint8_t slot, PoolDeviceSvcMe
     outMeta->ioId = s.ioId;
     outMeta->capabilities = s.driverConfig.capabilities;
     outMeta->driverReady = s.driverReady;
+    outMeta->serialHasReadback = s.driverConfig.capabilities.kind == PoolControlKind::Rs485 &&
+        s.driverConfig.serial.hasFeedback;
+    outMeta->serialStartupPending =
+        outMeta->serialHasReadback && !s.rs485BootCommandConfirmed;
     outMeta->guidedOn = s.desiredOn;
     outMeta->guidedTarget = s.desired;
     outMeta->runModes = s.driverConfig.serial.modes;
@@ -96,6 +90,17 @@ PoolDeviceSvcStatus PoolDeviceModule::svcMetaImpl_(uint8_t slot, PoolDeviceSvcMe
     outMeta->runtimeId[sizeof(outMeta->runtimeId) - 1] = '\0';
     strncpy(outMeta->label, s.def.label, sizeof(outMeta->label) - 1);
     outMeta->label[sizeof(outMeta->label) - 1] = '\0';
+}
+
+PoolDeviceSvcStatus PoolDeviceModule::svcMetaImpl_(uint8_t slot, PoolDeviceSvcMeta* outMeta) const
+{
+    if (!outMeta) return POOLDEV_SVC_ERR_INVALID_ARG;
+    if (!lockState_()) return POOLDEV_SVC_ERR_NOT_READY;
+    if (slot >= POOL_DEVICE_MAX || !slots_[slot].used) {
+        unlockState_();
+        return POOLDEV_SVC_ERR_UNKNOWN_SLOT;
+    }
+    fillMetaLocked_(slot, outMeta);
     unlockState_();
     return POOLDEV_SVC_OK;
 }
@@ -142,6 +147,87 @@ void PoolDeviceModule::syncConfigurationSetpoint_(uint8_t slot)
     auto target = s.desired;
     if (configurationSetpoint_(slot, target.setpoint) && validatePoolTarget(s.driverConfig, target))
         s.desired = target;
+}
+
+
+void PoolDeviceModule::adoptSerialFeedback_(uint8_t slot, uint32_t nowMs)
+{
+    auto& s = slots_[slot];
+    if (s.driverConfig.capabilities.kind != PoolControlKind::Rs485 ||
+        !s.driverConfig.serial.hasFeedback || !s.feedback.observedValid ||
+        !s.feedback.hasObservation || !s.revision ||
+        !s.rs485BootCommandConfirmed ||
+        (s.feedback.phase != PoolCommandPhase::Expired &&
+         (s.feedback.phase != PoolCommandPhase::Applied ||
+          s.feedback.appliedRevision != s.revision)) ||
+        s.bootResumePending || s.blockReason != POOL_DEVICE_BLOCK_NONE ||
+        poolFeedbackInhibitsRun(s.driverConfig.capabilities.kind, s.feedback)) return;
+
+    // Require a genuinely new complete observation; control ticks do not
+    // count as physical changes. No stale reading may roll back a new request.
+    const uint32_t stamp = s.feedback.observedAtMs;
+    if (stamp == s.rs485LastObservationMs) return;
+    s.rs485LastObservationMs = stamp;
+
+    PoolDeviceTarget adopted = s.desired;
+    adopted.running = s.feedback.observed.running;
+    const auto model = s.driverConfig.serial.model;
+    if (model == PoolSerialModel::Polytropic) {
+        adopted.setpoint = s.feedback.observed.setpoint;
+        adopted.mode = s.feedback.observed.mode;
+    } else if (model == PoolSerialModel::AquaGem) {
+        // AquaGem returns MEASURED RPM, not a distinct target register.
+        // Infer a locally changed target only after sustained stable running
+        // feedback. Do not copy transient startup/ramping RPM to NVS.
+        if (!adopted.running || !isfinite(s.feedback.observed.setpoint) ||
+            s.feedback.observed.setpoint < s.driverConfig.capabilities.minimum ||
+            s.feedback.observed.setpoint > s.driverConfig.capabilities.maximum) {
+            s.aquaStableValid = false;
+        } else {
+            const float rpm = roundf(s.feedback.observed.setpoint / 50.0f) * 50.0f;
+            if (!s.aquaStableValid || fabsf(rpm - s.aquaStableRpm) > 25.0f) {
+                s.aquaStableRpm = rpm;
+                s.aquaStableSinceMs = nowMs;
+                s.aquaStableValid = true;
+            } else if (uint32_t(nowMs - s.aquaStableSinceMs) >= 15000U &&
+                       fabsf(rpm - adopted.setpoint) >= 75.0f) {
+                adopted.setpoint = rpm;
+            }
+        }
+    } else {
+        // Custom RS485 feedback may represent an actual measurement rather
+        // than its target: adopt running state, not arbitrary setpoint units.
+    }
+
+    if (!validatePoolTarget(s.driverConfig, adopted) ||
+        !dependenciesSatisfied_(slot, s.effective.running)) return;
+    const bool runningChanged = adopted.running != s.desired.running;
+    const bool setpointChanged = fabsf(adopted.setpoint - s.desired.setpoint) >
+        s.driverConfig.serial.feedbackUnitsPerRaw * 0.5f;
+    const bool modeChanged = adopted.mode != s.desired.mode;
+    if (!runningChanged && !setpointChanged && !modeChanged) return;
+
+    if (setpointChanged) {
+        float configured = 0.0f;
+        if (configurationSetpoint_(slot, configured) &&
+            fabsf(configured - adopted.setpoint) > 0.0001f) {
+            const bool persisted = s.driverConfig.capabilities.unit == PoolSetpointUnit::Rpm
+                ? cfgStore_ && cfgStore_->set(cfgRequestedRpmVar_[slot], adopted.setpoint)
+                : poolConfigurationSvc_ && poolConfigurationSvc_->setDeviceSetpoint &&
+                  poolConfigurationSvc_->setDeviceSetpoint(poolConfigurationSvc_->ctx, slot, adopted.setpoint);
+            if (!persisted) {
+                LOGW("RS485 adoption slot=%u could not persist external setpoint", (unsigned)slot);
+                return;
+            }
+        }
+    }
+    s.desired = adopted;
+    s.desiredOn = adopted.running;
+    // This is a readback adoption, not a new local command revision.
+    s.effective = adopted;
+    LOGI("RS485 external control adopted slot=%u model=%u run=%u setpoint=%.2f mode=%u",
+         (unsigned)slot, (unsigned)model, adopted.running ? 1U : 0U,
+         (double)adopted.setpoint, (unsigned)adopted.mode);
 }
 
 PoolDeviceSvcStatus PoolDeviceModule::svcSetRunningImpl_(uint8_t slot, uint8_t on)
@@ -737,6 +823,19 @@ void PoolDeviceModule::tickDevices_(uint32_t nowMs, bool allowPersist)
             }
             s.driver.get().tick(nowMs, writesEnabled_);
             s.feedback = s.driver.get().readState();
+            if (serial && !s.rs485BootCommandConfirmed &&
+                s.driverConfig.serial.hasFeedback && s.feedback.observedValid &&
+                s.feedback.phase == PoolCommandPhase::Applied &&
+                s.feedback.appliedRevision == s.revision &&
+                s.effective.running == s.desired.running &&
+                s.effective.setpoint == s.desired.setpoint &&
+                s.effective.mode == s.desired.mode) {
+                s.rs485BootCommandConfirmed = true;
+                LOGI("RS485 startup command confirmed slot=%u revision=%lu run=%u",
+                     (unsigned)i, (unsigned long)s.revision,
+                     s.desired.running ? 1U : 0U);
+            }
+            adoptSerialFeedback_(i, nowMs);
             if (s.feedback.error && !s.feedback.communicationDegraded && s.blockReason == POOL_DEVICE_BLOCK_NONE) s.blockReason = POOL_DEVICE_BLOCK_IO_ERROR;
         }
         if (dataStore_) SerialEquipmentValues::publish(dataStore_->values, i, s.driverConfig,

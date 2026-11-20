@@ -23,7 +23,11 @@ class RequestedPumpSpeedTests(unittest.TestCase):
         control = (ROOT / 'src/Modules/PoolDeviceModule/PoolDeviceControl.cpp').read_text()
         start = control.index('bool PoolDeviceModule::configurationSetpoint_')
         end = control.index('PoolDeviceSvcStatus PoolDeviceModule::svcReadStateImpl_', start)
-        source += '\n' + control[start:end]
+        adoption = control.index('void PoolDeviceModule::adoptSerialFeedback_', start)
+        after_adoption = control.index('PoolDeviceSvcStatus PoolDeviceModule::svcSetRunningImpl_', adoption)
+        # This harness intentionally fakes hardware feedback; extract only
+        # the production configuration / command helpers under test.
+        source += '\n' + control[start:adoption] + '\n' + control[after_adoption:end]
         source += (ROOT / 'test/host/requested_pump_speed_scenarios.cpp').read_text()
         with tempfile.TemporaryDirectory(prefix='flow-requested-speed-') as directory:
             main = Path(directory) / 'main.cpp'

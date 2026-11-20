@@ -107,7 +107,9 @@ inline constexpr MqttBufferSpec kWaveshareESP32S3MqttBuffers{
  *   Home Assistant naming/identity options are handled by separate persistent
  *   module config, not by this capacity block.
  */
-inline constexpr HaCapacitySpec kWaveshareESP32S3HaCapacity{160, 32, 16, 40, 38, 14};
+// Reserve HA select/number capacity for the 21 editable Modbus TCP settings.
+// HA entity tables are allocated on demand from PSRAM (no persistent stack use).
+inline constexpr HaCapacitySpec kWaveshareESP32S3HaCapacity{160, 32, 16, 48, 38, 32};
 
 /*
  * UART definitions.

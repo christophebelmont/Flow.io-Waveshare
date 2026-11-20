@@ -163,6 +163,9 @@ public:
     bool lockState_() const { return true; }
     void unlockState_() const {}
     void syncConfigurationSetpoint_(uint8_t) {}
+    // Runtime readback ownership is exercised by the dedicated serial
+    // scenarios, not the boot-policy harness.
+    void adoptSerialFeedback_(uint8_t, uint32_t) {}
     void resetDailyCounters_() {}
     void resetWeeklyCounters_() {}
     void resetMonthlyCounters_() {}

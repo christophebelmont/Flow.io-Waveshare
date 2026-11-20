@@ -7,6 +7,7 @@
 #include "Core/Values/ValueFormat.h"
 #include "WebInterfaceModule.h"
 #include "WebMemoryDiagnostics.h"
+#include "WebModbusRoutes.h"
 #include "RuntimeActionArguments.h"
 
 #include "Board/BoardSpec.h"
@@ -211,7 +212,8 @@ static bool requiresAdmin_(AsyncWebServerRequest* request, const char* url)
 {
     if (!request || request->method() != HTTP_POST || !url) return false;
     // System update and destructive system actions are reserved to admins.
-    return pathStartsWith_(url, "/api/fwupdate/") ||
+    return pathStartsWith_(url, "/api/modbus/") ||
+           pathStartsWith_(url, "/api/fwupdate/") ||
            pathStartsWith_(url, "/api/upgrade/") ||
            pathStartsWith_(url, "/api/system/") ||
            pathStartsWith_(url, "/api/flow/system/") ||
@@ -1558,6 +1560,7 @@ const char* webAssetVersion_()
     hash = webAssetFingerprintFile_(hash, "/webinterface/app-core.css.gz");
     hash = webAssetFingerprintFile_(hash, "/webinterface/sh.html.gz");
     hash = webAssetFingerprintFile_(hash, "/webinterface/app.js.gz");
+    hash = webAssetFingerprintFile_(hash, "/webinterface/modbus.js.gz");
     hash = webAssetFingerprintFile_(hash, "/wc/i.j.gz");
     snprintf(version, sizeof(version), "%s-%08lx", FirmwareVersion::BuildRef, (unsigned long)hash);
     return version;
@@ -5704,6 +5707,23 @@ void WebInterfaceModule::startServer_()
         }
         sendPreparedAssetResponse(request, response, &forensicMeta);
     });
+    server_.on("/webinterface/modbus.js", HTTP_GET, [this, beginSpiffsAssetResponse, sendPreparedAssetResponse](AsyncWebServerRequest* request) {
+        SpiffsAssetForensicMeta forensicMeta{};
+        bool heapRejected = false;
+        bool buildBusy = false;
+        AsyncWebServerResponse* response =
+            beginSpiffsAssetResponse(request, "/webinterface/modbus.js", "application/javascript", true, nullptr,
+                                    &forensicMeta, &heapRejected, &buildBusy);
+        if (!response) {
+            if (heapRejected || buildBusy) {
+                sendTinyBusyJson_(request, heapRejected ? "low_memory" : "asset_build_busy");
+                return;
+            }
+            request->send(404, "text/plain", "Not found");
+            return;
+        }
+        sendPreparedAssetResponse(request, response, &forensicMeta);
+    });
     server_.on("/webinterface/app.js", HTTP_GET, [this, beginSpiffsAssetResponse, sendPreparedAssetResponse](AsyncWebServerRequest* request) {
         SpiffsAssetForensicMeta forensicMeta{};
         bool heapRejected = false;
@@ -8331,6 +8351,11 @@ void WebInterfaceModule::startServer_()
         noteHttpActivity_();
         request->redirect(webInterfaceLandingUrl());
     });
+
+    // Modbus TCP settings are only exposed in the full authenticated UI.
+    if (!provisioningOnly_) {
+        WebModbusRoutes::registerRoutes(server_, modbusTcp_);
+    }
 
     // --- Authentication routes and middleware --------------------------------
 

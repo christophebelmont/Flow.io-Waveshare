@@ -1,0 +1,29 @@
+{
+  "locale": "en",
+  "translations": {
+    "cfgmods.network.modbusTcp.label": "Modbus TCP",
+    "cfgdocs.modbus.mode.label": "RS485 settings",
+    "cfgdocs.modbus.mode.help": "None disables the TCP port. Flow.io device uses an existing RS485 device. Manual sets serial parameters. Restart required.",
+    "cfgdocs.modbus.device.label": "Flow.io RS485 device",
+    "cfgdocs.modbus.device.help": "Existing Flow.io equipment identifier (0 to 15).",
+    "cfgdocs.modbus.baud.label": "RS485 baud rate",
+    "cfgdocs.modbus.parity.label": "RS485 parity",
+    "cfgdocs.modbus.stop.label": "Stop bits",
+    "cfgdocs.modbus.timeout.label": "Modbus timeout (ms)",
+    "cfgdocs.modbus.timeout.help": "Maximum RTU transaction time including RS485 queueing.",
+    "cfgdocs.modbus.error.label": "On Modbus error",
+    "cfgdocs.modbus.error.help": "Reply with a standard Modbus exception or remain silent.",
+    "cfgdocs.modbus.restart.help": "TCP port changes take effect after Flow.io restarts.",
+    "cfgmods.network.modbusTcp.502.label": "TCP 502",
+    "cfgmods.network.modbusTcp.503.label": "TCP 503",
+    "cfgmods.network.modbusTcp.504.label": "TCP 504",
+    "cfgdocs.modbus.options.none": "None (port disabled)",
+    "cfgdocs.modbus.options.device": "Flow.io device",
+    "cfgdocs.modbus.options.manual": "Manual configuration",
+    "cfgdocs.modbus.options.parity.none": "None",
+    "cfgdocs.modbus.options.parity.even": "Even",
+    "cfgdocs.modbus.options.parity.odd": "Odd",
+    "cfgdocs.modbus.options.exception": "Modbus exception",
+    "cfgdocs.modbus.options.silent": "Stay silent"
+  }
+}

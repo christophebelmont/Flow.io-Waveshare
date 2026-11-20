@@ -32,6 +32,7 @@ inline constexpr Source Sources[] = {
     {49, 1, 0, UINT16_MAX, "config.ha"},
     {52, 1, 0, UINT16_MAX, "config.loghub"},
     {54, 1, 0, UINT16_MAX, "config.display"},
+    {91, 1, 0, UINT16_MAX, "config.modbustcp"},
     {0, 0, 0, UINT16_MAX, "unregistered"},
 };
 inline constexpr size_t SourceCount = sizeof(Sources) / sizeof(Sources[0]);

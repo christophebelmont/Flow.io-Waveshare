@@ -82,6 +82,12 @@ public:
         domainStatusProvider_.configure(domain, bindingPortExists);
     }
     const char* deviceLabel(uint8_t idx) const;
+    /** Snapshot serial settings for an existing enabled RS485 device. */
+    bool serialLineForDevice(uint16_t deviceId, SerialLineProfile& out) const;
+    /** One locked snapshot of an available RS485 device profile and label. */
+    bool serialDeviceInfo(uint16_t deviceId, SerialLineProfile& out,
+                          char* label, size_t labelCapacity,
+                          uint8_t* slaveAddress = nullptr) const;
     uint16_t runtimeSnapshotCount() const override;
     const char* runtimeSnapshotSuffix(uint16_t idx) const override;
     RuntimeRouteClass runtimeSnapshotClass(uint16_t idx) const override;
@@ -141,6 +147,13 @@ private:
         PoolDeviceTarget effective{};
         PoolDeviceFeedback feedback{};
         uint32_t revision = 0;
+        uint32_t rs485LastObservationMs = 0;
+        // A verified initial request is required before adopting local-panel
+        // updates. Safety-blocked OFF readbacks must never cancel a boot ON.
+        bool rs485BootCommandConfirmed = false;
+        uint32_t aquaStableSinceMs = 0;
+        float aquaStableRpm = 0.0f;
+        bool aquaStableValid = false;
         ActuatorControlState control{};
         ActuatorOverridePolicy overridePolicy{};
         TimedActuatorOverride overrideTimer;
@@ -201,6 +214,7 @@ private:
     // Control
     uint8_t activeCount_() const;
     PoolDeviceSvcStatus svcMetaImpl_(uint8_t slot, PoolDeviceSvcMeta* outMeta) const;
+    void fillMetaLocked_(uint8_t slot, PoolDeviceSvcMeta* outMeta) const;
     PoolDeviceSvcStatus svcReadActualOnImpl_(uint8_t slot, uint8_t* outOn, uint32_t* outTsMs) const;
     PoolDeviceSvcStatus svcSetOverridePoliciesImpl_(const ActuatorOverridePolicy* policies, uint8_t count);
     PoolDeviceSvcStatus svcReleaseOverrideImpl_(uint8_t slot, ActuatorOverrideReason reason);
@@ -345,6 +359,7 @@ private:
     DataStore* dataStore_ = nullptr;
     bool configurationSetpoint_(uint8_t slot, float& out) const;
     void syncConfigurationSetpoint_(uint8_t slot);
+    void adoptSerialFeedback_(uint8_t slot, uint32_t nowMs);
     const PoolConfigurationService* poolConfigurationSvc_ = nullptr;
     ConfigStore* cfgStore_ = nullptr;
     const ConfigStoreService* cfgSvc_ = nullptr;

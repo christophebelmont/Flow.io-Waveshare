@@ -84,5 +84,52 @@ int main() {
     tick(expiring, 21);
     assert(service.poll(service.ctx, b, &result) == MODBUS_RESULT_OK && result.result == MODBUS_RESULT_EXPIRED);
     assert(blocked.sent.size() == 1);
+    // Full-length Modbus RTU frames fit the existing fixed 256-byte bus
+    // buffer. FC03/FC04 allow 125 reads, whereas FC16 permits 123 writes.
+    uint8_t bigFrame[RS485_MAX_FRAME_BYTES]{};
+    size_t bigLength = 0;
+    auto bigRead = request(10, 9600);
+    bigRead.function = MODBUS_FC_READ_HOLDING_REGISTERS;
+    bigRead.operation = RegisterOperation::Read;
+    bigRead.registerAddress = 52;
+    bigRead.registerCount = MODBUS_MAX_READ_REGISTERS;
+    assert(ModbusRtuCodec::validRequest(bigRead));
+    assert(ModbusRtuCodec::encodeRequest(bigRead, bigFrame, sizeof(bigFrame), bigLength));
+    assert(bigLength == 8 && bigFrame[4] == 0 && bigFrame[5] == 125);
+    uint8_t longReadResponse[255]{};
+    longReadResponse[0] = bigRead.slaveAddress;
+    longReadResponse[1] = bigRead.function;
+    longReadResponse[2] = 250;
+    for (uint16_t i = 0; i < 125; ++i) {
+        longReadResponse[3 + i * 2] = uint8_t(i >> 8);
+        longReadResponse[4 + i * 2] = uint8_t(i);
+    }
+    const uint16_t crc = ModbusRtuCodec::crc16(longReadResponse, 253);
+    longReadResponse[253] = uint8_t(crc);
+    longReadResponse[254] = uint8_t(crc >> 8);
+    ModbusResponse decoded{};
+    assert(ModbusRtuCodec::decodeResponse(bigRead, longReadResponse,
+           sizeof(longReadResponse), decoded) == MODBUS_RESULT_OK);
+    assert(decoded.registerCount == 125 && decoded.values[124] == 124);
+    bigRead.registerCount = 126;
+    assert(!ModbusRtuCodec::validRequest(bigRead));
+
+    auto bigWrite = request(11, 9600);
+    bigWrite.function = MODBUS_FC_WRITE_MULTIPLE_REGISTERS;
+    bigWrite.operation = RegisterOperation::WriteMultiple;
+    bigWrite.registerAddress = 52;
+    bigWrite.registerCount = MODBUS_MAX_WRITE_REGISTERS;
+    for (uint16_t i = 0; i < 123; ++i) bigWrite.values[i] = i;
+    assert(ModbusRtuCodec::validRequest(bigWrite));
+    assert(ModbusRtuCodec::encodeRequest(bigWrite, bigFrame, sizeof(bigFrame), bigLength));
+    assert(bigLength == 255 && bigFrame[6] == 246);
+    bigWrite.registerCount = 124;
+    assert(!ModbusRtuCodec::validRequest(bigWrite));
+    auto vendor = bigRead;
+    vendor.protocol = RegisterWireProtocol::VendorRegisterRtu;
+    vendor.registerCount = 33;
+    assert(!ModbusRtuCodec::validRequest(vendor));
+    vendor.registerCount = 32;
+    assert(ModbusRtuCodec::validRequest(vendor));
     puts("RS485 scheduler tests passed");
 }

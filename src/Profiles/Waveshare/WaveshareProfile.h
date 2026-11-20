@@ -22,6 +22,7 @@
 #include "Modules/Network/FirmwareUpdateModule/FirmwareUpdateModule.h"
 #include "Modules/Network/HmiUdpServerModule/HmiUdpServerModule.h"
 #include "Modules/Network/MQTTModule/MQTTModule.h"
+#include "Modules/Network/ModbusTcpServerModule/ModbusTcpServerModule.h"
 #include "Modules/Network/TimeModule/TimeModule.h"
 #include "Modules/Network/WebInterfaceModule/WebInterfaceModule.h"
 #include "Modules/Network/WifiProvisioningModule/WifiProvisioningModule.h"
@@ -60,6 +61,7 @@ struct ModuleInstances {
     ConfigStoreModule configStoreModule{};
     DataStoreModule dataStoreModule{};
     MQTTModule mqttModule{};
+    ModbusTcpServerModule modbusTcpServerModule{};
     HAModule haModule{};
     SystemModule systemModule;
     SystemMonitorModule systemMonitorModule{};
