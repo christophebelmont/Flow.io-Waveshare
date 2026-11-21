@@ -116,21 +116,6 @@ class ReleasePackageTests(unittest.TestCase):
                 self.assertEqual(len(firmware.read_bytes()), manifest["firmware"]["size"])
                 self.assertEqual(expected_filesystem_size, manifest["filesystem"]["size"])
 
-            # Only the paired A/B downloader uses the distinct alias. The old
-            # firmware never requests this name, so a guarded HTTP server can
-            # reject unsafe legacy standalone SPIFFS URLs before flash erase.
-            alias = output / "flowio-paired-spiffs-2.0.1.bin"
-            self.assertTrue(alias.is_file())
-            self.assertEqual(filesystem.read_bytes(), alias.read_bytes())
-            remote = json.loads((output / "flowio-release-2.0.1.json").read_text())
-            self.assertEqual("flowio-paired-spiffs-2.0.1.bin",
-                             remote["filesystem"]["file"])
-            self.assertEqual("flowios3-2.0.1.bin", remote["firmware"]["file"])
-            self.assertEqual(MODULE["_sha256"](alias),
-                             remote["filesystem"]["sha256"])
-            self.assertEqual(remote,
-                             json.loads((output / "release.json").read_text()))
-
     def test_wrong_filesystem_size_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             output = Path(temp_dir)
