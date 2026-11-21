@@ -1651,6 +1651,7 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                    imageIndex == 0U ? "preparing release filesystem"
                                     : "preparing release firmware",
                    job.operationId);
+        setOtaStage_(imageIndex == 0U ? "spiffs_prepare" : "firmware_prepare", 0U);
         // Prepare the inactive partition BEFORE starting the HTTP transfer,
         // so a lengthy flash erase cannot starve an open TCP download.
         RebootDiagnostics::noteOta(job.operationId,
@@ -1674,6 +1675,9 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
 
         LOGI("[OTA] beginning HTTP artifact target=%s size=%lu",
              targetStr_(target), (unsigned long)expectedSize);
+        // Streaming fallback downloads and writes simultaneously, not as
+        // independent PSRAM/flash stages. Expose the combined mode explicitly.
+        setOtaStage_(imageIndex == 0U ? "spiffs_stream" : "firmware_stream", 0U);
         // Streaming fallback also gets three transport attempts. If Range
         // is unsupported, request the whole file again and DISCARD the already
         // flashed prefix; the existing SHA-256 validator detects any mismatch
@@ -1883,8 +1887,10 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                            imageIndex == 0U ? "verifying release filesystem"
                                             : "verifying release firmware",
                            job.operationId);
+                setOtaStage_(imageIndex == 0U ? "spiffs_verify" : "firmware_verify", 0U);
                 const uint32_t verifyStartedMs = millis();
                 success = endLocalImage_(transactionId, target, errOut, errOutLen);
+                if (success) setOtaStage_(imageIndex == 0U ? "spiffs_verify" : "firmware_verify", 100U);
                 LOGI("[OTA-TRACE] op=%lu target=%s stage=image_verify_end ms=%lu success=%u",
                      (unsigned long)job.operationId, targetStr_(target),
                      (unsigned long)(millis() - verifyStartedMs), success ? 1U : 0U);
@@ -1901,6 +1907,7 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
         RebootDiagnostics::noteOta(job.operationId, RebootDiagnostics::OtaStage::Commit);
         setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare, 99U,
                    "activating paired release", job.operationId);
+        setOtaStage_("activate", 0U);
         LOGI("[OTA-TRACE] op=%lu stage=commit_start", (unsigned long)job.operationId);
         otaMonitor_("commit_start");
         success = commitLocalRelease_(transactionId, errOut, errOutLen);
@@ -2501,6 +2508,11 @@ bool FirmwareUpdateModule::writeLocalImage_(uint32_t transactionId,
     localRelease_.received += len;
     localRelease_.lastActivityMs = millis();
     onProgressChunk_((uint32_t)len);
+    if (remoteReleaseWorker_ != nullptr &&
+        remoteReleaseWorker_ == xTaskGetCurrentTaskHandle()) {
+        // Image-local progress; preserve PSRAM write vs HTTP streaming mode.
+        setOtaStage_(nullptr, (uint8_t)(((uint64_t)localRelease_.received * 100U) / expectedSize));
+    }
     if (localRelease_.received == expectedSize) {
         LOGI("[UPGRADE] %s stream complete received=%u",
              filesystemTarget ? "filesystem" : "firmware",
