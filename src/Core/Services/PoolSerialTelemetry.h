@@ -105,8 +105,14 @@ inline int32_t poolRegisterNumber(uint16_t raw, bool signedValue)
 {
     return signedValue && raw >= 0x8000U ? int32_t(raw) - 65536 : int32_t(raw);
 }
-inline float poolTelemetryValue(const PoolTelemetryState& state, const PoolTelemetryField& field)
+inline double poolTelemetryValue(const PoolTelemetryState& state, const PoolTelemetryField& field)
 {
     const uint16_t raw = state.raw[field.index];
-    return field.mask ? float((raw & field.mask) != 0) : poolRegisterNumber(raw, field.signedValue) * field.scale;
+    if (field.mask) return (raw & field.mask) != 0 ? 1.0 : 0.0;
+    const int32_t registerValue = poolRegisterNumber(raw, field.signedValue);
+    // The Polytropic current register is in tenths of an ampere. Dividing
+    // the integer value in double precision avoids leaking float 0.1f noise
+    // (e.g. 4.099999905 instead of 4.1) into MQTT and Home Assistant.
+    if (field.metric == EquipmentMetric::Current) return double(registerValue) / 10.0;
+    return registerValue * field.scale;
 }

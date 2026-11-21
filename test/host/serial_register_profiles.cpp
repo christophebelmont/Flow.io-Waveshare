@@ -658,7 +658,11 @@ void heatPumpEcoRestartAndElectricalTelemetry() {
     const auto telemetry = driver.readState().telemetry;
     assert(telemetry.raw[10] == 45); // Preserve wire data for diagnostics.
     assert(poolTelemetryValue(telemetry, kHeatPumpPolyFields[16]) == 230);
-    assert(std::fabs(poolTelemetryValue(telemetry, kHeatPumpPolyFields[17]) - 4.5f) < .001f);
+    assert(std::fabs(poolTelemetryValue(telemetry, kHeatPumpPolyFields[17]) - 4.5) < 1e-12);
+    PoolTelemetryState preciseSample{};
+    preciseSample.raw[22] = 41; // Wire value 41 = 4.1 A, without float noise.
+    assert(std::fabs(poolTelemetryValue(preciseSample, kHeatPumpPolyFields[17]) - 4.1) < 1e-12);
+    assert(preciseSample.raw[22] == 41); // The raw RS485 register is unchanged.
 }
 
 
