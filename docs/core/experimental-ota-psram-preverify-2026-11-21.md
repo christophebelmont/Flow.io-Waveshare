@@ -119,9 +119,19 @@ Also inspect `[OTA-MEM]`, `[OTA-NET]`, `[BOOT-RESET]` and `[UPGRADE]`.
 RTC breadcrumbs identify the new RAM download/verification stages, although
 previous testing showed `rtc_valid=0` after a reset on some boards.
 
-The Web progress percentage is intentionally based on **bytes written to A/B**;
-it does not advance during a PSRAM download, avoiding a misleading rollback
-in the displayed percentage when flash writing begins.
+The Web interface distinguishes **15 OTA stages**, with separate
+**Download to PSRAM** and **Write to inactive A/B flash** phases for SPIFFS
+and firmware. Each active transfer/write stage exposes its own **0–100% byte
+progress** via `ota_stage` and `ota_stage_progress` in
+`/api/fwupdate/status`. The main progress bar follows completed stages
+rather than reusing the flashing byte counter for downloads. Its value stays
+monotonic, including when HTTP retries require starting a download again.
+
+The low-memory streaming fallback is explicitly labeled
+**receiving and writing simultaneously** because downloading and flashing
+are not separable in that mode. Local ZIP installation and Nextion OTA retain
+their previous status semantics. The HMI, A/B validation and single-reboot
+behavior are unchanged.
 
 ## Validation checklist
 
