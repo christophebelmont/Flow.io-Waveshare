@@ -8369,7 +8369,9 @@
             const reading = current.telemetry && current.telemetry[key];
             const text = reading == null ? '—' : typeof reading === 'boolean' ?
               (reading ? tr('pool.telemetry.yes', 'Oui') : tr('pool.telemetry.no', 'Non')) :
-              String(reading) + (current.telemetry_units?.[key] ? ' ' + current.telemetry_units[key] : '');
+              (key === 'current' && typeof reading === 'number' && Number.isFinite(reading)
+                ? reading.toFixed(2) : String(reading)) +
+              (current.telemetry_units?.[key] ? ' ' + current.telemetry_units[key] : '');
             setRuntimeActionText(value, text);
           });
           renderStatus(current);
