@@ -510,6 +510,12 @@ void FirmwareUpdateModule::setStatus_(UpdateState state,
     status_.updatedAtMs = millis();
     if (!msg) msg = "";
     snprintf(status_.msg, sizeof(status_.msg), "%s", msg);
+    if (state == UpdateState::Queued || state == UpdateState::Idle ||
+        state == UpdateState::Error || state == UpdateState::Done ||
+        state == UpdateState::Rebooting) {
+        status_.otaStage[0] = '\0';
+        status_.otaStageProgress = 0U;
+    }
     portEXIT_CRITICAL(&lock_);
 
     const bool otaActive = state == UpdateState::Queued ||
@@ -517,6 +523,18 @@ void FirmwareUpdateModule::setStatus_(UpdateState state,
                            state == UpdateState::Flashing ||
                            state == UpdateState::Rebooting;
     setHmiOtaCondition_(otaActive);
+}
+
+void FirmwareUpdateModule::setOtaStage_(const char* stage, uint8_t phaseProgress)
+{
+    // Two distinct progress axes: existing overall flashed bytes and the
+    // current HTTP-download/flash-write phase. All readers see a coherent
+    // snapshot via statusJson_'s existing critical section.
+    portENTER_CRITICAL(&lock_);
+    snprintf(status_.otaStage, sizeof(status_.otaStage), "%s", stage ? stage : "");
+    status_.otaStageProgress = phaseProgress > 100U ? 100U : phaseProgress;
+    status_.updatedAtMs = millis();
+    portEXIT_CRITICAL(&lock_);
 }
 
 void FirmwareUpdateModule::setError_(FirmwareUpdateTarget target, const char* msg, uint32_t operationId)
@@ -725,7 +743,7 @@ bool FirmwareUpdateModule::statusJson_(char* out, size_t outLen)
 
     sanitizeJsonString_(snap.msg);
 
-    StaticJsonDocument<512> doc;
+    StaticJsonDocument<640> doc;
     doc["ok"] = true;
     doc["boot_id"] = bootId_;
     doc["operation_id"] = snap.operationId;
@@ -734,6 +752,10 @@ bool FirmwareUpdateModule::statusJson_(char* out, size_t outLen)
     doc["busy"] = busy;
     doc["pending"] = pending;
     doc["progress"] = snap.progress;
+    if (snap.otaStage[0] != '\0') {
+        doc["ota_stage"] = snap.otaStage;
+        doc["ota_stage_progress"] = snap.otaStageProgress;
+    }
     doc["ts_ms"] = snap.updatedAtMs;
     doc["msg"] = snap.msg;
     // Boot evidence is necessary to distinguish an old slot/rollback from
