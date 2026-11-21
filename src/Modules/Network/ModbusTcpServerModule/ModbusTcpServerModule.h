@@ -98,7 +98,7 @@ public:
                     MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
                 const uint32_t largestInternal = heap_caps_get_largest_free_block(
                     MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-                Serial.printf("[OTA-NET] ms=%lu core=%d enabled=%u%u%u clients=%u,%u,%u rxreq=%lu,%lu,%lu txreply=%lu,%lu,%lu rtu_queue=%u rejected=%lu tick_peak_us=%lu slow_ticks=%lu internal=%lu largest=%lu psram=%lu stack_free=%lu\n",
+                // Keep this high-value diagnostic off Print::printf’s dynamic\n                // formatting path: a fixed stack buffer avoids extra heap\n                // churn precisely when low internal RAM is suspected.\n                char otaNetLine[320]{};\n                const int otaLineBytes = snprintf(otaNetLine, sizeof(otaNetLine),\n                              "[OTA-NET] ms=%lu core=%d enabled=%u%u%u clients=%u,%u,%u rxreq=%lu,%lu,%lu txreply=%lu,%lu,%lu rtu_queue=%u rejected=%lu tick_peak_us=%lu slow_ticks=%lu internal=%lu largest=%lu psram=%lu stack_free=%lu\n",
                               (unsigned long)now, (int)xPortGetCoreID(),
                               configs_[0].enabled ? 1U : 0U,
                               configs_[1].enabled ? 1U : 0U,
@@ -114,6 +114,11 @@ public:
                               (unsigned long)freeInternal, (unsigned long)largestInternal,
                               (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
                               (unsigned long)uxTaskGetStackHighWaterMark(nullptr));
+                if (otaLineBytes > 0) {
+                    const size_t lineLength = (size_t)otaLineBytes < sizeof(otaNetLine)
+                        ? (size_t)otaLineBytes : sizeof(otaNetLine) - 1U;
+                    (void)Serial.write((const uint8_t*)otaNetLine, lineLength);
+                }
                 otaTickMaxUs_ = 0U;
                 otaSlowTicks_ = 0U;
             }
