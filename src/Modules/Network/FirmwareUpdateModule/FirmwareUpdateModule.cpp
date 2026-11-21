@@ -2162,10 +2162,20 @@ bool FirmwareUpdateModule::endLocalImage_(uint32_t transactionId,
                                     : "firmware SHA-256 OK; committing release",
                    localRelease_.operationId);
     } else {
-        setStatus_(UpdateState::Done,
-                   target,
-                   100U,
-                   filesystemTarget ? "release filesystem verified" : "release firmware verified",
+        // ZIP upload: an image has been verified, NOT the complete release.
+        // Keep the paired OTA in Flashing until commitLocalRelease_ has
+        // successfully verified both images and selected the inactive app.
+        // Reporting Done here could trigger a premature browser reconnect
+        // or give the operator a false success after SPIFFS alone.
+        const uint8_t pairedProgress = filesystemTarget
+            ? (uint8_t)(((uint64_t)localRelease_.filesystem.size * 100U) /
+                        ((uint64_t)localRelease_.filesystem.size + localRelease_.firmware.size))
+            : 99U;
+        setStatus_(UpdateState::Flashing,
+                   FirmwareUpdateTarget::Waveshare,
+                   pairedProgress,
+                   filesystemTarget ? "filesystem SHA-256 OK; firmware next"
+                                    : "firmware SHA-256 OK; committing release",
                    localRelease_.operationId);
     }
     return true;
