@@ -7,6 +7,7 @@
 #include "Core/CounterPersistence.h"
 #include "Core/RebootDiagnostics.h"
 #include "Core/OtaPsramPolicy.h"
+#include "Core/OtaHttpRetryPolicy.h"
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -1318,82 +1319,137 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                  (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
                  (unsigned long)kRamReserveBytes);
 
-            HTTPClient ramHttp;
-            configureDownloadHttp_(ramHttp);
-            if (!ramHttp.begin(urls[imageIndex])) {
-                success = writeSimpleError_(errOut, errOutLen, "PSRAM artifact HTTP begin failed");
-            } else {
-                const int code = ramHttp.GET();
-                const int announced = ramHttp.getSize();
-                LOGI("[OTA-RAM] op=%lu target=%s stage=http_headers code=%d length=%d expected=%lu",
-                     (unsigned long)job.operationId, targetName, code, announced,
-                     (unsigned long)expectedSize);
-                if (code != HTTP_CODE_OK || announced <= 0 || (uint32_t)announced != expectedSize) {
-                    success = writeSimpleError_(errOut, errOutLen, "PSRAM artifact HTTP size mismatch");
+            // Three attempts TOTAL for each artifact. Resume via HTTP Range
+            // only after validating Content-Range; a server returning HTTP 200
+            // instead is treated as a clean restart into the same RAM buffer.
+            for (unsigned attempt = 1U;
+                 success && received < expectedSize && attempt <= OtaHttpRetryPolicy::kMaxAttempts;
+                 ++attempt) {
+                const size_t requestedOffset = received;
+                bool retryableFailure = false;
+                LOGI("[OTA-HTTP] op=%lu target=%s mode=psram attempt=%u/%u offset=%lu",
+                     (unsigned long)job.operationId, targetName, attempt,
+                     OtaHttpRetryPolicy::kMaxAttempts, (unsigned long)requestedOffset);
+                HTTPClient ramHttp;
+                configureDownloadHttp_(ramHttp);
+                const char* responseHeaders[] = {"Content-Range"};
+                ramHttp.collectHeaders(responseHeaders, 1U);
+                if (!ramHttp.begin(urls[imageIndex])) {
+                    retryableFailure = true;
+                    LOGW("[OTA-HTTP] op=%lu target=%s attempt=%u stage=begin_failed",
+                         (unsigned long)job.operationId, targetName, attempt);
                 } else {
-                    Stream* stream = ramHttp.getStreamPtr();
-                    while (success && received < expectedSize) {
-                        const size_t available = stream ? stream->available() : 0U;
-                        if (available == 0U) {
-                            const uint32_t idleMs = millis() - lastProgressMs;
-                            if (!ramHttp.connected() ||
-                                idleMs > Limits::FirmwareUpdate::Http::StreamReadTimeoutMs) {
-                                LOGE("[OTA-RAM] op=%lu target=%s stage=http_interrupted received=%lu/%lu idle_ms=%lu connected=%u",
-                                     (unsigned long)job.operationId, targetName,
-                                     (unsigned long)received, (unsigned long)expectedSize,
-                                     (unsigned long)idleMs, ramHttp.connected() ? 1U : 0U);
-                                success = writeSimpleError_(errOut, errOutLen, "PSRAM artifact download interrupted");
-                                break;
-                            }
-                            if (millis() - lastWaitLogMs >= 5000U) {
-                                LOGW("[OTA-RAM] op=%lu target=%s stage=http_waiting received=%lu/%lu idle_ms=%lu",
-                                     (unsigned long)job.operationId, targetName,
-                                     (unsigned long)received, (unsigned long)expectedSize,
-                                     (unsigned long)idleMs);
-                                lastWaitLogMs = millis();
-                            }
-                            vTaskDelay(1);
-                            continue;
+                    if (requestedOffset > 0U) {
+                        ramHttp.addHeader("Range", String("bytes=") +
+                                          String((unsigned long)requestedOffset) + "-");
+                    }
+                    const int code = ramHttp.GET();
+                    const int announced = ramHttp.getSize();
+                    const String contentRange = ramHttp.header("Content-Range");
+                    const auto mode = OtaHttpRetryPolicy::responseMode(
+                        code, requestedOffset, announced > 0 ? (size_t)announced : 0U,
+                        expectedSize, contentRange.c_str());
+                    LOGI("[OTA-HTTP] op=%lu target=%s attempt=%u code=%d length=%d offset=%lu mode=%u",
+                         (unsigned long)job.operationId, targetName, attempt, code,
+                         announced, (unsigned long)requestedOffset, (unsigned)mode);
+                    if (mode == OtaHttpRetryPolicy::ResponseMode::Invalid) {
+                        retryableFailure = OtaHttpRetryPolicy::isRetryableStatus(code);
+                        if (!retryableFailure) {
+                            success = writeSimpleError_(errOut, errOutLen,
+                                "PSRAM artifact HTTP response/Range invalid");
                         }
-                        size_t amount = available > kRamReadBytes ? kRamReadBytes : available;
-                        if (amount > expectedSize - received) amount = expectedSize - received;
-                        const int rd = stream->readBytes(
-                            reinterpret_cast<char*>(ramImage.get() + received), amount);
-                        if (rd <= 0) {
-                            if (!ramHttp.connected() ||
-                                millis() - lastProgressMs > Limits::FirmwareUpdate::Http::StreamReadTimeoutMs) {
-                                success = writeSimpleError_(errOut, errOutLen, "PSRAM artifact stream stalled");
-                                break;
-                            }
-                            vTaskDelay(1);
-                            continue;
+                    } else {
+                        if (mode == OtaHttpRetryPolicy::ResponseMode::Full &&
+                            requestedOffset > 0U) {
+                            LOGW("[OTA-HTTP] op=%lu target=%s attempt=%u stage=restart_full server_no_range=1",
+                                 (unsigned long)job.operationId, targetName, attempt);
+                            received = 0U;
+                            lastLogged = 0U;
                         }
-                        received += (size_t)rd;
+                        Stream* stream = ramHttp.getStreamPtr();
                         lastProgressMs = millis();
-                        if (received - lastLogged >= kRamProgressBytes || received == expectedSize) {
-                            RebootDiagnostics::noteOta(job.operationId, ramStage,
-                                                       (uint32_t)received, expectedSize);
-                            // Log RAM transfer bytes, but do not count them as
-                            // flashed/installed bytes in the global percentage.
-                            setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare,
-                                       baseProgress,
-                                       imageIndex == 0U ? "downloading filesystem to PSRAM"
-                                                        : "downloading firmware to PSRAM",
-                                       job.operationId);
-                            LOGI("[OTA-RAM] op=%lu target=%s stage=download_progress received=%lu/%lu",
-                                 (unsigned long)job.operationId, targetName,
-                                 (unsigned long)received, (unsigned long)expectedSize);
-                            lastLogged = received;
+                        lastWaitLogMs = lastProgressMs;
+                        while (success && !retryableFailure && received < expectedSize) {
+                            const size_t available = stream ? stream->available() : 0U;
+                            if (available == 0U) {
+                                const uint32_t idleMs = millis() - lastProgressMs;
+                                if (!ramHttp.connected() ||
+                                    idleMs > Limits::FirmwareUpdate::Http::StreamReadTimeoutMs) {
+                                    retryableFailure = true;
+                                    LOGW("[OTA-HTTP] op=%lu target=%s attempt=%u stage=interrupted received=%lu/%lu idle_ms=%lu connected=%u",
+                                         (unsigned long)job.operationId, targetName,
+                                         attempt, (unsigned long)received,
+                                         (unsigned long)expectedSize, (unsigned long)idleMs,
+                                         ramHttp.connected() ? 1U : 0U);
+                                    break;
+                                }
+                                if (millis() - lastWaitLogMs >= 5000U) {
+                                    LOGW("[OTA-RAM] op=%lu target=%s stage=http_waiting received=%lu/%lu idle_ms=%lu attempt=%u",
+                                         (unsigned long)job.operationId, targetName,
+                                         (unsigned long)received, (unsigned long)expectedSize,
+                                         (unsigned long)idleMs, attempt);
+                                    lastWaitLogMs = millis();
+                                }
+                                vTaskDelay(1);
+                                continue;
+                            }
+                            size_t amount = available > kRamReadBytes ? kRamReadBytes : available;
+                            if (amount > expectedSize - received) amount = expectedSize - received;
+                            const int rd = stream->readBytes(
+                                reinterpret_cast<char*>(ramImage.get() + received), amount);
+                            if (rd <= 0) {
+                                if (!ramHttp.connected() ||
+                                    millis() - lastProgressMs > Limits::FirmwareUpdate::Http::StreamReadTimeoutMs) {
+                                    retryableFailure = true;
+                                    LOGW("[OTA-HTTP] op=%lu target=%s attempt=%u stage=read_stalled offset=%lu",
+                                         (unsigned long)job.operationId, targetName,
+                                         attempt, (unsigned long)received);
+                                    break;
+                                }
+                                vTaskDelay(1);
+                                continue;
+                            }
+                            received += (size_t)rd;
+                            lastProgressMs = millis();
+                            if (received - lastLogged >= kRamProgressBytes ||
+                                received == expectedSize) {
+                                RebootDiagnostics::noteOta(job.operationId, ramStage,
+                                                           (uint32_t)received, expectedSize);
+                                setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare,
+                                           baseProgress,
+                                           imageIndex == 0U ? "downloading filesystem to PSRAM"
+                                                            : "downloading firmware to PSRAM",
+                                           job.operationId);
+                                LOGI("[OTA-RAM] op=%lu target=%s stage=download_progress received=%lu/%lu attempt=%u",
+                                     (unsigned long)job.operationId, targetName,
+                                     (unsigned long)received, (unsigned long)expectedSize, attempt);
+                                lastLogged = received;
+                            }
+                            vTaskDelay(1);
                         }
-                        vTaskDelay(1);
                     }
-                    if (success && received != expectedSize) {
-                        success = writeSimpleError_(errOut, errOutLen, "PSRAM artifact incomplete");
-                    }
+                    // Close the old TCP socket before a retry or flash.
+                    ramHttp.end();
                 }
-                // Release the socket BEFORE any flash erase/write, including
-                // in failure paths; no Wi-Fi receive competes with flash.
-                ramHttp.end();
+                if (success && !retryableFailure && received == expectedSize) break;
+                if (!success) break; // Fatal HTTP response; never retry an invalid Range.
+                if (!retryableFailure) {
+                    success = writeSimpleError_(errOut, errOutLen, "PSRAM artifact incomplete");
+                    break;
+                }
+                if (attempt == OtaHttpRetryPolicy::kMaxAttempts) {
+                    LOGE("[OTA-HTTP] op=%lu target=%s stage=retries_exhausted attempts=%u received=%lu/%lu",
+                         (unsigned long)job.operationId, targetName,
+                         OtaHttpRetryPolicy::kMaxAttempts,
+                         (unsigned long)received, (unsigned long)expectedSize);
+                    success = writeSimpleError_(errOut, errOutLen,
+                                                "PSRAM artifact failed after 3 HTTP attempts");
+                    break;
+                }
+                LOGW("[OTA-HTTP] op=%lu target=%s stage=retry_scheduled next=%u/%u offset=%lu",
+                     (unsigned long)job.operationId, targetName, attempt + 1U,
+                     OtaHttpRetryPolicy::kMaxAttempts, (unsigned long)received);
+                vTaskDelay(pdMS_TO_TICKS(OtaHttpRetryPolicy::kRetryDelayMs));
             }
             const uint32_t downloadMs = millis() - downloadStartedMs;
             LOGI("[OTA-RAM] op=%lu target=%s stage=download_end success=%u bytes=%lu/%lu ms=%lu",
