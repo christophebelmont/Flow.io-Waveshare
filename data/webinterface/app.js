@@ -45,6 +45,7 @@
     const deferredVisualAssetsStateKey = 'flow_web_deferred_visual_assets';
     const upgradeUiSessionStorageKey = 'flow_upgrade_ui_session';
     const upgradeSuccessReloadStorageKey = 'flow_upgrade_success_reloaded';
+    let upgradeSuccessReloadCountdownTimer = null;
     const upgradeStatusPollActiveMs = 900;
     const upgradeStatusPollReconnectMs = 5000;
     const upgradeStatusPollDoneMs = 7000;
@@ -2348,6 +2349,7 @@
     const upgradePhaseIcon = document.getElementById('upgradePhaseIcon');
     const upgradeSteps = document.getElementById('upgradeSteps');
     const upgradeFooterStatus = document.getElementById('upgradeFooterStatus');
+    const upgradeSuccessReloadCountdown = document.getElementById('upgradeSuccessReloadCountdown');
     const upgradeProgressPanel = document.getElementById('upgradeProgressPanel');
 
     const wifiEnabled = document.getElementById('wifiEnabled');
@@ -3474,6 +3476,7 @@
 
     function clearUpgradeUiSession() {
       stopUpgradeReconnectFlow();
+      stopUpgradeSuccessReloadCountdown();
       try {
         sessionStorage.removeItem(upgradeUiSessionStorageKey);
       } catch (err) {
@@ -3793,6 +3796,7 @@
 
     function startUpgradeUiSession(target) {
       stopUpgradeReconnectFlow();
+      stopUpgradeSuccessReloadCountdown();
       upgradeUiStatusMuted = false;
       return updateUpgradeUiSession({
         phase: 'target',
@@ -3812,6 +3816,7 @@
     }
 
     function cancelUpgradeUiSession() {
+      stopUpgradeSuccessReloadCountdown();
       upgradeUiStatusMuted = true;
       stopUpgradeStatusPolling();
       clearUpgradeUiSession();
@@ -3846,30 +3851,59 @@
       });
     }
 
+    function stopUpgradeSuccessReloadCountdown() {
+      if (upgradeSuccessReloadCountdownTimer !== null) {
+        clearTimeout(upgradeSuccessReloadCountdownTimer);
+        upgradeSuccessReloadCountdownTimer = null;
+      }
+      if (upgradeSuccessReloadCountdown) {
+        upgradeSuccessReloadCountdown.textContent = '';
+        upgradeSuccessReloadCountdown.hidden = true;
+      }
+    }
+
     function scheduleUpgradeReloadAfterSuccess(operationId, target) {
-      // Only a matching post-boot success receipt may get here. A "done"
-      // status before restart is not sufficient: the new SPIFFS assets
-      // may not be available until the ESP32 boots into the new release.
+      // Trigger only after the matching successful OTA receipt is observed
+      // after reconnect; a pre-reboot "done" status is not sufficient.
       if (!upgradeUsesReconnect(target)) return false;
       const id = Number(operationId);
       if (!Number.isSafeInteger(id) || id <= 0) return false;
       const token = String(target || '').trim().toLowerCase() + ':' + String(id);
       try {
-        // sessionStorage survives a navigation in this tab; record the token
-        // BEFORE scheduling so repeated status polls cannot trigger a loop.
+        // Persist the reload token BEFORE starting the countdown so repeated
+        // polls and the new page cannot cause repeated auto-reloads.
         if (sessionStorage.getItem(upgradeSuccessReloadStorageKey) === token) return false;
         sessionStorage.setItem(upgradeSuccessReloadStorageKey, token);
       } catch (err) {
-        // If storage is disabled, skip auto-reload rather than risk a loop.
+        // Without storage, prefer no automatic reload over a reload loop.
         return false;
       }
-      setTimeout(() => {
-        // The operator might start a new update during this brief delay.
+
+      stopUpgradeSuccessReloadCountdown();
+      let secondsRemaining = 3;
+      const tick = () => {
         const latest = readUpgradeUiSession();
-        if (latest && latest.phase === 'done' && Number(latest.operationId) === id) {
-          window.location.reload();
+        // Cancel if a subsequent OTA started, failed or was dismissed.
+        if (!latest || latest.phase !== 'done' || Number(latest.operationId) !== id) {
+          stopUpgradeSuccessReloadCountdown();
+          return;
         }
-      }, 1200);
+        if (secondsRemaining === 0) {
+          stopUpgradeSuccessReloadCountdown();
+          window.location.reload();
+          return;
+        }
+        if (upgradeSuccessReloadCountdown) {
+          upgradeSuccessReloadCountdown.textContent = tr(
+            'updates.reloadCountdown',
+            'Rechargement de la page dans {seconds} s…'
+          ).replace('{seconds}', String(secondsRemaining));
+          upgradeSuccessReloadCountdown.hidden = false;
+        }
+        secondsRemaining -= 1;
+        upgradeSuccessReloadCountdownTimer = setTimeout(tick, 1000);
+      };
+      tick();
       return true;
     }
 
