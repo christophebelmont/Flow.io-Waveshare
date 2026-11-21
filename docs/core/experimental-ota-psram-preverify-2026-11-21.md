@@ -58,6 +58,45 @@ buffer is **never passed directly** to `esp_ota_write` or
 `esp_partition_write`; each flash write reads the small internal copy.
 No NVS staging writes are added.
 
+### HTTP retry, resume and restart
+
+The remote HTTP manifest, SPIFFS and firmware each use **three attempts
+total**, including the initial request. A transient connection failure or
+HTTP 408/429/5xx schedules another attempt (500 ms delay) without changing
+the active A/B partition. Permanent errors such as 403/404, invalid
+Content-Length, or an inconsistent HTTP 206 response fail immediately.
+
+For **binary images** with a partially completed transfer:
+
+- Send `Range: bytes=<received>-`.
+- Accept HTTP **206** only when `Content-Range`, `Content-Length`,
+  original total size, requested offset and final byte all agree.
+- If the server ignores Range and replies **200** with the complete image:
+  - in PSRAM mode, start filling the same buffer again from byte zero;
+  - in fallback streaming mode, re-download and discard the previously
+    flashed prefix; the final manifest SHA-256 still covers the whole image.
+- A broken connection is fully closed before the next attempt.
+- A flash write error is not a transport error and is never retried.
+- SHA mismatch on a completed image aborts the release; it does not trigger
+  repeated writes or an automatic boot switch.
+- The retry counter resets for each image. A reboot loses the RAM buffer;
+  HTTP Range is **not** a persistent resume-across-reboot mechanism.
+
+The tiny JSON manifest is always restarted from byte zero.
+
+Trace examples:
+
+```text
+[OTA-HTTP] ... target=spiffs mode=psram attempt=2/3 offset=365991
+[OTA-HTTP] ... target=spiffs attempt=2 code=206 ... mode=2
+[OTA-HTTP] ... target=firmware attempt=2 stage=restart_full server_no_range=1
+[OTA-HTTP] ... stage=retry_scheduled next=3/3 offset=...
+[OTA-HTTP] ... stage=retries_exhausted attempts=3 ...
+```
+
+The common policy and HTTP 200/206 tests are in
+`scripts/tests/check_ota_http_retry.mjs`.
+
 ### Logs
 
 ```text
@@ -90,6 +129,7 @@ Run the source-contract regression:
 
 ```bash
 node scripts/tests/check_ota_psram_preverify.mjs
+node scripts/tests/check_ota_http_retry.mjs
 ```
 
 The test optionally compiles the PSRAM reserve policy with a host C++ compiler.
@@ -97,6 +137,12 @@ Then run a full PlatformIO compile (correct board profile, USB CDC setting)
 and capture a real OTA with the USB serial monitor and ideally tcpdump.
 
 Suggested scenarios:
+- A failing HTTP server which ignores Range: verify at most 3 attempts,
+  with a fresh HTTP 200 download or streaming prefix replay.
+- A Range-capable HTTP server: interrupt the first request and verify a
+  strict HTTP 206/Content-Range resumes at the correct byte.
+- A mismatched 206 header, HTTP 404, or invalid image size: abort safely
+  without retrying or committing A/B.
 - Strong Wi-Fi: verify both images use `mode=psram`, SHA preverify, A/B
   commit, restart and correct mounted SPIFFS pairing.
 - Force memory pressure safely: confirm `fallback_stream` is logged and
