@@ -38,36 +38,14 @@ public:
         eligible_ = master_ && master_->submit && master_->poll;
     }
     void loop() override {
-        if (!eligible_) return;
+        const uint32_t now = millis();
         const NetworkAccessService* network =
             registry_ ? registry_->get<NetworkAccessService>(ServiceId::NetworkAccess) : nullptr;
         const bool stationConnected = network && network->mode &&
             network->mode(network->ctx) == NetworkAccessMode::Station;
-        if (!stationConnected) {
-            if (running_) {
-                server_.stop();
-                running_ = false;
-            }
-            return;
-        }
-        if (!running_) {
-            bool enabled = false;
-            for (uint8_t i = 0; i < ModbusTcpServer::kPortCount; ++i)
-                enabled = enabled || configs_[i].enabled;
-            if (!enabled) return;
-            server_.begin(*master_, &ModbusTcpServer::LineResolver::resolveStatic, &resolver_);
-            running_ = true;
-        }
-        const uint32_t now = millis();
-        const uint32_t tickStartedUs = micros();
-        server_.tick(now);
-        const uint32_t elapsedUs = uint32_t(micros() - tickStartedUs);
-        if (elapsedUs > tickMaxUs_) tickMaxUs_ = elapsedUs;
-        if (elapsedUs >= 5000U) ++slowTicks_;
-
-        // Sample network/RS485 pressure only while OTA is running; do not
-        // produce logs on every Modbus poll. This task runs on core 1 while
-        // the firmware updater is pinned to core 0.
+        // Sample network/RS485 pressure even if no TCP listener can start.
+        // Important: early returns for disabled ports or no station IP must
+        // not suppress OTA-NET diagnostics. Core 1; updater runs on core 0.
         if (!fwUpdateSvc_ && registry_) {
             fwUpdateSvc_ = registry_->get<FirmwareUpdateService>(ServiceId::FirmwareUpdate);
         }
@@ -85,8 +63,6 @@ public:
             }
         }
         if (otaBusy) {
-            if (elapsedUs > otaTickMaxUs_) otaTickMaxUs_ = elapsedUs;
-            if (elapsedUs >= 5000U) ++otaSlowTicks_;
             if (uint32_t(now - lastOtaTraceMs_) >= 5000U) {
                 lastOtaTraceMs_ = now;
                 ModbusMasterStats q{};
@@ -101,13 +77,16 @@ public:
                 // Keep this high-value diagnostic off Print::printf’s dynamic
                 // formatting path: a fixed stack buffer avoids extra heap
                 // churn precisely when low internal RAM is suspected.
-                char otaNetLine[320]{};
+                char otaNetLine[384]{};
                 const int otaLineBytes = snprintf(otaNetLine, sizeof(otaNetLine),
-                              "[OTA-NET] ms=%lu core=%d enabled=%u%u%u clients=%u,%u,%u rxreq=%lu,%lu,%lu txreply=%lu,%lu,%lu rtu_queue=%u rejected=%lu tick_peak_us=%lu slow_ticks=%lu internal=%lu largest=%lu psram=%lu stack_free=%lu\n",
+                              "[OTA-NET] ms=%lu core=%d enabled=%u%u%u station=%u listening=%u eligible=%u clients=%u,%u,%u rxreq=%lu,%lu,%lu txreply=%lu,%lu,%lu rtu_queue=%u rejected=%lu tick_peak_us=%lu slow_ticks=%lu internal=%lu largest=%lu psram=%lu stack_free=%lu\n",
                               (unsigned long)now, (int)xPortGetCoreID(),
                               configs_[0].enabled ? 1U : 0U,
                               configs_[1].enabled ? 1U : 0U,
                               configs_[2].enabled ? 1U : 0U,
+                              stationConnected ? 1U : 0U,
+                              (running_ && stationConnected) ? 1U : 0U,
+                              eligible_ ? 1U : 0U,
                               (unsigned)a.activeClients, (unsigned)b.activeClients,
                               (unsigned)c.activeClients,
                               (unsigned long)a.received, (unsigned long)b.received,
@@ -128,6 +107,33 @@ public:
                 otaSlowTicks_ = 0U;
             }
         }
+
+        if (!eligible_) return;
+        if (!stationConnected) {
+            if (running_) {
+                server_.stop();
+                running_ = false;
+            }
+            return;
+        }
+        if (!running_) {
+            bool enabled = false;
+            for (uint8_t i = 0; i < ModbusTcpServer::kPortCount; ++i)
+                enabled = enabled || configs_[i].enabled;
+            if (!enabled) return;
+            server_.begin(*master_, &ModbusTcpServer::LineResolver::resolveStatic, &resolver_);
+            running_ = true;
+        }
+        const uint32_t tickStartedUs = micros();
+        server_.tick(now);
+        const uint32_t elapsedUs = uint32_t(micros() - tickStartedUs);
+        if (elapsedUs > tickMaxUs_) tickMaxUs_ = elapsedUs;
+        if (elapsedUs >= 5000U) ++slowTicks_;
+        if (otaBusy) {
+            if (elapsedUs > otaTickMaxUs_) otaTickMaxUs_ = elapsedUs;
+            if (elapsedUs >= 5000U) ++otaSlowTicks_;
+        }
+
         if (uint32_t(now - lastDiagnosticsMs_) < 60000U) return;
         lastDiagnosticsMs_ = now;
         ModbusMasterStats queue{};
