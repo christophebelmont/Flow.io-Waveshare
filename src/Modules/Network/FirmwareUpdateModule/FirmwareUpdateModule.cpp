@@ -6,6 +6,7 @@
 #include "FirmwareUpdateModule.h"
 #include "Core/CounterPersistence.h"
 #include "Core/RebootDiagnostics.h"
+#include "Core/OtaPsramPolicy.h"
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -1275,16 +1276,15 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
         // complete artifact BEFORE erasing/writing its inactive A/B partition.
         // Keep 2 MiB free for Wi-Fi, AsyncTCP, MQTT, web assets and other tasks.
         // If allocation is impossible, use the unchanged 1 KiB streaming path.
-        constexpr size_t kRamReserveBytes = 2U * 1024U * 1024U;
+        constexpr size_t kRamReserveBytes = OtaPsramPolicy::kReserveBytes;
         constexpr size_t kRamReadBytes = 1024U;
         constexpr size_t kRamHashBytes = 16U * 1024U;
         constexpr size_t kRamProgressBytes = 256U * 1024U;
         const size_t ramFreeBefore = heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         const size_t ramLargestBefore = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         std::unique_ptr<uint8_t, decltype(&heap_caps_free)> ramImage(nullptr, &heap_caps_free);
-        const bool enoughRam = ramFreeBefore >= kRamReserveBytes &&
-            expectedSize <= ramFreeBefore - kRamReserveBytes &&
-            ramLargestBefore >= expectedSize;
+        const bool enoughRam = OtaPsramPolicy::canStageImage(
+            expectedSize, ramFreeBefore, ramLargestBefore);
         if (enoughRam) {
             ramImage.reset(static_cast<uint8_t*>(
                 heap_caps_malloc(expectedSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
