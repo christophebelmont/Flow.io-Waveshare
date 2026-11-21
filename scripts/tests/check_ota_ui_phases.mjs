@@ -15,6 +15,7 @@ const load = path => readFileSync(join(root, path), "utf8");
 const js = load("data/webinterface/app.js");
 const cpp = load("src/Modules/Network/FirmwareUpdateModule/FirmwareUpdateModule.cpp");
 const header = load("src/Modules/Network/FirmwareUpdateModule/FirmwareUpdateModule.h");
+const server = load("src/Modules/Network/WebInterfaceModule/WebInterfaceServer.cpp");
 const names = [
   "upgradeIsPairedTarget",
   "upgradeStepDefinitions",
@@ -114,6 +115,11 @@ assert.match(header, /char otaStage\[28\]/);
 assert.match(header, /uint8_t otaStageProgress = 0U/);
 assert.match(cpp, /doc\["ota_stage"\] = snap\.otaStage/);
 assert.match(cpp, /doc\["ota_stage_progress"\] = snap\.otaStageProgress/);
+assert.match(cpp, /if \(measureJson\(doc\) >= outLen && snap\.otaStage\[0\] !=/);
+assert.match(server, /char out\[640\] = \{0\};/);
+assert.match(cpp, /if \(downloadPercent != lastUiPercent\)/);
+assert.match(cpp, /setOtaStage_\(nullptr, downloadPercent\)/);
+assert.match(cpp, /setOtaStage_\(nullptr, 0U\)/);
 assert.match(cpp, /setOtaStage_\("manifest", 0U\)/);
 assert.match(cpp, /setOtaStage_\(imageIndex == 0U \? "spiffs_download" : "firmware_download"/);
 assert.match(cpp, /setOtaStage_\(imageIndex == 0U \? "spiffs_write" : "firmware_write", 0U\)/);
