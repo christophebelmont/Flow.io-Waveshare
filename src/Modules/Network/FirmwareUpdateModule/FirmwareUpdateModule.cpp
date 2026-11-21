@@ -1262,6 +1262,15 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
     for (size_t imageIndex = 0U; success && imageIndex < 2U; ++imageIndex) {
         const auto target = targets[imageIndex];
         const uint32_t expectedSize = sizes[imageIndex];
+        // Update the UI before a potentially slow partition erase/esp_ota_begin.
+        // This stage is informative only; the verified A/B commit is unchanged.
+        const uint8_t preparedProgress = imageIndex == 0U ? 0U
+            : (uint8_t)(((uint64_t)fsSize * 100U) / ((uint64_t)fsSize + fwSize));
+        setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare,
+                   preparedProgress,
+                   imageIndex == 0U ? "preparing release filesystem"
+                                    : "preparing release firmware",
+                   job.operationId);
         // Prepare the inactive partition BEFORE starting the HTTP transfer,
         // so a lengthy flash erase cannot starve an open TCP download.
         LOGI("[OTA-TRACE] op=%lu target=%s stage=partition_prepare_start",
@@ -1399,6 +1408,14 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                      targetStr_(target), (unsigned long)flashed);
                 LOGI("[OTA-TRACE] op=%lu target=%s stage=image_verify_start",
                      (unsigned long)job.operationId, targetStr_(target));
+                const uint8_t verifyProgress = imageIndex == 0U
+                    ? (uint8_t)(((uint64_t)fsSize * 100U) / ((uint64_t)fsSize + fwSize))
+                    : 99U;
+                setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare,
+                           verifyProgress,
+                           imageIndex == 0U ? "verifying release filesystem"
+                                            : "verifying release firmware",
+                           job.operationId);
                 const uint32_t verifyStartedMs = millis();
                 success = endLocalImage_(transactionId, target, errOut, errOutLen);
                 LOGI("[OTA-TRACE] op=%lu target=%s stage=image_verify_end ms=%lu success=%u",
@@ -1414,6 +1431,8 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
     }
 
     if (success) {
+        setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare, 99U,
+                   "activating paired release", job.operationId);
         LOGI("[OTA-TRACE] op=%lu stage=commit_start", (unsigned long)job.operationId);
         otaMonitor_("commit_start");
         success = commitLocalRelease_(transactionId, errOut, errOutLen);
