@@ -1267,6 +1267,252 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
     for (size_t imageIndex = 0U; success && imageIndex < 2U; ++imageIndex) {
         const auto target = targets[imageIndex];
         const uint32_t expectedSize = sizes[imageIndex];
+
+        // Experimental preverified PSRAM mode. Download and validate each
+        // complete artifact BEFORE erasing/writing its inactive A/B partition.
+        // Keep 2 MiB free for Wi-Fi, AsyncTCP, MQTT, web assets and other tasks.
+        // If allocation is impossible, use the unchanged 1 KiB streaming path.
+        constexpr size_t kRamReserveBytes = 2U * 1024U * 1024U;
+        constexpr size_t kRamReadBytes = 1024U;
+        constexpr size_t kRamHashBytes = 16U * 1024U;
+        constexpr size_t kRamProgressBytes = 256U * 1024U;
+        const size_t ramFreeBefore = heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        const size_t ramLargestBefore = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        std::unique_ptr<uint8_t, decltype(&heap_caps_free)> ramImage(nullptr, &heap_caps_free);
+        const bool enoughRam = ramFreeBefore >= kRamReserveBytes &&
+            expectedSize <= ramFreeBefore - kRamReserveBytes &&
+            ramLargestBefore >= expectedSize;
+        if (enoughRam) {
+            ramImage.reset(static_cast<uint8_t*>(
+                heap_caps_malloc(expectedSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+        }
+        if (ramImage) {
+            const char* targetName = targetStr_(target);
+            const uint32_t downloadStartedMs = millis();
+            const uint8_t baseProgress = imageIndex == 0U ? 0U
+                : (uint8_t)(((uint64_t)fsSize * 100U) / ((uint64_t)fsSize + fwSize));
+            size_t received = 0U;
+            size_t lastLogged = 0U;
+            uint32_t lastProgressMs = millis();
+            uint32_t lastWaitLogMs = lastProgressMs;
+            const auto ramStage = imageIndex == 0U
+                ? RebootDiagnostics::OtaStage::SpiffsRamDownload
+                : RebootDiagnostics::OtaStage::FirmwareRamDownload;
+            const auto ramVerifyStage = imageIndex == 0U
+                ? RebootDiagnostics::OtaStage::SpiffsRamVerify
+                : RebootDiagnostics::OtaStage::FirmwareRamVerify;
+            RebootDiagnostics::noteOta(job.operationId, ramStage, 0U, expectedSize);
+            setStatus_(UpdateState::Downloading, FirmwareUpdateTarget::Waveshare,
+                       baseProgress, imageIndex == 0U ? "downloading filesystem to PSRAM"
+                                                    : "downloading firmware to PSRAM",
+                       job.operationId);
+            LOGI("[OTA-RAM] op=%lu target=%s stage=download_begin mode=psram size=%lu free_before=%lu largest_before=%lu free_after=%lu reserve=%lu",
+                 (unsigned long)job.operationId, targetName, (unsigned long)expectedSize,
+                 (unsigned long)ramFreeBefore, (unsigned long)ramLargestBefore,
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+                 (unsigned long)kRamReserveBytes);
+
+            HTTPClient ramHttp;
+            configureDownloadHttp_(ramHttp);
+            if (!ramHttp.begin(urls[imageIndex])) {
+                success = writeSimpleError_(errOut, errOutLen, "PSRAM artifact HTTP begin failed");
+            } else {
+                const int code = ramHttp.GET();
+                const int announced = ramHttp.getSize();
+                LOGI("[OTA-RAM] op=%lu target=%s stage=http_headers code=%d length=%d expected=%lu",
+                     (unsigned long)job.operationId, targetName, code, announced,
+                     (unsigned long)expectedSize);
+                if (code != HTTP_CODE_OK || announced <= 0 || (uint32_t)announced != expectedSize) {
+                    success = writeSimpleError_(errOut, errOutLen, "PSRAM artifact HTTP size mismatch");
+                } else {
+                    Stream* stream = ramHttp.getStreamPtr();
+                    while (success && received < expectedSize) {
+                        const size_t available = stream ? stream->available() : 0U;
+                        if (available == 0U) {
+                            const uint32_t idleMs = millis() - lastProgressMs;
+                            if (!ramHttp.connected() ||
+                                idleMs > Limits::FirmwareUpdate::Http::StreamReadTimeoutMs) {
+                                LOGE("[OTA-RAM] op=%lu target=%s stage=http_interrupted received=%lu/%lu idle_ms=%lu connected=%u",
+                                     (unsigned long)job.operationId, targetName,
+                                     (unsigned long)received, (unsigned long)expectedSize,
+                                     (unsigned long)idleMs, ramHttp.connected() ? 1U : 0U);
+                                success = writeSimpleError_(errOut, errOutLen, "PSRAM artifact download interrupted");
+                                break;
+                            }
+                            if (millis() - lastWaitLogMs >= 5000U) {
+                                LOGW("[OTA-RAM] op=%lu target=%s stage=http_waiting received=%lu/%lu idle_ms=%lu",
+                                     (unsigned long)job.operationId, targetName,
+                                     (unsigned long)received, (unsigned long)expectedSize,
+                                     (unsigned long)idleMs);
+                                lastWaitLogMs = millis();
+                            }
+                            vTaskDelay(1);
+                            continue;
+                        }
+                        size_t amount = available > kRamReadBytes ? kRamReadBytes : available;
+                        if (amount > expectedSize - received) amount = expectedSize - received;
+                        const int rd = stream->readBytes(
+                            reinterpret_cast<char*>(ramImage.get() + received), amount);
+                        if (rd <= 0) {
+                            if (!ramHttp.connected() ||
+                                millis() - lastProgressMs > Limits::FirmwareUpdate::Http::StreamReadTimeoutMs) {
+                                success = writeSimpleError_(errOut, errOutLen, "PSRAM artifact stream stalled");
+                                break;
+                            }
+                            vTaskDelay(1);
+                            continue;
+                        }
+                        received += (size_t)rd;
+                        lastProgressMs = millis();
+                        if (received - lastLogged >= kRamProgressBytes || received == expectedSize) {
+                            RebootDiagnostics::noteOta(job.operationId, ramStage,
+                                                       (uint32_t)received, expectedSize);
+                            const uint32_t completed = imageIndex == 0U ? (uint32_t)received
+                                                                          : fsSize + (uint32_t)received;
+                            const uint8_t downloadProgress = (uint8_t)(((uint64_t)completed * 100U) /
+                                                                       ((uint64_t)fsSize + fwSize));
+                            setStatus_(UpdateState::Downloading, FirmwareUpdateTarget::Waveshare,
+                                       downloadProgress,
+                                       imageIndex == 0U ? "downloading filesystem to PSRAM"
+                                                        : "downloading firmware to PSRAM",
+                                       job.operationId);
+                            LOGI("[OTA-RAM] op=%lu target=%s stage=download_progress received=%lu/%lu",
+                                 (unsigned long)job.operationId, targetName,
+                                 (unsigned long)received, (unsigned long)expectedSize);
+                            lastLogged = received;
+                        }
+                        vTaskDelay(1);
+                    }
+                    if (success && received != expectedSize) {
+                        success = writeSimpleError_(errOut, errOutLen, "PSRAM artifact incomplete");
+                    }
+                }
+                // Release the socket BEFORE any flash erase/write, including
+                // in failure paths; no Wi-Fi receive competes with flash.
+                ramHttp.end();
+            }
+            const uint32_t downloadMs = millis() - downloadStartedMs;
+            LOGI("[OTA-RAM] op=%lu target=%s stage=download_end success=%u bytes=%lu/%lu ms=%lu",
+                 (unsigned long)job.operationId, targetName, success ? 1U : 0U,
+                 (unsigned long)received, (unsigned long)expectedSize, (unsigned long)downloadMs);
+
+            uint32_t verifyMs = 0U;
+            if (success) {
+                const uint32_t verifyStarted = millis();
+                RebootDiagnostics::noteOta(job.operationId, ramVerifyStage, expectedSize, expectedSize);
+                setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare,
+                           baseProgress, imageIndex == 0U ? "SHA-256 filesystem in PSRAM"
+                                                        : "SHA-256 firmware in PSRAM",
+                           job.operationId);
+                mbedtls_sha256_context ramSha{};
+                mbedtls_sha256_init(&ramSha);
+                bool shaOk = mbedtls_sha256_starts(&ramSha, 0) == 0;
+                for (size_t offset = 0U; shaOk && offset < expectedSize;) {
+                    const size_t length = (expectedSize - offset) > kRamHashBytes
+                        ? kRamHashBytes : (expectedSize - offset);
+                    shaOk = mbedtls_sha256_update(&ramSha, ramImage.get() + offset, length) == 0;
+                    offset += length;
+                    vTaskDelay(1);
+                }
+                uint8_t digest[32]{};
+                if (shaOk) shaOk = mbedtls_sha256_finish(&ramSha, digest) == 0;
+                mbedtls_sha256_free(&ramSha);
+                const uint8_t* expectedSha = imageIndex == 0U
+                    ? localRelease_.filesystem.sha256 : localRelease_.firmware.sha256;
+                shaOk = shaOk && sha256Matches_(digest, expectedSha);
+                verifyMs = millis() - verifyStarted;
+                LOGI("[OTA-RAM] op=%lu target=%s stage=preverify_end sha256=%s ms=%lu flash_touched=0",
+                     (unsigned long)job.operationId, targetName, shaOk ? "OK" : "FAIL",
+                     (unsigned long)verifyMs);
+                if (!shaOk) {
+                    success = writeSimpleError_(errOut, errOutLen, "PSRAM artifact SHA-256 mismatch");
+                }
+            }
+
+            uint32_t prepareMs = 0U;
+            uint32_t writeMs = 0U;
+            uint32_t maxFlashUs = 0U;
+            uint32_t slowFlashWrites = 0U;
+            if (success) {
+                // Only after complete HTTP + manifest hash validation is the
+                // inactive partition erased. Write from a small INTERNAL
+                // buffer: PSRAM need not be readable during flash-cache stalls.
+                RebootDiagnostics::noteOta(job.operationId,
+                    imageIndex == 0U ? RebootDiagnostics::OtaStage::Spiffs
+                                     : RebootDiagnostics::OtaStage::Firmware, 0U, expectedSize);
+                LOGI("[OTA-RAM] op=%lu target=%s stage=flash_prepare_start", (unsigned long)job.operationId, targetName);
+                otaMonitor_(imageIndex == 0U ? "spiffs_prepare_start" : "firmware_prepare_start");
+                const uint32_t prepareStarted = millis();
+                success = beginLocalImage_(transactionId, target, expectedSize, errOut, errOutLen);
+                prepareMs = millis() - prepareStarted;
+                LOGI("[OTA-RAM] op=%lu target=%s stage=flash_prepare_end success=%u ms=%lu",
+                     (unsigned long)job.operationId, targetName, success ? 1U : 0U,
+                     (unsigned long)prepareMs);
+            }
+            if (success) {
+                const uint32_t writingStarted = millis();
+                uint8_t internalChunk[1024]{};
+                size_t flashed = 0U;
+                size_t lastFlashLog = 0U;
+                while (success && flashed < expectedSize) {
+                    const size_t amount = (expectedSize - flashed) > sizeof(internalChunk)
+                        ? sizeof(internalChunk) : (expectedSize - flashed);
+                    memcpy(internalChunk, ramImage.get() + flashed, amount);
+                    const uint32_t flashStartUs = micros();
+                    success = writeLocalImage_(transactionId, target, internalChunk, amount,
+                                               flashed, errOut, errOutLen);
+                    const uint32_t flashUs = (uint32_t)(micros() - flashStartUs);
+                    if (flashUs > maxFlashUs) maxFlashUs = flashUs;
+                    if (flashUs >= 20000U) ++slowFlashWrites;
+                    if (!success) {
+                        LOGE("[OTA-RAM] op=%lu target=%s stage=flash_error offset=%lu reason=%s",
+                             (unsigned long)job.operationId, targetName,
+                             (unsigned long)flashed, errOut ? errOut : "-");
+                        break;
+                    }
+                    flashed += amount;
+                    if (flashed - lastFlashLog >= kRamProgressBytes || flashed == expectedSize) {
+                        RebootDiagnostics::noteOta(job.operationId,
+                            imageIndex == 0U ? RebootDiagnostics::OtaStage::Spiffs
+                                             : RebootDiagnostics::OtaStage::Firmware,
+                            (uint32_t)flashed, expectedSize);
+                        LOGI("[OTA-RAM] op=%lu target=%s stage=flash_progress flashed=%lu/%lu flash_max_us=%lu slow20ms=%lu",
+                             (unsigned long)job.operationId, targetName,
+                             (unsigned long)flashed, (unsigned long)expectedSize,
+                             (unsigned long)maxFlashUs, (unsigned long)slowFlashWrites);
+                        otaMonitor_(imageIndex == 0U ? "spiffs_progress" : "firmware_progress");
+                        lastFlashLog = flashed;
+                    }
+                    vTaskDelay(1);
+                }
+                writeMs = millis() - writingStarted;
+            }
+            if (success) {
+                RebootDiagnostics::noteOta(job.operationId,
+                    imageIndex == 0U ? RebootDiagnostics::OtaStage::VerifySpiffs
+                                     : RebootDiagnostics::OtaStage::VerifyFirmware,
+                    expectedSize, expectedSize);
+                LOGI("[OTA-RAM] op=%lu target=%s stage=image_verify_start",
+                     (unsigned long)job.operationId, targetName);
+                success = endLocalImage_(transactionId, target, errOut, errOutLen);
+                LOGI("[OTA-RAM] op=%lu target=%s stage=image_verify_end success=%u",
+                     (unsigned long)job.operationId, targetName, success ? 1U : 0U);
+            }
+            LOGI("[OTA-RAM] op=%lu target=%s stage=image_end mode=psram success=%u download_ms=%lu preverify_ms=%lu flash_prepare_ms=%lu flash_write_ms=%lu flash_max_us=%lu free_psram=%lu",
+                 (unsigned long)job.operationId, targetName, success ? 1U : 0U,
+                 (unsigned long)downloadMs, (unsigned long)verifyMs,
+                 (unsigned long)prepareMs, (unsigned long)writeMs,
+                 (unsigned long)maxFlashUs,
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+            // Loop condition gates the next image and final A/B commit on success.
+            // A failed download/hash never touches that image's inactive flash.
+            continue;
+        }
+        LOGW("[OTA-RAM] op=%lu target=%s stage=fallback_stream reason=psram_reserve_or_alloc size=%lu free=%lu largest=%lu reserve=%lu",
+             (unsigned long)job.operationId, targetStr_(target),
+             (unsigned long)expectedSize, (unsigned long)ramFreeBefore,
+             (unsigned long)ramLargestBefore, (unsigned long)kRamReserveBytes);
+        // Legacy low-memory path: original HTTP -> 1 KiB flash streaming.
         // Update the UI before a potentially slow partition erase/esp_ota_begin.
         // This stage is informative only; the verified A/B commit is unchanged.
         const uint8_t preparedProgress = imageIndex == 0U ? 0U
