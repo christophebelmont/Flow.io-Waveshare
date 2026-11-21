@@ -1267,6 +1267,9 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
     for (size_t imageIndex = 0U; success && imageIndex < 2U; ++imageIndex) {
         const auto target = targets[imageIndex];
         const uint32_t expectedSize = sizes[imageIndex];
+        // One 1 KiB INTERNAL stack buffer is shared by the PSRAM replay and
+        // legacy streaming paths; do not double OTA task-stack usage.
+        uint8_t chunk[1024]{};
 
         // Experimental preverified PSRAM mode. Download and validate each
         // complete artifact BEFORE erasing/writing its inactive A/B partition.
@@ -1451,15 +1454,14 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
             }
             if (success) {
                 const uint32_t writingStarted = millis();
-                uint8_t internalChunk[1024]{};
                 size_t flashed = 0U;
                 size_t lastFlashLog = 0U;
                 while (success && flashed < expectedSize) {
-                    const size_t amount = (expectedSize - flashed) > sizeof(internalChunk)
-                        ? sizeof(internalChunk) : (expectedSize - flashed);
-                    memcpy(internalChunk, ramImage.get() + flashed, amount);
+                    const size_t amount = (expectedSize - flashed) > sizeof(chunk)
+                        ? sizeof(chunk) : (expectedSize - flashed);
+                    memcpy(chunk, ramImage.get() + flashed, amount);
                     const uint32_t flashStartUs = micros();
-                    success = writeLocalImage_(transactionId, target, internalChunk, amount,
+                    success = writeLocalImage_(transactionId, target, chunk, amount,
                                                flashed, errOut, errOutLen);
                     const uint32_t flashUs = (uint32_t)(micros() - flashStartUs);
                     if (flashUs > maxFlashUs) maxFlashUs = flashUs;
@@ -1560,7 +1562,6 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                 success = writeSimpleError_(errOut, errOutLen, "release artifact HTTP size mismatch");
             } else {
                 Stream* stream = artifactHttp.getStreamPtr();
-                uint8_t chunk[1024]{};
                 size_t received = 0U;
                 uint32_t lastProgressMs = millis();
                 uint32_t lastLogMs = lastProgressMs;
