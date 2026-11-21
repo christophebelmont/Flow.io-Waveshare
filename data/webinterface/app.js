@@ -3637,13 +3637,13 @@
     function upgradePhaseTitle(session) {
       const phase = String(session && session.phase ? session.phase : 'idle');
       if (phase === 'target') return tr('updates.title.target', 'Préparation de la mise à jour');
-      if (phase === 'download') return tr('updates.title.download', 'Téléchargement de la mise à jour');
       if (upgradeIsPairedTarget(session && session.target) &&
           (phase === 'download' || phase === 'flash')) {
         const index = upgradePairedOtaStageIndex(session);
         const stages = upgradeStepDefinitions(session.target);
         if (index !== null && stages[index]) return stages[index].label;
       }
+      if (phase === 'download') return tr('updates.title.download', 'Téléchargement de la mise à jour');
       if (phase === 'flash') {
         const paired = upgradeIsPairedTarget(session && session.target);
         return paired ? tr('updates.title.paired', 'Mise à jour du firmware et du SPIFFS')
@@ -4100,6 +4100,9 @@
       const target = String(data.target || (current && current.target) || '').trim().toLowerCase();
       const progress = Math.max(0, Math.min(100, Number(data.progress) || 0));
       const msg = String(data.msg || '').trim();
+      const otaBackendStage = String(data.ota_stage || '').trim().toLowerCase();
+      const otaBackendStepProgress = Math.max(0, Math.min(100,
+        Number(data.ota_stage_progress) || 0));
       const operationId = Number(data.operation_id) > 0 ? Number(data.operation_id) : 0;
       const bootId = Number(data.boot_id) > 0 ? Number(data.boot_id) : 0;
       const currentOperationId = Number(current && current.operationId) > 0
@@ -4190,6 +4193,8 @@
           phase: 'target',
           target: target,
           backendMessage: msg,
+          otaBackendStage: '',
+          otaBackendStepProgress: 0,
           detail: tr('updates.detail.targetSelected', 'Sélection de la cible {target}.')
             .replace('{target}', upgradeTargetLabel(target)),
           backendProgress: progress,
@@ -4209,7 +4214,12 @@
           phase: 'download',
           target: target,
           backendMessage: msg,
-          detail: 'Connexion au serveur.',
+          otaBackendStage: otaBackendStage,
+          otaBackendStepProgress: otaBackendStepProgress,
+          detail: upgradeIsPairedTarget(target)
+            ? upgradePairedPhaseDetail(target, 'download', otaBackendStage,
+                                       otaBackendStepProgress, msg)
+            : 'Connexion au serveur.',
           backendProgress: progress,
           awaitingReconnect: false,
           reconnectShown: false,
@@ -4227,7 +4237,12 @@
           phase: 'flash',
           target: target,
           backendMessage: msg,
-          detail: 'Mise à jour en cours.',
+          otaBackendStage: otaBackendStage,
+          otaBackendStepProgress: otaBackendStepProgress,
+          detail: upgradeIsPairedTarget(target)
+            ? upgradePairedPhaseDetail(target, 'flash', otaBackendStage,
+                                       otaBackendStepProgress, msg)
+            : 'Mise à jour en cours.',
           backendProgress: progress,
           awaitingReconnect: false,
           reconnectShown: false,
