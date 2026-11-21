@@ -859,6 +859,7 @@ body.web-icons-disabled .control-field-apply{font-size:15px;font-weight:800;lett
   .updates-progress-panel{grid-template-columns:auto minmax(0,1fr);}
   .updates-progress-side{grid-column:1 / -1;justify-content:flex-end;}
   .updates-results-head{flex-direction:column;align-items:stretch;}
+  .updates-results-status-wrap{max-width:none;text-align:left;}
   .updates-results-status{max-width:none;text-align:left;}
   .update-summary-card{min-height:0;padding:18px 16px 16px;grid-template-columns:auto minmax(0,1fr) auto;}
   .update-summary-card::after{left:16px;right:16px;bottom:52px;}
