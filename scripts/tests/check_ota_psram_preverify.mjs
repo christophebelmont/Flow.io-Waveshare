@@ -54,7 +54,7 @@ assert.match(ram, /if \(!shaOk\) \{\s*success = writeSimpleError_/);
 assert.match(ram, /if \(success\) \{\s*\/\/ Only after complete HTTP/);
 assert.match(ram, /RebootDiagnostics::OtaStage::SpiffsRamDownload/);
 assert.match(ram, /RebootDiagnostics::OtaStage::FirmwareRamVerify/);
-assert.match(ram, /stage=http_interrupted/);
+assert.match(ram, /stage=interrupted/);
 assert.match(ram, /stage=image_end mode=psram/);
 assert.match(ota.slice(fallback, commit), /uint32_t maxFlashWriteUs = 0U/);
 assert.match(ota.slice(fallback, commit), /writeLocalImage_\(transactionId, target, chunk, \(size_t\)rd/);
