@@ -92,6 +92,10 @@ const char* stageName_(uint32_t stage)
         case OtaStage::VerifySpiffs: return "spiffs_verify";
         case OtaStage::VerifyFirmware: return "firmware_verify";
         case OtaStage::Commit: return "commit";
+        case OtaStage::SpiffsRamDownload: return "spiffs_ram_download";
+        case OtaStage::FirmwareRamDownload: return "firmware_ram_download";
+        case OtaStage::SpiffsRamVerify: return "spiffs_ram_verify";
+        case OtaStage::FirmwareRamVerify: return "firmware_ram_verify";
         default: return "none";
     }
 }
