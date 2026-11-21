@@ -1305,7 +1305,10 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                 ? RebootDiagnostics::OtaStage::SpiffsRamVerify
                 : RebootDiagnostics::OtaStage::FirmwareRamVerify;
             RebootDiagnostics::noteOta(job.operationId, ramStage, 0U, expectedSize);
-            setStatus_(UpdateState::Downloading, FirmwareUpdateTarget::Waveshare,
+            // Keep the overall percentage tied to bytes committed to A/B,
+            // rather than jumping forward during RAM receipt and then back
+            // when flash writing begins. UI remains on the paired OTA track.
+            setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare,
                        baseProgress, imageIndex == 0U ? "downloading filesystem to PSRAM"
                                                     : "downloading firmware to PSRAM",
                        job.operationId);
@@ -1370,12 +1373,10 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                         if (received - lastLogged >= kRamProgressBytes || received == expectedSize) {
                             RebootDiagnostics::noteOta(job.operationId, ramStage,
                                                        (uint32_t)received, expectedSize);
-                            const uint32_t completed = imageIndex == 0U ? (uint32_t)received
-                                                                          : fsSize + (uint32_t)received;
-                            const uint8_t downloadProgress = (uint8_t)(((uint64_t)completed * 100U) /
-                                                                       ((uint64_t)fsSize + fwSize));
-                            setStatus_(UpdateState::Downloading, FirmwareUpdateTarget::Waveshare,
-                                       downloadProgress,
+                            // Log RAM transfer bytes, but do not count them as
+                            // flashed/installed bytes in the global percentage.
+                            setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare,
+                                       baseProgress,
                                        imageIndex == 0U ? "downloading filesystem to PSRAM"
                                                         : "downloading firmware to PSRAM",
                                        job.operationId);
