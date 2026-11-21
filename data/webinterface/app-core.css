@@ -459,6 +459,10 @@ body.web-icons-disabled .status-flag-check.is-true{font-size:13px;}
 .updates-results-icon .ui-msr{display:inline-flex;align-items:center;justify-content:center;font-size:24px;}
 .updates-results-title h2{margin:0;font-size:18px;font-weight:820;color:var(--text);line-height:1.2;}
 .updates-results-title p{margin:4px 0 0;font-size:13px;line-height:1.4;color:var(--text-muted);}
+.updates-results-status-wrap{max-width:360px;text-align:right;line-height:1.4;}
+.updates-results-status-wrap .updates-results-status{max-width:none;}
+.updates-reload-countdown{margin-top:4px;font-size:12px;font-weight:700;color:var(--primary);line-height:1.4;}
+.updates-reload-countdown[hidden]{display:none;}
 .updates-results-status{max-width:360px;text-align:right;line-height:1.4;}
 :root[data-theme="dark"] .updates-source-server{border-color:var(--border);box-shadow:var(--shadow);}
 .field-switch{display:flex;align-items:center;min-height:42px;}
