@@ -1356,6 +1356,7 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                 : (uint8_t)(((uint64_t)fsSize * 100U) / ((uint64_t)fsSize + fwSize));
             size_t received = 0U;
             size_t lastLogged = 0U;
+            uint8_t lastUiPercent = 0U;
             uint32_t lastProgressMs = millis();
             uint32_t lastWaitLogMs = lastProgressMs;
             const auto ramStage = imageIndex == 0U
@@ -1425,6 +1426,8 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                                  (unsigned long)job.operationId, targetName, attempt);
                             received = 0U;
                             lastLogged = 0U;
+                            lastUiPercent = 0U;
+                            setOtaStage_(nullptr, 0U);
                         }
                         Stream* stream = ramHttp.getStreamPtr();
                         lastProgressMs = millis();
@@ -1471,6 +1474,14 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                             }
                             received += (size_t)rd;
                             lastProgressMs = millis();
+                            // Refresh the UI in 1% increments without emitting
+                            // extra 1 KiB network logs or status JSON traffic.
+                            const uint8_t downloadPercent =
+                                (uint8_t)(((uint64_t)received * 100U) / expectedSize);
+                            if (downloadPercent != lastUiPercent) {
+                                setOtaStage_(nullptr, downloadPercent);
+                                lastUiPercent = downloadPercent;
+                            }
                             if (received - lastLogged >= kRamProgressBytes ||
                                 received == expectedSize) {
                                 RebootDiagnostics::noteOta(job.operationId, ramStage,
