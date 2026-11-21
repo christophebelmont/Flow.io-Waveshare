@@ -25,7 +25,11 @@ enum class OtaStage : uint32_t {
     Firmware = 3,
     VerifySpiffs = 4,
     VerifyFirmware = 5,
-    Commit = 6
+    Commit = 6,
+    SpiffsRamDownload = 7,
+    FirmwareRamDownload = 8,
+    SpiffsRamVerify = 9,
+    FirmwareRamVerify = 10
 };
 
 // Records a checkpoint without altering OTA state or doing flash I/O.
