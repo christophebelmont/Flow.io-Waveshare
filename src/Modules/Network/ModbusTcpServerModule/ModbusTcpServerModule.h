@@ -98,7 +98,12 @@ public:
                     MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
                 const uint32_t largestInternal = heap_caps_get_largest_free_block(
                     MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-                // Keep this high-value diagnostic off Print::printf’s dynamic\n                // formatting path: a fixed stack buffer avoids extra heap\n                // churn precisely when low internal RAM is suspected.\n                char otaNetLine[320]{};\n                const int otaLineBytes = snprintf(otaNetLine, sizeof(otaNetLine),\n                              "[OTA-NET] ms=%lu core=%d enabled=%u%u%u clients=%u,%u,%u rxreq=%lu,%lu,%lu txreply=%lu,%lu,%lu rtu_queue=%u rejected=%lu tick_peak_us=%lu slow_ticks=%lu internal=%lu largest=%lu psram=%lu stack_free=%lu\n",
+                // Keep this high-value diagnostic off Print::printf’s dynamic
+                // formatting path: a fixed stack buffer avoids extra heap
+                // churn precisely when low internal RAM is suspected.
+                char otaNetLine[320]{};
+                const int otaLineBytes = snprintf(otaNetLine, sizeof(otaNetLine),
+                              "[OTA-NET] ms=%lu core=%d enabled=%u%u%u clients=%u,%u,%u rxreq=%lu,%lu,%lu txreply=%lu,%lu,%lu rtu_queue=%u rejected=%lu tick_peak_us=%lu slow_ticks=%lu internal=%lu largest=%lu psram=%lu stack_free=%lu\n",
                               (unsigned long)now, (int)xPortGetCoreID(),
                               configs_[0].enabled ? 1U : 0U,
                               configs_[1].enabled ? 1U : 0U,
