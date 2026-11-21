@@ -140,6 +140,7 @@ Run the source-contract regression:
 ```bash
 node scripts/tests/check_ota_psram_preverify.mjs
 node scripts/tests/check_ota_http_retry.mjs
+node scripts/tests/check_ota_ui_phases.mjs
 ```
 
 The test optionally compiles the PSRAM reserve policy with a host C++ compiler.
