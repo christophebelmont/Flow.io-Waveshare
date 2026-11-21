@@ -1161,30 +1161,55 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                                             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)),
         &heap_caps_free);
     if (!manifest) return writeSimpleError_(errOut, errOutLen, "paired release manifest memory unavailable");
-    HTTPClient manifestHttp;
-    configureDownloadHttp_(manifestHttp);
-    if (!manifestHttp.begin(job.url)) {
-        return writeSimpleError_(errOut, errOutLen, "paired release manifest HTTP begin failed");
+    // Even the small release manifest receives up to three attempts.
+    // Restart from zero rather than requesting a partial JSON document.
+    size_t manifestLen = 0U;
+    bool manifestReady = false;
+    bool manifestPermanentError = false;
+    for (unsigned attempt = 1U;
+         !manifestReady && !manifestPermanentError &&
+         attempt <= OtaHttpRetryPolicy::kMaxAttempts; ++attempt) {
+        LOGI("[OTA-HTTP] op=%lu target=manifest attempt=%u/%u offset=0",
+             (unsigned long)job.operationId, attempt, OtaHttpRetryPolicy::kMaxAttempts);
+        HTTPClient manifestHttp;
+        configureDownloadHttp_(manifestHttp);
+        if (!manifestHttp.begin(job.url)) {
+            LOGW("[OTA-HTTP] op=%lu target=manifest attempt=%u stage=begin_failed",
+                 (unsigned long)job.operationId, attempt);
+        } else {
+            const int code = manifestHttp.GET();
+            const int manifestSize = manifestHttp.getSize();
+            if (code == HTTP_CODE_OK && manifestSize > 0 &&
+                manifestSize <= (int)kManifestCapacity) {
+                BoundedBufferStream sink(manifest.get(), kManifestCapacity);
+                const int manifestRead = manifestHttp.writeToStream(&sink);
+                manifestLen = sink.length();
+                manifestReady = !sink.overflowed() && manifestRead >= 0 &&
+                                manifestLen == (size_t)manifestSize;
+            } else if (!OtaHttpRetryPolicy::isRetryableStatus(code)) {
+                // A genuine 404, bad authorization or malformed manifest
+                // length will not become valid merely by retrying.
+                manifestPermanentError = true;
+            }
+            LOGI("[OTA-HTTP] op=%lu target=manifest attempt=%u code=%d length=%d received=%lu valid=%u",
+                 (unsigned long)job.operationId, attempt, code, manifestSize,
+                 (unsigned long)manifestLen, manifestReady ? 1U : 0U);
+            manifestHttp.end();
+        }
+        if (!manifestReady && !manifestPermanentError &&
+            attempt < OtaHttpRetryPolicy::kMaxAttempts) {
+            LOGW("[OTA-HTTP] op=%lu target=manifest stage=retry_scheduled next=%u/%u",
+                 (unsigned long)job.operationId, attempt + 1U,
+                 OtaHttpRetryPolicy::kMaxAttempts);
+            vTaskDelay(pdMS_TO_TICKS(OtaHttpRetryPolicy::kRetryDelayMs));
+        }
     }
-    const int manifestCode = manifestHttp.GET();
-    const int manifestSize = manifestHttp.getSize();
-    if (manifestCode != HTTP_CODE_OK || manifestSize <= 0 ||
-        manifestSize > (int)kManifestCapacity) {
-        manifestHttp.end();
-        return writeSimpleError_(errOut, errOutLen, "paired release manifest unavailable or invalid size");
-    }
-    BoundedBufferStream sink(manifest.get(), kManifestCapacity);
-    const int manifestRead = manifestHttp.writeToStream(&sink);
-    const size_t manifestLen = sink.length();
-    const bool manifestBad = sink.overflowed() || manifestRead < 0 ||
-                             manifestLen != (size_t)manifestSize;
-    manifestHttp.end();
-    LOGI("[OTA-TRACE] op=%lu stage=manifest_complete got=%lu expected=%d valid=%u",
-         (unsigned long)job.operationId, (unsigned long)manifestLen,
-         manifestSize, manifestBad ? 0U : 1U);
+    LOGI("[OTA-TRACE] op=%lu stage=manifest_complete got=%lu valid=%u",
+         (unsigned long)job.operationId, (unsigned long)manifestLen, manifestReady ? 1U : 0U);
     otaMonitor_("manifest_complete");
-    if (manifestBad) {
-        return writeSimpleError_(errOut, errOutLen, "paired release manifest transfer incomplete");
+    if (!manifestReady) {
+        return writeSimpleError_(errOut, errOutLen,
+                                 "paired release manifest transfer failed after HTTP retries");
     }
     manifest.get()[manifestLen] = '\0';
     LOGI("[OTA] manifest received bytes=%u stack_free_bytes=%u internal_ram=%u",
