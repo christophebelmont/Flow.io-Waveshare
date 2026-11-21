@@ -3550,6 +3550,12 @@
       if (phase === 'reboot') return 9;
       if (phase === 'reconnect' || phase === 'done') return 10;
       if (phase !== 'flash') return null;
+      // Experimental PSRAM-preverified OTA: each artifact is received and
+      // hashed before it is flashed. Keep stages in monotonic A/B order.
+      if (msg.includes('downloading filesystem to psram') ||
+          msg.includes('sha-256 filesystem in psram')) return 2;
+      if (msg.includes('downloading firmware to psram') ||
+          msg.includes('sha-256 firmware in psram')) return 5;
       if (msg.includes('preparing release filesystem')) return 2;
       if (msg.includes('writing release filesystem')) return 3;
       if (msg.includes('verifying release filesystem')) return 4;
