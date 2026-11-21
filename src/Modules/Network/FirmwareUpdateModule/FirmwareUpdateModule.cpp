@@ -531,7 +531,9 @@ void FirmwareUpdateModule::setOtaStage_(const char* stage, uint8_t phaseProgress
     // current HTTP-download/flash-write phase. All readers see a coherent
     // snapshot via statusJson_'s existing critical section.
     portENTER_CRITICAL(&lock_);
-    snprintf(status_.otaStage, sizeof(status_.otaStage), "%s", stage ? stage : "");
+    // A null stage advances the active image's write percentage without
+    // changing its mode (PSRAM replay versus concurrent HTTP streaming).
+    if (stage) snprintf(status_.otaStage, sizeof(status_.otaStage), "%s", stage);
     status_.otaStageProgress = phaseProgress > 100U ? 100U : phaseProgress;
     status_.updatedAtMs = millis();
     portEXIT_CRITICAL(&lock_);
@@ -1174,6 +1176,7 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                0U, "downloading paired release manifest", job.operationId);
     RebootDiagnostics::noteOta(job.operationId, RebootDiagnostics::OtaStage::Manifest);
     LOGI("[OTA-TRACE] op=%lu stage=manifest_start", (unsigned long)job.operationId);
+    setOtaStage_("manifest", 0U);
     otaMonitor_("manifest_start");
 
     constexpr size_t kManifestCapacity = 1024U;
@@ -1229,6 +1232,7 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
     LOGI("[OTA-TRACE] op=%lu stage=manifest_complete got=%lu valid=%u",
          (unsigned long)job.operationId, (unsigned long)manifestLen, manifestReady ? 1U : 0U);
     otaMonitor_("manifest_complete");
+    if (manifestReady) setOtaStage_("manifest", 100U);
     if (!manifestReady) {
         return writeSimpleError_(errOut, errOutLen,
                                  "paired release manifest transfer failed after HTTP retries");
@@ -1356,10 +1360,11 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
             // Keep the overall percentage tied to bytes committed to A/B,
             // rather than jumping forward during RAM receipt and then back
             // when flash writing begins. UI remains on the paired OTA track.
-            setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare,
+            setStatus_(UpdateState::Downloading, FirmwareUpdateTarget::Waveshare,
                        baseProgress, imageIndex == 0U ? "downloading filesystem to PSRAM"
                                                     : "downloading firmware to PSRAM",
                        job.operationId);
+            setOtaStage_(imageIndex == 0U ? "spiffs_download" : "firmware_download", 0U);
             LOGI("[OTA-RAM] op=%lu target=%s stage=download_begin mode=psram size=%lu free_before=%lu largest_before=%lu free_after=%lu reserve=%lu",
                  (unsigned long)job.operationId, targetName, (unsigned long)expectedSize,
                  (unsigned long)ramFreeBefore, (unsigned long)ramLargestBefore,
@@ -1462,11 +1467,13 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                                 received == expectedSize) {
                                 RebootDiagnostics::noteOta(job.operationId, ramStage,
                                                            (uint32_t)received, expectedSize);
-                                setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare,
+                                setStatus_(UpdateState::Downloading, FirmwareUpdateTarget::Waveshare,
                                            baseProgress,
                                            imageIndex == 0U ? "downloading filesystem to PSRAM"
                                                             : "downloading firmware to PSRAM",
                                            job.operationId);
+                                setOtaStage_(imageIndex == 0U ? "spiffs_download" : "firmware_download",
+                                    (uint8_t)(((uint64_t)received * 100U) / expectedSize));
                                 LOGI("[OTA-RAM] op=%lu target=%s stage=download_progress received=%lu/%lu attempt=%u",
                                      (unsigned long)job.operationId, targetName,
                                      (unsigned long)received, (unsigned long)expectedSize, attempt);
@@ -1499,6 +1506,7 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                 vTaskDelay(pdMS_TO_TICKS(OtaHttpRetryPolicy::kRetryDelayMs));
             }
             const uint32_t downloadMs = millis() - downloadStartedMs;
+            if (success) setOtaStage_(imageIndex == 0U ? "spiffs_download" : "firmware_download", 100U);
             LOGI("[OTA-RAM] op=%lu target=%s stage=download_end success=%u bytes=%lu/%lu ms=%lu",
                  (unsigned long)job.operationId, targetName, success ? 1U : 0U,
                  (unsigned long)received, (unsigned long)expectedSize, (unsigned long)downloadMs);
@@ -1511,6 +1519,7 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                            baseProgress, imageIndex == 0U ? "SHA-256 filesystem in PSRAM"
                                                         : "SHA-256 firmware in PSRAM",
                            job.operationId);
+                setOtaStage_(imageIndex == 0U ? "spiffs_ram_verify" : "firmware_ram_verify", 0U);
                 mbedtls_sha256_context ramSha{};
                 mbedtls_sha256_init(&ramSha);
                 bool shaOk = mbedtls_sha256_starts(&ramSha, 0) == 0;
@@ -1533,6 +1542,8 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                      (unsigned long)verifyMs);
                 if (!shaOk) {
                     success = writeSimpleError_(errOut, errOutLen, "PSRAM artifact SHA-256 mismatch");
+                } else {
+                    setOtaStage_(imageIndex == 0U ? "spiffs_ram_verify" : "firmware_ram_verify", 100U);
                 }
             }
 
@@ -1547,6 +1558,10 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                 RebootDiagnostics::noteOta(job.operationId,
                     imageIndex == 0U ? RebootDiagnostics::OtaStage::Spiffs
                                      : RebootDiagnostics::OtaStage::Firmware, 0U, expectedSize);
+                setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare,
+                           baseProgress, imageIndex == 0U ? "preparing release filesystem"
+                                                        : "preparing release firmware", job.operationId);
+                setOtaStage_(imageIndex == 0U ? "spiffs_prepare" : "firmware_prepare", 0U);
                 LOGI("[OTA-RAM] op=%lu target=%s stage=flash_prepare_start", (unsigned long)job.operationId, targetName);
                 otaMonitor_(imageIndex == 0U ? "spiffs_prepare_start" : "firmware_prepare_start");
                 const uint32_t prepareStarted = millis();
@@ -1557,6 +1572,7 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                      (unsigned long)prepareMs);
             }
             if (success) {
+                setOtaStage_(imageIndex == 0U ? "spiffs_write" : "firmware_write", 0U);
                 const uint32_t writingStarted = millis();
                 size_t flashed = 0U;
                 size_t lastFlashLog = 0U;
@@ -1598,11 +1614,18 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                     imageIndex == 0U ? RebootDiagnostics::OtaStage::VerifySpiffs
                                      : RebootDiagnostics::OtaStage::VerifyFirmware,
                     expectedSize, expectedSize);
+                setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare,
+                           imageIndex == 0U ? (uint8_t)(((uint64_t)fsSize * 100U) / ((uint64_t)fsSize + fwSize))
+                                            : 99U,
+                           imageIndex == 0U ? "verifying release filesystem" : "verifying release firmware",
+                           job.operationId);
+                setOtaStage_(imageIndex == 0U ? "spiffs_verify" : "firmware_verify", 0U);
                 LOGI("[OTA-RAM] op=%lu target=%s stage=image_verify_start",
                      (unsigned long)job.operationId, targetName);
                 success = endLocalImage_(transactionId, target, errOut, errOutLen);
                 LOGI("[OTA-RAM] op=%lu target=%s stage=image_verify_end success=%u",
                      (unsigned long)job.operationId, targetName, success ? 1U : 0U);
+                if (success) setOtaStage_(imageIndex == 0U ? "spiffs_verify" : "firmware_verify", 100U);
             }
             LOGI("[OTA-RAM] op=%lu target=%s stage=image_end mode=psram success=%u download_ms=%lu preverify_ms=%lu flash_prepare_ms=%lu flash_write_ms=%lu flash_max_us=%lu free_psram=%lu",
                  (unsigned long)job.operationId, targetName, success ? 1U : 0U,
