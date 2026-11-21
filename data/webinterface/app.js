@@ -44,6 +44,7 @@
     const flowWebThemeStorageKey = 'flow_web_theme';
     const deferredVisualAssetsStateKey = 'flow_web_deferred_visual_assets';
     const upgradeUiSessionStorageKey = 'flow_upgrade_ui_session';
+    const upgradeSuccessReloadStorageKey = 'flow_upgrade_success_reloaded';
     const upgradeStatusPollActiveMs = 900;
     const upgradeStatusPollReconnectMs = 5000;
     const upgradeStatusPollDoneMs = 7000;
@@ -3845,6 +3846,33 @@
       });
     }
 
+    function scheduleUpgradeReloadAfterSuccess(operationId, target) {
+      // Only a matching post-boot success receipt may get here. A "done"
+      // status before restart is not sufficient: the new SPIFFS assets
+      // may not be available until the ESP32 boots into the new release.
+      if (!upgradeUsesReconnect(target)) return false;
+      const id = Number(operationId);
+      if (!Number.isSafeInteger(id) || id <= 0) return false;
+      const token = String(target || '').trim().toLowerCase() + ':' + String(id);
+      try {
+        // sessionStorage survives a navigation in this tab; record the token
+        // BEFORE scheduling so repeated status polls cannot trigger a loop.
+        if (sessionStorage.getItem(upgradeSuccessReloadStorageKey) === token) return false;
+        sessionStorage.setItem(upgradeSuccessReloadStorageKey, token);
+      } catch (err) {
+        // If storage is disabled, skip auto-reload rather than risk a loop.
+        return false;
+      }
+      setTimeout(() => {
+        // The operator might start a new update during this brief delay.
+        const latest = readUpgradeUiSession();
+        if (latest && latest.phase === 'done' && Number(latest.operationId) === id) {
+          window.location.reload();
+        }
+      }, 1200);
+      return true;
+    }
+
     function markUpgradeUiCompletedAfterReceipt(target) {
       const current = readUpgradeUiSession();
       if (!current) return null;
@@ -3959,7 +3987,9 @@
       const receiptResult = receiptMatches ? String(receipt.result || '') : '';
 
       if (receiptResult === 'succeeded') {
-        markUpgradeUiCompletedAfterReceipt(String(receipt.target || target));
+        const completedTarget = String(receipt.target || target);
+        markUpgradeUiCompletedAfterReceipt(completedTarget);
+        scheduleUpgradeReloadAfterSuccess(currentOperationId, completedTarget);
         return;
       }
       if (receiptResult === 'failed' || receiptResult === 'interrupted') {
