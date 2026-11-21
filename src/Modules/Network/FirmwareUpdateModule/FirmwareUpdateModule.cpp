@@ -5,6 +5,7 @@
 
 #include "FirmwareUpdateModule.h"
 #include "Core/CounterPersistence.h"
+#include "Core/RebootDiagnostics.h"
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -1144,6 +1145,7 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
     // downloaded from one manifest and committed with ONE reboot.
     setStatus_(UpdateState::Downloading, FirmwareUpdateTarget::Waveshare,
                0U, "downloading paired release manifest", job.operationId);
+    RebootDiagnostics::noteOta(job.operationId, RebootDiagnostics::OtaStage::Manifest);
     LOGI("[OTA-TRACE] op=%lu stage=manifest_start", (unsigned long)job.operationId);
     otaMonitor_("manifest_start");
 
@@ -1273,6 +1275,10 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                    job.operationId);
         // Prepare the inactive partition BEFORE starting the HTTP transfer,
         // so a lengthy flash erase cannot starve an open TCP download.
+        RebootDiagnostics::noteOta(job.operationId,
+            imageIndex == 0U ? RebootDiagnostics::OtaStage::Spiffs
+                             : RebootDiagnostics::OtaStage::Firmware,
+            0U, expectedSize);
         LOGI("[OTA-TRACE] op=%lu target=%s stage=partition_prepare_start",
              (unsigned long)job.operationId, targetStr_(target));
         otaMonitor_(imageIndex == 0U ? "spiffs_prepare_start" : "firmware_prepare_start");
@@ -1364,6 +1370,10 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                     lastProgressMs = millis();
                     if (received - lastLoggedBytes >= 256U * 1024U ||
                         received == expectedSize) {
+                        RebootDiagnostics::noteOta(job.operationId,
+                            imageIndex == 0U ? RebootDiagnostics::OtaStage::Spiffs
+                                             : RebootDiagnostics::OtaStage::Firmware,
+                            (uint32_t)received, expectedSize);
                         LOGI("[OTA-TRACE] op=%lu target=%s stage=stream_progress received=%lu/%lu flash_max_us=%lu flash_slow20ms=%lu",
                              (unsigned long)job.operationId, targetStr_(target),
                              (unsigned long)received, (unsigned long)expectedSize,
@@ -1406,6 +1416,10 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
             } else {
                 LOGI("[OTA] transport and flash counters match target=%s bytes=%lu",
                      targetStr_(target), (unsigned long)flashed);
+                RebootDiagnostics::noteOta(job.operationId,
+                    imageIndex == 0U ? RebootDiagnostics::OtaStage::VerifySpiffs
+                                     : RebootDiagnostics::OtaStage::VerifyFirmware,
+                    expectedSize, expectedSize);
                 LOGI("[OTA-TRACE] op=%lu target=%s stage=image_verify_start",
                      (unsigned long)job.operationId, targetStr_(target));
                 const uint8_t verifyProgress = imageIndex == 0U
@@ -1431,6 +1445,7 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
     }
 
     if (success) {
+        RebootDiagnostics::noteOta(job.operationId, RebootDiagnostics::OtaStage::Commit);
         setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare, 99U,
                    "activating paired release", job.operationId);
         LOGI("[OTA-TRACE] op=%lu stage=commit_start", (unsigned long)job.operationId);
@@ -1635,6 +1650,7 @@ bool FirmwareUpdateModule::runNextionUpdate_(const UpdateJob& job, char* errOut,
                job.operationId);
     delay(1800);
     if (!saveCountersBeforeUpdate_(errOut, errOutLen)) return false;
+    RebootDiagnostics::markPlanned(RebootDiagnostics::Origin::OtaNextion, job.operationId);
     ESP.restart();
     return true;
 }
@@ -2639,6 +2655,10 @@ void FirmwareUpdateModule::init(ConfigStore& cfg, ServiceRegistry& services)
     cfg.registerVar(updateHostVar_);
     cfg.registerVar(updatePathVar_);
 
+    // Retained RTC breadcrumb: distinguishes intentional reboot from an
+    // unexpected reset during the preceding OTA transfer.
+    RebootDiagnostics::reportPreviousBoot();
+
     bootId_ = esp_random();
     if (bootId_ == 0U) bootId_ = 1U;
     if (loadReceipt_()) {
@@ -2722,6 +2742,8 @@ void FirmwareUpdateModule::loop()
     if (localReleaseRebootDue) {
         if (!prepareLocalReleaseReboot_()) return;
         LOGI("[UPGRADE] reboot");
+        RebootDiagnostics::markPlanned(RebootDiagnostics::Origin::OtaRelease,
+                                      localRelease_.operationId);
         ESP.restart();
     }
 
