@@ -190,15 +190,6 @@ def _write_release_package(version):
         archive.write(firmware, "firmware.bin")
         archive.write(filesystem, "spiffs.bin")
 
-    # Guard against SPIFFS-first migration on an OLD firmware: a guarded
-    # HTTP server rejects legacy flowios3-spiffs-<version>.bin requests.
-    # The NEW paired A/B updater uses this separate alias instead, so it can
-    # still install the identical checked image after the firmware-first reboot.
-    # Keep the old filename in manifest.json for the old UI's SPIFFS button;
-    # the guarded server returns HTTP 403 before that firmware erases SPIFFS.
-    paired_filesystem = out_dir / f"flowio-paired-spiffs-{version}.bin"
-    shutil.copy2(filesystem, paired_filesystem)
-
     # HTTP releases use the same *flat* binary/ directory as the historical
     # firmware and SPIFFS images. Preserve legacy filenames and manifest.json:
     # older Flow.io installations continue using the repository unchanged.
@@ -210,7 +201,7 @@ def _write_release_package(version):
         },
         "filesystem": {
             **manifest["filesystem"],
-            "file": paired_filesystem.name,
+            "file": filesystem.name,
         },
     }
     remote_bytes = (json.dumps(remote_manifest, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
