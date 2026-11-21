@@ -19,7 +19,7 @@ assert.match(helper, /snprintf\(out, outLen, "%s", msg \? msg : "failed"\)/);
 assert.match(helper, /\breturn false;\s*\}$/);
 assert.doesNotMatch(helper, /return\s+n\s*>/);
 
-const pairedStart = text.indexOf("bool FirmwareUpdateModule::runPairedRelease_");
+const pairedStart = text.indexOf("bool FirmwareUpdateModule::runWaveshareUpdate_");
 assert.ok(pairedStart >= 0, "paired update routine not found");
 const pairedEnd = text.indexOf("\nbool FirmwareUpdateModule::runNextionUpdate_", pairedStart);
 assert.ok(pairedEnd > pairedStart);
