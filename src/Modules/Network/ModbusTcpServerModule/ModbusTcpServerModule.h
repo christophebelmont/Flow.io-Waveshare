@@ -7,6 +7,7 @@
 #include <esp_heap_caps.h>
 #include "Core/Services/IModbusMaster.h"
 #include "Core/Services/INetworkAccess.h"
+#include "Core/Services/IFirmwareUpdate.h"
 #include "Core/Services/IHA.h"
 #include "Modules/Network/MQTTModule/MqttConfigRouteProducer.h"
 #include "Modules/Network/ModbusTcpServerModule/ModbusTcpLineResolver.h"
@@ -63,6 +64,60 @@ public:
         const uint32_t elapsedUs = uint32_t(micros() - tickStartedUs);
         if (elapsedUs > tickMaxUs_) tickMaxUs_ = elapsedUs;
         if (elapsedUs >= 5000U) ++slowTicks_;
+
+        // Sample network/RS485 pressure only while OTA is running; do not
+        // produce logs on every Modbus poll. This task runs on core 1 while
+        // the firmware updater is pinned to core 0.
+        if (!fwUpdateSvc_ && registry_) {
+            fwUpdateSvc_ = registry_->get<FirmwareUpdateService>(ServiceId::FirmwareUpdate);
+        }
+        const bool otaBusy = fwUpdateSvc_ && fwUpdateSvc_->isBusy &&
+                             fwUpdateSvc_->isBusy(fwUpdateSvc_->ctx);
+        if (otaBusy != otaTraceActive_) {
+            otaTraceActive_ = otaBusy;
+            if (otaBusy) {
+                lastOtaTraceMs_ = now - 5000U;
+                otaTickMaxUs_ = 0U;
+                otaSlowTicks_ = 0U;
+            } else {
+                Serial.printf("[OTA-NET] ms=%lu stage=load_end core=%d\n",
+                              (unsigned long)now, (int)xPortGetCoreID());
+            }
+        }
+        if (otaBusy) {
+            if (elapsedUs > otaTickMaxUs_) otaTickMaxUs_ = elapsedUs;
+            if (elapsedUs >= 5000U) ++otaSlowTicks_;
+            if (uint32_t(now - lastOtaTraceMs_) >= 5000U) {
+                lastOtaTraceMs_ = now;
+                ModbusMasterStats q{};
+                if (master_ && master_->stats) (void)master_->stats(master_->ctx, &q);
+                const auto& a = server_.stats(0U);
+                const auto& b = server_.stats(1U);
+                const auto& c = server_.stats(2U);
+                const uint32_t freeInternal = heap_caps_get_free_size(
+                    MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+                const uint32_t largestInternal = heap_caps_get_largest_free_block(
+                    MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+                Serial.printf("[OTA-NET] ms=%lu core=%d enabled=%u%u%u clients=%u,%u,%u rxreq=%lu,%lu,%lu txreply=%lu,%lu,%lu rtu_queue=%u rejected=%lu tick_peak_us=%lu slow_ticks=%lu internal=%lu largest=%lu psram=%lu stack_free=%lu\n",
+                              (unsigned long)now, (int)xPortGetCoreID(),
+                              configs_[0].enabled ? 1U : 0U,
+                              configs_[1].enabled ? 1U : 0U,
+                              configs_[2].enabled ? 1U : 0U,
+                              (unsigned)a.activeClients, (unsigned)b.activeClients,
+                              (unsigned)c.activeClients,
+                              (unsigned long)a.received, (unsigned long)b.received,
+                              (unsigned long)c.received,
+                              (unsigned long)a.completed, (unsigned long)b.completed,
+                              (unsigned long)c.completed,
+                              (unsigned)q.queued, (unsigned long)q.queueRejected,
+                              (unsigned long)otaTickMaxUs_, (unsigned long)otaSlowTicks_,
+                              (unsigned long)freeInternal, (unsigned long)largestInternal,
+                              (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+                              (unsigned long)uxTaskGetStackHighWaterMark(nullptr));
+                otaTickMaxUs_ = 0U;
+                otaSlowTicks_ = 0U;
+            }
+        }
         if (uint32_t(now - lastDiagnosticsMs_) < 60000U) return;
         lastDiagnosticsMs_ = now;
         ModbusMasterStats queue{};
@@ -196,4 +251,10 @@ private:
     uint32_t lastDiagnosticsMs_ = 0U;
     uint32_t tickMaxUs_ = 0U;
     uint32_t slowTicks_ = 0U;
+    // Diagnostic state, touched only from the modbustcp task.
+    const FirmwareUpdateService* fwUpdateSvc_ = nullptr;
+    bool otaTraceActive_ = false;
+    uint32_t lastOtaTraceMs_ = 0U;
+    uint32_t otaTickMaxUs_ = 0U;
+    uint32_t otaSlowTicks_ = 0U;
 };
