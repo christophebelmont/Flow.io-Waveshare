@@ -31,7 +31,7 @@ function summarizeOtaLog(log) {
   }
   return out;
 }
-const fs=require("fs");
+import fs from "node:fs";
 const input=process.argv[2];
 if(!input){console.error("Usage: node scripts/tests/summarize_ota_trace.mjs <serial.log>");process.exit(2);}
 console.log(JSON.stringify(summarizeOtaLog(fs.readFileSync(input,"utf8")),null,2));
