@@ -478,7 +478,6 @@
     "updates.otaStage.reboot": "Rebooting ESP32",
     "updates.otaStage.reconnect": "Reconnecting and validating",
     "updates.otaStage.generic": "OTA transfer in progress",
-    "updates.otaStage.overall": "Overall progress: {pct}%",
     "updates.hint.reconnect": "This page refreshes automatically.",
     "updates.detail.targetSelected": "Target selected: {target}.",
     "updates.detail.awaitReconnect": "Waiting for reconnection.",
