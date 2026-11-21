@@ -1332,13 +1332,13 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                      OtaHttpRetryPolicy::kMaxAttempts, (unsigned long)requestedOffset);
                 HTTPClient ramHttp;
                 configureDownloadHttp_(ramHttp);
-                const char* responseHeaders[] = {"Content-Range"};
-                ramHttp.collectHeaders(responseHeaders, 1U);
                 if (!ramHttp.begin(urls[imageIndex])) {
                     retryableFailure = true;
                     LOGW("[OTA-HTTP] op=%lu target=%s attempt=%u stage=begin_failed",
                          (unsigned long)job.operationId, targetName, attempt);
                 } else {
+                    const char* responseHeaders[] = {"Content-Range"};
+                    ramHttp.collectHeaders(responseHeaders, 1U);
                     if (requestedOffset > 0U) {
                         ramHttp.addHeader("Range", String("bytes=") +
                                           String((unsigned long)requestedOffset) + "-");
@@ -1623,13 +1623,13 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                  OtaHttpRetryPolicy::kMaxAttempts, (unsigned long)requestedOffset);
             HTTPClient artifactHttp;
             configureDownloadHttp_(artifactHttp);
-            const char* responseHeaders[] = {"Content-Range"};
-            artifactHttp.collectHeaders(responseHeaders, 1U);
             if (!artifactHttp.begin(urls[imageIndex])) {
                 retryableFailure = true;
                 LOGW("[OTA-HTTP] op=%lu target=%s attempt=%u stage=begin_failed mode=stream",
                      (unsigned long)job.operationId, targetStr_(target), attempt);
             } else {
+                const char* responseHeaders[] = {"Content-Range"};
+                artifactHttp.collectHeaders(responseHeaders, 1U);
                 if (requestedOffset > 0U) {
                     artifactHttp.addHeader("Range", String("bytes=") +
                                            String((unsigned long)requestedOffset) + "-");
