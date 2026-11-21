@@ -2343,6 +2343,7 @@
     const upgradePct = document.getElementById('upgradePct');
     const upgradeJourneyLabel = document.getElementById('upgradeJourneyLabel');
     const upgradeProgressHint = document.getElementById('upgradeProgressHint');
+    const upgradeStageDetail = document.getElementById('upgradeStageDetail');
     const upgradePhaseIcon = document.getElementById('upgradePhaseIcon');
     const upgradeSteps = document.getElementById('upgradeSteps');
     const upgradeFooterStatus = document.getElementById('upgradeFooterStatus');
@@ -3493,7 +3494,27 @@
       return key === 'flowios3' || key === 'esp32s3' || key === 'waveshare' || key === 'spiffs' || key === 'nextion';
     }
 
+    function upgradeIsPairedTarget(target) {
+      return ['flowios3', 'waveshare', 'esp32s3'].includes(String(target || '').trim().toLowerCase());
+    }
+
     function upgradeStepDefinitions(target) {
+      if (upgradeIsPairedTarget(target)) {
+        // Each of these steps corresponds to a real updater status or phase.
+        return [
+          { id: 'ota-0', label: tr('updates.otaStage.init', 'Initialisation') },
+          { id: 'ota-1', label: tr('updates.otaStage.manifest', 'Lecture du manifeste') },
+          { id: 'ota-2', label: tr('updates.otaStage.prepareSpiffs', 'Préparation SPIFFS') },
+          { id: 'ota-3', label: tr('updates.otaStage.writeSpiffs', 'Écriture SPIFFS') },
+          { id: 'ota-4', label: tr('updates.otaStage.verifySpiffs', 'Vérification SPIFFS') },
+          { id: 'ota-5', label: tr('updates.otaStage.prepareFirmware', 'Préparation firmware') },
+          { id: 'ota-6', label: tr('updates.otaStage.writeFirmware', 'Écriture firmware') },
+          { id: 'ota-7', label: tr('updates.otaStage.verifyFirmware', 'Vérification firmware') },
+          { id: 'ota-8', label: tr('updates.otaStage.activate', 'Activation des partitions') },
+          { id: 'ota-9', label: tr('updates.otaStage.reboot', 'Redémarrage') },
+          { id: 'ota-10', label: tr('updates.otaStage.reconnect', 'Reconnexion') }
+        ];
+      }
       return [
         { id: 'target', label: tr('updates.step.target', 'Initialisation') },
         { id: 'download', label: tr('updates.step.download', 'Connexion') },
@@ -3501,6 +3522,45 @@
         { id: 'reboot', label: tr('updates.step.reboot', 'Redémarrage') },
         { id: 'reconnect', label: tr('updates.step.reconnect', 'Reconnexion') }
       ];
+    }
+
+    function upgradePairedOtaStageIndex(session) {
+      if (!upgradeIsPairedTarget(session && session.target)) return null;
+      const phase = String(session && session.phase || 'idle');
+      const msg = String(session && session.backendMessage || '').trim().toLowerCase();
+      if (phase === 'target') return 0;
+      if (phase === 'download') return 1;
+      if (phase === 'reboot') return 9;
+      if (phase === 'reconnect' || phase === 'done') return 10;
+      if (phase !== 'flash') return null;
+      if (msg.includes('preparing release filesystem')) return 2;
+      if (msg.includes('writing release filesystem')) return 3;
+      if (msg.includes('verifying release filesystem')) return 4;
+      if (msg.includes('filesystem sha-256 ok')) return 5;
+      if (msg.includes('preparing release firmware')) return 5;
+      if (msg.includes('writing release firmware')) return 6;
+      if (msg.includes('verifying release firmware')) return 7;
+      if (msg.includes('firmware sha-256 ok') || msg.includes('activating paired release')) return 8;
+      // An old firmware might not send detailed messages; do not invent a stage.
+      return null;
+    }
+
+    function upgradePairedOtaStageText(session) {
+      if (!upgradeIsPairedTarget(session && session.target)) return '';
+      const phase = String(session && session.phase || 'idle');
+      if (phase === 'idle' || phase === 'error') return '';
+      const index = upgradePairedOtaStageIndex(session);
+      if (index === null) return tr('updates.otaStage.generic', 'Transfert OTA en cours');
+      const defs = upgradeStepDefinitions(session.target);
+      const prefix = tr('updates.stepCounter', 'Étape {current} sur {total}')
+        .replace('{current}', String(index + 1))
+        .replace('{total}', String(defs.length));
+      const label = defs[index].label;
+      if (phase !== 'flash') return prefix + ' · ' + label;
+      const percent = Math.max(0, Math.min(100, Number(session.backendProgress) || 0));
+      const overall = tr('updates.otaStage.overall', 'Progression globale : {pct}%')
+        .replace('{pct}', String(percent));
+      return prefix + ' · ' + label + ' · ' + overall;
     }
 
     function upgradePhaseIndex(phase) {
@@ -3519,7 +3579,7 @@
       if (phase === 'download') return tr('updates.title.download', 'Téléchargement de la mise à jour');
       if (phase === 'flash') {
         const paired = ['flowios3', 'waveshare', 'esp32s3'].includes(String(session && session.target || '').toLowerCase());
-        return paired ? 'Mise à jour du firmware et du SPIFFS'
+        return paired ? tr('updates.title.paired', 'Mise à jour du firmware et du SPIFFS')
           : tr('updates.title.flash', 'Mise à jour du firmware');
       }
       if (phase === 'reboot') return tr('updates.title.reboot', 'Redémarrage de l’appareil');
@@ -3531,6 +3591,11 @@
 
     function upgradeProgressHintText(session, targetLabel) {
       const phase = String(session && session.phase ? session.phase : 'idle');
+      if (upgradeIsPairedTarget(session && session.target)) {
+        if (phase === 'flash' || phase === 'reboot') return tr('updates.hint.flash', 'Ne coupez pas l’alimentation.');
+        if (phase === 'reconnect') return tr('updates.hint.reconnect', 'Cette page se rafraîchit automatiquement.');
+        return '';
+      }
       if (phase === 'flash') return tr('updates.hint.flash', 'Ne coupez pas l’alimentation.');
       if (phase === 'reconnect') return tr('updates.hint.reconnect', 'Cette page se rafraîchit automatiquement.');
       const index = upgradePhaseIndex(phase);
@@ -3558,6 +3623,8 @@
 
     function upgradeStepProgress(stepId, state, session) {
       if (state === 'done') return 100;
+      // OTA dots are substeps; their percentages cannot be inferred from global progress.
+      if (String(stepId || '').startsWith('ota-')) return null;
       if (state !== 'active') return null;
       const phase = String(session && session.phase ? session.phase : '');
       if (stepId !== phase) return null;
@@ -3588,6 +3655,16 @@
 
     function upgradeStepState(stepId, session) {
       const phase = String(session && session.phase ? session.phase : 'idle');
+      if (String(stepId || '').startsWith('ota-') && upgradeIsPairedTarget(session && session.target)) {
+        if (phase === 'idle') return 'pending';
+        if (phase === 'done') return 'done';
+        const stepIndex = Number(stepId.slice(4));
+        const currentIndex = Number(session && session.otaStageIndex);
+        if (!Number.isInteger(currentIndex) || currentIndex < 0) return 'pending';
+        if (stepIndex < currentIndex) return 'done';
+        if (stepIndex === currentIndex) return phase === 'error' ? 'error' : 'active';
+        return 'pending';
+      }
       if (phase === 'idle') return 'pending';
       if (phase === 'error') {
         const failedStep = String(session && session.failedStep ? session.failedStep : 'flash');
@@ -3657,7 +3734,13 @@
       const detail = String(safeSession.detail || '');
       const targetLabel = upgradeTargetLabel(safeSession.target);
       const phaseTitle = upgradePhaseTitle(safeSession);
+      if (upgradeStageDetail) {
+        const stageText = upgradePairedOtaStageText(safeSession);
+        upgradeStageDetail.textContent = stageText;
+        upgradeStageDetail.hidden = !stageText;
+      }
       if (upgradeProgressPanel) {
+        upgradeProgressPanel.classList.toggle('is-paired', upgradeIsPairedTarget(safeSession.target));
         const progressVisible = phase === 'target' || phase === 'download' || phase === 'flash'
           || phase === 'reboot' || phase === 'reconnect' || phase === 'error';
         upgradeProgressPanel.hidden = !progressVisible;
@@ -3696,6 +3779,11 @@
         bootId: 0
       };
       const next = Object.assign({}, current, patch || {});
+      const stageIndex = upgradePairedOtaStageIndex(next);
+      if (stageIndex !== null) {
+        const previousIndex = Number(next.otaStageIndex);
+        next.otaStageIndex = Math.max(Number.isInteger(previousIndex) ? previousIndex : 0, stageIndex);
+      }
       next.lastPercent = upgradePhasePercent(next);
       writeUpgradeUiSession(next);
       renderUpgradeJourney(next);
@@ -3716,6 +3804,8 @@
         reconnectProgress: 0,
         operationId: 0,
         bootId: 0,
+        backendMessage: '',
+        otaStageIndex: 0,
         failedStep: ''
       });
     }
@@ -3941,6 +4031,7 @@
         updateUpgradeUiSession({
           phase: 'target',
           target: target,
+          backendMessage: msg,
           detail: tr('updates.detail.targetSelected', 'Sélection de la cible {target}.')
             .replace('{target}', upgradeTargetLabel(target)),
           backendProgress: progress,
@@ -3959,6 +4050,7 @@
         updateUpgradeUiSession({
           phase: 'download',
           target: target,
+          backendMessage: msg,
           detail: 'Connexion au serveur.',
           backendProgress: progress,
           awaitingReconnect: false,
@@ -3976,6 +4068,7 @@
         updateUpgradeUiSession({
           phase: 'flash',
           target: target,
+          backendMessage: msg,
           detail: 'Mise à jour en cours.',
           backendProgress: progress,
           awaitingReconnect: false,
@@ -3993,6 +4086,7 @@
         updateUpgradeUiSession({
           phase: 'reboot',
           target: target,
+          backendMessage: msg,
           detail: 'Redémarrage.',
           backendProgress: 100,
           awaitingReconnect: true,
