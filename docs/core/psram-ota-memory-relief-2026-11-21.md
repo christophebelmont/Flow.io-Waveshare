@@ -66,6 +66,14 @@ the parent branch and one from this branch. Capture:
 - `[OTA-TRACE]` (operation ID and transfer/flash stages).
 - `[OTA-PSRAM]` (manifest-check pool capacity).
 
+If you have serial logs from both builds, compare the smallest free heap,
+largest internal block and aligned OTA stages without transcribing numbers:
+```bash
+node scripts/tests/compare_ota_memory.mjs before.log after.log
+```
+This reports *observed* deltas, not simulated savings. Positive deltas
+are meaningful only under comparable Modbus request rates and release size.
+
 First compare two idle listeners, then two ports with active clients.
 A port listening is not equivalent to two clients transferring Modbus
 requests. Keep the existing working A/B pair and rescue path.
