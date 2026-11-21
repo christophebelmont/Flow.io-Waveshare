@@ -3573,11 +3573,8 @@
         .replace('{current}', String(index + 1))
         .replace('{total}', String(defs.length));
       const label = defs[index].label;
-      if (phase !== 'flash') return prefix + ' · ' + label;
-      const percent = Math.max(0, Math.min(100, Number(session.backendProgress) || 0));
-      const overall = tr('updates.otaStage.overall', 'Progression globale : {pct}%')
-        .replace('{pct}', String(percent));
-      return prefix + ' · ' + label + ' · ' + overall;
+      // The global percentage is already shown at the right of the progress bar.
+      return prefix + ' · ' + label;
     }
 
     function upgradePhaseIndex(phase) {
