@@ -339,10 +339,13 @@ FirmwareUpdateModule::FirmwareUpdateModule(const BoardSpec& board)
 
 static bool writeSimpleError_(char* out, size_t outLen, const char* msg)
 {
-    if (!out || outLen == 0) return false;
-    if (!msg) msg = "failed";
-    const int n = snprintf(out, outLen, "%s", msg);
-    return n > 0 && (size_t)n < outLen;
+    // This is an error-path helper. Its boolean result is propagated by
+    // callers (including OTA stream failures), so writing an error message
+    // successfully MUST NOT turn an unsuccessful operation into success.
+    if (out && outLen > 0U) {
+        (void)snprintf(out, outLen, "%s", msg ? msg : "failed");
+    }
+    return false;
 }
 
 static bool parseReqJsonObject_(const char* json, StaticJsonDocument<256>& doc)
