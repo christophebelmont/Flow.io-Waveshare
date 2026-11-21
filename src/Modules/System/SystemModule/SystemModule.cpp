@@ -4,6 +4,7 @@
  */
 #include "SystemModule.h"
 #include "Core/CounterPersistence.h"
+#include "Core/RebootDiagnostics.h"
 #include "Board/BoardSpec.h"
 #include "Core/ErrorCodes.h"
 #include "Core/EventBus/EventPayloads.h"
@@ -215,6 +216,10 @@ void SystemModule::restartTask_(void* userCtx, TaskHealth& health)
     health.finish();
     LOGW("System rebooting now reason=%s free_min=%luB",
          self.restartReason_, (unsigned long)health.snapshot().minFreeBytes);
+    const bool factoryReset = strstr(self.restartReason_, "factory_reset") != nullptr;
+    RebootDiagnostics::markPlanned(
+        factoryReset ? RebootDiagnostics::Origin::FactoryReset
+                     : RebootDiagnostics::Origin::System);
     esp_restart();
 }
 
