@@ -249,11 +249,17 @@ static void otaMonitor_(const char* phase)
 {
     constexpr uint32_t internal = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
     constexpr uint32_t external = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
-    LOGI("[OTA] phase=%s ms=%lu ram=%lu ram_largest=%lu ram_min=%lu psram=%lu psram_largest=%lu stack_free_bytes=%lu",
-         phase, (unsigned long)millis(),
-         (unsigned long)heap_caps_get_free_size(internal),
-         (unsigned long)heap_caps_get_largest_free_block(internal),
+    // No allocation, filesystem I/O or NVS writes from these probes.
+    // Values are bytes, including FreeRTOS's ESP32 stack high-water mark.
+    const uint32_t freeInternal = heap_caps_get_free_size(internal);
+    const uint32_t largestInternal = heap_caps_get_largest_free_block(internal);
+    const uint32_t fragmentation = freeInternal
+        ? 100U - (uint32_t)((uint64_t)largestInternal * 100U / freeInternal) : 0U;
+    LOGI("[OTA-MEM] phase=%s ms=%lu core=%d internal=%lu largest=%lu min=%lu frag_pct=%lu psram=%lu psram_largest=%lu stack_free=%lu",
+         phase, (unsigned long)millis(), (int)xPortGetCoreID(),
+         (unsigned long)freeInternal, (unsigned long)largestInternal,
          (unsigned long)heap_caps_get_minimum_free_size(internal),
+         (unsigned long)fragmentation,
          (unsigned long)heap_caps_get_free_size(external),
          (unsigned long)heap_caps_get_largest_free_block(external),
          (unsigned long)uxTaskGetStackHighWaterMark(nullptr));
@@ -1137,6 +1143,8 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
     // downloaded from one manifest and committed with ONE reboot.
     setStatus_(UpdateState::Downloading, FirmwareUpdateTarget::Waveshare,
                0U, "downloading paired release manifest", job.operationId);
+    LOGI("[OTA-TRACE] op=%lu stage=manifest_start", (unsigned long)job.operationId);
+    otaMonitor_("manifest_start");
 
     constexpr size_t kManifestCapacity = 1024U;
     // Keep the manifest buffer off the 6 KiB updater task stack.
@@ -1163,6 +1171,10 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
     const bool manifestBad = sink.overflowed() || manifestRead < 0 ||
                              manifestLen != (size_t)manifestSize;
     manifestHttp.end();
+    LOGI("[OTA-TRACE] op=%lu stage=manifest_complete got=%lu expected=%d valid=%u",
+         (unsigned long)job.operationId, (unsigned long)manifestLen,
+         manifestSize, manifestBad ? 0U : 1U);
+    otaMonitor_("manifest_complete");
     if (manifestBad) {
         return writeSimpleError_(errOut, errOutLen, "paired release manifest transfer incomplete");
     }
@@ -1245,7 +1257,15 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
         const uint32_t expectedSize = sizes[imageIndex];
         // Prepare the inactive partition BEFORE starting the HTTP transfer,
         // so a lengthy flash erase cannot starve an open TCP download.
+        LOGI("[OTA-TRACE] op=%lu target=%s stage=partition_prepare_start",
+             (unsigned long)job.operationId, targetStr_(target));
+        otaMonitor_(imageIndex == 0U ? "spiffs_prepare_start" : "firmware_prepare_start");
+        const uint32_t prepareStartedMs = millis();
         success = beginLocalImage_(transactionId, target, expectedSize, errOut, errOutLen);
+        LOGI("[OTA-TRACE] op=%lu target=%s stage=partition_prepare_end ms=%lu success=%u",
+             (unsigned long)job.operationId, targetStr_(target),
+             (unsigned long)(millis() - prepareStartedMs), success ? 1U : 0U);
+        otaMonitor_(imageIndex == 0U ? "spiffs_prepare_end" : "firmware_prepare_end");
         if (!success) {
             LOGE("[OTA] target preparation failed target=%s reason=%s",
                  targetStr_(target), errOut ? errOut : "-");
@@ -1261,6 +1281,9 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
         } else {
             const int code = artifactHttp.GET();
             const int announced = artifactHttp.getSize();
+            LOGI("[OTA-TRACE] op=%lu target=%s stage=http_headers code=%d length=%d expected=%lu",
+                 (unsigned long)job.operationId, targetStr_(target),
+                 code, announced, (unsigned long)expectedSize);
             if (code != HTTP_CODE_OK || announced <= 0 ||
                 (uint32_t)announced != expectedSize) {
                 success = writeSimpleError_(errOut, errOutLen, "release artifact HTTP size mismatch");
@@ -1271,6 +1294,8 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                 uint32_t lastProgressMs = millis();
                 uint32_t lastLogMs = lastProgressMs;
                 size_t lastLoggedBytes = 0U;
+                uint32_t maxFlashWriteUs = 0U;
+                uint32_t slowFlashWrites = 0U;
                 while (success && received < expectedSize) {
                     const size_t available = stream ? stream->available() : 0U;
                     if (available == 0U) {
@@ -1305,17 +1330,29 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                         vTaskDelay(1);
                         continue;
                     }
+                    const uint32_t writeStartUs = micros();
                     success = writeLocalImage_(transactionId, target, chunk, (size_t)rd,
                                                received, errOut, errOutLen);
-                    if (!success) break;
+                    const uint32_t writeUs = (uint32_t)(micros() - writeStartUs);
+                    if (writeUs > maxFlashWriteUs) maxFlashWriteUs = writeUs;
+                    if (writeUs >= 20000U) ++slowFlashWrites;
+                    if (!success) {
+                        LOGE("[OTA-TRACE] op=%lu target=%s stage=flash_error offset=%lu write_us=%lu reason=%s",
+                             (unsigned long)job.operationId, targetStr_(target),
+                             (unsigned long)received, (unsigned long)writeUs,
+                             errOut ? errOut : "-");
+                        otaMonitor_("flash_error");
+                        break;
+                    }
                     received += (size_t)rd;
                     lastProgressMs = millis();
                     if (received - lastLoggedBytes >= 256U * 1024U ||
                         received == expectedSize) {
-                        LOGI("[OTA] HTTP progress target=%s received=%lu/%lu stack_free_bytes=%u",
-                             targetStr_(target), (unsigned long)received,
-                             (unsigned long)expectedSize,
-                             (unsigned)uxTaskGetStackHighWaterMark(nullptr));
+                        LOGI("[OTA-TRACE] op=%lu target=%s stage=stream_progress received=%lu/%lu flash_max_us=%lu flash_slow20ms=%lu",
+                             (unsigned long)job.operationId, targetStr_(target),
+                             (unsigned long)received, (unsigned long)expectedSize,
+                             (unsigned long)maxFlashWriteUs, (unsigned long)slowFlashWrites);
+                        otaMonitor_(imageIndex == 0U ? "spiffs_progress" : "firmware_progress");
                         lastLoggedBytes = received;
                         lastLogMs = lastProgressMs;
                     }
@@ -1325,6 +1362,8 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
                     success = writeSimpleError_(errOut, errOutLen, "release artifact incomplete");
                 }
             }
+            LOGI("[OTA-TRACE] op=%lu target=%s stage=http_end success=%u",
+                 (unsigned long)job.operationId, targetStr_(target), success ? 1U : 0U);
             artifactHttp.end();
         }
         if (success) {
@@ -1351,7 +1390,14 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
             } else {
                 LOGI("[OTA] transport and flash counters match target=%s bytes=%lu",
                      targetStr_(target), (unsigned long)flashed);
+                LOGI("[OTA-TRACE] op=%lu target=%s stage=image_verify_start",
+                     (unsigned long)job.operationId, targetStr_(target));
+                const uint32_t verifyStartedMs = millis();
                 success = endLocalImage_(transactionId, target, errOut, errOutLen);
+                LOGI("[OTA-TRACE] op=%lu target=%s stage=image_verify_end ms=%lu success=%u",
+                     (unsigned long)job.operationId, targetStr_(target),
+                     (unsigned long)(millis() - verifyStartedMs), success ? 1U : 0U);
+                otaMonitor_(imageIndex == 0U ? "spiffs_verify_end" : "firmware_verify_end");
                 if (!success) {
                     LOGE("[OTA] image finalization failed target=%s reason=%s",
                          targetStr_(target), errOut ? errOut : "-");
@@ -1361,10 +1407,20 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
     }
 
     if (success) {
+        LOGI("[OTA-TRACE] op=%lu stage=commit_start", (unsigned long)job.operationId);
+        otaMonitor_("commit_start");
         success = commitLocalRelease_(transactionId, errOut, errOutLen);
+        LOGI("[OTA-TRACE] op=%lu stage=commit_end success=%u",
+             (unsigned long)job.operationId, success ? 1U : 0U);
+        otaMonitor_("commit_end");
         if (success) {
             LOGI("[OTA] paired release verified and committed; one reboot scheduled");
         }
+    }
+    if (!success) {
+        LOGE("[OTA-TRACE] op=%lu stage=aborted reason=%s",
+             (unsigned long)job.operationId, errOut ? errOut : "-");
+        otaMonitor_("abort");
     }
     if (!success && transactionId != 0U) {
         // Keeps the old paired release active on any download/validation fault.
