@@ -6522,7 +6522,10 @@ void WebInterfaceModule::startServer_()
             return;
         }
 
-        char out[512] = {0};
+        // Paired OTA now reports stage + stage-local percentage alongside
+        // the existing diagnostics. Reserve enough space even when the
+        // status also carries a long error and a last-operation receipt.
+        char out[640] = {0};
         if (!fwUpdateSvc_->statusJson(fwUpdateSvc_->ctx, out, sizeof(out))) {
             request->send(500, "application/json",
                           "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"fwupdate.status\"}}");
