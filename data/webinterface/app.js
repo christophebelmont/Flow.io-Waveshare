@@ -996,6 +996,18 @@
       armDeferredMenuAssets();
     }
 
+    function shouldDeferWebAssetReloadForOta() {
+      const current = readUpgradeUiSession();
+      if (!current || !upgradeUsesReconnect(current.target)) return false;
+      const phase = String(current.phase || 'idle');
+      // Avoid the generic asset-version reload racing with the explicit
+      // three-second success countdown or interrupting OTA progress.
+      return !!current.awaitingReconnect
+        || upgradeSuccessReloadCountdownTimer !== null
+        || phase === 'target' || phase === 'download' || phase === 'flash'
+        || phase === 'reboot' || phase === 'reconnect';
+    }
+
     async function loadWebMeta(options) {
       try {
         const data = await fetchOkJson('/api/web/meta', { cache: 'no-store' }, 'meta web indisponible');
@@ -1011,7 +1023,8 @@
               runtimeManifestDomainLoadPromise = null;
             }
             setStorageValue(localStorage, flowWebAssetVersionStorageKey, announcedVersion);
-            if (loadedWebAssetVersion && loadedWebAssetVersion !== announcedVersion) {
+            if (loadedWebAssetVersion && loadedWebAssetVersion !== announcedVersion
+                && !shouldDeferWebAssetReloadForOta()) {
               const reloadKey = 'flow_web_asset_reload_once';
               try {
                 if (sessionStorage.getItem(reloadKey) !== announcedVersion) {
