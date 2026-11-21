@@ -24,7 +24,7 @@
 #include "App/BuildFlags.h"
 #include "Board/BoardSpec.h"
 #include "Core/BoundedBufferStream.h"
-#include "Core/PsramJsonDocument.h"
+#include "Core/SpiRamJsonDocument.h"
 #include "Core/ErrorCodes.h"
 #include "Core/FirmwareVersion.h"
 #include "Core/NvsKeys.h"
@@ -1187,7 +1187,7 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
 
     // A 2 KiB default ArduinoJson pool can use scarce internal DRAM.
     // Keep only the small document object on the OTA task stack.
-    PsramJsonDocument doc(2048U);
+    SpiRamJsonDocument doc(2048U);
     if (doc.capacity() == 0U) {
         return writeSimpleError_(errOut, errOutLen, "paired release manifest json psram unavailable");
     }
@@ -1719,7 +1719,7 @@ bool FirmwareUpdateModule::beginLocalRelease_(const char* manifestJson,
     // manifest buffer that has already been parsed by the caller.
     // This second manifest parse can overlap the caller's JSON pool.
     // Place both pools explicitly in PSRAM to protect lwIP/OTA internal RAM.
-    PsramJsonDocument doc(2048U);
+    SpiRamJsonDocument doc(2048U);
     if (doc.capacity() == 0U) {
         return writeSimpleError_(errOut, errOutLen, "release manifest json psram unavailable");
     }
@@ -2364,7 +2364,7 @@ bool FirmwareUpdateModule::runManifestCheck_(const ManifestCheckJob& job,
     }
     // Manifest-check JSON may be larger than the paired-release manifest.
     // Keep its pool off the internal heap even when under the malloc threshold.
-    PsramJsonDocument doc(jsonCapacity);
+    SpiRamJsonDocument doc(jsonCapacity);
     if (doc.capacity() == 0U) {
         writeSimpleError_(errOut, errOutLen, "manifest json psram unavailable");
         return false;
