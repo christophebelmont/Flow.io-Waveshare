@@ -483,6 +483,7 @@
     "updates.detail.targetSelected": "Sélection de la cible {target}.",
     "updates.detail.awaitReconnect": "Attente de Reconnection.",
     "updates.detail.done": "Mise à jour terminée.",
+    "updates.reloadCountdown": "Rechargement de la page dans {seconds} s…",
     "updates.noneInManifest": "Aucune mise à jour disponible dans le manifest.",
     "updates.confirmLaunch": "Confirmer la mise à jour de {target} vers la version {version} ?",
     "updates.confirmRebootNextion": "Confirmer le redémarrage de Nextion ?",
