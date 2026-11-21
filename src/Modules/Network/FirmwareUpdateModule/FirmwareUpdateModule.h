@@ -115,6 +115,10 @@ private:
         uint8_t progress = 0;
         uint32_t updatedAtMs = 0;
         char msg[kMsgLen] = {0};
+        // Remote paired OTA UI: independent phase and phase-local percentage.
+        // Does not change progress semantics for ZIP or Nextion updates.
+        char otaStage[28] = {0};
+        uint8_t otaStageProgress = 0U;
     };
 
     struct ManifestCheckJob {
@@ -282,6 +286,7 @@ private:
                     uint8_t progress,
                     const char* msg,
                     uint32_t operationId = 0U);
+    void setOtaStage_(const char* stage, uint8_t phaseProgress);
     void setError_(FirmwareUpdateTarget target, const char* msg, uint32_t operationId);
     bool loadReceipt_();
     bool persistReceipt_(FirmwareUpdateTarget target,
