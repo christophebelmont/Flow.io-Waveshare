@@ -3517,19 +3517,25 @@
 
     function upgradeStepDefinitions(target) {
       if (upgradeIsPairedTarget(target)) {
-        // Each of these steps corresponds to a real updater status or phase.
+        // PSRAM OTA downloads and flash writes are distinct, independently
+        // measured phases for each image. The low-memory streaming fallback
+        // correctly identifies simultaneous receive+write instead.
         return [
           { id: 'ota-0', label: tr('updates.otaStage.init', 'Initialisation') },
           { id: 'ota-1', label: tr('updates.otaStage.manifest', 'Lecture du manifeste') },
-          { id: 'ota-2', label: tr('updates.otaStage.prepareSpiffs', 'Préparation SPIFFS') },
-          { id: 'ota-3', label: tr('updates.otaStage.writeSpiffs', 'Écriture SPIFFS') },
-          { id: 'ota-4', label: tr('updates.otaStage.verifySpiffs', 'Vérification SPIFFS') },
-          { id: 'ota-5', label: tr('updates.otaStage.prepareFirmware', 'Préparation firmware') },
-          { id: 'ota-6', label: tr('updates.otaStage.writeFirmware', 'Écriture firmware') },
-          { id: 'ota-7', label: tr('updates.otaStage.verifyFirmware', 'Vérification firmware') },
-          { id: 'ota-8', label: tr('updates.otaStage.activate', 'Activation des partitions') },
-          { id: 'ota-9', label: tr('updates.otaStage.reboot', 'Redémarrage') },
-          { id: 'ota-10', label: tr('updates.otaStage.reconnect', 'Reconnexion') }
+          { id: 'ota-2', label: tr('updates.otaStage.downloadSpiffs', 'Téléchargement SPIFFS en PSRAM') },
+          { id: 'ota-3', label: tr('updates.otaStage.verifyRamSpiffs', 'SHA-256 SPIFFS en mémoire') },
+          { id: 'ota-4', label: tr('updates.otaStage.prepareSpiffs', 'Préparation de la partition SPIFFS') },
+          { id: 'ota-5', label: tr('updates.otaStage.writeSpiffs', 'Écriture du SPIFFS en flash') },
+          { id: 'ota-6', label: tr('updates.otaStage.verifySpiffs', 'Vérification SPIFFS en flash') },
+          { id: 'ota-7', label: tr('updates.otaStage.downloadFirmware', 'Téléchargement firmware en PSRAM') },
+          { id: 'ota-8', label: tr('updates.otaStage.verifyRamFirmware', 'SHA-256 firmware en mémoire') },
+          { id: 'ota-9', label: tr('updates.otaStage.prepareFirmware', 'Préparation de la partition firmware') },
+          { id: 'ota-10', label: tr('updates.otaStage.writeFirmware', 'Écriture du firmware en flash') },
+          { id: 'ota-11', label: tr('updates.otaStage.verifyFirmware', 'Vérification firmware en flash') },
+          { id: 'ota-12', label: tr('updates.otaStage.activate', 'Activation des partitions A/B') },
+          { id: 'ota-13', label: tr('updates.otaStage.reboot', 'Redémarrage') },
+          { id: 'ota-14', label: tr('updates.otaStage.reconnect', 'Reconnexion') }
         ];
       }
       return [
@@ -3544,28 +3550,63 @@
     function upgradePairedOtaStageIndex(session) {
       if (!upgradeIsPairedTarget(session && session.target)) return null;
       const phase = String(session && session.phase || 'idle');
+      const stage = String(session && session.otaBackendStage || '').trim().toLowerCase();
       const msg = String(session && session.backendMessage || '').trim().toLowerCase();
       if (phase === 'target') return 0;
+      if (phase === 'reboot') return 13;
+      if (phase === 'reconnect' || phase === 'done') return 14;
+      // Prefer the explicit firmware stage, not the generic HTTPClient state:
+      // an image may download and then flash in the same paired OTA operation.
+      const stages = {
+        manifest: 1,
+        spiffs_download: 2,
+        spiffs_ram_verify: 3,
+        spiffs_prepare: 4,
+        spiffs_write: 5,
+        spiffs_stream: 5,
+        spiffs_verify: 6,
+        firmware_download: 7,
+        firmware_ram_verify: 8,
+        firmware_prepare: 9,
+        firmware_write: 10,
+        firmware_stream: 10,
+        firmware_verify: 11,
+        activate: 12
+      };
+      if (Object.prototype.hasOwnProperty.call(stages, stage)) return stages[stage];
       if (phase === 'download') return 1;
-      if (phase === 'reboot') return 9;
-      if (phase === 'reconnect' || phase === 'done') return 10;
       if (phase !== 'flash') return null;
-      // Experimental PSRAM-preverified OTA: each artifact is received and
-      // hashed before it is flashed. Keep stages in monotonic A/B order.
-      if (msg.includes('downloading filesystem to psram') ||
-          msg.includes('sha-256 filesystem in psram')) return 2;
-      if (msg.includes('downloading firmware to psram') ||
-          msg.includes('sha-256 firmware in psram')) return 5;
-      if (msg.includes('preparing release filesystem')) return 2;
-      if (msg.includes('writing release filesystem')) return 3;
-      if (msg.includes('verifying release filesystem')) return 4;
-      if (msg.includes('filesystem sha-256 ok')) return 5;
-      if (msg.includes('preparing release firmware')) return 5;
-      if (msg.includes('writing release firmware')) return 6;
-      if (msg.includes('verifying release firmware')) return 7;
-      if (msg.includes('firmware sha-256 ok') || msg.includes('activating paired release')) return 8;
-      // An old firmware might not send detailed messages; do not invent a stage.
+      // Compatibility with older paired firmware that sends only text.
+      if (msg.includes('downloading filesystem to psram')) return 2;
+      if (msg.includes('sha-256 filesystem in psram')) return 3;
+      if (msg.includes('preparing release filesystem')) return 4;
+      if (msg.includes('writing release filesystem')) return 5;
+      if (msg.includes('verifying release filesystem')) return 6;
+      if (msg.includes('filesystem sha-256 ok')) return 7;
+      if (msg.includes('downloading firmware to psram')) return 7;
+      if (msg.includes('sha-256 firmware in psram')) return 8;
+      if (msg.includes('preparing release firmware')) return 9;
+      if (msg.includes('writing release firmware')) return 10;
+      if (msg.includes('verifying release firmware')) return 11;
+      if (msg.includes('firmware sha-256 ok') || msg.includes('activating paired release')) return 12;
       return null;
+    }
+
+    function upgradePairedPhaseDetail(target, phase, stage, stageProgress, msg) {
+      const session = { target: target, phase: phase, otaBackendStage: stage, backendMessage: msg };
+      const index = upgradePairedOtaStageIndex(session);
+      const defs = upgradeStepDefinitions(target);
+      if (index === null || !defs[index]) return tr('updates.otaStage.generic', 'Transfert OTA en cours');
+      const label = defs[index].label;
+      const progressKeys = ['spiffs_download', 'spiffs_write', 'spiffs_stream',
+        'firmware_download', 'firmware_write', 'firmware_stream'];
+      const text = progressKeys.includes(stage)
+        ? label + ' · ' + Math.max(0, Math.min(100, Number(stageProgress) || 0)) + '%'
+        : label;
+      if (stage === 'spiffs_stream' || stage === 'firmware_stream') {
+        return text + ' · ' + tr('updates.otaStage.streaming', 'Réception et écriture simultanées');
+      }
+      return text;
     }
 
     function upgradePairedOtaStageText(session) {
@@ -3597,8 +3638,14 @@
       const phase = String(session && session.phase ? session.phase : 'idle');
       if (phase === 'target') return tr('updates.title.target', 'Préparation de la mise à jour');
       if (phase === 'download') return tr('updates.title.download', 'Téléchargement de la mise à jour');
+      if (upgradeIsPairedTarget(session && session.target) &&
+          (phase === 'download' || phase === 'flash')) {
+        const index = upgradePairedOtaStageIndex(session);
+        const stages = upgradeStepDefinitions(session.target);
+        if (index !== null && stages[index]) return stages[index].label;
+      }
       if (phase === 'flash') {
-        const paired = ['flowios3', 'waveshare', 'esp32s3'].includes(String(session && session.target || '').toLowerCase());
+        const paired = upgradeIsPairedTarget(session && session.target);
         return paired ? tr('updates.title.paired', 'Mise à jour du firmware et du SPIFFS')
           : tr('updates.title.flash', 'Mise à jour du firmware');
       }
@@ -3632,6 +3679,22 @@
       const progress = Math.max(0, Math.min(100, Number(session && session.backendProgress) || 0));
       const reconnectProgress = Math.max(0, Math.min(100, Number(session && session.reconnectProgress) || 0));
       if (phase === 'target') return 1;
+      if (upgradeIsPairedTarget(session && session.target) &&
+          (phase === 'download' || phase === 'flash')) {
+        const index = upgradePairedOtaStageIndex(session);
+        if (index !== null) {
+          // Overall bar follows completed stages while the active download
+          // or flash-write phase advances by its OWN byte percentage.
+          const key = String(session && session.otaBackendStage || '');
+          const moving = ['spiffs_download', 'spiffs_write', 'spiffs_stream',
+            'firmware_download', 'firmware_write', 'firmware_stream'].includes(key);
+          const phaseProgress = moving
+            ? Math.max(0, Math.min(100, Number(session.otaBackendStepProgress) || 0)) / 100
+            : 0;
+          return Math.max(2, Math.min(95, Math.round(2 + (Math.max(0, index - 1) +
+            phaseProgress) * 93 / 12)));
+        }
+      }
       if (phase === 'download') return 1 + Math.round(progress * 0.04);
       if (phase === 'flash') return 5 + Math.round(progress * 0.90);
       if (phase === 'reboot') return 97;
@@ -3643,8 +3706,16 @@
 
     function upgradeStepProgress(stepId, state, session) {
       if (state === 'done') return 100;
-      // OTA dots are substeps; their percentages cannot be inferred from global progress.
-      if (String(stepId || '').startsWith('ota-')) return null;
+      // Paired OTA dots display the image-local HTTP / flash percentage.
+      if (String(stepId || '').startsWith('ota-')) {
+        if (state !== 'active') return null;
+        const stage = String(session && session.otaBackendStage || '');
+        if (['spiffs_download', 'spiffs_write', 'spiffs_stream',
+             'firmware_download', 'firmware_write', 'firmware_stream'].includes(stage)) {
+          return Math.max(0, Math.min(100, Number(session.otaBackendStepProgress) || 0));
+        }
+        return null;
+      }
       if (state !== 'active') return null;
       const phase = String(session && session.phase ? session.phase : '');
       if (stepId !== phase) return null;
@@ -3779,7 +3850,8 @@
         if (glyph) glyph.textContent = phase === 'error' ? 'error' : 'sync';
         upgradePhaseIcon.classList.toggle('is-error', phase === 'error');
       }
-      setUpgradeProgress(upgradePhasePercent(safeSession));
+      setUpgradeProgress(Math.max(upgradePhasePercent(safeSession),
+        Math.max(0, Math.min(100, Number(safeSession.lastPercent) || 0))));
       setUpgradeMessage(detail || (phase === 'idle' ? tr('updates.none', 'Aucune opération en cours.') : phaseTitle));
       renderUpgradeSteps(safeSession);
       syncUpgradeCancelButton(safeSession);
@@ -3804,7 +3876,10 @@
         const previousIndex = Number(next.otaStageIndex);
         next.otaStageIndex = Math.max(Number.isInteger(previousIndex) ? previousIndex : 0, stageIndex);
       }
-      next.lastPercent = upgradePhasePercent(next);
+      // A 200-response retry may restart one download at byte zero.
+      // Keep the overall stage bar monotonic; show the real restarted
+      // percentage beside the active stage instead.
+      next.lastPercent = Math.max(Number(next.lastPercent) || 0, upgradePhasePercent(next));
       writeUpgradeUiSession(next);
       renderUpgradeJourney(next);
       return next;
@@ -3826,7 +3901,10 @@
         operationId: 0,
         bootId: 0,
         backendMessage: '',
+        otaBackendStage: '',
+        otaBackendStepProgress: 0,
         otaStageIndex: 0,
+        lastPercent: 0,
         failedStep: ''
       });
     }
