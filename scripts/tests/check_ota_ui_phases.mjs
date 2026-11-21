@@ -130,4 +130,36 @@ for (const lang of ["en", "fr"]) {
     assert.ok(translations["updates.otaStage." + stage], lang + " missing " + stage);
   }
 }
+
+// Execute the REAL status-to-UI integration, not only pure label mappings.
+const wiringSource = [
+  "let upgradeUiStatusMuted = false;",
+  "let session = { target: 'waveshare', operationId: 42, phase: 'target', awaitingReconnect: false };",
+  "function readUpgradeUiSession() { return session; }",
+  "function updateUpgradeUiSession(patch) { session = { ...session, ...patch }; return session; }",
+  "function stopUpgradeReconnectFlow() {}",
+  ...["upgradeIsPairedTarget", "upgradeStepDefinitions", "upgradePairedOtaStageIndex",
+    "upgradePairedPhaseDetail", "updateUpgradeView"].map(extract),
+  "return { send: data => { updateUpgradeView(data); return { ...session }; } };"
+].join("\n");
+const wire = new Function("tr", wiringSource)((key, fallback) => fallback);
+function poll(state, stage, percentage) {
+  return wire.send({
+    ok: true, state: state, target: "waveshare", operation_id: 42,
+    boot_id: 1, progress: 20, ota_stage: stage, ota_stage_progress: percentage, msg: "test"
+  });
+}
+for (const [state, stage, pct, expected] of [
+  ["downloading", "spiffs_download", 42, "Téléchargement SPIFFS en PSRAM · 42%"],
+  ["flashing", "spiffs_write", 61, "Écriture du SPIFFS en flash · 61%"],
+  ["downloading", "firmware_download", 17, "Téléchargement firmware en PSRAM · 17%"],
+  ["flashing", "firmware_write", 91, "Écriture du firmware en flash · 91%"]
+]) {
+  const result = poll(state, stage, pct);
+  assert.equal(result.detail, expected, "real polling UI phase: " + stage);
+  assert.equal(result.otaBackendStage, stage);
+  assert.equal(result.otaBackendStepProgress, pct);
+}
+assert.match(poll("flashing", "firmware_stream", 49).detail, /simultanées/);
+
 console.log("PASS: 15 paired OTA stages, independent download/write percentages, monotonic UI, streaming fallback, FR/EN");
