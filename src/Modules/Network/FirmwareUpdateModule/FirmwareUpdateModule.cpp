@@ -780,7 +780,15 @@ bool FirmwareUpdateModule::statusJson_(char* out, size_t outLen)
     } else {
         doc["last_operation"] = nullptr;
     }
+    // Command-bus callers may still provide a 512-byte reply. The Web API
+    // reserves 640 bytes, but for smaller callers omit the optional phase
+    // fields instead of failing an otherwise valid status response.
     if (doc.overflowed()) return false;
+    if (measureJson(doc) >= outLen && snap.otaStage[0] != '\0') {
+        doc.remove("ota_stage");
+        doc.remove("ota_stage_progress");
+    }
+    if (measureJson(doc) >= outLen) return false;
     const size_t written = serializeJson(doc, out, outLen);
     return written > 0U && written < outLen;
 }
