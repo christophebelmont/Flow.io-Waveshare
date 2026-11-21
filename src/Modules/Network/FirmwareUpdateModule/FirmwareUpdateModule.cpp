@@ -24,6 +24,7 @@
 #include "App/BuildFlags.h"
 #include "Board/BoardSpec.h"
 #include "Core/BoundedBufferStream.h"
+#include "Core/PsramJsonDocument.h"
 #include "Core/ErrorCodes.h"
 #include "Core/FirmwareVersion.h"
 #include "Core/NvsKeys.h"
@@ -1184,7 +1185,13 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
          (unsigned)uxTaskGetStackHighWaterMark(nullptr),
          (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
 
-    DynamicJsonDocument doc(2048U);
+    // A 2 KiB default ArduinoJson pool can use scarce internal DRAM.
+    // Keep only the small document object on the OTA task stack.
+    PsramJsonDocument doc(2048U);
+    if (doc.capacity() == 0U) {
+        return writeSimpleError_(errOut, errOutLen, "paired release manifest json psram unavailable");
+    }
+    otaMonitor_("paired_manifest_json_psram");
     if (deserializeJson(doc, static_cast<const char*>(manifest.get()), manifestLen) != DeserializationError::Ok ||
         !doc.is<JsonObjectConst>()) {
         return writeSimpleError_(errOut, errOutLen, "paired release manifest invalid JSON");
@@ -1710,10 +1717,13 @@ bool FirmwareUpdateModule::beginLocalRelease_(const char* manifestJson,
     // This is called from the remote OTA worker, which is already several
     // stack frames deep. Keep the JSON tree on the heap, and NEVER mutate the
     // manifest buffer that has already been parsed by the caller.
-    DynamicJsonDocument doc(2048U);
+    // This second manifest parse can overlap the caller's JSON pool.
+    // Place both pools explicitly in PSRAM to protect lwIP/OTA internal RAM.
+    PsramJsonDocument doc(2048U);
     if (doc.capacity() == 0U) {
-        return writeSimpleError_(errOut, errOutLen, "release manifest json memory unavailable");
+        return writeSimpleError_(errOut, errOutLen, "release manifest json psram unavailable");
     }
+    otaMonitor_("release_manifest_json_psram");
     const auto jsonError = deserializeJson(doc, static_cast<const char*>(manifestJson), manifestLen);
     if (jsonError || !doc.is<JsonObjectConst>()) {
         LOGE("[OTA] paired release second parse failed: %s", jsonError.c_str());
@@ -2352,7 +2362,18 @@ bool FirmwareUpdateModule::runManifestCheck_(const ManifestCheckJob& job,
     if (jsonCapacity < Limits::FirmwareUpdate::Buffers::ManifestParseJson) {
         jsonCapacity = Limits::FirmwareUpdate::Buffers::ManifestParseJson;
     }
-    DynamicJsonDocument doc(jsonCapacity);
+    // Manifest-check JSON may be larger than the paired-release manifest.
+    // Keep its pool off the internal heap even when under the malloc threshold.
+    PsramJsonDocument doc(jsonCapacity);
+    if (doc.capacity() == 0U) {
+        writeSimpleError_(errOut, errOutLen, "manifest json psram unavailable");
+        return false;
+    }
+    LOGI("[OTA-PSRAM] stage=manifest_check_json pool_bytes=%lu internal=%lu largest=%lu psram=%lu",
+         (unsigned long)doc.capacity(),
+         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+         (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     const DeserializationError jsonErr =
         deserializeJson(doc, static_cast<const char*>(manifestPayload_), payloadLen);
     if (jsonErr || !doc.is<JsonObjectConst>()) {
