@@ -1604,101 +1604,177 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
 
         LOGI("[OTA] beginning HTTP artifact target=%s size=%lu",
              targetStr_(target), (unsigned long)expectedSize);
-        HTTPClient artifactHttp;
-        configureDownloadHttp_(artifactHttp);
-        if (!artifactHttp.begin(urls[imageIndex])) {
-            success = writeSimpleError_(errOut, errOutLen, "release artifact HTTP begin failed");
-        } else {
-            const int code = artifactHttp.GET();
-            const int announced = artifactHttp.getSize();
-            LOGI("[OTA-TRACE] op=%lu target=%s stage=http_headers code=%d length=%d expected=%lu",
-                 (unsigned long)job.operationId, targetStr_(target),
-                 code, announced, (unsigned long)expectedSize);
-            if (code != HTTP_CODE_OK || announced <= 0 ||
-                (uint32_t)announced != expectedSize) {
-                success = writeSimpleError_(errOut, errOutLen, "release artifact HTTP size mismatch");
+        // Streaming fallback also gets three transport attempts. If Range
+        // is unsupported, request the whole file again and DISCARD the already
+        // flashed prefix; the existing SHA-256 validator detects any mismatch
+        // between the first attempt and the replayed artifact.
+        size_t received = 0U;
+        size_t lastLoggedBytes = 0U;
+        uint32_t maxFlashWriteUs = 0U;
+        uint32_t slowFlashWrites = 0U;
+        for (unsigned attempt = 1U;
+             success && received < expectedSize && attempt <= OtaHttpRetryPolicy::kMaxAttempts;
+             ++attempt) {
+            const size_t requestedOffset = received;
+            size_t replaySkip = 0U;
+            bool retryableFailure = false;
+            LOGI("[OTA-HTTP] op=%lu target=%s mode=stream attempt=%u/%u offset=%lu",
+                 (unsigned long)job.operationId, targetStr_(target), attempt,
+                 OtaHttpRetryPolicy::kMaxAttempts, (unsigned long)requestedOffset);
+            HTTPClient artifactHttp;
+            configureDownloadHttp_(artifactHttp);
+            const char* responseHeaders[] = {"Content-Range"};
+            artifactHttp.collectHeaders(responseHeaders, 1U);
+            if (!artifactHttp.begin(urls[imageIndex])) {
+                retryableFailure = true;
+                LOGW("[OTA-HTTP] op=%lu target=%s attempt=%u stage=begin_failed mode=stream",
+                     (unsigned long)job.operationId, targetStr_(target), attempt);
             } else {
-                Stream* stream = artifactHttp.getStreamPtr();
-                size_t received = 0U;
-                uint32_t lastProgressMs = millis();
-                uint32_t lastLogMs = lastProgressMs;
-                size_t lastLoggedBytes = 0U;
-                uint32_t maxFlashWriteUs = 0U;
-                uint32_t slowFlashWrites = 0U;
-                while (success && received < expectedSize) {
-                    const size_t available = stream ? stream->available() : 0U;
-                    if (available == 0U) {
-                        const uint32_t idleMs = millis() - lastProgressMs;
-                        if (!artifactHttp.connected() ||
-                            idleMs > Limits::FirmwareUpdate::Http::StreamReadTimeoutMs) {
-                            LOGE("[OTA] HTTP interrupted target=%s received=%lu/%lu idle_ms=%lu connected=%u",
-                                 targetStr_(target), (unsigned long)received,
-                                 (unsigned long)expectedSize, (unsigned long)idleMs,
-                                 artifactHttp.connected() ? 1U : 0U);
-                            success = writeSimpleError_(errOut, errOutLen, "release download interrupted");
+                if (requestedOffset > 0U) {
+                    artifactHttp.addHeader("Range", String("bytes=") +
+                                           String((unsigned long)requestedOffset) + "-");
+                }
+                const int code = artifactHttp.GET();
+                const int announced = artifactHttp.getSize();
+                const String contentRange = artifactHttp.header("Content-Range");
+                const auto mode = OtaHttpRetryPolicy::responseMode(
+                    code, requestedOffset, announced > 0 ? (size_t)announced : 0U,
+                    expectedSize, contentRange.c_str());
+                LOGI("[OTA-HTTP] op=%lu target=%s attempt=%u code=%d length=%d offset=%lu mode=%u stream=1",
+                     (unsigned long)job.operationId, targetStr_(target),
+                     attempt, code, announced, (unsigned long)requestedOffset, (unsigned)mode);
+                if (mode == OtaHttpRetryPolicy::ResponseMode::Invalid) {
+                    retryableFailure = OtaHttpRetryPolicy::isRetryableStatus(code);
+                    if (!retryableFailure) {
+                        success = writeSimpleError_(errOut, errOutLen,
+                            "streaming artifact HTTP response/Range invalid");
+                    }
+                } else {
+                    if (mode == OtaHttpRetryPolicy::ResponseMode::Full &&
+                        requestedOffset > 0U) {
+                        // HTTP 200: the server has ignored Range. Read and
+                        // discard the prefix without writing it again.
+                        // Final manifest SHA-256 still verifies all A/B data.
+                        replaySkip = requestedOffset;
+                        LOGW("[OTA-HTTP] op=%lu target=%s attempt=%u stage=restart_full_skip bytes=%lu",
+                             (unsigned long)job.operationId, targetStr_(target),
+                             attempt, (unsigned long)replaySkip);
+                    }
+                    Stream* stream = artifactHttp.getStreamPtr();
+                    uint32_t lastProgressMs = millis();
+                    uint32_t lastLogMs = lastProgressMs;
+                    while (success && !retryableFailure &&
+                           (received < expectedSize || replaySkip > 0U)) {
+                        const size_t available = stream ? stream->available() : 0U;
+                        if (available == 0U) {
+                            const uint32_t idleMs = millis() - lastProgressMs;
+                            if (!artifactHttp.connected() ||
+                                idleMs > Limits::FirmwareUpdate::Http::StreamReadTimeoutMs) {
+                                retryableFailure = true;
+                                LOGW("[OTA-HTTP] op=%lu target=%s attempt=%u stage=interrupted received=%lu/%lu skip=%lu idle_ms=%lu",
+                                     (unsigned long)job.operationId, targetStr_(target),
+                                     attempt, (unsigned long)received,
+                                     (unsigned long)expectedSize, (unsigned long)replaySkip,
+                                     (unsigned long)idleMs);
+                                break;
+                            }
+                            if (millis() - lastLogMs >= 5000U) {
+                                LOGW("[OTA] HTTP waiting target=%s received=%lu/%lu idle_ms=%lu attempt=%u",
+                                     targetStr_(target), (unsigned long)received,
+                                     (unsigned long)expectedSize, (unsigned long)idleMs, attempt);
+                                lastLogMs = millis();
+                            }
+                            vTaskDelay(1);
+                            continue;
+                        }
+                        size_t amount = available > sizeof(chunk) ? sizeof(chunk) : available;
+                        if (replaySkip > 0U) {
+                            if (amount > replaySkip) amount = replaySkip;
+                        } else if (amount > expectedSize - received) {
+                            amount = expectedSize - received;
+                        }
+                        const int rd = stream->readBytes(reinterpret_cast<char*>(chunk), amount);
+                        if (rd <= 0) {
+                            if (!artifactHttp.connected() ||
+                                millis() - lastProgressMs > Limits::FirmwareUpdate::Http::StreamReadTimeoutMs) {
+                                retryableFailure = true;
+                                LOGW("[OTA-HTTP] op=%lu target=%s attempt=%u stage=read_stalled offset=%lu",
+                                     (unsigned long)job.operationId, targetStr_(target),
+                                     attempt, (unsigned long)received);
+                                break;
+                            }
+                            vTaskDelay(1);
+                            continue;
+                        }
+                        lastProgressMs = millis();
+                        if (replaySkip > 0U) {
+                            replaySkip -= (size_t)rd;
+                            vTaskDelay(1);
+                            continue;
+                        }
+                        const uint32_t writeStartUs = micros();
+                        success = writeLocalImage_(transactionId, target, chunk, (size_t)rd,
+                                                   received, errOut, errOutLen);
+                        const uint32_t writeUs = (uint32_t)(micros() - writeStartUs);
+                        if (writeUs > maxFlashWriteUs) maxFlashWriteUs = writeUs;
+                        if (writeUs >= 20000U) ++slowFlashWrites;
+                        if (!success) {
+                            LOGE("[OTA-TRACE] op=%lu target=%s stage=flash_error offset=%lu write_us=%lu reason=%s",
+                                 (unsigned long)job.operationId, targetStr_(target),
+                                 (unsigned long)received, (unsigned long)writeUs,
+                                 errOut ? errOut : "-");
+                            otaMonitor_("flash_error");
                             break;
                         }
-                        if (millis() - lastLogMs >= 5000U) {
-                            LOGW("[OTA] HTTP waiting target=%s received=%lu/%lu idle_ms=%lu",
-                                 targetStr_(target), (unsigned long)received,
-                                 (unsigned long)expectedSize, (unsigned long)idleMs);
-                            lastLogMs = millis();
+                        received += (size_t)rd;
+                        if (received - lastLoggedBytes >= 256U * 1024U ||
+                            received == expectedSize) {
+                            RebootDiagnostics::noteOta(job.operationId,
+                                imageIndex == 0U ? RebootDiagnostics::OtaStage::Spiffs
+                                                 : RebootDiagnostics::OtaStage::Firmware,
+                                (uint32_t)received, expectedSize);
+                            LOGI("[OTA-TRACE] op=%lu target=%s stage=stream_progress received=%lu/%lu flash_max_us=%lu flash_slow20ms=%lu attempt=%u",
+                                 (unsigned long)job.operationId, targetStr_(target),
+                                 (unsigned long)received, (unsigned long)expectedSize,
+                                 (unsigned long)maxFlashWriteUs, (unsigned long)slowFlashWrites,
+                                 attempt);
+                            otaMonitor_(imageIndex == 0U ? "spiffs_progress" : "firmware_progress");
+                            lastLoggedBytes = received;
+                            lastLogMs = lastProgressMs;
                         }
                         vTaskDelay(1);
-                        continue;
                     }
-                    size_t amount = available > sizeof(chunk) ? sizeof(chunk) : available;
-                    if (amount > expectedSize - received) amount = expectedSize - received;
-                    const int rd = stream->readBytes(reinterpret_cast<char*>(chunk), amount);
-                    if (rd <= 0) {
-                        if (!artifactHttp.connected() ||
-                            millis() - lastProgressMs > Limits::FirmwareUpdate::Http::StreamReadTimeoutMs) {
-                            success = writeSimpleError_(errOut, errOutLen, "release stream stalled");
-                            break;
-                        }
-                        vTaskDelay(1);
-                        continue;
-                    }
-                    const uint32_t writeStartUs = micros();
-                    success = writeLocalImage_(transactionId, target, chunk, (size_t)rd,
-                                               received, errOut, errOutLen);
-                    const uint32_t writeUs = (uint32_t)(micros() - writeStartUs);
-                    if (writeUs > maxFlashWriteUs) maxFlashWriteUs = writeUs;
-                    if (writeUs >= 20000U) ++slowFlashWrites;
-                    if (!success) {
-                        LOGE("[OTA-TRACE] op=%lu target=%s stage=flash_error offset=%lu write_us=%lu reason=%s",
-                             (unsigned long)job.operationId, targetStr_(target),
-                             (unsigned long)received, (unsigned long)writeUs,
-                             errOut ? errOut : "-");
-                        otaMonitor_("flash_error");
-                        break;
-                    }
-                    received += (size_t)rd;
-                    lastProgressMs = millis();
-                    if (received - lastLoggedBytes >= 256U * 1024U ||
-                        received == expectedSize) {
-                        RebootDiagnostics::noteOta(job.operationId,
-                            imageIndex == 0U ? RebootDiagnostics::OtaStage::Spiffs
-                                             : RebootDiagnostics::OtaStage::Firmware,
-                            (uint32_t)received, expectedSize);
-                        LOGI("[OTA-TRACE] op=%lu target=%s stage=stream_progress received=%lu/%lu flash_max_us=%lu flash_slow20ms=%lu",
-                             (unsigned long)job.operationId, targetStr_(target),
-                             (unsigned long)received, (unsigned long)expectedSize,
-                             (unsigned long)maxFlashWriteUs, (unsigned long)slowFlashWrites);
-                        otaMonitor_(imageIndex == 0U ? "spiffs_progress" : "firmware_progress");
-                        lastLoggedBytes = received;
-                        lastLogMs = lastProgressMs;
-                    }
-                    vTaskDelay(1);
                 }
-                if (success && received != expectedSize) {
-                    success = writeSimpleError_(errOut, errOutLen, "release artifact incomplete");
-                }
+                artifactHttp.end();
             }
-            LOGI("[OTA-TRACE] op=%lu target=%s stage=http_end success=%u",
-                 (unsigned long)job.operationId, targetStr_(target), success ? 1U : 0U);
-            artifactHttp.end();
+            LOGI("[OTA-TRACE] op=%lu target=%s stage=http_attempt_end attempt=%u success=%u received=%lu/%lu",
+                 (unsigned long)job.operationId, targetStr_(target), attempt,
+                 (success && !retryableFailure && received == expectedSize) ? 1U : 0U,
+                 (unsigned long)received, (unsigned long)expectedSize);
+            if (success && !retryableFailure && received == expectedSize) break;
+            if (!success) break; // Flash or validation error: never retry.
+            if (!retryableFailure) {
+                success = writeSimpleError_(errOut, errOutLen, "streaming artifact incomplete");
+                break;
+            }
+            if (attempt == OtaHttpRetryPolicy::kMaxAttempts) {
+                LOGE("[OTA-HTTP] op=%lu target=%s stage=retries_exhausted attempts=%u received=%lu/%lu mode=stream",
+                     (unsigned long)job.operationId, targetStr_(target),
+                     OtaHttpRetryPolicy::kMaxAttempts,
+                     (unsigned long)received, (unsigned long)expectedSize);
+                success = writeSimpleError_(errOut, errOutLen,
+                    "streaming artifact failed after 3 HTTP attempts");
+                break;
+            }
+            LOGW("[OTA-HTTP] op=%lu target=%s stage=retry_scheduled next=%u/%u offset=%lu mode=stream",
+                 (unsigned long)job.operationId, targetStr_(target),
+                 attempt + 1U, OtaHttpRetryPolicy::kMaxAttempts,
+                 (unsigned long)received);
+            vTaskDelay(pdMS_TO_TICKS(OtaHttpRetryPolicy::kRetryDelayMs));
         }
+        LOGI("[OTA-TRACE] op=%lu target=%s stage=http_end success=%u",
+             (unsigned long)job.operationId, targetStr_(target),
+             (success && received == expectedSize) ? 1U : 0U);
         if (success) {
             // The transport count and flash transaction count MUST agree
             // before an image can be finalized. A mismatched stage/counter
