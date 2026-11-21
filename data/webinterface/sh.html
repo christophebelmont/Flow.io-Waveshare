@@ -276,7 +276,10 @@
                   <p data-i18n="updates.availableSubtitle">Consultez les versions actuelles de votre système et les versions disponibles.</p>
                 </div>
               </div>
-              <div id="upgradeFooterStatus" class="status-txt updates-results-status" aria-live="polite"></div>
+              <div class="updates-results-status-wrap">
+                <div id="upgradeFooterStatus" class="status-txt updates-results-status" aria-live="polite"></div>
+                <div id="upgradeSuccessReloadCountdown" class="updates-reload-countdown" role="status" aria-live="polite" hidden></div>
+              </div>
             </div>
 
             <div class="updates-table-shell">
