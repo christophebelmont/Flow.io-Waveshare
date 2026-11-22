@@ -51,6 +51,23 @@ public:
     /** Nonblocking best-effort network servicing, with bounded read work.
      * A partial TCP write is resumed on a subsequent tick.
      */
+    // Trace only slow/failed requests by default to avoid adding Serial I/O
+    // to every normal Modbus transaction on the network task.
+    static constexpr uint32_t kTraceSlowMs = 1000U;
+    void trace_(uint8_t slot, const char* stage, uint32_t nowMs, int result = 0) {
+        if (!traceActive_[slot]) return;
+        const uint8_t port = slot / kClientsPerPort;
+        Serial.printf("[MODBUS-TCP-TRACE] ms=%lu port=%u slot=%u tid=%u unit=%u fc=%u addr=%u qty=%u stage=%s age_ms=%lu queue_ms=%lu rtu_ms=%lu result=%d tx_bytes=%u\\n",
+            (unsigned long)nowMs, (unsigned)kPorts[port], (unsigned)slot,
+            (unsigned)traceTid_[slot], (unsigned)traceUnit_[slot],
+            (unsigned)traceFc_[slot], (unsigned)traceAddr_[slot],
+            (unsigned)traceQty_[slot], stage,
+            (unsigned long)(nowMs - traceStarted_[slot]),
+            (unsigned long)bridges_[slot].queueWaitMs(),
+            (unsigned long)bridges_[slot].rtuResponseMs(),
+            result, (unsigned)sent_[slot]);
+    }
+
     void tick(uint32_t nowMs) {
         if (!started_ || !service_) return;
         // Reap closed sockets BEFORE admitting new clients: otherwise the
@@ -141,18 +158,25 @@ public:
                     stats_[port].responseTimeTotalMs += elapsed;
                     if (elapsed > stats_[port].responseTimeMaxMs)
                         stats_[port].responseTimeMaxMs = elapsed;
+                    if (bridge.resultCode() != MODBUS_RESULT_OK ||
+                        elapsed >= kTraceSlowMs)
+                        trace_(slot, "tcp_tx_complete", nowMs, int(bridge.resultCode()));
+                    traceActive_[slot] = false;
                     bridge.reset();
                     sessions_.clearRequest(slot);
                     sent_[slot] = 0U;
                     writing_[slot] = false;
                 } else if (uint32_t(nowMs - lastWriteProgressMs_[slot]) >= kWriteStallTimeoutMs) {
                     // Release a slot held by a peer that has stopped reading.
+                    trace_(slot, "tcp_tx_stall", nowMs);
                     close_(slot);
                     continue;
                 }
             } else if (bridge.state() == BridgeSlot::State::Silent) {
                 accountOutcome_(port, bridge, false);
                 ++stats_[port].silentFailures;
+                trace_(slot, "silent_failure", nowMs, int(bridge.resultCode()));
+                traceActive_[slot] = false;
                 bridge.reset();
                 sessions_.clearRequest(slot);
                 sent_[slot] = 0U;
@@ -216,11 +240,19 @@ public:
                 continue;
             }
             ++stats_[port].received;
+            traceActive_[slot] = true;
+            traceStarted_[slot] = nowMs;
+            traceTid_[slot] = request.transactionId;
+            traceUnit_[slot] = request.unitId;
+            traceFc_[slot] = request.function;
+            traceAddr_[slot] = request.address;
+            traceQty_[slot] = request.quantity;
             SerialLineProfile line{};
             uint8_t targetUnitId = request.unitId;
             if (!resolver_ || !resolver_(resolverContext_, port, request.unitId,
                                           line, targetUnitId)) {
                 ++stats_[port].resolverFailures;
+                trace_(slot, "resolver_failed", nowMs);
                 bridge.reject(request, configs_[port].errorMode,
                               MODBUS_RESULT_NOT_READY, nowMs);
                 continue;
@@ -228,6 +260,7 @@ public:
             if (!bridge.submit(*service_, request, line, configs_[port].errorMode,
                                configs_[port].transactionTimeoutMs, nowMs, targetUnitId)) {
                 ++stats_[port].queueRejected;
+                trace_(slot, "scheduler_submit_failed", nowMs);
                 bridge.reject(request, configs_[port].errorMode,
                               MODBUS_RESULT_INVALID_ARGUMENT, nowMs);
             }
@@ -352,6 +385,8 @@ private:
         return true;
     }
     void close_(uint8_t slot) {
+        if (traceActive_[slot]) trace_(slot, "socket_closed", millis());
+        traceActive_[slot] = false;
         bridges_[slot].reset();
         clients_[slot].stop();
         sessions_.release(slot);
@@ -376,6 +411,13 @@ private:
     uint32_t lastConnectionCheckMs_[kMaxClients]{};
     bool peerReadClosed_[kMaxClients]{};
     bool writing_[kMaxClients]{};
+    bool traceActive_[kMaxClients]{};
+    uint32_t traceStarted_[kMaxClients]{};
+    uint16_t traceTid_[kMaxClients]{};
+    uint16_t traceAddr_[kMaxClients]{};
+    uint16_t traceQty_[kMaxClients]{};
+    uint8_t traceUnit_[kMaxClients]{};
+    uint8_t traceFc_[kMaxClients]{};
     const ModbusMasterService* service_ = nullptr;
     ResolveLine resolver_ = nullptr;
     void* resolverContext_ = nullptr;
