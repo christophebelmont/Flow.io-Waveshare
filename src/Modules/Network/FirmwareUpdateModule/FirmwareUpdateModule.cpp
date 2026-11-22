@@ -259,14 +259,21 @@ static void otaMonitor_(const char* phase)
     const uint32_t largestInternal = heap_caps_get_largest_free_block(internal);
     const uint32_t fragmentation = freeInternal
         ? 100U - (uint32_t)((uint64_t)largestInternal * 100U / freeInternal) : 0U;
-    LOGI("[OTA-MEM] phase=%s ms=%lu core=%d internal=%lu largest=%lu min=%lu frag_pct=%lu psram=%lu psram_largest=%lu stack_free=%lu",
+    const TaskHandle_t task = xTaskGetCurrentTaskHandle();
+    const uint32_t hwm = uxTaskGetStackHighWaterMark(task);
+    LOGI("[OTA-MEM] phase=%s ms=%lu core=%d internal=%lu largest=%lu min=%lu frag_pct=%lu psram=%lu psram_largest=%lu stack_free=%lu task=%s task_handle=%p stack_hwm=%lu",
          phase, (unsigned long)millis(), (int)xPortGetCoreID(),
          (unsigned long)freeInternal, (unsigned long)largestInternal,
          (unsigned long)heap_caps_get_minimum_free_size(internal),
          (unsigned long)fragmentation,
          (unsigned long)heap_caps_get_free_size(external),
          (unsigned long)heap_caps_get_largest_free_block(external),
-         (unsigned long)uxTaskGetStackHighWaterMark(nullptr));
+         (unsigned long)hwm, pcTaskGetName(task), (void*)task,
+         (unsigned long)hwm);
+    if (hwm < 1024U) {
+        LOGW("[OTA-STACK] LOW phase=%s task=%s handle=%p hwm_bytes=%lu",
+             phase, pcTaskGetName(task), (void*)task, (unsigned long)hwm);
+    }
 }
 
 bool cloneActiveReleaseFilesystem_(char* errOut, size_t errOutLen)
@@ -1251,8 +1258,14 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
          (unsigned)uxTaskGetStackHighWaterMark(nullptr),
          (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
 
-    // A 2 KiB default ArduinoJson pool can use scarce internal DRAM.
-    // Keep only the small document object on the OTA task stack.
+    // Complete the first manifest parse in its own scope so that the
+    // ArduinoJson document does not overlap nested beginLocalRelease_().
+    // JSON capacity is still allocated explicitly in PSRAM.
+    uint32_t fsSize = 0U;
+    uint32_t fwSize = 0U;
+    char fsUrl[kUrlLen]{};
+    char fwUrl[kUrlLen]{};
+    {
     SpiRamJsonDocument doc(2048U);
     if (doc.capacity() == 0U) {
         return writeSimpleError_(errOut, errOutLen, "paired release manifest json psram unavailable");
@@ -1275,8 +1288,8 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
     }
     const char* fsFile = doc["filesystem"]["file"] | "";
     const char* fwFile = doc["firmware"]["file"] | "";
-    const uint32_t fsSize = doc["filesystem"]["size"] | 0U;
-    const uint32_t fwSize = doc["firmware"]["size"] | 0U;
+    fsSize = doc["filesystem"]["size"] | 0U;
+    fwSize = doc["firmware"]["size"] | 0U;
     // Accept the original flat binary/ filenames (flowios3-<version>.bin,
     // flowios3-spiffs-<version>.bin) alongside canonical release filenames.
     // Only simple filenames can be used: no paths, traversal or external URLs.
@@ -1284,12 +1297,12 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
         fsSize == 0U || fwSize == 0U || strcmp(fsFile, fwFile) == 0) {
         return writeSimpleError_(errOut, errOutLen, "paired release artifact filename invalid");
     }
-    char fsUrl[kUrlLen]{};
-    char fwUrl[kUrlLen]{};
     if (!buildManifestSiblingUrl_(job.url, fsFile, fsUrl, sizeof(fsUrl)) ||
         !buildManifestSiblingUrl_(job.url, fwFile, fwUrl, sizeof(fwUrl))) {
         return writeSimpleError_(errOut, errOutLen, "paired release artifact URL invalid");
     }
+    } // release initial JSON tree before nested parsing
+    otaMonitor_("paired_manifest_json_released");
 
     // The worker owns busy_ while this function executes. Permit only this
     // task to start the existing transactional upload implementation.

@@ -26,6 +26,9 @@ assert.match(updater, /release_manifest_json_psram/);
 assert.match(updater, /stage=manifest_check_json/);
 // A PSRAM migration must not silently move critical task stacks or change
 // global malloc/lwIP/AsyncTCP allocation policy.
-assert.match(moduleHeader, /return 8192;/);
+assert.match(moduleHeader, /return 10240;/);
+assert.match(updater, /task=%s task_handle=%p stack_hwm=%lu/);
+assert.match(updater, /\[OTA-STACK\] LOW phase=/);
+assert.match(updater, /paired_manifest_json_released/);
 assert.match(platformio, /-D CONFIG_ASYNC_TCP_RUNNING_CORE=1/);
 console.log("PASS: three OTA JSON pools use the existing PSRAM allocator, check failures, and preserve critical task settings");

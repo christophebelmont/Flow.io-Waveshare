@@ -16,11 +16,19 @@ const system = read("src/Modules/System/SystemModule/SystemModule.cpp");
 const network = read("src/Modules/Network/ModbusTcpServerModule/ModbusTcpServerModule.h");
 
 assert.match(reboot, /RTC_NOINIT_ATTR\s+volatile\s+Record/);
-assert.match(reboot, /record\.checksum\s*!=\s*checksumOf_\(record\)/);
+assert.match(reboot, /record\.checksum\s*==\s*checksumOf_\(record\)/);
 assert.match(reboot, /rtcRecord\.magic = 0U; \/* One-shot/);
 assert.match(reboot, /\[BOOT-RESET\].*planned=.*last_ota_op=.*received=/);
 assert.match(rebootHeader, /Lost on power removal/);
-assert.doesNotMatch(reboot, /nvs_set|Preferences|esp_partition_write|flash_write/);
+assert.match(reboot, /nvs_set_blob\(handle, kBootNvsKey/);
+assert.match(reboot, /nvs_get_blob\(handle, kBootNvsKey/);
+assert.match(reboot, /nvs_erase_key\(handle, kBootNvsKey/);
+assert.match(reboot, /reset == ESP_RST_SW/);
+const noteBlock = reboot.split("void noteOta(")[1].split("void markPlanned(")[0];
+assert.doesNotMatch(noteBlock, /nvs_set|nvs_commit|Preferences|esp_partition_write/);
+const plannedBlock = reboot.split("void markPlanned(")[1].split("void reportPreviousBoot(")[0];
+assert.match(plannedBlock, /savePlannedNvs_\(record\)/);
+assert.match(reboot, /nvs_valid=%u source=%s planned=/);
 
 assert.match(updater, /RebootDiagnostics::reportPreviousBoot\(\)/);
 assert.match(updater, /RebootDiagnostics::noteOta\(job\.operationId,\s*RebootDiagnostics::OtaStage::Manifest/);
@@ -44,4 +52,4 @@ assert.match(loop, /if \(uint32_t\(now - lastOtaTraceMs_\) >= 5000U\)/);
 assert.match(network, /taskStackSize\(\) const override \{ return 4096; \}/);
 assert.doesNotMatch(reboot, /malloc|new\s+|heap_caps_malloc/);
 
-console.log("PASS: OTA reboot breadcrumbs, planned reset marks, offline TCP diagnostics, and untouched task stack");
+console.log("PASS: OTA RTC/NVS one-shot reboot breadcrumbs and offline TCP diagnostics");

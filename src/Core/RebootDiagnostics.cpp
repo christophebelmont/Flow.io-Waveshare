@@ -6,6 +6,7 @@
 #include <Arduino.h>
 #include <esp_attr.h>
 #include <esp_system.h>
+#include <nvs.h>
 
 namespace RebootDiagnostics {
 namespace {
@@ -13,6 +14,9 @@ namespace {
 constexpr uint32_t kMagic = 0x52424F54U; // "RBOT"
 constexpr uint32_t kVersion = 1U;
 constexpr uint32_t kChecksumSeed = 0xA9F32E71U;
+// Dedicated namespace: never write the shared configuration store at OTA hot-path checkpoints.
+constexpr char kBootNvsNamespace[] = "flowio_boot";
+constexpr char kBootNvsKey[] = "planned";
 
 struct Record {
     uint32_t magic;
@@ -37,6 +41,12 @@ uint32_t checksumOf_(const Record& record)
            record.lastOtaStage ^ record.receivedBytes ^ record.totalBytes;
 }
 
+bool isValidRecord_(const Record& record)
+{
+    return record.magic == kMagic && record.version == kVersion &&
+           record.checksum == checksumOf_(record);
+}
+
 Record readRecord_()
 {
     Record record{};
@@ -49,8 +59,7 @@ Record readRecord_()
     record.receivedBytes = rtcRecord.receivedBytes;
     record.totalBytes = rtcRecord.totalBytes;
     record.checksum = rtcRecord.checksum;
-    if (record.magic != kMagic || record.version != kVersion ||
-        record.checksum != checksumOf_(record)) {
+    if (!isValidRecord_(record)) {
         return Record{};
     }
     return record;
@@ -70,6 +79,39 @@ void writeRecord_(const Record& record)
     rtcRecord.totalBytes = record.totalBytes;
     rtcRecord.checksum = checksumOf_(record);
     rtcRecord.magic = kMagic;
+}
+
+// Only markPlanned() writes this backup, immediately before a deliberate restart.
+bool savePlannedNvs_(const Record& record)
+{
+    nvs_handle_t handle = 0;
+    esp_err_t err = nvs_open(kBootNvsNamespace, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return false;
+    err = nvs_set_blob(handle, kBootNvsKey, &record, sizeof(record));
+    if (err == ESP_OK) err = nvs_commit(handle);
+    nvs_close(handle);
+    return err == ESP_OK;
+}
+
+// One-shot read on boot. Always remove the marker after reading, even if
+// validation fails, to avoid incorrectly attributing a later reset to OTA.
+bool takePlannedNvs_(Record& record)
+{
+    nvs_handle_t handle = 0;
+    const esp_err_t openErr = nvs_open(kBootNvsNamespace, NVS_READWRITE, &handle);
+    if (openErr != ESP_OK) return false;
+    size_t length = sizeof(record);
+    const esp_err_t readErr = nvs_get_blob(handle, kBootNvsKey, &record, &length);
+    const bool present = readErr == ESP_OK || readErr == ESP_ERR_NVS_INVALID_LENGTH;
+    const bool valid = readErr == ESP_OK && length == sizeof(record) && isValidRecord_(record);
+    if (present) {
+        esp_err_t clearErr = nvs_erase_key(handle, kBootNvsKey);
+        if (clearErr == ESP_OK) clearErr = nvs_commit(handle);
+        if (clearErr != ESP_OK)
+            Serial.printf("[BOOT-RESET] nvs_clear_failed err=0x%x\n", (unsigned)clearErr);
+    }
+    nvs_close(handle);
+    return valid;
 }
 
 const char* originName_(uint32_t origin)
@@ -118,16 +160,32 @@ void markPlanned(Origin origin, uint32_t operationId)
     Record record = readRecord_();
     record.plannedOrigin = static_cast<uint32_t>(origin);
     record.plannedOperationId = operationId;
+    record.magic = kMagic;
+    record.version = kVersion;
+    record.checksum = checksumOf_(record);
     writeRecord_(record);
+    const bool persisted = savePlannedNvs_(record);
+    Serial.printf("[BOOT-RESET] planned_mark source=rtc+nvs nvs_saved=%u op=%lu\n",
+                  persisted ? 1U : 0U, (unsigned long)operationId);
 }
 
 void reportPreviousBoot()
 {
-    const Record record = readRecord_();
+    const esp_reset_reason_t reset = esp_reset_reason();
+    const Record rtc = readRecord_();
+    const bool rtcValid = isValidRecord_(rtc);
+    Record persisted{};
+    const bool nvsValid = takePlannedNvs_(persisted);
+    // A stale persistent marker after power loss or panic is NOT evidence
+    // that this startup came from our deliberate OTA restart.
+    const bool useNvs = !rtcValid && nvsValid && reset == ESP_RST_SW;
+    const Record record = rtcValid ? rtc : (useNvs ? persisted : Record{});
     rtcRecord.magic = 0U; // One-shot: avoid stale intent on a subsequent reset.
-    Serial.printf("[BOOT-RESET] reset_reason=%u rtc_valid=%u planned=%s planned_op=%lu last_ota_op=%lu stage=%s received=%lu/%lu\n",
-                  (unsigned)esp_reset_reason(),
-                  record.magic == kMagic ? 1U : 0U,
+    Serial.printf("[BOOT-RESET] reset_reason=%u rtc_valid=%u nvs_valid=%u source=%s planned=%s planned_op=%lu last_ota_op=%lu stage=%s received=%lu/%lu\n",
+                  (unsigned)reset,
+                  rtcValid ? 1U : 0U,
+                  nvsValid ? 1U : 0U,
+                  rtcValid ? "rtc" : (useNvs ? "nvs" : "none"),
                   originName_(record.plannedOrigin),
                   (unsigned long)record.plannedOperationId,
                   (unsigned long)record.lastOtaOperationId,

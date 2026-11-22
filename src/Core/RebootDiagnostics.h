@@ -3,8 +3,10 @@
  * @file RebootDiagnostics.h
  * @brief Best-effort reboot and OTA progress breadcrumbs across software reset.
  *
- * Stored only in RTC no-init RAM: no NVS/flash writes on the OTA hot path.
- * Lost on power removal; not a replacement for panic dumps or serial logs.
+ * OTA progress is stored in RTC no-init RAM with no flash writes on the
+ * download/write hot path. Lost on power removal (RTC). A one-shot NVS copy
+ * is made ONLY immediately before an intentional restart, then consumed on
+ * next boot. Not a replacement for panic dumps or serial logs.
  */
 #include <stdint.h>
 
