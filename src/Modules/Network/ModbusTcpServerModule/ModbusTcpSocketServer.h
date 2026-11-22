@@ -57,7 +57,7 @@ public:
     void trace_(uint8_t slot, const char* stage, uint32_t nowMs, int result = 0) {
         if (!traceActive_[slot]) return;
         const uint8_t port = slot / kClientsPerPort;
-        Serial.printf("[MODBUS-TCP-TRACE] ms=%lu port=%u slot=%u tid=%u unit=%u fc=%u addr=%u qty=%u stage=%s age_ms=%lu queue_ms=%lu rtu_ms=%lu result=%d tx_bytes=%u\\n",
+        Serial.printf("[MODBUS-TCP-TRACE] ms=%lu port=%u slot=%u tid=%u unit=%u fc=%u addr=%u qty=%u stage=%s age_ms=%lu queue_ms=%lu rtu_ms=%lu result=%d tx_bytes=%u\n",
             (unsigned long)nowMs, (unsigned)kPorts[port], (unsigned)slot,
             (unsigned)traceTid_[slot], (unsigned)traceUnit_[slot],
             (unsigned)traceFc_[slot], (unsigned)traceAddr_[slot],
@@ -246,7 +246,7 @@ public:
             traceUnit_[slot] = request.unitId;
             traceFc_[slot] = request.function;
             traceAddr_[slot] = request.address;
-            traceQty_[slot] = request.quantity;
+            traceQty_[slot] = request.count;
             SerialLineProfile line{};
             uint8_t targetUnitId = request.unitId;
             if (!resolver_ || !resolver_(resolverContext_, port, request.unitId,
