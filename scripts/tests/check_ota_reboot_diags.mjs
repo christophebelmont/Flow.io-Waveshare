@@ -17,6 +17,21 @@ const network = read("src/Modules/Network/ModbusTcpServerModule/ModbusTcpServerM
 
 assert.match(reboot, /RTC_NOINIT_ATTR\s+volatile\s+Record/);
 assert.match(reboot, /record\.checksum\s*==\s*checksumOf_\(record\)/);
+// Regression: noteOta() starts from a zeroed RTC record after reportPreviousBoot().
+// All values used to compute the checksum MUST match the stored RTC version,
+// otherwise every subsequent readRecord_() discards OTA progress.
+const writer = reboot.split("void writeRecord_(")[1]?.split("// Only markPlanned()")[0];
+assert.ok(writer, "writeRecord_() missing");
+assert.match(writer, /stored\.magic\s*=\s*kMagic;/);
+assert.match(writer, /stored\.version\s*=\s*kVersion;/);
+assert.match(writer, /stored\.checksum\s*=\s*checksumOf_\(stored\);/);
+assert.match(writer, /rtcRecord\.version\s*=\s*stored\.version;/);
+assert.match(writer, /rtcRecord\.checksum\s*=\s*stored\.checksum;/);
+assert.match(writer, /rtcRecord\.magic\s*=\s*stored\.magic;/);
+assert.doesNotMatch(writer, /rtcRecord\.checksum\s*=\s*checksumOf_\(record\)/);
+const otaBlock = reboot.split("void noteOta(")[1]?.split("void markPlanned(")[0];
+assert.ok(otaBlock && otaBlock.includes("writeRecord_(record);"),
+  "noteOta must use the validated RTC writer");
 assert.match(reboot, /rtcRecord\.magic = 0U; \/* One-shot/);
 assert.match(reboot, /\[BOOT-RESET\].*planned=.*last_ota_op=.*received=/);
 assert.match(rebootHeader, /Lost on power removal/);
@@ -52,4 +67,4 @@ assert.match(loop, /if \(uint32_t\(now - lastOtaTraceMs_\) >= 5000U\)/);
 assert.match(network, /taskStackSize\(\) const override \{ return 4096; \}/);
 assert.doesNotMatch(reboot, /malloc|new\s+|heap_caps_malloc/);
 
-console.log("PASS: OTA RTC/NVS one-shot reboot breadcrumbs and offline TCP diagnostics");
+console.log("PASS: OTA RTC/NVS checksum normalization, OTA progress preservation and offline TCP diagnostics");

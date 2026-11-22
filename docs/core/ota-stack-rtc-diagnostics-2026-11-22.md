@@ -54,6 +54,29 @@ Contrôler enfin `[OTA-MEM] ... task=fwupdate ... stack_hwm=...`,
 `[OTA-STACK] LOW`, le plus grand bloc libre interne et le bilan
 PSRAM avec 0, 1, 2 et 3 ports TCP actifs.
 
+## Retour des essais du 22 novembre — correctif checksum RTC
+
+Les nouveaux bootlogs montrent `reason=3 rtc_valid=1 nvs_valid=1
+source=rtc planned=ota_release`, mais aussi
+`last_ota_op=0 stage=none received=0/0`.
+Le redémarrage est correctement reconnu. En revanche, les checkpoints
+`noteOta()` étaient perdus car, lors de la toute première écriture,
+`readRecord_()` renvoyait un record vide (`version=0`) alors que
+`writeRecord_()` persistait `version=kVersion` et calculait
+le checksum à partir de la version **zéro**. Le checksum RTC était
+ensuite rejeté jusqu'au redémarrage planifié.
+
+Le correctif normalise `magic`, `version` et `checksum` **dans
+la même copie** avant de la stocker en RTC. Le test
+`scripts/tests/check_ota_reboot_diags.mjs` vérifie cette relation.
+Aucune écriture NVS supplémentaire et aucune modification du mécanisme
+de téléchargement ou de commit A/B.
+
+**Validation matérielle à effectuer :** après une OTA réalisée avec
+cette version du code, vérifier `last_ota_op` identique à l'opération
+terminée et `stage` différent de `none`. Les anciens checkpoints
+ne peuvent pas être reconstruits rétroactivement.
+
 ## Isolation
 
 Modifie uniquement `experiment/modbus-tcp-psram-buffers-20261122`

@@ -68,18 +68,26 @@ Record readRecord_()
 
 void writeRecord_(const Record& record)
 {
+    // The first noteOta() after boot starts with an empty record (version=0).
+    // Calculate the checksum from the EXACT normalized fields written to RTC.
+    // Previously RTC.version was kVersion but checksumOf_(record) used version=0;
+    // every noteOta() then failed validation, dropping the last OTA stage.
+    Record stored = record;
+    stored.magic = kMagic;
+    stored.version = kVersion;
+    stored.checksum = checksumOf_(stored);
     // Invalid until the very last store; an interrupted write is not
     // reported as an intentional reboot on the next boot.
     rtcRecord.magic = 0U;
-    rtcRecord.version = kVersion;
-    rtcRecord.plannedOrigin = record.plannedOrigin;
-    rtcRecord.plannedOperationId = record.plannedOperationId;
-    rtcRecord.lastOtaOperationId = record.lastOtaOperationId;
-    rtcRecord.lastOtaStage = record.lastOtaStage;
-    rtcRecord.receivedBytes = record.receivedBytes;
-    rtcRecord.totalBytes = record.totalBytes;
-    rtcRecord.checksum = checksumOf_(record);
-    rtcRecord.magic = kMagic;
+    rtcRecord.version = stored.version;
+    rtcRecord.plannedOrigin = stored.plannedOrigin;
+    rtcRecord.plannedOperationId = stored.plannedOperationId;
+    rtcRecord.lastOtaOperationId = stored.lastOtaOperationId;
+    rtcRecord.lastOtaStage = stored.lastOtaStage;
+    rtcRecord.receivedBytes = stored.receivedBytes;
+    rtcRecord.totalBytes = stored.totalBytes;
+    rtcRecord.checksum = stored.checksum;
+    rtcRecord.magic = stored.magic;
 }
 
 // Only markPlanned() writes this backup, immediately before a deliberate restart.
