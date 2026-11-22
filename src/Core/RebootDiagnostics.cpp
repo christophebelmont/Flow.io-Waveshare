@@ -3,6 +3,7 @@
  * @brief Software-reset breadcrumbs, without writing to flash/NVS.
  */
 #include "Core/RebootDiagnostics.h"
+#include "Core/Log.h"
 #include <Arduino.h>
 #include <esp_attr.h>
 #include <esp_system.h>
@@ -192,6 +193,26 @@ void reportPreviousBoot()
                   stageName_(record.lastOtaStage),
                   (unsigned long)record.receivedBytes,
                   (unsigned long)record.totalBytes);
+
+    // The detailed Serial line is deliberately retained for early boot and
+    // USB capture. The Web bootlog uses the bounded LogHub entry instead.
+    // Publish short entries so the reset source and last OTA stage survive
+    // the 159-character LogEntry payload limit.
+    if (Log::hub()) {
+        const LogModuleId module = (LogModuleId)LogModuleIdValue::FirmwareUpdateModule;
+        Log::info(module,
+                  "[BOOT-RESET] reason=%u rtc_valid=%u nvs_valid=%u source=%s planned=%s",
+                  (unsigned)reset, rtcValid ? 1U : 0U, nvsValid ? 1U : 0U,
+                  rtcValid ? "rtc" : (useNvs ? "nvs" : "none"),
+                  originName_(record.plannedOrigin));
+        Log::info(module,
+                  "[BOOT-RESET] planned_op=%lu last_ota_op=%lu stage=%s received=%lu/%lu",
+                  (unsigned long)record.plannedOperationId,
+                  (unsigned long)record.lastOtaOperationId,
+                  stageName_(record.lastOtaStage),
+                  (unsigned long)record.receivedBytes,
+                  (unsigned long)record.totalBytes);
+    }
 }
 
 } // namespace RebootDiagnostics

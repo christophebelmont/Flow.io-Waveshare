@@ -261,15 +261,19 @@ static void otaMonitor_(const char* phase)
         ? 100U - (uint32_t)((uint64_t)largestInternal * 100U / freeInternal) : 0U;
     const TaskHandle_t task = xTaskGetCurrentTaskHandle();
     const uint32_t hwm = uxTaskGetStackHighWaterMark(task);
-    LOGI("[OTA-MEM] phase=%s ms=%lu core=%d internal=%lu largest=%lu min=%lu frag_pct=%lu psram=%lu psram_largest=%lu stack_free=%lu task=%s task_handle=%p stack_hwm=%lu",
-         phase, (unsigned long)millis(), (int)xPortGetCoreID(),
-         (unsigned long)freeInternal, (unsigned long)largestInternal,
+    // LogEntry.msg holds only 159 printable characters (LOG_MSG_MAX=160).
+    // Keep the stack watermark FIRST and every line below that limit.
+    // Do not increase LogEntry size: it also expands the LogHub/boot buffers.
+    LOGI("[OTA-MEM] phase=%s task=%s id=%p core=%d hwm_bytes=%lu internal=%lu largest=%lu",
+         phase, pcTaskGetName(task), (void*)task, (int)xPortGetCoreID(),
+         (unsigned long)hwm, (unsigned long)freeInternal,
+         (unsigned long)largestInternal);
+    LOGI("[OTA-HEAP] phase=%s ms=%lu min_internal=%lu frag_pct=%lu psram=%lu largest_psram=%lu",
+         phase, (unsigned long)millis(),
          (unsigned long)heap_caps_get_minimum_free_size(internal),
          (unsigned long)fragmentation,
          (unsigned long)heap_caps_get_free_size(external),
-         (unsigned long)heap_caps_get_largest_free_block(external),
-         (unsigned long)hwm, pcTaskGetName(task), (void*)task,
-         (unsigned long)hwm);
+         (unsigned long)heap_caps_get_largest_free_block(external));
     if (hwm < 1024U) {
         LOGW("[OTA-STACK] LOW phase=%s task=%s handle=%p hwm_bytes=%lu",
              phase, pcTaskGetName(task), (void*)task, (unsigned long)hwm);
