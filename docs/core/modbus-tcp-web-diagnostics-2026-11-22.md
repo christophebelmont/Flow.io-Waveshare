@@ -49,7 +49,7 @@ Les anciennes traces longues sur `Serial` restent disponibles.
 
 - Le plafond LogHub est `LOG_MSG_MAX=160` (159 caractères utiles).
   Les douze formats ont été vérifiés avec des valeurs pessimistes ;
-  le plus long fait 133 caractères dans ce calcul.
+  le plus long fait 150 caractères dans ce calcul.
 - Aucune nouvelle allocation dynamique, file de messages, pile ni
   modification des trames Modbus ou des partitions OTA.
 - Le volume de logs augmente pendant une OTA : vérifier le compteur
