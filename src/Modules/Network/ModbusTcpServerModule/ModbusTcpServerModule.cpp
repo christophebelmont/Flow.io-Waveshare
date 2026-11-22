@@ -148,6 +148,13 @@ void ModbusTcpServerModule::logWebSnapshot_(
     ModbusMasterStats queue{};
     if (master_ && master_->stats) (void)master_->stats(master_->ctx, &queue);
 
+    // Boot-local counters: actual listener stops/reopens only, not TCP SYN
+    // attempts (invisible to the application after listeners close).
+    Log::info(kLogModule_,
+              "[MODBUS-OTA] paused=%lu resumed=%lu pending=%u busy=%u listen=%u",
+              (unsigned long)otaSuspensions_, (unsigned long)otaResumptions_,
+              otaResumePending_ ? 1U : 0U, otaBusy ? 1U : 0U,
+              running_ ? 1U : 0U);
     if (otaBusy) {
         Log::info(kLogModule_,
                   "[OTA-NET] ms=%lu en=%u%u%u sta=%u listen=%u clients=%u,%u,%u psram=%u",

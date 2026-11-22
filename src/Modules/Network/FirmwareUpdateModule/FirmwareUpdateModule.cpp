@@ -552,7 +552,65 @@ void FirmwareUpdateModule::setOtaStage_(const char* stage, uint8_t phaseProgress
 
 void FirmwareUpdateModule::setError_(FirmwareUpdateTarget target, const char* msg, uint32_t operationId)
 {
+    // Preserve phase BEFORE UpdateState::Error clears the visible otaStage.
+    // Errors are rare and occur after transfer/flash failure; no per-chunk
+    // writes to NVS are added.
+    char stage[sizeof(status_.otaStage)]{};
+    portENTER_CRITICAL(&lock_);
+    snprintf(stage, sizeof(stage), "%s",
+             status_.otaStage[0] ? status_.otaStage : stateStr_(status_.state));
+    portEXIT_CRITICAL(&lock_);
     setStatus_(UpdateState::Error, target, 0, msg ? msg : "failed", operationId);
+    persistLastFailure_(target, operationId, stage, msg);
+}
+
+void FirmwareUpdateModule::loadLastFailure_()
+{
+    if (!cfgStore_) return;
+    OtaFailure::Record record{};
+    size_t length = 0U;
+    if (!cfgStore_->readRuntimeBlob(NvsKeys::FirmwareUpdate::LastFailure,
+                                    &record, sizeof(record), &length))
+        return;
+    if (length != sizeof(record) || !OtaFailure::valid(record)) {
+        LOGW("[OTA-LASTFAIL] persisted record invalid; ignored");
+        return;
+    }
+    portENTER_CRITICAL(&lock_);
+    lastFailure_ = record;
+    hasLastFailure_ = true;
+    portEXIT_CRITICAL(&lock_);
+    LOGW("[OTA-LASTFAIL] retained=1 op=%lu code=%u target=%u stage=%.27s",
+         (unsigned long)record.operationId, (unsigned)record.code,
+         (unsigned)record.target, record.stage);
+    LOGW("[OTA-LASTFAIL] reason=%.95s", record.reason);
+}
+
+void FirmwareUpdateModule::persistLastFailure_(
+    FirmwareUpdateTarget target, uint32_t operationId,
+    const char* stage, const char* reason)
+{
+    if (!cfgStore_ || operationId == 0U) return;
+    const OtaFailure::Record record = OtaFailure::make(
+        (uint8_t)target, operationId, stage, reason);
+    // A single operation can signal an error from both failLocalRelease_()
+    // and runJob_(). Retain the FIRST error once per operation.
+    portENTER_CRITICAL(&lock_);
+    if (hasLastFailure_ && lastFailure_.operationId == operationId) {
+        portEXIT_CRITICAL(&lock_);
+        return;
+    }
+    lastFailure_ = record;
+    hasLastFailure_ = true;
+    portEXIT_CRITICAL(&lock_);
+
+    // Rare error path only. An OTA success NEVER clears or overwrites this.
+    const bool saved = cfgStore_->writeRuntimeBlob(
+        NvsKeys::FirmwareUpdate::LastFailure, &record, sizeof(record));
+    LOGW("[OTA-LASTFAIL] persisted=%u op=%lu code=%u target=%u stage=%.27s",
+         saved ? 1U : 0U, (unsigned long)record.operationId,
+         (unsigned)record.code, (unsigned)record.target, record.stage);
+    LOGW("[OTA-LASTFAIL] reason=%.95s", record.reason);
 }
 
 bool FirmwareUpdateModule::loadReceipt_()
@@ -746,12 +804,16 @@ bool FirmwareUpdateModule::statusJson_(char* out, size_t outLen)
     bool pending = false;
     bool hasLastReceipt = false;
     FirmwareUpdateReceipt lastReceipt{};
+    bool hasLastFailure = false;
+    OtaFailure::Record lastFailure{};
     portENTER_CRITICAL(&lock_);
     snap = status_;
-    busy = busy_ || localReleaseActive_;
+    busy = busy_ || (localReleaseActive_ && status_.state != UpdateState::Error);
     pending = queuedJob_.pending;
     hasLastReceipt = hasLastReceipt_;
     lastReceipt = lastReceipt_;
+    hasLastFailure = hasLastFailure_;
+    lastFailure = lastFailure_;
     portEXIT_CRITICAL(&lock_);
 
     sanitizeJsonString_(snap.msg);
@@ -790,6 +852,20 @@ bool FirmwareUpdateModule::statusJson_(char* out, size_t outLen)
         receipt["result"] = firmwareUpdateReceiptStateName(lastReceipt.state);
     } else {
         doc["last_operation"] = nullptr;
+    }
+    // Optional persistent diagnostic for the 640-byte Web status endpoint.
+    // Do not break 512-byte command replies, or even the 640-byte endpoint,
+    // if insufficient JSON capacity/output space remains.
+    if (hasLastFailure && outLen >= 640U &&
+        doc.capacity() > doc.memoryUsage() +
+            JSON_OBJECT_SIZE(1) + JSON_OBJECT_SIZE(4) +
+            sizeof(lastFailure.stage) + sizeof(lastFailure.reason)) {
+        JsonObject last = doc.createNestedObject("last_failure");
+        last["operation_id"] = lastFailure.operationId;
+        last["code"] = lastFailure.code;
+        last["stage"] = lastFailure.stage;
+        last["reason"] = lastFailure.reason;
+        if (measureJson(doc) >= outLen) doc.remove("last_failure");
     }
     // Command-bus callers may still provide a 512-byte reply. The Web API
     // reserves 640 bytes, but for smaller callers omit the optional phase
@@ -1958,7 +2034,15 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
             LOGI("[OTA] paired release verified and committed; one reboot scheduled");
         }
     }
+    char failedStage[sizeof(status_.otaStage)]{};
     if (!success) {
+        // Remember the phase before abortLocalRelease_ resets the UI state to
+        // Idle. The updater's final runJob_ error would otherwise report
+        // stage=idle, losing the exact phase of the first failed attempt.
+        portENTER_CRITICAL(&lock_);
+        snprintf(failedStage, sizeof(failedStage), "%s",
+                 status_.otaStage[0] ? status_.otaStage : stateStr_(status_.state));
+        portEXIT_CRITICAL(&lock_);
         LOGE("[OTA-TRACE] op=%lu stage=aborted reason=%s",
              (unsigned long)job.operationId, errOut ? errOut : "-");
         otaMonitor_("abort");
@@ -1967,6 +2051,12 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
         // Keeps the old paired release active on any download/validation fault.
         char abortError[128]{};
         (void)abortLocalRelease_(transactionId, abortError, sizeof(abortError));
+    }
+    if (!success) {
+        // At most one small NVS write, after the transaction was aborted;
+        // retain this error even if the user immediately retries and succeeds.
+        persistLastFailure_(FirmwareUpdateTarget::Waveshare,
+                            job.operationId, failedStage, errOut);
     }
     portENTER_CRITICAL(&lock_);
     remoteReleaseWorker_ = nullptr;
@@ -3176,6 +3266,7 @@ void FirmwareUpdateModule::init(ConfigStore& cfg, ServiceRegistry& services)
 
     bootId_ = esp_random();
     if (bootId_ == 0U) bootId_ = 1U;
+    loadLastFailure_();
     if (loadReceipt_()) {
         nextOperationId_ = lastReceipt_.operationId + 1U;
         if (nextOperationId_ == 0U) nextOperationId_ = 1U;

@@ -104,6 +104,7 @@ public:
                 if (running_) {
                     server_.stop();
                     running_ = false;
+                    ++otaSuspensions_; // Actual client/listener shutdown.
                 }
                 Log::warn(kLogModule_,
                           "[MODBUS-TCP] ota_priority=1 paused=1 pool=%u",
@@ -158,6 +159,7 @@ public:
             running_ = true;
             if (otaResumePending_) {
                 otaResumePending_ = false;
+                ++otaResumptions_; // Actual listener reopen, not just OTA unlock.
                 // Report recovery only after SocketServer::begin() succeeded.
                 Log::info(kLogModule_,
                           "[MODBUS-TCP] resume_ready=1 ports=%u%u%u pool=%u",
@@ -328,6 +330,8 @@ private:
     bool otaTraceActive_ = false;
     bool otaQuiesced_ = false;
     bool otaResumePending_ = false;
+    uint32_t otaSuspensions_ = 0U; // Cumulative since boot, actual shutdowns.
+    uint32_t otaResumptions_ = 0U; // Cumulative since boot, actual reopenings.
     uint32_t otaBusySinceMs_ = 0U;
     uint32_t lastOtaTraceMs_ = 0U;
     uint32_t otaTickMaxUs_ = 0U;

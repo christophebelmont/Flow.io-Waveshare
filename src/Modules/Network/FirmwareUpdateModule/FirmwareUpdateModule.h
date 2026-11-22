@@ -10,6 +10,7 @@
 #include "Core/ConfigTypes.h"
 #include "Core/CommandRegistry.h"
 #include "FirmwareUpdateReceipt.h"
+#include "FirmwareUpdateFailure.h"
 #include "Core/ReleaseStorage.h"
 
 #include <esp_ota_ops.h>
@@ -186,6 +187,9 @@ private:
     uint32_t nextOperationId_ = 1U;
     FirmwareUpdateReceipt lastReceipt_{};
     bool hasLastReceipt_ = false;
+    // Latest OTA failure is independent of the rolling success receipt.
+    OtaFailure::Record lastFailure_{};
+    bool hasLastFailure_ = false;
     bool updateStartPending_ = false;
     uint8_t manifestCopyReaders_ = 0;
     bool nextionRebootQueued_ = false;
@@ -288,6 +292,9 @@ private:
                     uint32_t operationId = 0U);
     void setOtaStage_(const char* stage, uint8_t phaseProgress);
     void setError_(FirmwareUpdateTarget target, const char* msg, uint32_t operationId);
+    void loadLastFailure_();
+    void persistLastFailure_(FirmwareUpdateTarget target, uint32_t operationId,
+                             const char* stage, const char* reason);
     bool loadReceipt_();
     bool persistReceipt_(FirmwareUpdateTarget target,
                          uint32_t operationId,
