@@ -121,7 +121,14 @@ public:
             for (uint8_t i = 0; i < ModbusTcpServer::kPortCount; ++i)
                 enabled = enabled || configs_[i].enabled;
             if (!enabled) return;
-            server_.begin(*master_, &ModbusTcpServer::LineResolver::resolveStatic, &resolver_);
+            // Retry unavailable external RAM slowly; avoid heap/log spam.
+            if (lastPsramStartFailureMs_ &&
+                uint32_t(now - lastPsramStartFailureMs_) < 10000U) return;
+            if (!server_.begin(*master_, &ModbusTcpServer::LineResolver::resolveStatic, &resolver_)) {
+                lastPsramStartFailureMs_ = now ? now : 1U;
+                return;
+            }
+            lastPsramStartFailureMs_ = 0U;
             running_ = true;
         }
         const uint32_t tickStartedUs = micros();
@@ -150,6 +157,8 @@ public:
             (unsigned long)tickMaxUs_, (unsigned long)slowTicks_);
         tickMaxUs_ = 0U;
         slowTicks_ = 0U;
+        Serial.printf("[MODBUS-PSRAM] active_frame_bytes=%u ready=%u\n",
+                      (unsigned)server_.psramFrameBytes(), server_.frameStorageReady() ? 1U : 0U);
         Serial.printf("[MODBUS-TCP] heap_internal=%lu min_internal=%lu largest_internal=%lu frag_est_percent=%lu psram=%lu largest_psram=%lu stack_hwm=%lu rtu_queue=%u rtu_peak=%u rtu_rejected=%lu rtu_crc=%lu rtu_timeouts=%lu\n",
             (unsigned long)freeInternal, (unsigned long)minInternal,
             (unsigned long)largestInternal, (unsigned long)fragEstimate,
@@ -264,6 +273,7 @@ private:
     ModbusTcpServer::PortConfig configs_[ModbusTcpServer::kPortCount]{};
     bool running_ = false;
     bool eligible_ = false;
+    uint32_t lastPsramStartFailureMs_ = 0U;
     uint32_t lastDiagnosticsMs_ = 0U;
     uint32_t tickMaxUs_ = 0U;
     uint32_t slowTicks_ = 0U;

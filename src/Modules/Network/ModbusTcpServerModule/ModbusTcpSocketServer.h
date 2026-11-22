@@ -11,12 +11,19 @@
 #include <WiFi.h>
 #include <lwip/sockets.h>
 #include <errno.h>
+#include <esp_heap_caps.h>
 #include "ModbusTcpBridge.h"
 #include "ModbusTcpSocketHealth.h"
 #include "ModbusTcpSessions.h"
 
 namespace ModbusTcpServer {
 class SocketServer {
+    struct FrameStorage {
+        uint8_t rx[kMaxClients][ModbusTcpAdu::kMaxAdu]{};
+        uint8_t tx[kMaxClients][ModbusTcpAdu::kMaxAdu]{};
+    };
+    static_assert(sizeof(FrameStorage) == 2U * kMaxClients * ModbusTcpAdu::kMaxAdu,
+                  "Unexpected TCP frame storage overhead");
 public:
     using ResolveLine = bool (*)(void* context, uint8_t portIndex,
                                 uint8_t unitId, SerialLineProfile& out,
@@ -31,14 +38,41 @@ public:
         if (validConfig(port, config)) configs_[port] = config;
     }
 
-    void begin(const ModbusMasterService& service, ResolveLine resolver,
+    // Fail closed when external RAM is unavailable. No internal heap fallback.
+    // The allocation is retained across all Wi-Fi / network reconnections.
+    bool begin(const ModbusMasterService& service, ResolveLine resolver,
                void* resolverContext) {
+        if (started_) return true;
+        if (!frameStorage_) {
+            const size_t beforeInternal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            const size_t beforeLargest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            void* memory = heap_caps_calloc(1U, sizeof(FrameStorage),
+                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            if (!memory) {
+                Serial.printf("[MODBUS-PSRAM] allocation_failed bytes=%u internal_free=%u psram_free=%u\n",
+                              (unsigned)sizeof(FrameStorage), (unsigned)beforeInternal,
+                              (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+                return false;
+            }
+            frameStorage_ = static_cast<FrameStorage*>(memory);
+            sessions_.attachFrames(frameStorage_->rx);
+            for (uint8_t i = 0U; i < kMaxClients; ++i)
+                bridges_[i].attachOutput(frameStorage_->tx[i]);
+            Serial.printf("[MODBUS-PSRAM] ready rx_bytes=%u tx_bytes=%u total=%u internal_before=%u internal_after=%u largest_before=%u largest_after=%u psram_free=%u\n",
+                          (unsigned)sizeof(frameStorage_->rx), (unsigned)sizeof(frameStorage_->tx),
+                          (unsigned)sizeof(FrameStorage), (unsigned)beforeInternal,
+                          (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                          (unsigned)beforeLargest,
+                          (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                          (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        }
         service_ = &service;
         resolver_ = resolver;
         resolverContext_ = resolverContext;
         for (uint8_t port = 0; port < kPortCount; ++port)
             if (configs_[port].enabled) servers_[port].begin();
         started_ = true;
+        return true;
     }
 
     void stop() {
@@ -270,6 +304,8 @@ public:
     }
 
     const PortStats& stats(uint8_t port) const { return stats_[port < kPortCount ? port : 0U]; }
+    size_t psramFrameBytes() const { return frameStorage_ ? sizeof(FrameStorage) : 0U; }
+    bool frameStorageReady() const { return frameStorage_ != nullptr; }
 private:
     void accountOutcome_(uint8_t port, const BridgeSlot& bridge, bool replied) {
         if (bridge.hasSerialTiming()) {
@@ -422,5 +458,6 @@ private:
     ResolveLine resolver_ = nullptr;
     void* resolverContext_ = nullptr;
     bool started_ = false;
+    FrameStorage* frameStorage_ = nullptr;
 };
 } // namespace ModbusTcpServer

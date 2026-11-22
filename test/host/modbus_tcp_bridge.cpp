@@ -38,6 +38,10 @@ int main() {
     assert(ModbusTcpAdu::decode(frame, sizeof(frame), tcp));
     SerialLineProfile serial{};
     BridgeSlot slot(201);
+    assert(!slot.ready());
+    uint8_t externalTx[ModbusTcpAdu::kMaxAdu]{};
+    slot.attachOutput(externalTx);
+    assert(slot.ready());
     assert(slot.submit(service, tcp, serial, ErrorMode::ModbusException, 8000, 100));
     assert(fake.last.registerCount == 24 && fake.last.registerAddress == 500);
     assert(fake.last.responseTimeoutMs == 5000 && fake.last.transactionBudgetMs == 8000);
@@ -54,6 +58,7 @@ int main() {
     assert(slot.hasSerialTiming());
     assert(slot.queueWaitMs() == 34 && slot.rtuResponseMs() == 86);
     assert(slot.outputSize() == 57);
+    assert(slot.output() == externalTx);
     assert(slot.output()[0] == 0x12 && slot.output()[1] == 0x34);
     assert(slot.output()[7] == 3 && slot.output()[8] == 48);
     slot.reset();
