@@ -56,6 +56,7 @@ public:
         if (otaBusy != otaTraceActive_) {
             otaTraceActive_ = otaBusy;
             if (otaBusy) {
+                otaResumePending_ = false;
                 otaBusySinceMs_ = now;
                 lastOtaTraceMs_ = now - 5000U;
                 otaTickMaxUs_ = 0U;
@@ -64,8 +65,10 @@ public:
                 otaBusySinceMs_ = 0U;
                 if (otaQuiesced_) {
                     otaQuiesced_ = false;
+                    otaResumePending_ = true;
+                    // "pending" means OTA released the lock, not yet listening.
                     Log::info(kLogModule_,
-                              "[MODBUS-TCP] ota_priority=0 resume=1 pool=%u",
+                              "[MODBUS-TCP] ota_priority=0 resume_pending=1 pool=%u",
                               (unsigned)server_.psramFrameBytes());
                 }
                 Serial.printf("[OTA-NET] ms=%lu stage=load_end core=%d\n",
@@ -91,12 +94,12 @@ public:
         // OTA takes absolute priority over the optional TCP/RTU gateway.
         // A short manifest check usually completes below this debounce, so
         // it need not disconnect production clients just for a version query.
-        // Once a real update remains busy, close listeners AND clients only
-        // once, canceling their pending bridge owners via SocketServer::stop().
-        // No TCP requests are accepted again until OTA is no longer busy.
-        // The frame pool itself remains allocated in PSRAM for reuse.
-        if (otaBusy && uint32_t(now - otaBusySinceMs_) >= 300U) {
-            if (!otaQuiesced_) {
+        // Never service/admit TCP clients while OTA is busy, even during
+        // the first 300 ms. Reconnecting peers cannot enter the Modbus
+        // application; after debounce, stop() closes the TCP listeners and
+        // existing clients once, while keeping frame buffers in PSRAM.
+        if (otaBusy) {
+            if (uint32_t(now - otaBusySinceMs_) >= 300U && !otaQuiesced_) {
                 otaQuiesced_ = true;
                 if (running_) {
                     server_.stop();
@@ -153,6 +156,16 @@ public:
             lastPsramStartFailureMs_ = 0U;
             psramFailureReported_ = false;
             running_ = true;
+            if (otaResumePending_) {
+                otaResumePending_ = false;
+                // Report recovery only after SocketServer::begin() succeeded.
+                Log::info(kLogModule_,
+                          "[MODBUS-TCP] resume_ready=1 ports=%u%u%u pool=%u",
+                          configs_[0].enabled ? 1U : 0U,
+                          configs_[1].enabled ? 1U : 0U,
+                          configs_[2].enabled ? 1U : 0U,
+                          (unsigned)server_.psramFrameBytes());
+            }
             Log::info(kLogModule_,
                       "[MODBUS-PSRAM] pool_ready bytes=%u reused=%u internal=%lu psram=%lu",
                       (unsigned)server_.psramFrameBytes(), reusedPool ? 1U : 0U,
@@ -314,6 +327,7 @@ private:
     const FirmwareUpdateService* fwUpdateSvc_ = nullptr;
     bool otaTraceActive_ = false;
     bool otaQuiesced_ = false;
+    bool otaResumePending_ = false;
     uint32_t otaBusySinceMs_ = 0U;
     uint32_t lastOtaTraceMs_ = 0U;
     uint32_t otaTickMaxUs_ = 0U;

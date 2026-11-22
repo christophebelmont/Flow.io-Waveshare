@@ -76,3 +76,30 @@ d'alimentation/Flash/HTTP restent possibles) ; il réduit seulement
 la concurrence du serveur Modbus pendant l'OTA.
 
 Ne pas déclarer ce patch validé en production sans les essais 5–8.
+
+
+## Réouverture des ports après échec OTA et clients en reconnexion
+
+Dès `isBusy=1`, aucune admission Modbus ni aucun traitement `server_.tick`
+n'a lieu ; cela inclut les 300 premières millisecondes (les sockets
+d'écoute sont fermées après ce délai). Les clients TCP qui réessaient
+leur connexion durant l'OTA ne provoquent pas une réouverture répétée
+des listeners. Le réseau peut encore réaliser un handshake lwIP durant
+le court délai initial, mais aucune trame n'est transmise au bridge.
+
+Un échec terminal d'upload local peut laisser `localReleaseActive_` à 1
+pour diagnostic. `FirmwareUpdateModule::isBusy_()` ne considère plus
+cet état comme occupé si `status_.state == Error`, à condition que la
+tâche `busy_` et les autres opérations soient inactives. Les protections
+de commit/reboot restent inchangées.
+
+Après échec, les traces suivent `ota_priority=0 resume_pending=1`
+(déblocage), puis `resume_ready=1 ports=... pool=3120` seulement quand
+les listeners ont réellement redémarré. Le message existant
+`pool_ready ... reused=1` confirme le recyclage du pool PSRAM. Si le
+Wi-Fi est indisponible ou les ports désactivés, la reprise attend
+ces conditions sans réémettre une ouverture trompeuse.
+
+Valider sur matériel une OTA qui échoue volontairement (sans changer
+l'image active), un client qui tente de se reconnecter pendant tout
+le téléchargement, puis des lectures FC03/FC04 après la reprise.

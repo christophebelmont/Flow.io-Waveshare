@@ -810,7 +810,11 @@ bool FirmwareUpdateModule::isBusy_()
 
     bool busy = false;
     portENTER_CRITICAL(&lock_);
-    busy = busy_ || localReleaseActive_ || queuedJob_.pending ||
+    // Preserve a failed upload record for diagnostics without blocking
+    // Modbus indefinitely. Actual running OTA work is still gated by busy_.
+    const bool localReleaseBusy = localReleaseActive_ &&
+                                  status_.state != UpdateState::Error;
+    busy = busy_ || localReleaseBusy || queuedJob_.pending ||
            nextionRebootQueued_ || updateStartPending_ ||
            manifestCheckIsActive_(manifestMetadata_->check.state);
     portEXIT_CRITICAL(&lock_);

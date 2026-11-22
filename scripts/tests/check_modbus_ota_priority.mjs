@@ -18,21 +18,29 @@ const loop = m.split("void loop() override {")[1]?.split("// MQTT JSON extension
 assert.ok(loop, "Modbus loop missing");
 assert.match(m, /taskStackSize\(\) const override \{ return 5120; \}/);
 assert.doesNotMatch(loop, /char otaNetLine\[384\]/);
-assert.match(loop, /if \(otaBusy && uint32_t\(now - otaBusySinceMs_\) >= 300U\)/);
-assert.match(loop, /if \(!otaQuiesced_\) \{/);
+assert.match(loop, /if \(otaBusy\) \{\s*if \(uint32_t\(now - otaBusySinceMs_\) >= 300U && !otaQuiesced_\) \{/);
+assert.match(loop, /if \(uint32_t\(now - otaBusySinceMs_\) >= 300U && !otaQuiesced_\) \{/);
 assert.match(loop, /server_\.stop\(\);\s*running_ = false;/);
 assert.match(loop, /\[MODBUS-TCP\] ota_priority=1 paused=1 pool=/);
-assert.match(loop, /\[MODBUS-TCP\] ota_priority=0 resume=1 pool=/);
-assert.ok(loop.indexOf("if (otaBusy && uint32_t(now - otaBusySinceMs_) >= 300U)") <
-          loop.indexOf("server_.tick(now)"),
-          "OTA quiesce must precede all Modbus work");
-assert.ok(loop.indexOf("if (otaBusy && uint32_t(now - otaBusySinceMs_) >= 300U)") <
-          loop.indexOf("if (!running_)"),
-          "OTA quiesce must prevent accepting/restarting TCP listeners");
+assert.match(loop, /\[MODBUS-TCP\] ota_priority=0 resume_pending=1 pool=/);
+assert.match(loop, /\[MODBUS-TCP\] resume_ready=1 ports=%u%u%u pool=/);
+assert.match(ota, /const bool localReleaseBusy = localReleaseActive_ &&\s*status_\.state != UpdateState::Error;/);
+assert.match(ota, /busy = busy_ \|\| localReleaseBusy \|\| queuedJob_\.pending/);
+const barrier = loop.indexOf("        if (otaBusy) {\n            if (uint32_t(now - otaBusySinceMs_) >= 300U");
+assert.ok(barrier >= 0 && barrier < loop.indexOf("server_.tick(now)"),
+  "OTA busy must stop all Modbus processing, even before 300ms");
+assert.ok(barrier < loop.indexOf("if (!running_)"),
+  "OTA busy must not allow listener start/reopen");
+assert.ok(loop.indexOf("            return;\n        }", barrier) < loop.indexOf("if (!running_)"),
+  "OTA guard must return regardless of debounce");
+assert.ok(loop.indexOf("otaResumePending_ = false;", loop.indexOf("running_ = true;")) >
+          loop.indexOf("server_.begin("),
+  "Only confirm resume once listeners have started");
 assert.ok(loop.includes("logWebSnapshot_(now, stationConnected, true)"),
           "OTA pressure samples must remain available without a listener");
 assert.match(m, /uint32_t otaBusySinceMs_ = 0U/);
 assert.match(m, /bool otaQuiesced_ = false/);
+assert.match(m, /bool otaResumePending_ = false/);
 assert.match(s, /void stop\(\) \{[\s\S]*?close_\(slot\)/);
 assert.match(s, /bridges_\[slot\]\.reset\(\);/);
 assert.match(s, /FrameStorage\* frameStorage_ = nullptr;/);
@@ -50,6 +58,17 @@ assert.ok(worst < bound, "Resolver summary truncated in Web logs: " + worst);
 assert.match(ota, /flashError = esp_ota_begin\(localRelease_\.writePartition, totalSize, &localRelease_\.otaHandle\);/);
 assert.match(ota, /stage=preverify_end sha256=%s ms=%lu flash_touched=0/);
 assert.match(ota, /RebootDiagnostics::markPlanned\(RebootDiagnostics::Origin::OtaRelease,/);
+// Simulate repeated client reconnection attempts during an OTA.
+function tick(busy, elapsed, stopped, listening) {
+  if (!busy) return {admitted:true, stopped:false, listening};
+  if (elapsed >= 300 && !stopped) return {admitted:false, stopped:true, listening:false};
+  return {admitted:false, stopped, listening};
+}
+assert.deepEqual(tick(true, 0, false, true), {admitted:false, stopped:false, listening:true});
+assert.deepEqual(tick(true, 299, false, true), {admitted:false, stopped:false, listening:true});
+assert.deepEqual(tick(true, 300, false, true), {admitted:false, stopped:true, listening:false});
+assert.deepEqual(tick(true, 5000, true, false), {admitted:false, stopped:true, listening:false});
+assert.deepEqual(tick(false, 5001, true, false), {admitted:true, stopped:false, listening:false});
 // Same unsigned arithmetic works across a millis() rollover.
 const passed = (now, since) => ((now - since) >>> 0) >= 300;
 assert.equal(passed(299, 0), false);
