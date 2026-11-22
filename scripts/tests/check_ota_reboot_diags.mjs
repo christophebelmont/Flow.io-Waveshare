@@ -61,10 +61,13 @@ const loop = network.split("void loop() override {")[1]?.split("    // MQTT JSON
 assert.ok(loop);
 assert.ok(loop.indexOf("const bool otaBusy") < loop.indexOf("if (!eligible_) return;"));
 assert.ok(loop.indexOf("[OTA-NET] ms=") < loop.indexOf("if (!eligible_) return;"));
-assert.match(loop, /station=%u listening=%u eligible=%u/);
+// The large Serial printf was removed to protect Modbus stack.
+assert.doesNotMatch(loop, /char otaNetLine\[384\]/);
+assert.match(loop, /logWebSnapshot_\(now, stationConnected, true\)/);
+assert.match(loop, /ota_priority=1 paused=1 pool=/);
 assert.match(loop, /if \(otaBusy\) \{\s*if \(elapsedUs > otaTickMaxUs_\)/);
 assert.match(loop, /if \(uint32_t\(now - lastOtaTraceMs_\) >= 5000U\)/);
-assert.match(network, /taskStackSize\(\) const override \{ return 4096; \}/);
+assert.match(network, /taskStackSize\(\) const override \{ return 5120; \}/);
 assert.doesNotMatch(reboot, /malloc|new\s+|heap_caps_malloc/);
 
 console.log("PASS: OTA RTC/NVS checksum normalization, OTA progress preservation and offline TCP diagnostics");

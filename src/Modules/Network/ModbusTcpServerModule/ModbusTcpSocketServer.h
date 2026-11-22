@@ -286,6 +286,10 @@ public:
             if (!resolver_ || !resolver_(resolverContext_, port, request.unitId,
                                           line, targetUnitId)) {
                 ++stats_[port].resolverFailures;
+                stats_[port].lastResolverAtMs = nowMs;
+                stats_[port].lastResolverUnitId = request.unitId;
+                stats_[port].lastResolverFunction = request.function;
+                stats_[port].lastResolverAddress = request.address;
                 trace_(slot, "resolver_failed", nowMs);
                 bridge.reject(request, configs_[port].errorMode,
                               MODBUS_RESULT_NOT_READY, nowMs);

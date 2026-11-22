@@ -209,6 +209,18 @@ void ModbusTcpServerModule::logWebSnapshot_(
                           (unsigned long)p.connectionsRejected,
                           (unsigned long)p.keepaliveSetupFailures);
             }
+            if (p.resolverFailures) {
+                Log::warn(kLogModule_,
+                          "[MODBUS-RESOLVE] port=%u mode=%u device=%u unit=%u fc=%u addr=%u fails=%lu age_ms=%lu",
+                          port,
+                          configs_[i].serialSource == ModbusTcpServer::SerialSource::Manual ? 2U : 1U,
+                          (unsigned)configs_[i].deviceId,
+                          (unsigned)p.lastResolverUnitId,
+                          (unsigned)p.lastResolverFunction,
+                          (unsigned)p.lastResolverAddress,
+                          (unsigned long)p.resolverFailures,
+                          (unsigned long)(now - p.lastResolverAtMs));
+            }
             if (p.received || p.completed) {
                 Log::info(kLogModule_,
                           "[MODBUS-LAT] port=%u tcpmax_ms=%lu queue_ms=%lu rtu_ms=%lu",

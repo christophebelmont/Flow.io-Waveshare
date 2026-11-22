@@ -30,7 +30,8 @@ public:
         return ModuleId::Unknown;
     }
     uint8_t taskCount() const override { return 1; }
-    uint16_t taskStackSize() const override { return 4096; }
+    // Keep the network task stack in internal RAM, with ~1 KiB more margin.
+    uint16_t taskStackSize() const override { return 5120; }
     void init(ConfigStore& cfg, ServiceRegistry& services) override;
     void onConfigLoaded(ConfigStore& cfg, ServiceRegistry&) override;
     void onStart(ConfigStore&, ServiceRegistry&) override {
@@ -55,10 +56,18 @@ public:
         if (otaBusy != otaTraceActive_) {
             otaTraceActive_ = otaBusy;
             if (otaBusy) {
+                otaBusySinceMs_ = now;
                 lastOtaTraceMs_ = now - 5000U;
                 otaTickMaxUs_ = 0U;
                 otaSlowTicks_ = 0U;
             } else {
+                otaBusySinceMs_ = 0U;
+                if (otaQuiesced_) {
+                    otaQuiesced_ = false;
+                    Log::info(kLogModule_,
+                              "[MODBUS-TCP] ota_priority=0 resume=1 pool=%u",
+                              (unsigned)server_.psramFrameBytes());
+                }
                 Serial.printf("[OTA-NET] ms=%lu stage=load_end core=%d\n",
                               (unsigned long)now, (int)xPortGetCoreID());
                 Log::info(kLogModule_, "[OTA-NET] stage=load_end ms=%lu listen=%u pool=%u",
@@ -69,49 +78,35 @@ public:
         if (otaBusy) {
             if (uint32_t(now - lastOtaTraceMs_) >= 5000U) {
                 lastOtaTraceMs_ = now;
-                ModbusMasterStats q{};
-                if (master_ && master_->stats) (void)master_->stats(master_->ctx, &q);
-                const auto& a = server_.stats(0U);
-                const auto& b = server_.stats(1U);
-                const auto& c = server_.stats(2U);
-                const uint32_t freeInternal = heap_caps_get_free_size(
-                    MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-                const uint32_t largestInternal = heap_caps_get_largest_free_block(
-                    MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-                // Keep this high-value diagnostic off Print::printf’s dynamic
-                // formatting path: a fixed stack buffer avoids extra heap
-                // churn precisely when low internal RAM is suspected.
-                char otaNetLine[384]{};
-                const int otaLineBytes = snprintf(otaNetLine, sizeof(otaNetLine),
-                              "[OTA-NET] ms=%lu core=%d enabled=%u%u%u station=%u listening=%u eligible=%u clients=%u,%u,%u rxreq=%lu,%lu,%lu txreply=%lu,%lu,%lu rtu_queue=%u rejected=%lu tick_peak_us=%lu slow_ticks=%lu internal=%lu largest=%lu psram=%lu stack_free=%lu\n",
-                              (unsigned long)now, (int)xPortGetCoreID(),
-                              configs_[0].enabled ? 1U : 0U,
-                              configs_[1].enabled ? 1U : 0U,
-                              configs_[2].enabled ? 1U : 0U,
-                              stationConnected ? 1U : 0U,
-                              (running_ && stationConnected) ? 1U : 0U,
-                              eligible_ ? 1U : 0U,
-                              (unsigned)a.activeClients, (unsigned)b.activeClients,
-                              (unsigned)c.activeClients,
-                              (unsigned long)a.received, (unsigned long)b.received,
-                              (unsigned long)c.received,
-                              (unsigned long)a.completed, (unsigned long)b.completed,
-                              (unsigned long)c.completed,
-                              (unsigned)q.queued, (unsigned long)q.queueRejected,
-                              (unsigned long)otaTickMaxUs_, (unsigned long)otaSlowTicks_,
-                              (unsigned long)freeInternal, (unsigned long)largestInternal,
-                              (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
-                              (unsigned long)uxTaskGetStackHighWaterMark(nullptr));
-                if (otaLineBytes > 0) {
-                    const size_t lineLength = (size_t)otaLineBytes < sizeof(otaNetLine)
-                        ? (size_t)otaLineBytes : sizeof(otaNetLine) - 1U;
-                    (void)Serial.write((const uint8_t*)otaNetLine, lineLength);
-                }
+                // The Web log already carries bounded [OTA-NET]/[OTA-TCP]
+                // diagnostics. Avoid the redundant 384-byte Serial formatting
+                // buffer and additional UART work on a task with tight stack.
                 // Web diagnostics must run even without an enabled TCP port.
                 logWebSnapshot_(now, stationConnected, true);
                 otaTickMaxUs_ = 0U;
                 otaSlowTicks_ = 0U;
             }
+        }
+
+        // OTA takes absolute priority over the optional TCP/RTU gateway.
+        // A short manifest check usually completes below this debounce, so
+        // it need not disconnect production clients just for a version query.
+        // Once a real update remains busy, close listeners AND clients only
+        // once, canceling their pending bridge owners via SocketServer::stop().
+        // No TCP requests are accepted again until OTA is no longer busy.
+        // The frame pool itself remains allocated in PSRAM for reuse.
+        if (otaBusy && uint32_t(now - otaBusySinceMs_) >= 300U) {
+            if (!otaQuiesced_) {
+                otaQuiesced_ = true;
+                if (running_) {
+                    server_.stop();
+                    running_ = false;
+                }
+                Log::warn(kLogModule_,
+                          "[MODBUS-TCP] ota_priority=1 paused=1 pool=%u",
+                          (unsigned)server_.psramFrameBytes());
+            }
+            return;
         }
 
         // A 60-second baseline remains visible with all three ports disabled.
@@ -318,6 +313,8 @@ private:
     // Diagnostic state, touched only from the modbustcp task.
     const FirmwareUpdateService* fwUpdateSvc_ = nullptr;
     bool otaTraceActive_ = false;
+    bool otaQuiesced_ = false;
+    uint32_t otaBusySinceMs_ = 0U;
     uint32_t lastOtaTraceMs_ = 0U;
     uint32_t otaTickMaxUs_ = 0U;
     uint32_t otaSlowTicks_ = 0U;
