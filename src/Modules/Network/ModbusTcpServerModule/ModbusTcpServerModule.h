@@ -4,6 +4,7 @@
  * Disabled by default until ports have valid explicit configuration.
  */
 #include "Core/Module.h"
+#include "Core/Log.h"
 #include <esp_heap_caps.h>
 #include "Core/Services/IModbusMaster.h"
 #include "Core/Services/INetworkAccess.h"
@@ -60,6 +61,9 @@ public:
             } else {
                 Serial.printf("[OTA-NET] ms=%lu stage=load_end core=%d\n",
                               (unsigned long)now, (int)xPortGetCoreID());
+                Log::info(kLogModule_, "[OTA-NET] stage=load_end ms=%lu listen=%u pool=%u",
+                          (unsigned long)now, running_ ? 1U : 0U,
+                          (unsigned)server_.psramFrameBytes());
             }
         }
         if (otaBusy) {
@@ -103,16 +107,27 @@ public:
                         ? (size_t)otaLineBytes : sizeof(otaNetLine) - 1U;
                     (void)Serial.write((const uint8_t*)otaNetLine, lineLength);
                 }
+                // Web diagnostics must run even without an enabled TCP port.
+                logWebSnapshot_(now, stationConnected, true);
                 otaTickMaxUs_ = 0U;
                 otaSlowTicks_ = 0U;
             }
         }
 
+        // A 60-second baseline remains visible with all three ports disabled.
+        // The first snapshot is published immediately after task startup.
+        if (!otaBusy && (lastWebDiagnosticsMs_ == 0U ||
+                         uint32_t(now - lastWebDiagnosticsMs_) >= 60000U)) {
+            lastWebDiagnosticsMs_ = now;
+            logWebSnapshot_(now, stationConnected, false);
+        }
         if (!eligible_) return;
         if (!stationConnected) {
             if (running_) {
                 server_.stop();
                 running_ = false;
+                Log::warn(kLogModule_, "[MODBUS-TCP] listeners_stopped reason=station_lost pool=%u",
+                          (unsigned)server_.psramFrameBytes());
             }
             return;
         }
@@ -124,12 +139,30 @@ public:
             // Retry unavailable external RAM slowly; avoid heap/log spam.
             if (lastPsramStartFailureMs_ &&
                 uint32_t(now - lastPsramStartFailureMs_) < 10000U) return;
+            const bool reusedPool = server_.frameStorageReady();
             if (!server_.begin(*master_, &ModbusTcpServer::LineResolver::resolveStatic, &resolver_)) {
                 lastPsramStartFailureMs_ = now ? now : 1U;
+                // Keep failure alerts bounded to one per minute in Web logs.
+                if (!psramFailureReported_ ||
+                    uint32_t(now - lastPsramFailureWebMs_) >= 60000U) {
+                    psramFailureReported_ = true;
+                    lastPsramFailureWebMs_ = now;
+                    Log::warn(kLogModule_,
+                              "[MODBUS-PSRAM] alloc_failed bytes=%u psram_free=%lu internal=%lu",
+                              (unsigned)(2U * ModbusTcpServer::kMaxClients * ModbusTcpAdu::kMaxAdu),
+                              (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+                              (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+                }
                 return;
             }
             lastPsramStartFailureMs_ = 0U;
+            psramFailureReported_ = false;
             running_ = true;
+            Log::info(kLogModule_,
+                      "[MODBUS-PSRAM] pool_ready bytes=%u reused=%u internal=%lu psram=%lu",
+                      (unsigned)server_.psramFrameBytes(), reusedPool ? 1U : 0U,
+                      (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                      (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
         }
         const uint32_t tickStartedUs = micros();
         server_.tick(now);
@@ -214,6 +247,8 @@ public:
         return server_.stats(index);
     }
 private:
+    static constexpr LogModuleId kLogModule_ = (LogModuleId)LogModuleIdValue::ModbusTcpServerModule;
+    void logWebSnapshot_(uint32_t now, bool stationConnected, bool otaBusy);
     // Each TCP port is one native ConfigStore module. Keys remain under the
     // 15-character NVS limit; the old mbtcp0..2 blobs are migration-only.
     static constexpr uint32_t kConfigVersion = 1U;
@@ -275,6 +310,9 @@ private:
     bool eligible_ = false;
     uint32_t lastPsramStartFailureMs_ = 0U;
     uint32_t lastDiagnosticsMs_ = 0U;
+    uint32_t lastWebDiagnosticsMs_ = 0U;
+    uint32_t lastPsramFailureWebMs_ = 0U;
+    bool psramFailureReported_ = false;
     uint32_t tickMaxUs_ = 0U;
     uint32_t slowTicks_ = 0U;
     // Diagnostic state, touched only from the modbustcp task.
