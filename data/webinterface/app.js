@@ -14825,7 +14825,7 @@
     // independently of the ordinary /api/flowcfg/apply configuration patch.
     function buildCounterValueField(moduleName) {
       const match = String(moduleName || '').trim().toLowerCase().match(/^io\/input\/i(\d{2})$/);
-      if (!match) return null;
+      if (!match || Number(match[1]) >= 16) return null;
       const ioId = 64 + Number(match[1]);
 
       const row = document.createElement('div');
