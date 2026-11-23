@@ -54,7 +54,7 @@ PCNT → tâche IO → PulseRateOnly → PulseFlowUnits → ValueRegistry
                    Vue Web principale          TFT             MQTT / HA Discovery
 ```
 
-`iXX.flow` conserve son identifiant stable ; par exemple `i01.flow` = ValueId 81, topic suffixe `rt/value/81`. Il n'y a **pas de nouveau widget TFT** : on choisit cette valeur dans la liste de données déjà disponible. `ValueMetadata.displayUnit` transmet l'unité configurée aux vues et à la découverte Home Assistant. Les publications HA de `iXX.flow` sont proposées par défaut, tout en respectant une désactivation antérieure sauvegardée dans les paramètres d'exposition.
+`iXX.flow` conserve son identifiant stable ; par exemple `i01.flow` = ValueId 81, topic suffixe `rt/value/81`. Il n'y a **pas de nouveau widget TFT** : on choisit cette valeur dans la liste de données déjà disponible. `ValueMetadata.displayUnit` transmet l'unité configurée aux vues et à la découverte Home Assistant. Les publications HA de `iXX.flow` et de la fréquence brute `iXX.rate` (imp/min) sont proposées par défaut, tout en respectant une désactivation antérieure sauvegardée dans les paramètres d'exposition. Les deux grandeurs ont des ValueIds stables.
 
 `iXX.count` et `iXX.total` ne sont pas créés pour un équipement en mode 2 ; les modes existants conservent leurs identifiants et comportements.
 
