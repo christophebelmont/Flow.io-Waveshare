@@ -55,6 +55,17 @@ Cette intégration renforce les mises à jour **OTA A/B firmware + SPIFFS**, ré
 - Les modifications par l'interface et les impulsions matérielles utilisent `ValueRegistry`, dont la notification `DataChanged` déclenche la publication MQTT/HA ; les valeurs `iXX.total` restent calculées avec C0.
 - **À vérifier sur matériel :** compilation firmware/SPIFFS, saisie suivie d'impulsions, redémarrage, échec NVS et stabilité MQTT/HA.
 
+### Débit instantané pour les entrées numériques — Mode 2 (23/11/2026)
+- Nouveau choix `2 | Débit instantané` dans Config Store (anglais : `2 | Instantaneous flow`). Aucun changement des modes État et Compteur cumulatif existants.
+- Sélection de **quatre unités** : l/min, l/h, m3/min ou m3/h ; C0/K exprime les litres par impulsion, la précision reste configurable.
+- Mesure des impulsions par PCNT matériel ; fréquence sur fenêtres d'environ 1 s, débit calculé selon l'unité. Pas de compteur cumulatif défini, exposé ou checkpointé en NVS dans ce mode.
+- Présentation directe de `iXX.flow` dans les **listes de données déjà existantes** (TFT et page Web principale), sans ajouter de widget TFT.
+- Publications MQTT et Home Assistant via les mêmes ValueIds/topics stables : `iXX.flow` (par exemple `rt/value/81` pour I01). Les unités sont transmises dans les métadonnées ; l'exposition HA est activée par défaut pour ces débits, sauf préférences NVS existantes.
+- Paramètres dédiés mode 2 : `Unité` visible ; remise à zéro et modification manuelle du compteur masquées. Changement de mode/unité appliqué après redémarrage.
+- **Budget CPU attendu :** maximum deux entrées en mode 2 en production, lecture PCNT dans l'ordonnanceur I/O existant, environ deux calculs de débit par seconde, sans nouvelle tâche et sans écriture NVS périodique.
+- Test hôte C++ réussi : `PulseRateOnly` et `PulseFlowUnits` compilés sous `-Wall -Wextra -Werror` avec sanitizers, scénarios deux entrées, quatre unités, arrêt/rebase et compteur de millisecondes. **La compilation firmware ESP32-S3 et les essais CPU/MQTT/TFT/Web sur matériel restent à valider.**
+- Documentation détaillée : `docs/core/flow-mode-2-instantaneous-rate-2026-11-23.md`.
+
 ## ⚡ Améliorations — Changed
 
 ### Gestion mémoire
