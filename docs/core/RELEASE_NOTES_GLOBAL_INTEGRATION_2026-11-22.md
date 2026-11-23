@@ -50,6 +50,9 @@ Cette intégration renforce les mises à jour **OTA A/B firmware + SPIFFS**, ré
 - Modification du compteur dans la tâche d'acquisition IO, en conservant la valeur brute du driver comme référence pour additionner les impulsions futures.
 - Sauvegarde immédiate via le checkpoint NVS existant ; nouvelle génération du compteur pour signaler le changement de base.
 - Action indépendante du patch de configuration ordinaire ; état et règles de visibilité des autres entrées inchangés.
+- La nouvelle valeur brute est publiée sous le **même DataValue** `iXX.count` que le comptage normal, sans doublon, par exemple `i01.count` → `rt/value/33` (topic préfixé par la configuration MQTT de Flow.io).
+- Publication MQTT + **Home Assistant Discovery activée par défaut** pour les compteurs bruts `i00.count` à `i12.count` via le catalogue de données (`ha_default=true`). Les réglages d'exposition déjà sauvegardés en NVS sont respectés ; une ancienne désactivation explicite se réactive dans **Données → Exposition et historique** puis par redémarrage.
+- Les modifications par l'interface et les impulsions matérielles utilisent `ValueRegistry`, dont la notification `DataChanged` déclenche la publication MQTT/HA ; les valeurs `iXX.total` restent calculées avec C0.
 - **À vérifier sur matériel :** compilation firmware/SPIFFS, saisie suivie d'impulsions, redémarrage, échec NVS et stabilité MQTT/HA.
 
 ## ⚡ Améliorations — Changed
