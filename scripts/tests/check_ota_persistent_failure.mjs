@@ -47,11 +47,13 @@ assert.ok(errorSetter.includes("persistLastFailure_("));
 const failureBlock = cpp.split('    char failedStage[sizeof(status_.otaStage)]{};')[1]
   ?.split('    remoteReleaseWorker_ = nullptr;')[0];
 assert.ok(failureBlock);
-assert.ok(failureBlock.indexOf("status_.otaStage") <
-          failureBlock.indexOf("abortLocalRelease_"),
+const phaseCapture = failureBlock.indexOf("snprintf(failedStage,");
+const abortCall = failureBlock.indexOf("(void)abortLocalRelease_(");
+assert.ok(phaseCapture >= 0 && abortCall >= 0, "Phase capture and abort call must exist");
+assert.ok(phaseCapture < abortCall,
           "Store failed phase before abort sets state=idle");
 assert.ok(failureBlock.lastIndexOf("persistLastFailure_(") >
-          failureBlock.indexOf("abortLocalRelease_"),
+          abortCall,
           "Persistent diagnostic must run only after abort");
 const persist = cpp.split("void FirmwareUpdateModule::persistLastFailure_(")[1]
   ?.split("bool FirmwareUpdateModule::loadReceipt_(")[0];

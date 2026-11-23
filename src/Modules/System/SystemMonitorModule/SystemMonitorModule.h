@@ -4,6 +4,7 @@
  * @brief Periodic system health/metrics reporting module.
  */
 #include "Core/Module.h"
+#include "Core/PerformanceDiagnostics.h"
 #include "Core/DurationSamples.h"
 #include "Core/EventBus/EventBus.h"
 #include "Modules/Network/MQTTModule/MqttConfigRouteProducer.h"
@@ -132,6 +133,7 @@ private:
     // never collected from the time-critical IO task.
     std::atomic<uint8_t> diagnosticsMode_{0};
     std::atomic<uint32_t> lastTaskCaptureRequestMs_{0};
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     DurationSamples taskCaptureDurations_{};
     TaskWakeInterval lastTaskCapture_{};
 #endif

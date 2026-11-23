@@ -3,10 +3,12 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include "Core/TaskHealth.h"
 #include "Core/DurationSamples.h"
 #include <esp_timer.h>
 using UBaseType_t = unsigned;
+uint32_t millis() { return static_cast<uint32_t>(fakeEspTimerUs / 1000U); }
 
 namespace Limits::Core::Capacity {
 constexpr unsigned MaxTaskHealthEntries = 2U;
@@ -86,8 +88,11 @@ public:
     uint32_t lastStackSampleMs_ = 0;
     portMUX_TYPE stackSamplesMux_ = portMUX_INITIALIZER_UNLOCKED;
     std::atomic<bool> captureRequested_{false};
+    std::atomic<uint32_t> lastTaskCaptureRequestMs_{0};
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     TaskWakeInterval lastTaskCapture_{};
     DurationSamples taskCaptureDurations_{};
+#endif
     TaskStackSample readTaskStack_(uint16_t taskId);
     void sampleTaskStack_(uint32_t nowMs);
     void captureTasksIfRequested_();
@@ -204,20 +209,22 @@ int main() {
 #endif
     char reply[64]{};
     assert(monitor.requestTaskCapture_(&monitor, {}, reply, sizeof(reply)));
-    assert(monitor.requestTaskCapture_(&monitor, {}, reply, sizeof(reply)));
+    assert(!monitor.requestTaskCapture_(&monitor, {}, reply, sizeof(reply)));
+    assert(std::strstr(reply, "capture_cooldown"));
     assert(captureCalls == 0);
     monitor.captureTasksIfRequested_();
     assert(captureCalls == 1 && allocatedBuffers == 0);
 #if FLOW_PERFORMANCE_DIAGNOSTICS
     assert(monitor.taskCaptureDurations_.lastUs == 4000);
     assert(monitor.taskCaptureDurations_.count == 1);
-#else
-    assert(monitor.taskCaptureDurations_.count == 0);
-    assert(monitor.lastTaskCapture_.startUs == 0);
 #endif
     monitor.captureTasksIfRequested_();
     assert(captureCalls == 1);
     failAllocation = true;
+    fakeEspTimerUs = uint64_t(monitor.lastTaskCaptureRequestMs_.load() + 9999U) * 1000U;
+    assert(!monitor.requestTaskCapture_(&monitor, {}, reply, sizeof(reply)));
+    assert(!monitor.captureRequested_);
+    fakeEspTimerUs += 1000U;
     assert(monitor.requestTaskCapture_(&monitor, {}, reply, sizeof(reply)));
     monitor.captureTasksIfRequested_();
     assert(captureCalls == 1 && allocatedBuffers == 0 && !monitor.captureRequested_);

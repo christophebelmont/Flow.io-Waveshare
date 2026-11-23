@@ -5,6 +5,7 @@
  */
 #include "Core/Module.h"
 #include "Core/Log.h"
+#include "Core/PerformanceDiagnostics.h"
 #include <esp_heap_caps.h>
 #include "Core/Services/IModbusMaster.h"
 #include "Core/Services/INetworkAccess.h"
@@ -174,6 +175,7 @@ public:
                       (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
                       (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
         }
+#if FLOW_PERFORMANCE_DIAGNOSTICS
         const uint32_t tickStartedUs = micros();
 #endif
         server_.tick(now);
@@ -185,6 +187,7 @@ public:
             if (elapsedUs > otaTickMaxUs_) otaTickMaxUs_ = elapsedUs;
             if (elapsedUs >= 5000U) ++otaSlowTicks_;
         }
+#endif
 
         if (uint32_t(now - lastDiagnosticsMs_) < 60000U) return;
         lastDiagnosticsMs_ = now;
@@ -203,6 +206,7 @@ public:
             (unsigned long)tickMaxUs_, (unsigned long)slowTicks_);
         tickMaxUs_ = 0U;
         slowTicks_ = 0U;
+#endif
         Serial.printf("[MODBUS-PSRAM] active_frame_bytes=%u ready=%u\n",
                       (unsigned)server_.psramFrameBytes(), server_.frameStorageReady() ? 1U : 0U);
         Serial.printf("[MODBUS-TCP] heap_internal=%lu min_internal=%lu largest_internal=%lu frag_est_percent=%lu psram=%lu largest_psram=%lu stack_hwm=%lu rtu_queue=%u rtu_peak=%u rtu_rejected=%lu rtu_crc=%lu rtu_timeouts=%lu\n",
