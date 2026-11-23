@@ -22,11 +22,11 @@ def method(source, name):
 class MqttQueueTests(unittest.TestCase):
     def test_scheduling_and_dispatch(self):
         header = (MODULE / 'MQTTModule.h').read_text()
-        source = (MODULE / 'MQTTQueue.cpp').read_text()
+        source = (MODULE / 'MQTTQueue.cpp').read_text() + '\n' + (MODULE / 'MQTTProducers.cpp').read_text()
         names = ['findJobSlot_', 'allocJobSlot_', 'queuePush_', 'queuePop_',
                  'queueSlot_', 'deferJob_', 'releaseJob_', 'retryPendingJobsNoLock_',
-                 'snapshotQueueStatsNoLock_', 'logQueueSnapshot_', 'logEnqueueIssue_', 'enqueueJob_',
-                 'enqueue', 'dequeueNextJob_', 'processJobs_', 'updateAndReportQueueOccupancy_']
+                 'snapshotQueueStatsNoLock_', 'logQueueSnapshot_', 'logEnqueueIssue_', 'enqueueJob_', 'admitJob_', 'tryEnqueueBackground',
+                 'enqueue', 'tickProducers_', 'dequeueNextJob_', 'processJobs_', 'updateAndReportQueueOccupancy_']
         bodies = [method(source, name) for name in names]
         declarations = '\n'.join(body[:body.index('\n{')].replace('MQTTModule::', '') + ';'
                                  for body in bodies)

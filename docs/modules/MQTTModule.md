@@ -196,17 +196,16 @@ publication sans slot ou sans place initiale reste refusée (`enqueue=false`).
 
 Validation native : `python3 -m unittest scripts.tests.test_mqtt_queue`.
 
-### Métriques cfg route producer
+### Admission des publications de fond
 
-`cfgq p=.. e=.. rf=.. rt=.. ok=.. to=.. tf=.. tt=.. tk=.. tto=..`
-- `p`: routes cfg pending (global)
-- `e`: routes en attente de ré-enqueue transport
-- `rf`: refus enqueue fenêtre 5s
-- `rt`: tentatives retry fenêtre 5s
-- `ok`: retry acceptés fenêtre 5s
-- `to`: timeouts fenêtre 5s (route perdue après `10 s` de refus)
-- `tf/tt/tk/tto`: cumuls boot (`refus/tries/ok/timeouts`)
-- niveau log: `DEBUG` par défaut, `WARN` si `tto > 0` (au moins un timeout cumulé depuis le boot)
+`queue background=A/32 deferred=N` (DEBUG, toutes les cinq secondes)
+- `background` : jobs de fond admis, y compris construction et attente de retry.
+- `deferred` : tentatives différées depuis le boot ; une tentative n'est pas une
+  publication perdue. Ce compteur est distinct des rejets immédiats.
+
+`MqttService::tryEnqueueBackground` retourne `Accepted`, `Deferred` ou `Invalid`.
+Une demande différée reste chez son producteur, sans slot ni payload dupliqué et
+sans expiration après dix secondes. Les anciennes métriques `cfgq` sont retirées.
 
 ### Logs IDF MQTT client
 
@@ -215,9 +214,48 @@ Exemple:
 - erreur transport bas niveau TCP/TLS côté client IDF
 - déclenche en pratique une déconnexion puis le cycle de reconnexion/backoff du module
 
-## Synchronisation différée des configurations
+## Synchronisation progressive
 
-`MqttConfigRouteProducer` conserve les demandes de publication dans une boîte fixe de 96 routes, avec priorité maximale par route et protection des accès concurrents. Les callbacks de configuration et `requestFullSync` enregistrent uniquement les demandes. La tâche MQTT vérifie sa disponibilité, déclenche une synchronisation à la reconnexion, puis traite au plus deux nouvelles demandes par producteur et par passage. Les refus de la file MQTT utilisent le mécanisme existant de réessai. Le producteur n’a plus d’abonnement `DataChanged` pour déclencher la synchronisation complète depuis l’EventBus.
+La tâche MQTT prépare tous les producteurs (`onTransportTick`), puis parcourt
+leurs offres de fond (`onBackgroundTick`) avec un curseur circulaire. Au maximum
+une offre acceptée est traitée par cycle. Le curseur avance après cette offre,
+ce qui répartit les admissions entre les producteurs actifs.
+
+Le transport limite les publications de fond à `MaxBackgroundJobs = 32`, sous
+`jobsMux_`, en vérifiant aussi la capacité du pool et de l'anneau cible. Le crédit
+reste occupé pendant les retries et déconnexions, puis revient à la libération du
+job. Une coalescence ne consomme pas de crédit supplémentaire. Les ACK, alarmes
+et états immédiats d'actionneurs conservent leur admission et leurs priorités.
+La limite de fond laisse de la capacité disponible ; elle ne garantit pas les
+ACK en cas de saturation du trafic immédiat ou de leur stockage propre.
+
+- Configurations : boîte fixe de 96 demandes avec priorité maximale par route.
+  Les événements enregistrent les demandes ; seule la tâche MQTT les retire à
+  l'admission. Une demande reçue pendant une admission différée est fusionnée ;
+  une demande reçue pendant un job admis survit à sa fin.
+- Runtime : la connexion signale la synchronisation à la tâche MQTT. Celle-ci
+  marque les routes ; les états numériques sont admis progressivement et les
+  actionneurs restent immédiats. Les révisions préservent les changements reçus
+  pendant la construction ou l'envoi. Les deadlines périodiques restent liées
+  au dernier envoi réussi, et le throttle numérique est vérifié avant admission.
+  Le catalogue construit ses routes au démarrage, après la définition des valeurs
+  par tous les producteurs. Une préférence de publication activée pour une valeur
+  sans producteur ne crée pas de route ni de retry permanent occupant un crédit.
+  Les valeurs définies mais non encore mesurées ou invalides conservent leur route
+  et publient leur qualité avec une valeur `null`.
+- Discovery HA : une seule entité admise à la fois, dans la fenêtre commune.
+  Préparation, admission, callbacks et libération des ressources one-shot sont
+  exécutés par la tâche MQTT. Les autres tâches signalent les demandes de refresh.
+
+La cadence de transport reste une tentative de publication toutes les 100 ms.
+Les buffers et capacités des anneaux restent inchangés.
+
+Validation native :
+`python3 -m unittest scripts.tests.test_mqtt_queue scripts.tests.test_mqtt_config_deferred scripts.tests.test_runtime_refresh scripts.tests.test_ha_background scripts.tests.test_data_runtime_routes`.
+Les scénarios couvrent 377 publications entre trois producteurs, un transport
+bloqué 30 secondes, la reconnexion, les anneaux pleins, les changements pendant
+l'envoi et la discovery avec et sans one-shot. Les tests de file utilisent une
+fenêtre réduite à trois jobs pour atteindre systématiquement les limites.
 
 ## Diagnostic de saturation cohérent
 
@@ -225,16 +263,18 @@ Le diagnostic TX prend un `QueueSnapshot` sous `jobsMux_`, le verrou qui protèg
 les transitions des jobs, les anneaux et les compteurs d'admission. Les logs sont
 émis après déverrouillage. Les lignes `queue at=<millis>` d'un rapport proviennent
 du même snapshot ; elles sont séparées pour respecter les 160 caractères de
-LogHub. Le rapport périodique est émis toutes les cinq secondes au niveau INFO.
+LogHub. Le rapport périodique est émis toutes les cinq secondes au niveau DEBUG.
 
 Invariants :
 
-- `free + used = MaxJobs` (192 sur Waveshare).
+- `free + used = MaxJobs` (240 sur Waveshare).
 - `used = queued + processing + waiting`.
 - `queued = live(high) + live(normal) + live(low)` ; chaque job `Queued` a
   exactement une référence valide dans sa file effective.
 - Pour chaque file : `physical = live + stale`.
 - `admitted - released = used` (arithmétique des compteurs uint32).
+- Le nombre de jobs de classe Background correspond au crédit occupé et reste
+  inférieur ou égal à `MaxBackgroundJobs`.
 
 `WaitingForQueue` est un état occupé hors file, utilisé pour le backoff et la
 réadmission. `Processing` conserve le slot pendant la construction et l'appel
@@ -287,26 +327,17 @@ Les snapshots runtime et la discovery HA utilisent QoS 0 ; le statut online
 utilise QoS 1. Les ACK ont le QoS fourni par leur appelant. Les payloads sont
 construits à l'émission dans le buffer central, pas stockés dans chaque job.
 
-### Étapes suivantes : cadence, coalescence et réserve
-
-Ce changement instrumente le comportement existant. Les priorités suivantes
-restent à implémenter et à valider à partir des mesures :
-
-1. Ordonnanceur global de démarrage : actuellement le runtime enfile toutes ses
-   routes à la connexion ; les producteurs de configuration ont chacun leur
-   propre quota (deux demandes par tick, plus une reprise), et HA avance une
-   publication à la fois. Aucun quota global ni barrière entre ces phases n'existe.
-2. Classification explicite des états remplaçables et événements conservés : la
-   déduplication actuelle s'applique à toute clé `(producerId, messageId)`.
-   Introduire `messageTypeId/entityId` exige un contrat commun aux producteurs ;
-   les alarmes actuelles publient des états, pas un historique des transitions.
-   Les ACK utilisent un stockage circulaire qui peut réutiliser une entrée encore
-   occupée : une réserve de jobs ne suffirait pas à garantir leur conservation.
-3. Réserve critique et équité : dimensionner la réserve avec la charge critique
-   réelle, puis protéger l'admission dans le gestionnaire, sans filtrage de topic.
+### Validation sur cible et limites
 
 Validation sur cible restant à faire : trois boots (dont un avec réseau retardé
-30 s), indisponibilité MQTT de cinq minutes, et saturation artificielle du pool
-général. Capturer les snapshots, les compteurs de rejet, les correspondances de
-routes et la fin de discovery ; aucun résultat de ces essais matériels n'est
-présumé par les tests hôte.
+30 s), indisponibilité MQTT de cinq minutes, et charge simultanée HTTP/OTA.
+Vérifier la fenêtre `background <= 32`, la fin des synchronisations et de la
+discovery, ainsi que les compteurs `queue rejects` du trafic immédiat. Aucun
+résultat de ces essais matériels n'est présumé par les tests hôte.
+
+L'équité concerne l'admission des publications de fond. Le dispatch conserve ses
+priorités existantes : un trafic urgent soutenu peut retarder le fond. Une réserve
+critique dédiée et la conservation de chaque réponse de commande demanderaient
+un travail distinct sur le stockage circulaire des ACK. La coalescence existante
+par `(producerId, messageId)` conserve les états ; elle n'est pas un historique
+des occurrences d'événements.

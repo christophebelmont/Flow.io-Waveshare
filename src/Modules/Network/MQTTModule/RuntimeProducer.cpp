@@ -107,19 +107,46 @@ void RuntimeProducer::markRoutePending_(uint16_t idx, bool force)
     Route& route = routes_[idx];
     route.pending = true;
     route.force = route.force || force;
+    ++route.revision;
+    if (force) route.forceRevision = route.revision;
 }
 
 bool RuntimeProducer::enqueueRoute_(uint16_t idx)
 {
-    if (!mqttSvc_ || !mqttSvc_->enqueue) return false;
-    if (idx >= routeCount_) return false;
+    if (!mqttSvc_ || idx >= routeCount_) return false;
+    Route& route = routes_[idx];
+    if (route.admitted) return true;
+    bool accepted = false;
+    if (route.routeClass == RuntimeRouteClass::ActuatorImmediate) {
+        accepted = mqttSvc_->enqueue && mqttSvc_->enqueue(mqttSvc_->ctx, ProducerId, idx,
+                                                          (uint8_t)MqttPublishPriority::High, 0);
+    } else if (mqttSvc_->tryEnqueueBackground) {
+        const auto result = mqttSvc_->tryEnqueueBackground(mqttSvc_->ctx, ProducerId, idx, MqttPublishPriority::Normal);
+        if (result == MqttAdmissionResult::Invalid) {
+            LOGE("Invalid runtime publication message=%u", (unsigned)idx);
+            route.builtRevision = route.revision;
+            onMessageDropped(idx);
+            return false;
+        }
+        accepted = result == MqttAdmissionResult::Accepted;
+    }
+    route.admitted = accepted;
+    return accepted;
+}
 
-    const Route& route = routes_[idx];
-    const MqttPublishPriority prio = (route.routeClass == RuntimeRouteClass::ActuatorImmediate)
-        ? MqttPublishPriority::High
-        : MqttPublishPriority::Normal;
-
-    return mqttSvc_->enqueue(mqttSvc_->ctx, ProducerId, idx, (uint8_t)prio, 0);
+bool RuntimeProducer::offerBackground()
+{
+    for (uint16_t n = 0; n < routeCount_; ++n) {
+        const uint16_t idx = (uint16_t)((backgroundCursor_ + n) % routeCount_);
+        const Route& route = routes_[idx];
+        if (!route.provider || !route.pending || route.admitted ||
+            route.routeClass == RuntimeRouteClass::ActuatorImmediate) continue;
+        if (!route.force && route.routeClass == RuntimeRouteClass::NumericThrottled &&
+            (uint32_t)(millis() - route.lastPublishMs) < NumericThrottleMs) continue;
+        backgroundCursor_ = (uint16_t)((idx + 1U) % routeCount_);
+        return enqueueRoute_(idx);
+    }
+    return false;
 }
 
 void RuntimeProducer::completeInitialFullSnapshotRoute_(uint16_t idx)
@@ -147,6 +174,12 @@ void RuntimeProducer::notifyInitialFullSnapshotComplete_()
 
 void RuntimeProducer::onConnected()
 {
+    // The ESP-MQTT client task only signals; route state belongs to the MQTT task.
+    fullSyncRequested_.store(true);
+}
+
+void RuntimeProducer::beginFullSync_()
+{
     if (!ensureStorage_(routeCount_)) return;
     if (initialFullSnapshotDone_) memset(initialFullSnapshotDone_, 0, sizeof(bool) * storageCapacity_);
     initialFullSnapshotRemaining_ = routeCount_;
@@ -161,21 +194,23 @@ void RuntimeProducer::onConnected()
         LOGD("route producer=%u type=1 msg=%u snapshot=%u class=%u suffix=%s",
              (unsigned)ProducerId, (unsigned)i, (unsigned)route.snapshotIdx,
              (unsigned)route.routeClass, route.suffix);
-        routes_[i].refreshQueued = false;
         markRoutePending_(i, true);
-        enqueueRoute_(i);
     }
 }
 
 void RuntimeProducer::tick(uint32_t nowMs)
 {
+    if (!mqttSvc_ || !mqttSvc_->isConnected || !mqttSvc_->isConnected(mqttSvc_->ctx)) return;
+    if (fullSyncRequested_.exchange(false)) beginFullSync_();
     for (uint16_t i = 0; i < routeCount_; ++i) {
         Route& route = routes_[i];
-        if (!route.provider || !route.refreshIntervalMs || route.refreshQueued ||
-            uint32_t(nowMs - route.lastPublishMs) < route.refreshIntervalMs) continue;
-        // Force bypasses unchanged-sample suppression without altering the measurement.
-        markRoutePending_(i, true);
-        route.refreshQueued = enqueueRoute_(i);
+        if (!route.provider) continue;
+        if (route.refreshIntervalMs && !route.pending && !route.admitted &&
+            (uint32_t)(nowMs - route.lastPublishMs) >= route.refreshIntervalMs) {
+            markRoutePending_(i, true);
+        }
+        if (route.pending && !route.admitted && route.routeClass == RuntimeRouteClass::ActuatorImmediate)
+            (void)enqueueRoute_(i);
     }
 }
 
@@ -194,13 +229,13 @@ RuntimeProducer::DataChangeStats RuntimeProducer::onDataChanged(DataKey key)
 #if FLOW_PERFORMANCE_DIAGNOSTICS
         const uint32_t t0 = micros();
 #endif
-        const bool ok = enqueueRoute_(i);
+        const bool ok = route.routeClass == RuntimeRouteClass::ActuatorImmediate && enqueueRoute_(i);
 #if FLOW_PERFORMANCE_DIAGNOSTICS
         stats.enqueueUs += (uint32_t)(micros() - t0);
 #endif
         if (ok) {
             ++stats.enqueueOk;
-        } else {
+        } else if (route.routeClass == RuntimeRouteClass::ActuatorImmediate) {
             ++stats.enqueueFail;
         }
     }
@@ -212,6 +247,8 @@ MqttBuildResult RuntimeProducer::buildMessage(uint16_t messageId, MqttBuildConte
     if (messageId >= routeCount_) return MqttBuildResult::NoLongerNeeded;
 
     Route& route = routes_[messageId];
+    route.builtRevision = route.revision;
+    route.builtForceRevision = route.forceRevision;
     if (!route.provider) return MqttBuildResult::NoLongerNeeded;
     if (!route.pending && !route.force) return MqttBuildResult::NoLongerNeeded;
     if (!route.provider->runtimeSnapshotSuffix(route.snapshotIdx)) {
@@ -234,7 +271,6 @@ MqttBuildResult RuntimeProducer::buildMessage(uint16_t messageId, MqttBuildConte
 
     const uint32_t effectiveTs = (ts == 0U) ? 1U : ts;
     if (!route.force && route.lastPublishedTs != 0U && effectiveTs <= route.lastPublishedTs) {
-        route.pending = false;
         return MqttBuildResult::NoLongerNeeded;
     }
 
@@ -258,16 +294,23 @@ void RuntimeProducer::onMessagePublished(uint16_t messageId)
     Route& route = routes_[messageId];
     route.lastPublishedTs = route.lastBuiltTs;
     route.lastPublishMs = millis();
-    route.refreshQueued = false;
-    route.pending = false;
-    route.force = false;
+    route.admitted = false;
+    if (route.forceRevision == route.builtForceRevision) route.force = false;
+    if (route.revision == route.builtRevision) {
+        route.pending = false;
+        route.force = false;
+    }
     completeInitialFullSnapshotRoute_(messageId);
 }
 
 void RuntimeProducer::onMessageDropped(uint16_t messageId)
 {
     if (messageId >= routeCount_) return;
-    routes_[messageId].pending = false;
-    routes_[messageId].refreshQueued = false;
+    Route& route = routes_[messageId];
+    route.admitted = false;
+    if (route.revision == route.builtRevision) {
+        route.pending = false;
+        route.force = false;
+    }
     completeInitialFullSnapshotRoute_(messageId);
 }

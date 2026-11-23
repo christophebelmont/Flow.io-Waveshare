@@ -25,6 +25,9 @@ enum class MqttEnqueueFlags : uint8_t {
     SilentRejectLog = 0x01,
 };
 
+enum class MqttAdmissionClass : uint8_t { Immediate, Background };
+enum class MqttAdmissionResult : uint8_t { Accepted, Deferred, Invalid };
+
 struct MqttBuildContext {
     char* topic = nullptr;
     uint16_t topicCapacity = 0;
@@ -45,6 +48,8 @@ struct MqttPublishProducer {
     void (*onMessageDeferred)(void* ctx, uint16_t messageId) = nullptr;
     void (*onMessageDropped)(void* ctx, uint16_t messageId) = nullptr;
     void (*onTransportTick)(void* ctx, uint32_t nowMs) = nullptr;
+    // MQTT task only: offer at most one pending background publication.
+    bool (*onBackgroundTick)(void* ctx) = nullptr;
 };
 
 struct MqttInboundMessage {
@@ -66,4 +71,7 @@ struct MqttService {
     bool (*isConnected)(void* ctx);
     bool (*registerInboundHandler)(void* ctx, const MqttInboundHandler* handler);
     void* ctx;
+    // MQTT task only. Deferred requests remain owned by the producer.
+    MqttAdmissionResult (*tryEnqueueBackground)(void* ctx, uint8_t producerId,
+                                               uint16_t messageId, MqttPublishPriority priority) = nullptr;
 };

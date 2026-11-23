@@ -42,6 +42,13 @@ class MQTTModule {
 public:
     // PRODUCTION_TYPES
     static constexpr uint8_t MaxJobs = 8;
+    static constexpr uint8_t MaxBackgroundJobs = 3;
+    uint16_t backgroundJobs_ = 0;
+    static constexpr uint8_t MaxProducers = 4;
+    const MqttPublishProducer* producers_[MaxProducers]{};
+    uint8_t producerCount_ = 0, backgroundProducerCursor_ = 0;
+    int producerMux_ = 0;
+    bool isConnected() const { return state_ == MQTTState::Connected; }
     static constexpr uint16_t HighQueueCap = 2, NormalQueueCap = 2, LowQueueCap = 3;
     static constexpr uint16_t RetryMinMs = 250, RetryMaxMs = 10000;
     static constexpr uint8_t ProcessBudgetPerTick = 1;
@@ -85,7 +92,11 @@ public:
             assert(lockDepth == 0); static_cast<MQTTModule*>(ctx)->dropped.push_back(id);
         };
     }
-    const MqttPublishProducer* findProducer_(uint8_t) const { return &producer; }
+    const MqttPublishProducer* findProducer_(uint8_t id) const {
+        for (uint8_t i = 0; i < producerCount_; ++i)
+            if (producers_[i]->producerId == id) return producers_[i];
+        return &producer;
+    }
     bool tryPublishNow_(const char*, const char*, uint8_t, bool) {
         assert(lockDepth == 0); return publishOk;
     }
@@ -103,6 +114,7 @@ public:
         QueueSnapshot snapshot;
         snapshotQueueStatsNoLock_(snapshot, clockMs);
         assert(snapshot.invariant);
+        assert(snapshot.background == backgroundJobs_ && backgroundJobs_ <= MaxBackgroundJobs);
         assert(snapshot.free + snapshot.used == MaxJobs);
         assert(snapshot.used == snapshot.states.queued + snapshot.states.processing + snapshot.states.waiting);
         assert(snapshot.states.queued == snapshot.live[0] + snapshot.live[1] + snapshot.live[2]);
@@ -291,7 +303,108 @@ static void diagnostics() {
     m.drain();
 }
 
+
+static void backgroundAdmission() {
+    MQTTModule m;
+    auto offer = [&](uint16_t id, MqttPublishPriority p = MqttPublishPriority::Low) {
+        return m.tryEnqueueBackground(4, id, p);
+    };
+    for (uint16_t id = 1; id <= 3; ++id) assert(offer(id) == MqttAdmissionResult::Accepted);
+    assert(m.backgroundJobs_ == 3);
+    assert(offer(4) == MqttAdmissionResult::Deferred);
+    assert(offer(1, MqttPublishPriority::Normal) == MqttAdmissionResult::Accepted); // Coalescing costs no slot.
+    assert(m.backgroundJobs_ == 3);
+    assert(m.add(10)); // Immediate work uses the remaining pool.
+    m.tick(); assert(m.published.back() == 10);
+    m.publishOk = false;
+    m.tick(); // An admitted job retains its background credit across retries.
+    assert(m.backgroundJobs_ == 3 && offer(4) == MqttAdmissionResult::Deferred);
+    const auto rejects = m.storage.counters.rejected[MqttDiagnostics::sourceIndex(4, 0)][0];
+    assert(rejects == 0 && m.storage.counters.backgroundDeferred == 2);
+    m.state_ = MQTTState::ErrorWait;
+    assert(offer(5) == MqttAdmissionResult::Deferred);
+    assert(m.tryEnqueueBackground(0, 5, MqttPublishPriority::Low) == MqttAdmissionResult::Invalid);
+    assert(offer(5, (MqttPublishPriority)3) == MqttAdmissionResult::Invalid);
+    m.state_ = MQTTState::Connected;
+    m.drain(); assert(m.backgroundJobs_ == 0);
+
+    // A full priority ring defers without charging a credit or reporting a rejection.
+    assert(m.add(20, MqttPublishPriority::Normal));
+    assert(m.add(21, MqttPublishPriority::Normal));
+    assert(offer(22, MqttPublishPriority::Normal) == MqttAdmissionResult::Deferred);
+    assert(m.backgroundJobs_ == 0);
+    m.check(); m.drain();
+    assert(offer(23) == MqttAdmissionResult::Accepted);
+    m.duringBuild = [](uint16_t) { return MqttBuildResult::PermanentError; };
+    m.tick(); assert(m.backgroundJobs_ == 0); // Terminal errors release credit too.
+    m.drain();
+}
+
+static void backgroundStartup() {
+    MQTTModule m;
+    struct Source {
+        MQTTModule* module = nullptr;
+        MqttPublishProducer descriptor{};
+        uint16_t remaining = 0, offered = 0, finished = 0;
+        uint32_t ticks = 0;
+    } sources[3];
+    std::vector<uint8_t> admissionOrder;
+    const uint16_t counts[] = {80, 97, 200};
+    for (uint8_t i = 0; i < 3; ++i) {
+        auto& source = sources[i]; source.module = &m; source.remaining = counts[i];
+        source.descriptor = m.producer; source.descriptor.ctx = &source;
+        source.descriptor.producerId = i + 41;
+        source.descriptor.onTransportTick = [](void* ctx, uint32_t) { ++static_cast<Source*>(ctx)->ticks; };
+        source.descriptor.onBackgroundTick = [](void* ctx) {
+            auto& s = *static_cast<Source*>(ctx);
+            if (!s.remaining) return false;
+            const auto result = s.module->tryEnqueueBackground(s.descriptor.producerId, s.offered,
+                                                              MqttPublishPriority::Low);
+            if (result != MqttAdmissionResult::Accepted) return false;
+            --s.remaining; ++s.offered; return true;
+        };
+        source.descriptor.buildMessage = [](void* ctx, uint16_t, MqttBuildContext& out) {
+            auto& s = *static_cast<Source*>(ctx);
+            strcpy(out.topic, "test"); strcpy(out.payload, "value");
+            return s.module->publishOk ? MqttBuildResult::Ready : MqttBuildResult::RetryLater;
+        };
+        source.descriptor.onMessagePublished = [](void* ctx, uint16_t) { ++static_cast<Source*>(ctx)->finished; };
+        source.descriptor.onMessageDropped = nullptr;
+        source.descriptor.onMessageDeferred = nullptr;
+        m.producers_[m.producerCount_++] = &source.descriptor;
+    }
+    auto cycle = [&] {
+        const auto before = m.storage.counters.admitted;
+        const uint16_t offered[] = {sources[0].offered, sources[1].offered, sources[2].offered};
+        m.tickProducers_(clockMs);
+        assert(m.storage.counters.admitted - before <= 1);
+        for (uint8_t i = 0; i < 3; ++i)
+            if (sources[i].offered != offered[i]) admissionOrder.push_back(i);
+        m.tick(50);
+    };
+    m.publishOk = false;
+    for (unsigned i = 0; i < 600; ++i) cycle(); // 30 seconds of blocked transport.
+    assert(m.backgroundJobs_ == 3);
+    assert(admissionOrder.size() == 3);
+    assert(admissionOrder[0] == 0 && admissionOrder[1] == 1 && admissionOrder[2] == 2);
+    assert(m.add(1000)); // Urgent work can still be admitted while background is full.
+    m.state_ = MQTTState::ErrorWait;
+    cycle(); assert(admissionOrder.size() == 3);
+    m.state_ = MQTTState::Connected; m.publishOk = true;
+    for (unsigned i = 0; i < 3000; ++i) cycle();
+    for (uint8_t i = 0; i < 3; ++i) {
+        assert(sources[i].remaining == 0 && sources[i].finished == counts[i]);
+        assert(sources[i].ticks == 3601);
+    }
+    for (unsigned i = 0; i < 30; ++i) assert(admissionOrder[i] == i % 3);
+    for (const auto& source : m.storage.counters.rejected)
+        for (auto total : source) assert(total == 0);
+    assert(m.backgroundJobs_ == 0);
+    m.drain();
+}
+
 int main() {
+    backgroundAdmission(); backgroundStartup();
     diagnostics();
     promotion();
     interruptedDispatch(MqttBuildResult::Ready, true);

@@ -158,17 +158,20 @@ publication sans slot ou sans place initiale reste refusée (`enqueue=false`).
 
 Validation native : `python3 -m unittest scripts.tests.test_mqtt_queue`.
 
-### Télémétrie cfg route-producer
+### Admission des configurations et états de fond
 
-`cfgq p=.. e=.. rf=.. rt=.. ok=.. to=.. tf=.. tt=.. tk=.. tto=..`
-- `p`: routes cfg pending
-- `e`: routes en attente de ré-enqueue
-- `rf`: refus enqueue (fenêtre 5s)
-- `rt`: tentatives retry (fenêtre 5s)
-- `ok`: retry acceptés (fenêtre 5s)
-- `to`: timeouts (fenêtre 5s)
-- `tf/tt/tk/tto`: cumuls boot
-- niveau log: `DEBUG` par défaut, `WARN` si `tto>0` (timeout cumulé boot)
+Les configurations, états runtime non urgents et entités de discovery HA utilisent
+une fenêtre partagée de 32 jobs, avec au maximum une nouvelle admission par cycle
+MQTT et rotation entre producteurs. `Deferred` conserve la demande chez le
+producteur, sans timeout d'admission. Les payloads sont construits à l'émission.
+Les états immédiats d'actionneurs, ACK et alarmes gardent leurs priorités.
+
+`queue background=A/32 deferred=N` (DEBUG) indique l'occupation de la fenêtre et
+le nombre cumulé de tentatives différées, distinct des rejets. Les anciens logs
+`cfgq` et l'abandon de configuration après dix secondes sont retirés.
+
+Voir [MQTTModule](../modules/MQTTModule.md) pour le contrat, les invariants et
+les limites de cette régulation.
 
 ## Variables de configuration MQTT (`module: mqtt`)
 

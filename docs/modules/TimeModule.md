@@ -135,6 +135,11 @@ Quand une source plus fiable arrive, flow.io corrige l'heure. Si la correction
 est importante, l'evenement est journalise afin d'expliquer un changement de
 comportement horaire.
 
+La premiere mise a l'heure au demarrage etablit la reference fiable et ne
+declenche pas d'alerte de saut d'heure. Une fois cette reference acquise, tout
+recul est signale si la correction reussit. Les avances d'au moins cinq minutes
+sont egalement signalees.
+
 ## Scenarios typiques
 
 1. **Demarrage avec reseau**: flow.io synchronise par NTP et affiche `NTP`.

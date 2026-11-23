@@ -1,4 +1,5 @@
 #include "Core/Services/IHA.h"
+#include "Modules/Network/HAModule/HADiscoveryJson.h"
 #include "Core/Values/DataValueView.h"
 #include "Core/Values/InternalAnalogSources.h"
 #include "Core/Values/PoolDeviceValues.h"

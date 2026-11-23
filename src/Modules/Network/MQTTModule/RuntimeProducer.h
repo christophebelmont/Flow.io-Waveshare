@@ -3,6 +3,7 @@
 #include "Core/SystemLimits.h"
 #include "Core/RuntimeSnapshotProvider.h"
 #include "Core/Services/Services.h"
+#include <atomic>
 
 class RuntimeProducer {
 public:
@@ -29,6 +30,7 @@ public:
     void onConnected();
     /** Called by the MQTT task while connected. Deadlines use successful sends only. */
     void tick(uint32_t nowMs);
+    bool offerBackground();
     DataChangeStats onDataChanged(DataKey key);
 
     MqttBuildResult buildMessage(uint16_t messageId, MqttBuildContext& ctx);
@@ -45,7 +47,11 @@ private:
         RuntimeRouteClass routeClass = RuntimeRouteClass::NumericThrottled;
         char suffix[Limits::TopicBuf] = {0};
         uint32_t refreshIntervalMs = 0;
-        bool refreshQueued = false;
+        bool admitted = false;
+        uint32_t revision = 0;
+        uint32_t builtRevision = 0;
+        uint32_t forceRevision = 0;
+        uint32_t builtForceRevision = 0;
         uint32_t lastPublishedTs = 0;
         uint32_t lastPublishMs = 0;
         uint32_t lastBuiltTs = 0;
@@ -60,6 +66,8 @@ private:
 
     Route* routes_ = nullptr;
     uint16_t routeCount_ = 0;
+    uint16_t backgroundCursor_ = 0;
+    std::atomic<bool> fullSyncRequested_{false};
     bool initialFullSnapshotActive_ = false;
     bool* initialFullSnapshotDone_ = nullptr;
     uint16_t initialFullSnapshotRemaining_ = 0;
@@ -70,6 +78,7 @@ private:
     uint16_t storageCapacity_ = 0;
     void markRoutePending_(uint16_t idx, bool force);
     bool enqueueRoute_(uint16_t idx);
+    void beginFullSync_();
     void completeInitialFullSnapshotRoute_(uint16_t idx);
     void notifyInitialFullSnapshotComplete_();
 };

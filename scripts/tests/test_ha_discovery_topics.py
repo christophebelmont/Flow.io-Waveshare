@@ -15,7 +15,7 @@ class HaDiscoveryTopicTests(unittest.TestCase):
         header = (ha / 'HAModule.h').read_text()
         source = (ha / 'HAModule.cpp').read_text()
         mqtt = (ROOT / 'src/Modules/Network/MQTTModule/MQTTModule.h').read_text()
-        config = header[header.index('    struct HAConfig {'):header.index('\n    const EventBusService*')]
+        config = header[header.index('    struct HAConfig {'):]
         config = config[:config.index('\n    };') + len('\n    };')]
         fields = '\n'.join(line for line in header.splitlines() if any(
             key in line for key in ('HAConfig cfgData_', 'char nodeTopicId_[', 'char objectIdBuf_[')))

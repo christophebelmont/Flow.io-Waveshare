@@ -69,8 +69,8 @@ int main() {
         MqttConfigRouteProducer producer;
         assert(producer.allocateRouteState_());
         assert(lastCaps == (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-        assert(sizeof(*producer.state_) == 768);
-        assert(!producer.state_->pendingFlags_[95] && !producer.state_->retryFirstRefusedMs_[95]);
+        assert(sizeof(*producer.state_) <= 96);
+        assert(!producer.state_->pendingFlags_[95]);
         const auto count = allocations;
         producer.state_->pendingFlags_[95] = true;
         assert(producer.allocateRouteState_() && allocations == count);

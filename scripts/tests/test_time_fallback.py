@@ -17,6 +17,7 @@ class TimeFallbackTests(unittest.TestCase):
         signatures = (
             'void TimeModule::setState(', 'TimeSyncState TimeModule::stateSvc_(',
             'bool TimeModule::isSynced_(', 'bool TimeModule::isExternalRtc_(',
+            'void TimeModule::logTimeJump_(',
             'bool TimeModule::setRtcEpoch_(', 'void TimeModule::serviceInternalRtcFallback_(',
             'void TimeModule::serviceNextionFallback_(', 'void TimeModule::tickScheduler_(',
             'uint8_t TimeModule::weekBitFromTm_(', 'uint32_t TimeModule::minuteOfDay_(',
@@ -28,7 +29,8 @@ class TimeFallbackTests(unittest.TestCase):
                                  for body in bodies)
         types = header[header.index('    struct SchedulerSlotRuntime {'):header.index('    struct SourceSnapshot {')]
         constant_names = ('kNextionRtcFallbackDelayMs', 'kNextionRtcFallbackRetryMs',
-                          'kInternalRtcFallbackDelayMs', 'kInternalRtcFallbackRetryMs')
+                          'kInternalRtcFallbackDelayMs', 'kInternalRtcFallbackRetryMs',
+                          'kTimeLargeJumpSeconds')
         constants = '\n'.join(line for line in source.splitlines() if
                               line.startswith('static constexpr uint32_t ') and
                               any(name in line for name in constant_names))
@@ -44,14 +46,21 @@ class TimeFallbackTests(unittest.TestCase):
 #include <vector>
 #define FLOW_RTC_PCF85063 1
 template<class... T> void logNoop(T...) {}
+static unsigned warningCount = 0;
+template<class... T> void logWarning(T...) { ++warningCount; }
 #define LOGI(...) logNoop(__VA_ARGS__)
-#define LOGW(...) logNoop(__VA_ARGS__)
+#define LOGW(...) logWarning(__VA_ARGS__)
 #define portENTER_CRITICAL(x) ((void)(x))
 #define portEXIT_CRITICAL(x) ((void)(x))
 static uint32_t tick = 90000;
 static uint64_t epoch = 1795177741;
+static bool setTimeFails = false;
 uint32_t millis() { return tick; }
-int fakeSetTime(const timeval* tv, void*) { epoch = tv->tv_sec; return 0; }
+int fakeSetTime(const timeval* tv, void*) {
+    if (setTimeFails) return -1;
+    epoch = tv->tv_sec;
+    return 0;
+}
 #define settimeofday fakeSetTime
 struct Log { static void setWallClockValid(bool) {} };
 struct DataStore { bool ready = false; };
@@ -108,7 +117,6 @@ struct TimeModule {
     const char* sourceName_(TimeSource) { return "source"; }
     const char* qualityName_(TimeQuality) { return "quality"; }
     template<class... T> void recordSource_(T...) {}
-    template<class... T> void logTimeJump_(T...) {}
     template<class... T> void noteGoodTime_(T...) {}
     void setActiveSource_(TimeSource source, TimeQuality) { activeSource_ = source; }
     bool ensureInternalRtcInit_() { return internalRtcReady_; }
@@ -122,6 +130,27 @@ struct TimeModule {
         scenarios = r'''
 int main() {
     setenv("TZ", "UTC", 1); tzset();
+    // A retained system time is not a validated reference at boot. After the
+    // first accepted source, warn only about corrections actually applied.
+    {
+        TimeModule m;
+        epoch = 1795441361;
+        warningCount = 0;
+        m.rtcEpoch = 1795441356;
+        m.serviceInternalRtcFallback_(tick);
+        assert(epoch == 1795441356 && m.isSynced_());
+        assert(warningCount == 0);
+        assert(m.setRtcEpoch_(1795441351, TimeSource::InternalRtc, TimeQuality::RtcTrusted, "resync"));
+        assert(epoch == 1795441351 && warningCount == 1);
+        setTimeFails = true;
+        assert(!m.setRtcEpoch_(1795441346, TimeSource::InternalRtc, TimeQuality::RtcTrusted, "failed"));
+        assert(epoch == 1795441351 && warningCount == 1);
+        setTimeFails = false;
+        assert(m.setRtcEpoch_(epoch + 1, TimeSource::Ntp, TimeQuality::NtpSynced, "ntp"));
+        assert(warningCount == 1);
+        assert(m.setRtcEpoch_(epoch + kTimeLargeJumpSeconds, TimeSource::Ntp, TimeQuality::NtpSynced, "ntp"));
+        assert(warningCount == 2);
+    }
     // Every NTP transport state retains every accepted clock. A lower-priority
     // fallback must never sample Nextion or replace NTP with the board RTC.
     for (auto state : {TimeSyncState::WaitingNetwork, TimeSyncState::Syncing,
@@ -187,7 +216,7 @@ int main() {
 '''
         code = constants + preamble.replace('// TYPES', types).replace('// DECLARATIONS', declarations)
         # Constants use the fixed-width integer types from the preamble.
-        code = '#include <cstdint>\n#define FLOW_RTC_PCF85063 1\n' + code + '\n'.join(bodies) + scenarios
+        code = '#include <cstdint>\n#define FLOW_RTC_PCF85063 1\n#define TIME_LARGE_JUMP_SECONDS 300\n' + code + '\n'.join(bodies) + scenarios
         with tempfile.TemporaryDirectory(prefix='flow-time-fallback-') as tmp:
             cpp = Path(tmp) / 'time.cpp'
             cpp.write_text(code)

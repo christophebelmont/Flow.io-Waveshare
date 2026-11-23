@@ -16,6 +16,7 @@
 #include <ArduinoJson.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <atomic>
 
 #ifndef FLOW_HA_ONESHOT_DISCOVERY
 #define FLOW_HA_ONESHOT_DISCOVERY 0
@@ -81,16 +82,17 @@ private:
         char model[40] = "Flow Controller";
     };
 
-    const EventBusService* eventBusSvc_ = nullptr;
     const DataStoreService* dsSvc_ = nullptr;
     const ConfigStoreService* cfgSvc_ = nullptr;
     const MqttService* mqttSvc_ = nullptr;
 
     HAConfig cfgData_{};
-    bool startupReady_ = false;
+    std::atomic<bool> startupReady_{false};
     bool producerRegistered_ = false;
     bool published_ = false;
-    bool oneShotCompleted_ = false;
+    std::atomic<bool> oneShotCompleted_{false};
+    std::atomic<bool> refreshRequested_{false};
+    uint16_t admittedMessageId_ = UINT16_MAX;
     bool oneShotResourcesReleased_ = false;
 
     char deviceId_[32] = {0};
@@ -151,10 +153,6 @@ private:
         NVS_KEY(NvsKeys::Ha::Model),"model","ha",ConfigType::CharArray,
         (char*)cfgData_.model,ConfigPersistence::Persistent,sizeof(cfgData_.model)
     };
-
-    static void onEventStatic(const Event& e, void* user);
-    void onEvent(const Event& e);
-
     bool addSensorSvc_(const HASensorEntry* entry);
     bool addBinarySensorSvc_(const HABinarySensorEntry* entry);
     bool addSwitchSvc_(const HASwitchEntry* entry);
@@ -178,6 +176,9 @@ private:
     void refreshIdentityFromConfig();
     void refreshDeviceNameFromMqttConfig_();
     bool enqueuePending_(MqttPublishPriority prio);
+    void prepareDiscovery_();
+    static void producerTickStatic_(void* ctx, uint32_t nowMs);
+    static bool producerBackgroundStatic_(void* ctx);
     bool discoveryReady_() const;
     void markAllPending_();
     bool isPending_(uint16_t messageId) const;

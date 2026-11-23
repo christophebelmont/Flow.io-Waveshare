@@ -476,6 +476,9 @@ const char* TimeModule::activeSourceName_() const
 
 void TimeModule::logTimeJump_(uint64_t oldEpochSec, uint64_t newEpochSec, TimeSource source, TimeQuality quality)
 {
+    // A plausible system clock can survive a reset without being trusted yet.
+    // The first accepted source establishes the reference for later corrections.
+    if (!timeState_.valid) return;
     if (!isTimePlausible_(oldEpochSec) || !isTimePlausible_(newEpochSec)) return;
     const int64_t delta = (int64_t)newEpochSec - (int64_t)oldEpochSec;
     const uint64_t absDelta = (delta < 0) ? (uint64_t)(-delta) : (uint64_t)delta;
@@ -650,7 +653,6 @@ bool TimeModule::setRtcEpoch_(uint64_t epochSec, TimeSource source, TimeQuality 
     tzset();
 
     const uint64_t oldEpoch = (uint64_t)nowEpoch_();
-    logTimeJump_(oldEpoch, epochSec, source, quality);
 
     struct timeval tv{};
     tv.tv_sec = (time_t)epochSec;
@@ -658,6 +660,7 @@ bool TimeModule::setRtcEpoch_(uint64_t epochSec, TimeSource source, TimeQuality 
     if (settimeofday(&tv, nullptr) != 0) {
         return false;
     }
+    logTimeJump_(oldEpoch, epochSec, source, quality);
     Log::setWallClockValid(true);
 
     _retryCount = 0;

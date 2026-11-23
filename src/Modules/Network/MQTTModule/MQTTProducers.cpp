@@ -55,6 +55,18 @@ void MQTTModule::tickProducers_(uint32_t nowMs)
         if (!producer || !producer->onTransportTick) continue;
         producer->onTransportTick(producer->ctx, nowMs);
     }
+
+    if (!isConnected() || count == 0U) return;
+    // Only this task grants background admissions. Advance after a successful
+    // offer so an always-busy producer cannot consume every newly freed slot.
+    for (uint8_t n = 0; n < count; ++n) {
+        const uint8_t idx = (uint8_t)((backgroundProducerCursor_ + n) % count);
+        const MqttPublishProducer* producer = snapshot[idx];
+        if (producer && producer->onBackgroundTick && producer->onBackgroundTick(producer->ctx)) {
+            backgroundProducerCursor_ = (uint8_t)((idx + 1U) % count);
+            break;
+        }
+    }
 }
 
 bool MQTTModule::enqueueAck_(const char* topicSuffix,

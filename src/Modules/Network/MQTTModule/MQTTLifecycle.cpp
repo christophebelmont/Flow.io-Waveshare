@@ -482,6 +482,12 @@ void MQTTModule::init(ConfigStore& cfg, ServiceRegistry& services)
         RuntimeProducer* p = static_cast<RuntimeProducer*>(ctx);
         return p ? p->buildMessage(messageId, buildCtx) : MqttBuildResult::PermanentError;
     };
+    runtimeProducerDesc_.onTransportTick = [](void* ctx, uint32_t nowMs) {
+        static_cast<RuntimeProducer*>(ctx)->tick(nowMs);
+    };
+    runtimeProducerDesc_.onBackgroundTick = [](void* ctx) {
+        return static_cast<RuntimeProducer*>(ctx)->offerBackground();
+    };
     runtimeProducerDesc_.onMessagePublished = [](void* ctx, uint16_t messageId) {
         RuntimeProducer* p = static_cast<RuntimeProducer*>(ctx);
         if (p) p->onMessagePublished(messageId);
@@ -536,7 +542,6 @@ void MQTTModule::onConfigLoaded(ConfigStore&, ServiceRegistry& services)
                                 (uint8_t)(sizeof(kMqttCfgRoutes) / sizeof(kMqttCfgRoutes[0])),
                                 services);
     }
-    runtimeProducerCore_.configure(&mqttSvc_);
     runtimeProducerCore_.rebuildRoutes();
 }
 
@@ -625,7 +630,6 @@ void MQTTModule::loop()
                 (void)enqueue(ProducerIdStatus, p.messageId, MqttPublishPriority::Normal, 0);
             }
 
-            runtimeProducerCore_.tick(now);
             processJobs_(now);
             break;
         }

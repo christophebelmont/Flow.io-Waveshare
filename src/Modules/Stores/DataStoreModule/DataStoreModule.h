@@ -31,6 +31,8 @@ public:
     void init(ConfigStore& cfg, ServiceRegistry& services) override;
 
     void onConfigLoaded(ConfigStore&, ServiceRegistry&) override;
+    /** Build publication routes after all producers have defined their values. */
+    void onStart(ConfigStore&, ServiceRegistry&) override;
     uint16_t runtimeSnapshotCount() const override;
     const char* runtimeSnapshotSuffix(uint16_t idx) const override;
     uint32_t runtimeSnapshotRefreshMs(uint16_t) const override { return Limits::Mqtt::Timing::SensorRefreshMs; }

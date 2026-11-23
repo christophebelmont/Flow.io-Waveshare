@@ -80,41 +80,15 @@ private:
     PendingMqttRoutes requestedRoutes_;
     struct RouteState {
         bool pendingFlags_[MaxRoutes]{};
-        bool needsEnqueueFlags_[MaxRoutes]{};
-        uint32_t retryFirstRefusedMs_[MaxRoutes]{};
-        bool building_[MaxRoutes]{};
-        bool republishAfterPublish_[MaxRoutes]{};
     };
     RouteState* state_ = nullptr;
     bool allocateRouteState_();
-    uint32_t retryDueMs_ = 0;
-    uint16_t retryBackoffMs_ = 0;
-    uint8_t retryCursor_ = 0;
-    uint32_t metricsWinStartMs_ = 0;
-    uint32_t metricsRefusedWin_ = 0;
-    uint32_t metricsRetryTryWin_ = 0;
-    uint32_t metricsRetryOkWin_ = 0;
-    uint32_t metricsTimeoutWin_ = 0;
-    uint32_t metricsRefusedTotal_ = 0;
-    uint32_t metricsRetryTryTotal_ = 0;
-    uint32_t metricsRetryOkTotal_ = 0;
-    uint32_t metricsTimeoutTotal_ = 0;
-
     MqttPublishProducer producer_{};
 
     int8_t findRouteByMessage_(uint16_t messageId) const;
     void setPending_(uint8_t idx, bool pending);
     bool isPending_(uint8_t idx) const;
-    void setNeedsEnqueue_(uint8_t idx, bool needed);
-    bool needsEnqueue_(uint8_t idx) const;
-    bool hasNeedsEnqueue_() const;
-    void armRetry_(uint32_t nowMs);
-    void resetRetry_();
-    void expireTimedOutRoutes_(uint32_t nowMs);
-    uint8_t countPendingFlags_(const bool* flags) const;
-    void reportMetrics_(uint32_t nowMs);
-    void runRetryTick_(uint32_t nowMs);
-    bool enqueueByRoute_(uint8_t idx, MqttPublishPriority prio);
+    MqttAdmissionResult enqueueByRoute_(uint8_t idx, MqttPublishPriority prio);
     void refreshReadyGateAndMaybeSync_();
     static MqttPublishPriority routePriority_(const Route& route);
 
@@ -122,6 +96,8 @@ private:
     static void onEventStatic_(const Event& e, void* ctx);
     static void tickStatic_(void* ctx, uint32_t nowMs);
     void onTransportTick_(uint32_t nowMs);
+    static bool backgroundStatic_(void* ctx);
+    bool offerBackground_();
 
     MqttBuildResult buildMessage_(uint16_t messageId, MqttBuildContext& ctx);
     void onMessagePublished_(uint16_t messageId);

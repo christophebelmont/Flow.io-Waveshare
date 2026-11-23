@@ -41,8 +41,15 @@ void DataStoreModule::init(ConfigStore& cfg, ServiceRegistry& services)
 
 void DataStoreModule::onConfigLoaded(ConfigStore&, ServiceRegistry&) {
     if (exposure_) exposure_->apply(_store);
+}
+
+void DataStoreModule::onStart(ConfigStore&, ServiceRegistry&) {
+    // Every producer has finished onConfigLoaded before startup. Publication
+    // preferences may select values that its configured mode never defines.
     auto selected = [this](const DataValueDescriptor& d) {
-        return d.kind != DataValueKind::Analog && d.kind != DataValueKind::Derived && _store.publishHa(d.id);
+        if (d.kind == DataValueKind::Analog || d.kind == DataValueKind::Derived || !_store.publishHa(d.id)) return false;
+        ValueSnapshot value{};
+        return _store.values.read(d.id, value);
     };
     uint16_t count = 0;
     for (const auto& d : kDataValues) if (selected(d)) ++count;

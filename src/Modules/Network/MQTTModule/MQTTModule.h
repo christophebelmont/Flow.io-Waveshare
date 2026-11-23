@@ -87,6 +87,7 @@ public:
 
     bool registerRuntimeProvider(const IRuntimeSnapshotProvider* provider);
     bool enqueue(uint8_t producerId, uint16_t messageId, MqttPublishPriority priority, uint8_t flags = 0);
+    MqttAdmissionResult tryEnqueueBackground(uint8_t producerId, uint16_t messageId, MqttPublishPriority priority);
     bool registerProducer(const MqttPublishProducer* producer);
     bool registerInboundHandler(const MqttInboundHandler* handler);
     bool writeRuntimeUiValue(uint8_t valueId, IRuntimeUiWriter& writer) const override;
@@ -146,12 +147,14 @@ private:
         uint32_t released = 0;
         uint64_t residenceMs = 0;
         uint32_t rejected[MqttDiagnostics::SourceCount][3]{};
+        uint32_t backgroundDeferred = 0;
     };
 
     struct QueueSnapshot {
         uint32_t atMs = 0;
         uint16_t used = 0;
         uint16_t free = 0;
+        uint16_t background = 0;
         JobStateCounts states{};
         uint16_t physical[3]{};
         uint16_t live[3]{};
@@ -163,6 +166,7 @@ private:
 
     struct Job {
         JobState state = JobState::Free;
+        MqttAdmissionClass admissionClass = MqttAdmissionClass::Immediate;
         bool requeueAfterProcess = false;
         uint8_t producerId = 0;
         uint16_t messageId = 0;
@@ -211,6 +215,7 @@ private:
     static constexpr uint8_t MaxInboundHandlers = Limits::Mqtt::Capacity::MaxInboundHandlers;
     static constexpr uint8_t MaxAckMessages = Limits::Mqtt::Capacity::MaxAckMessages;
     static constexpr uint8_t MaxJobs = Limits::Mqtt::Capacity::MaxJobs;
+    static constexpr uint8_t MaxBackgroundJobs = Limits::Mqtt::Capacity::MaxBackgroundJobs;
     static constexpr uint16_t RetryMinMs = 250;
     static constexpr uint16_t RetryMaxMs = 10000;
     static constexpr uint8_t ProcessBudgetPerTick = 1;
@@ -286,6 +291,7 @@ private:
 
     const MqttPublishProducer* producers_[MaxProducers]{};
     uint8_t producerCount_ = 0;
+    uint8_t backgroundProducerCursor_ = 0;
     portMUX_TYPE producerMux_ = portMUX_INITIALIZER_UNLOCKED;
     const MqttInboundHandler* inboundHandlers_[MaxInboundHandlers]{};
     uint8_t inboundHandlerCount_ = 0;
@@ -304,6 +310,7 @@ private:
     // The pointer and storage remain valid for the firmware lifetime; no ISR access.
     TxStorage* txStorage_ = nullptr;
     portMUX_TYPE jobsMux_ = portMUX_INITIALIZER_UNLOCKED;
+    uint16_t backgroundJobs_ = 0; // Protected by jobsMux_, including Processing/WaitingForQueue.
 
     ScratchBuffers* scratch_ = nullptr;
 
@@ -393,6 +400,8 @@ private:
     bool tryPublishNow_(const char* topic, const char* payload, uint8_t qos, bool retain);
     void processJobs_(uint32_t nowMs);
     bool enqueueJob_(uint8_t producerId, uint16_t messageId, uint8_t priority, uint8_t flags);
+    MqttAdmissionResult admitJob_(uint8_t producerId, uint16_t messageId, uint8_t priority,
+                                 uint8_t flags, MqttAdmissionClass admissionClass);
     void snapshotQueueStatsNoLock_(QueueSnapshot& snapshot, uint32_t nowMs) const;
     void logQueueSnapshot_(const QueueSnapshot& snapshot) const;
     void logEnqueueIssue_(uint8_t producerId, uint16_t messageId, uint8_t priority,
@@ -435,6 +444,7 @@ private:
         ServiceBinding::bind<&MQTTModule::formatTopicSvc_>,
         ServiceBinding::bind<&MQTTModule::isConnected>,
         ServiceBinding::bind<&MQTTModule::registerInboundHandler>,
-        this
+        this,
+        ServiceBinding::bind<&MQTTModule::tryEnqueueBackground>
     };
 };

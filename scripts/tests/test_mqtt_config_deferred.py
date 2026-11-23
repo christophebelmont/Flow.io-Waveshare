@@ -10,7 +10,8 @@ class DeferredConfigTests(unittest.TestCase):
     def test_config_deferred(self):
         source = (MODULE / 'MqttConfigRouteProducer.cpp').read_text()
         names = ['requestFullSync', 'refreshReadyGateAndMaybeSync_', 'onTransportTick_',
-                 'onEvent_', 'routePriority_']
+                 'onEvent_', 'routePriority_', 'offerBackground_', 'enqueueByRoute_',
+                 'setPending_', 'isPending_', 'findRouteByMessage_', 'onMessagePublished_', 'onMessageDropped_']
         bodies = []
         for name in names:
             start = source.index('MqttConfigRouteProducer::' + name + '(')

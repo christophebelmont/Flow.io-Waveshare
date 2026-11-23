@@ -175,6 +175,7 @@ void MQTTModule::releaseJob_(uint8_t slotIdx)
     // Obsolete references can outlive a slot's occupant. Preserve its generation
     // across reuse so they cannot become valid for the next message in this slot.
     if (job.state != JobState::Free) {
+        if (job.admissionClass == MqttAdmissionClass::Background) --backgroundJobs_;
         ++txStorage_->counters.released;
 #if FLOW_PERFORMANCE_DIAGNOSTICS
         txStorage_->counters.residenceMs += (uint32_t)(millis() - job.admittedMs);
@@ -206,8 +207,10 @@ void MQTTModule::snapshotQueueStatsNoLock_(QueueSnapshot& snapshot, uint32_t now
 {
     snapshot = QueueSnapshot{};
     snapshot.atMs = nowMs;
+    snapshot.background = backgroundJobs_;
     snapshot.counters = txStorage_->counters;
     uint16_t references[MaxJobs]{};
+    uint16_t countedBackground = 0;
     auto inspect = [&](const auto& ring, uint8_t priority) {
         const size_t capacity = sizeof(ring.items) / sizeof(ring.items[0]);
         snapshot.physical[priority] = ring.count;
@@ -235,6 +238,7 @@ void MQTTModule::snapshotQueueStatsNoLock_(QueueSnapshot& snapshot, uint32_t now
             continue;
         }
         ++snapshot.used;
+        if (job.admissionClass == MqttAdmissionClass::Background) ++countedBackground;
         const uint32_t age = nowMs - job.admittedMs;
         if (age > snapshot.oldestMs) snapshot.oldestMs = age;
         switch (job.state) {
@@ -245,6 +249,7 @@ void MQTTModule::snapshotQueueStatsNoLock_(QueueSnapshot& snapshot, uint32_t now
         }
     }
     snapshot.invariant = snapshot.invariant &&
+        countedBackground == backgroundJobs_ && backgroundJobs_ <= MaxBackgroundJobs &&
         snapshot.free + snapshot.used == MaxJobs &&
         snapshot.used == snapshot.states.queued + snapshot.states.processing + snapshot.states.waiting &&
         snapshot.states.queued == snapshot.live[0] + snapshot.live[1] + snapshot.live[2] &&
@@ -279,9 +284,17 @@ void MQTTModule::logEnqueueIssue_(uint8_t producerId, uint16_t messageId, uint8_
 
 bool MQTTModule::enqueueJob_(uint8_t producerId, uint16_t messageId, uint8_t priority, uint8_t flags)
 {
+    return admitJob_(producerId, messageId, priority, flags, MqttAdmissionClass::Immediate) ==
+        MqttAdmissionResult::Accepted;
+}
+
+MqttAdmissionResult MQTTModule::admitJob_(uint8_t producerId, uint16_t messageId, uint8_t priority,
+                                        uint8_t flags, MqttAdmissionClass admissionClass)
+{
     bool accepted = false;
     const char* issue = nullptr;
     const bool silent = (flags & (uint8_t)MqttEnqueueFlags::SilentRejectLog) != 0U;
+    const bool background = admissionClass == MqttAdmissionClass::Background;
     QueueSnapshot snapshot{};
     bool report = false;
     portENTER_CRITICAL(&jobsMux_);
@@ -305,12 +318,13 @@ bool MQTTModule::enqueueJob_(uint8_t producerId, uint16_t messageId, uint8_t pri
         }
         // WaitingForQueue is retried by the consumer without resetting backoff.
     } else {
-        idx = allocJobSlot_();
+        idx = background && backgroundJobs_ >= MaxBackgroundJobs ? -1 : allocJobSlot_();
         if (idx < 0) {
             issue = "slot_full";
         } else {
             Job& job = txStorage_->jobs[(uint8_t)idx];
             job.admittedMs = nowMs;
+            job.admissionClass = admissionClass;
             job.state = JobState::WaitingForQueue;
             job.producerId = producerId;
             job.messageId = messageId;
@@ -324,19 +338,32 @@ bool MQTTModule::enqueueJob_(uint8_t producerId, uint16_t messageId, uint8_t pri
                 issue = "queue_full";
             } else {
                 ++txStorage_->counters.admitted;
+                if (background) ++backgroundJobs_;
             }
         }
     }
-    if (!accepted) ++txStorage_->counters.rejected[MqttDiagnostics::sourceIndex(producerId, messageId)][priority];
+    if (!accepted) {
+        if (background) ++txStorage_->counters.backgroundDeferred;
+        else ++txStorage_->counters.rejected[MqttDiagnostics::sourceIndex(producerId, messageId)][priority];
+    }
     // Rate limiting and the snapshot use the same lock as every job transition.
-    if (issue && !silent && (lastEnqueueIssueLogMs_ == 0U || (uint32_t)(nowMs - lastEnqueueIssueLogMs_) >= 1000U)) {
+    if (issue && !background && !silent && (lastEnqueueIssueLogMs_ == 0U || (uint32_t)(nowMs - lastEnqueueIssueLogMs_) >= 1000U)) {
         lastEnqueueIssueLogMs_ = nowMs;
         snapshotQueueStatsNoLock_(snapshot, nowMs);
         report = true;
     }
     portEXIT_CRITICAL(&jobsMux_);
     if (report) logEnqueueIssue_(producerId, messageId, priority, issue, snapshot, accepted);
-    return accepted;
+    return accepted ? MqttAdmissionResult::Accepted : MqttAdmissionResult::Deferred;
+}
+
+MqttAdmissionResult MQTTModule::tryEnqueueBackground(uint8_t producerId, uint16_t messageId,
+                                                   MqttPublishPriority priority)
+{
+    if (!txStorage_ || producerId == 0U || (uint8_t)priority > (uint8_t)MqttPublishPriority::High)
+        return MqttAdmissionResult::Invalid;
+    if (state_ != MQTTState::Connected) return MqttAdmissionResult::Deferred;
+    return admitJob_(producerId, messageId, (uint8_t)priority, 0, MqttAdmissionClass::Background);
 }
 
 bool MQTTModule::enqueue(uint8_t producerId, uint16_t messageId, MqttPublishPriority priority, uint8_t flags)
@@ -586,6 +613,8 @@ void MQTTModule::updateAndReportQueueOccupancy_(uint32_t nowMs)
 
     const auto& counters = snapshot.counters;
     logQueueSnapshot_(snapshot);
+    LOGD("queue background=%u/%u deferred=%lu", (unsigned)snapshot.background,
+         (unsigned)MaxBackgroundJobs, (unsigned long)counters.backgroundDeferred);
 #if FLOW_PERFORMANCE_DIAGNOSTICS
     const uint32_t interval = nowMs - occLastReportMs_;
     const uint32_t elapsed = interval == 0U ? 1U : interval;

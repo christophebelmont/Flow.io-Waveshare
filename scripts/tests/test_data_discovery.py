@@ -12,7 +12,8 @@ class DataDiscoveryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cpp=Path(tmp)/'discovery.cpp'; exe=Path(tmp)/'discovery';cpp.write_text(code)
             subprocess.run(['c++','-std=c++17','-Wall','-Wextra','-Werror','-fsanitize=address,undefined',
-                '-Itest/host/value_stubs','-Isrc','-Iinclude',str(cpp),
+                '-Itest/host/value_stubs','-Isrc','-Iinclude',
+                '-I.pio/libdeps/Flowio-waveshare-esp32-s3/ArduinoJson/src',str(cpp),
                 'src/Core/Values/ValueRegistry.cpp','src/Core/Values/ValueExpression.cpp','-o',str(exe)],cwd=ROOT,check=True)
             subprocess.run([str(exe)],check=True)
 if __name__=='__main__':unittest.main()

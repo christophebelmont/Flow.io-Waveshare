@@ -107,6 +107,9 @@ constexpr uint8_t MaxInboundHandlers = BoardCapacityProfile::kMqttCapacity.maxIn
 constexpr uint8_t MaxAckMessages = BoardCapacityProfile::kMqttCapacity.maxAckMessages;
 /** @brief Maximum active publish jobs. */
 constexpr uint8_t MaxJobs = BoardCapacityProfile::kMqttCapacity.maxJobs;
+/** Maximum transport-owned background publications, including retries. */
+constexpr uint8_t MaxBackgroundJobs = 32;
+static_assert(MaxBackgroundJobs < MaxJobs, "Background jobs must leave capacity for immediate publications");
 /** @brief High-priority publish queue capacity. */
 constexpr uint16_t HighQueueCap = BoardCapacityProfile::kMqttCapacity.highQueueCap;
 /** @brief Normal-priority publish queue capacity. */

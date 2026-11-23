@@ -792,14 +792,7 @@ bool HAModule::publishButton(const char* objectId, const char* name,
 
 void HAModule::setStartupReady(bool ready)
 {
-    startupReady_ = ready;
-    HA_BOOT_TRACE_D("ha boot trace: startup ready=%d pending=%d",
-                    ready ? 1 : 0,
-                    anyPending_() ? 1 : 0);
-    if (ready) {
-        const bool queued = enqueuePending_(MqttPublishPriority::Low);
-        HA_BOOT_TRACE_D("ha boot trace: startup enqueue=%d", queued ? 1 : 0);
-    }
+    startupReady_.store(ready);
 }
 
 void HAModule::setBranding(const char* objectPrefix,
@@ -942,14 +935,20 @@ bool HAModule::anyPending_() const
 bool HAModule::enqueuePending_(MqttPublishPriority prio)
 {
     if (oneShotCompleted_) return false;
-    if (!mqttSvc_ || !mqttSvc_->enqueue) return false;
-    if (!discoveryReady_()) return false;
+    if (!mqttSvc_ || !mqttSvc_->tryEnqueueBackground) return false;
+    if (!discoveryReady_() || admittedMessageId_ != UINT16_MAX) return false;
 
     const uint16_t count = entityCount_();
-    constexpr uint8_t kFlags = (uint8_t)MqttEnqueueFlags::SilentRejectLog;
     for (uint16_t i = 0; i < count; ++i) {
         if (!isPending_(i)) continue;
-        const bool queued = mqttSvc_->enqueue(mqttSvc_->ctx, ProducerId, i, (uint8_t)prio, kFlags);
+        const auto result = mqttSvc_->tryEnqueueBackground(mqttSvc_->ctx, ProducerId, i, prio);
+        if (result == MqttAdmissionResult::Invalid) {
+            LOGE("Invalid HA publication message=%u", (unsigned)i);
+            onMessageDropped_(i);
+            return false;
+        }
+        const bool queued = result == MqttAdmissionResult::Accepted;
+        if (queued) admittedMessageId_ = i;
         HA_BOOT_TRACE_D("ha boot trace: enqueue message=%u/%u prio=%u queued=%d",
                         (unsigned)i,
                         (unsigned)count,
@@ -1100,6 +1099,7 @@ MqttBuildResult HAModule::buildMessage_(uint16_t messageId, MqttBuildContext& bu
 
 void HAModule::onMessagePublished_(uint16_t messageId)
 {
+    admittedMessageId_ = UINT16_MAX;
     setPending_(messageId, false);
     const bool done = !anyPending_();
     if (dsSvc_ && dsSvc_->store) {
@@ -1116,6 +1116,7 @@ void HAModule::onMessagePublished_(uint16_t messageId)
 
 void HAModule::onMessageDropped_(uint16_t messageId)
 {
+    admittedMessageId_ = UINT16_MAX;
     setPending_(messageId, false);
     const bool done = !anyPending_();
     if (dsSvc_ && dsSvc_->store) {
@@ -1137,67 +1138,47 @@ void HAModule::markBootLogCaptureCompleteAfterDiscovery_()
 #endif
 }
 
-void HAModule::onEventStatic(const Event& e, void* user)
-{
-    HAModule* self = static_cast<HAModule*>(user);
-    if (self) self->onEvent(e);
-}
-
-void HAModule::onEvent(const Event& e)
-{
-    if (oneShotCompleted_) return;
-    if (e.id != EventId::DataChanged) return;
-    const DataChangedPayload* payload = static_cast<const DataChangedPayload*>(e.payload);
-    if (!payload) return;
-    if (!dsSvc_ || !dsSvc_->store) return;
-
-    if (payload->id == DATAKEY_NETWORK_READY) {
-        HA_BOOT_TRACE_D("ha boot trace: event wifi_ready=%d mqtt_ready=%d",
-                        networkReady(*dsSvc_->store) ? 1 : 0,
-                        mqttReady(*dsSvc_->store) ? 1 : 0);
-        if (discoveryReady_()) {
-            (void)enqueuePending_(MqttPublishPriority::Low);
-        }
-        return;
-    }
-
-    if (payload->id == DATAKEY_MQTT_READY) {
-        HA_BOOT_TRACE_D("ha boot trace: event mqtt_ready=%d wifi_ready=%d",
-                        mqttReady(*dsSvc_->store) ? 1 : 0,
-                        networkReady(*dsSvc_->store) ? 1 : 0);
-        if (discoveryReady_()) {
-            (void)enqueuePending_(MqttPublishPriority::Low);
-        }
-        return;
-    }
-}
-
 void HAModule::requestAutoconfigRefresh()
 {
+    if (!oneShotCompleted_) refreshRequested_.store(true);
+}
+
+void HAModule::producerTickStatic_(void* ctx, uint32_t)
+{
+    static_cast<HAModule*>(ctx)->prepareDiscovery_();
+}
+
+bool HAModule::producerBackgroundStatic_(void* ctx)
+{
+    return static_cast<HAModule*>(ctx)->enqueuePending_(MqttPublishPriority::Low);
+}
+
+void HAModule::prepareDiscovery_()
+{
     if (oneShotCompleted_) return;
-    published_ = false;
-    markAllPending_();
-    HA_BOOT_TRACE_D("ha boot trace: refresh requested");
-    if (dsSvc_ && dsSvc_->store) {
-        setHaAutoconfigPublished(*dsSvc_->store, false);
+    if (refreshRequested_.exchange(false)) {
+        published_ = false;
+        markAllPending_();
+        if (dsSvc_ && dsSvc_->store) setHaAutoconfigPublished(*dsSvc_->store, false);
     }
+#if FLOW_HA_ONESHOT_DISCOVERY
+    if (published_ && admittedMessageId_ == UINT16_MAX && !anyPending_()) {
+        LOGI("HA one-shot discovery complete, releasing resources");
+        markBootLogCaptureCompleteAfterDiscovery_();
+        // Admission, builders, completion and cleanup share the MQTT task.
+        releaseOneShotResources_();
+    }
+#endif
 }
 
 void HAModule::loop()
 {
 #if FLOW_HA_ONESHOT_DISCOVERY
-    if (published_ && !anyPending_()) {
-        LOGI("HA one-shot discovery complete, releasing resources");
-        HA_BOOT_TRACE_I("ha boot trace: loop detected completion, deleting task");
-        markBootLogCaptureCompleteAfterDiscovery_();
-        releaseOneShotResources_();
+    if (oneShotCompleted_.load()) {
         finishLoopTask();
         return;
     }
 #endif
-    if (anyPending_()) {
-        (void)enqueuePending_(MqttPublishPriority::Low);
-    }
     delayNextCycle(pdMS_TO_TICKS(250));
 }
 
@@ -1234,7 +1215,6 @@ void HAModule::init(ConfigStore& cfg, ServiceRegistry& services)
                     FLOW_HA_ONESHOT_DISCOVERY ? 1 : 0,
                     (unsigned)MAX_HA_ENTITIES);
 
-    eventBusSvc_ = services.get<EventBusService>(ServiceId::EventBus);
     dsSvc_ = services.get<DataStoreService>(ServiceId::DataStore);
     cfgSvc_ = services.get<ConfigStoreService>(ServiceId::ConfigStore);
     mqttSvc_ = services.get<MqttService>(ServiceId::Mqtt);
@@ -1251,16 +1231,14 @@ void HAModule::init(ConfigStore& cfg, ServiceRegistry& services)
     producer_.buildMessage = HAModule::producerBuildStatic_;
     producer_.onMessagePublished = HAModule::producerPublishedStatic_;
     producer_.onMessageDropped = HAModule::producerDroppedStatic_;
+    producer_.onTransportTick = HAModule::producerTickStatic_;
+    producer_.onBackgroundTick = HAModule::producerBackgroundStatic_;
     if (mqttSvc_ && mqttSvc_->registerProducer) {
         producerRegistered_ = mqttSvc_->registerProducer(mqttSvc_->ctx, &producer_);
     }
 
     if (dsSvc_ && dsSvc_->store) {
         setHaAutoconfigPublished(*dsSvc_->store, false);
-    }
-
-    if (eventBusSvc_ && eventBusSvc_->bus) {
-        eventBusSvc_->bus->subscribe(EventId::DataChanged, &HAModule::onEventStatic, this);
     }
 
     markAllPending_();
