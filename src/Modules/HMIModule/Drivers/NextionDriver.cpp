@@ -920,13 +920,17 @@ bool NextionDriver::parseCustomFrame_(const uint8_t* frame, uint8_t len, HmiEven
                              ((uint32_t)payload[4] << 24);
             }
             const bool restoreContext = contextRef != 0U && isMenuPageId_(payload[0]);
-            const bool emitted = handlePageId_(payload[0], true, out) || restoreContext;
-            if (emitted) {
+            const bool emitted = handlePageId_(payload[0], true, out);
+            // Context can resume the current menu without a page change.
+            // Otherwise preserve the Home, Page or ConfigExit navigation event.
+            if (restoreContext) {
                 out.type = HmiEventType::ConfigEnter;
-                out.contextRef = contextRef;
                 out.pageId = payload[0];
             }
-            return emitted;
+            if (out.type == HmiEventType::ConfigEnter) {
+                out.contextRef = contextRef;
+            }
+            return emitted || restoreContext;
         }
 
         case NEXTION_CMD_NAV:
