@@ -169,7 +169,9 @@ private:
 
     static bool tickFastAds_(void* ctx, uint32_t nowMs);
     static bool tickSlowDs_(void* ctx, uint32_t nowMs);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     void reportDsPollTiming_(uint32_t nowMs);
+#endif
     static bool tickI2cAnalogs_(void* ctx, uint32_t nowMs);
     static bool tickDigitalInputs_(void* ctx, uint32_t nowMs);
 
@@ -420,13 +422,17 @@ private:
     struct DsProbe {
         Ds18b20Driver* driver = nullptr;
         IOAnalogSource source = IO_SRC_DS18_WATER;
+#if FLOW_PERFORMANCE_DIAGNOSTICS
         Ds18b20Driver::PollStep pendingReport = Ds18b20Driver::PollStep::Idle;
         DurationSamples durations{};
         uint64_t startedUs = 0;
         uint32_t overBudget = 0;
+#endif
     };
     DsProbe dsProbes_[kDsProbeCapacity]{};
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     uint32_t dsPollLastReportMs_ = 0;
+#endif
     uint8_t dsProbeCount_ = 0;
     uint8_t nextDsProbe_ = 0;
     I2CBus* i2cBus_ = nullptr;

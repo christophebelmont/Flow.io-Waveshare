@@ -57,7 +57,7 @@ const char* wsSendStatusName_(AsyncWebSocket::SendStatus status)
     }
 }
 
-#if FLOW_WEB_HEAP_FORENSICS
+#if FLOW_PERFORMANCE_DIAGNOSTICS && FLOW_WEB_HEAP_FORENSICS
 void logWsEventHeapForensic_(const char* channel,
                              AwsEventType type,
                              AsyncWebSocketClient* client,
@@ -127,7 +127,7 @@ void WebInterfaceModule::onWsLogEvent_(AsyncWebSocket*,
         noteWsActivity_();
     }
 
-#if FLOW_WEB_HEAP_FORENSICS
+#if FLOW_PERFORMANCE_DIAGNOSTICS && FLOW_WEB_HEAP_FORENSICS
     const uint32_t forensicStartUs = micros();
     const HeapForensicSnapshot forensicStartHeap = captureHeapForensicSnapshot_();
 #endif
@@ -214,7 +214,7 @@ void WebInterfaceModule::onWsLogEvent_(AsyncWebSocket*,
         }
     }
 
-#if FLOW_WEB_HEAP_FORENSICS
+#if FLOW_PERFORMANCE_DIAGNOSTICS && FLOW_WEB_HEAP_FORENSICS
     if (type == WS_EVT_CONNECT || type == WS_EVT_DISCONNECT || type == WS_EVT_ERROR) {
         logWsEventHeapForensic_("wslog",
                                 type,
@@ -247,7 +247,7 @@ void WebInterfaceModule::flushLine_(bool force)
         return;
     }
 
-#if FLOW_WEB_HEAP_FORENSICS
+#if FLOW_PERFORMANCE_DIAGNOSTICS && FLOW_WEB_HEAP_FORENSICS
     const uint32_t forensicStartUs = micros();
     const HeapForensicSnapshot forensicStartHeap = captureHeapForensicSnapshot_();
 #endif
@@ -255,7 +255,7 @@ void WebInterfaceModule::flushLine_(bool force)
     if (!wsLog_.availableForWriteAll()) {
         ++wsFlowDropCount_;
         logWsFlowPressure_("queue_full");
-#if FLOW_WEB_HEAP_FORENSICS
+#if FLOW_PERFORMANCE_DIAGNOSTICS && FLOW_WEB_HEAP_FORENSICS
         logWsSendHeapForensic_("wsflow",
                                "qfull",
                                payloadLen,
@@ -281,7 +281,7 @@ void WebInterfaceModule::flushLine_(bool force)
             logWsFlowPressure_("discarded");
         }
     }
-#if FLOW_WEB_HEAP_FORENSICS
+#if FLOW_PERFORMANCE_DIAGNOSTICS && FLOW_WEB_HEAP_FORENSICS
     logWsSendHeapForensic_("wsflow",
                            wsSendStatusName_(status),
                            payloadLen,

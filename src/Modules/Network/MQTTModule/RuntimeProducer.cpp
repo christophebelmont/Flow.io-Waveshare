@@ -1,4 +1,5 @@
 #include "Modules/Network/MQTTModule/RuntimeProducer.h"
+#include "Core/PerformanceDiagnostics.h"
 
 #include <Arduino.h>
 #include <esp_heap_caps.h>
@@ -190,9 +191,13 @@ RuntimeProducer::DataChangeStats RuntimeProducer::onDataChanged(DataKey key)
         ++stats.matched;
         if (route.pending || route.force) ++stats.pendingAlready;
         markRoutePending_(i, false);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
         const uint32_t t0 = micros();
+#endif
         const bool ok = enqueueRoute_(i);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
         stats.enqueueUs += (uint32_t)(micros() - t0);
+#endif
         if (ok) {
             ++stats.enqueueOk;
         } else {

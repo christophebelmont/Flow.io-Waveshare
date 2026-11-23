@@ -1478,7 +1478,7 @@ void fillSpiffsAssetForensicMeta_(SpiffsAssetForensicMeta* out,
     out->gzip = gzip;
 }
 
-#if FLOW_WEB_HEAP_FORENSICS
+#if FLOW_PERFORMANCE_DIAGNOSTICS && FLOW_WEB_HEAP_FORENSICS
 void logHttpHeapForensic_(AsyncWebServerRequest* req,
                           const char* route,
                           uint32_t startUs,
@@ -3991,12 +3991,14 @@ bool dashboardSlotDegreeCUnit_(const char* unit)
 
 
 struct HttpLatencyScope {
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     AsyncWebServerRequest* req;
     const char* route;
     uint32_t startUs;
     uint32_t infoMs;
     uint32_t warnMs;
-#if FLOW_WEB_HEAP_FORENSICS
+#endif
+#if FLOW_PERFORMANCE_DIAGNOSTICS && FLOW_WEB_HEAP_FORENSICS
     HeapForensicSnapshot startHeap;
 #endif
 
@@ -4004,25 +4006,34 @@ struct HttpLatencyScope {
                      const char* routePath,
                      uint32_t infoThresholdMs = kHttpLatencyInfoMs,
                      uint32_t warnThresholdMs = kHttpLatencyWarnMs)
+#if FLOW_PERFORMANCE_DIAGNOSTICS
         : req(request),
           route(routePath),
           startUs(micros()),
           infoMs(infoThresholdMs),
           warnMs((warnThresholdMs > infoThresholdMs) ? warnThresholdMs : (infoThresholdMs + 1U))
+#endif
     {
+#if !FLOW_PERFORMANCE_DIAGNOSTICS
+        (void)request;
+        (void)routePath;
+        (void)infoThresholdMs;
+        (void)warnThresholdMs;
+#endif
         if (gHttpActivityHook) {
             gHttpActivityHook(gHttpActivityHookCtx);
         }
-#if FLOW_WEB_HEAP_FORENSICS
+#if FLOW_PERFORMANCE_DIAGNOSTICS && FLOW_WEB_HEAP_FORENSICS
         startHeap = captureHeapForensicSnapshot_();
 #endif
     }
 
     ~HttpLatencyScope()
     {
-#if FLOW_WEB_HEAP_FORENSICS
+#if FLOW_PERFORMANCE_DIAGNOSTICS && FLOW_WEB_HEAP_FORENSICS
         logHttpHeapForensic_(req, route, startUs, startHeap);
 #endif
+#if FLOW_PERFORMANCE_DIAGNOSTICS
         const uint32_t elapsedUs = micros() - startUs;
         const uint32_t elapsedMs = elapsedUs / 1000U;
         if (elapsedMs < infoMs) return;
@@ -4046,6 +4057,7 @@ struct HttpLatencyScope {
                  (unsigned long)heapFree,
                  (unsigned long)heapLargest);
         }
+#endif
     }
 };
 
@@ -5523,7 +5535,7 @@ void WebInterfaceModule::startServer_()
             return nullptr;
         }
 
-#if FLOW_WEB_HEAP_FORENSICS
+#if FLOW_PERFORMANCE_DIAGNOSTICS && FLOW_WEB_HEAP_FORENSICS
         const uint32_t forensicStartUs = micros();
         const HeapForensicSnapshot forensicStartHeap = captureHeapForensicSnapshot_();
         SpiffsAssetForensicMeta localMeta{};
@@ -5552,7 +5564,7 @@ void WebInterfaceModule::startServer_()
         }
         if (!servedExists) return nullptr;
 
-#if FLOW_WEB_HEAP_FORENSICS
+#if FLOW_PERFORMANCE_DIAGNOSTICS && FLOW_WEB_HEAP_FORENSICS
         uint32_t servedSize = 0U;
         File servedFile = SPIFFS.open(servedPath, FILE_READ);
         if (servedFile) {
@@ -5567,7 +5579,7 @@ void WebInterfaceModule::startServer_()
 
         AsyncWebServerResponse* response = request->beginResponse(SPIFFS, servedPath, contentType);
         if (!response) {
-#if FLOW_WEB_HEAP_FORENSICS
+#if FLOW_PERFORMANCE_DIAGNOSTICS && FLOW_WEB_HEAP_FORENSICS
             logSpiffsAssetHeapForensic_("null", localMeta, forensicStartUs, forensicStartHeap);
 #endif
             return nullptr;
@@ -5581,7 +5593,7 @@ void WebInterfaceModule::startServer_()
         } else {
             addNoCacheHeaders_(response);
         }
-#if FLOW_WEB_HEAP_FORENSICS
+#if FLOW_PERFORMANCE_DIAGNOSTICS && FLOW_WEB_HEAP_FORENSICS
         logSpiffsAssetHeapForensic_("prep", localMeta, forensicStartUs, forensicStartHeap);
 #endif
         return response;
@@ -5592,12 +5604,12 @@ void WebInterfaceModule::startServer_()
            AsyncWebServerResponse* response,
            const SpiffsAssetForensicMeta* forensicMeta = nullptr) {
         if (!request || !response) return;
-#if FLOW_WEB_HEAP_FORENSICS
+#if FLOW_PERFORMANCE_DIAGNOSTICS && FLOW_WEB_HEAP_FORENSICS
         const uint32_t forensicStartUs = micros();
         const HeapForensicSnapshot forensicStartHeap = captureHeapForensicSnapshot_();
 #endif
         request->send(response);
-#if FLOW_WEB_HEAP_FORENSICS
+#if FLOW_PERFORMANCE_DIAGNOSTICS && FLOW_WEB_HEAP_FORENSICS
         if (forensicMeta) {
             logSpiffsAssetHeapForensic_("send", *forensicMeta, forensicStartUs, forensicStartHeap);
         }
@@ -8708,10 +8720,15 @@ void WebInterfaceModule::startServer_()
     // Resolve the SPIFFS asset fingerprint on the Web task, not in AsyncTCP.
     // /api/web/meta may be requested immediately after server startup.
     if (spiffsReady_) {
+#if FLOW_PERFORMANCE_DIAGNOSTICS
         const uint32_t fingerprintStartedMs = millis();
+#endif
         const char* assetVersion = webAssetVersion_();
-        LOGI("Web asset fingerprint ready version=%s elapsed_ms=%lu",
-             assetVersion, (unsigned long)(millis() - fingerprintStartedMs));
+        LOGI("Web asset fingerprint ready version=%s", assetVersion);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
+        LOGD("Web asset fingerprint elapsed_ms=%lu",
+             (unsigned long)(millis() - fingerprintStartedMs));
+#endif
     }
     server_.begin();
     WebMemoryDiagnostics::sample("listening");

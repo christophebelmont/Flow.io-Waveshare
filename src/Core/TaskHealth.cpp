@@ -5,6 +5,7 @@
 
 #include "Core/SaturatingCounter.h"
 
+#if FLOW_PERFORMANCE_DIAGNOSTICS
 namespace {
 uint32_t waitTicksToUs(TickType_t ticks)
 {
@@ -12,6 +13,7 @@ uint32_t waitTicksToUs(TickType_t ticks)
     return waitUs > UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(waitUs);
 }
 }
+#endif
 
 bool TaskTiming::begin(uint64_t nowUs, const TaskTimingContract& contract)
 {
@@ -72,6 +74,7 @@ void TaskWaitSample::recordRuntime(const TaskRuntimeSnapshot& before, const Task
     }
 }
 
+#if FLOW_PERFORMANCE_DIAGNOSTICS
 void TaskWakeTrace::push(const TaskWakeSample& sample)
 {
     if (sample.lateUs() > worst_.lateUs()) worst_ = sample;
@@ -91,6 +94,8 @@ bool TaskWakeTrace::pop(TaskWakeSample& sample)
     --count_;
     return true;
 }
+
+#endif
 
 TaskHealthSnapshot TaskHealth::snapshot()
 {
@@ -175,6 +180,7 @@ bool TaskHealth::canReap()
     return ready;
 }
 
+#if FLOW_PERFORMANCE_DIAGNOSTICS
 void TaskHealth::beginCycle()
 {
     const uint64_t nowUs = esp_timer_get_time();
@@ -261,6 +267,7 @@ bool TaskHealth::takeWakeSample(TaskWakeSample& sample)
     portEXIT_CRITICAL(&mux_);
     return taken;
 }
+#endif
 
 void TaskHealth::finish()
 {

@@ -90,7 +90,7 @@ inline constexpr MqttCapacitySpec kWaveshareESP32S3MqttCapacity{8192, 8, 8, 48, 
  *   changed at boot.
  */
 inline constexpr MqttBufferSpec kWaveshareESP32S3MqttBuffers{
-    64, 32, 32, 15, 15, 70, 160, 128, 384, 1536, 1024, 1536, 8192, 64, 320, 32
+    64, 32, 32, 15, 15, 70, 192, 128, 384, 1536, 1024, 1536, 8192, 64, 320, 32
 };
 
 /*

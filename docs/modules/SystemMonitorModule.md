@@ -46,6 +46,14 @@ Lecture du snapshot de santé EventBus. Le diagnostic est émis dans le journal.
 
 ## Santé des tâches
 
+Les chronométrages décrits ci-dessous nécessitent
+`FLOW_PERFORMANCE_DIAGNOSTICS=1` à la compilation ; ils sont désactivés par
+défaut. Cela concerne `TaskTime`, `TaskCapture`, toutes les traces `TaskWake*`
+et `TaskWait*`, ainsi que la durée des lectures `TaskStack`. Les allocations
+PSRAM des traces de réveil/CPU et les lectures de compteurs CPU sont alors
+absentes. Le suivi du cycle de vie et du minimum de pile reste actif.
+Voir [les options de compilation](../README.md#mesures-de-performance-à-la-compilation).
+
 `ModuleManager` possède le registre à capacité fixe. Les ID combinent l’ID
 numérique du module et un rôle stable. Le registre couvre les tâches de
 module, RS485, la boucle Arduino et le redémarrage différé. Il conserve
@@ -57,7 +65,8 @@ PSRAM et le bloc de contrôle alloués au démarrage.
 La tâche `sysmon`, sur le cœur 0, relève une pile à la fois toutes les
 100 ms environ. Elle parcourt les tâches du registre puis les sources
 externes fournies par les modules Web et MQTT. Les échantillons, leur âge
-et les durées de lecture sont conservés en PSRAM.
+sont conservés en PSRAM. Les durées de lecture le sont également lorsque
+le profilage est activé.
 
 Le seuil initial est de 512 octets par tâche, de 1 536 pour le module MQTT
 et de 1 024 pour AsyncTCP. Les identifiants externes utilisent le rôle

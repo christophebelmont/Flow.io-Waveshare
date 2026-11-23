@@ -7,13 +7,14 @@
 #include <stddef.h>
 
 #include "EventId.h"
+#include "Core/PerformanceDiagnostics.h"
 #include "Core/ModuleId.h"
 #include "Core/SystemLimits.h"
 
 #include "freertos/FreeRTOS.h"
 
 #ifndef EVENTBUS_PROFILE
-#define EVENTBUS_PROFILE 1
+#define EVENTBUS_PROFILE FLOW_PERFORMANCE_DIAGNOSTICS
 #endif
 
 #ifndef EVENTBUS_HANDLER_WARN_US
@@ -134,7 +135,9 @@ private:
     };
 
     struct QueuedEvent {
+#if FLOW_PERFORMANCE_DIAGNOSTICS
         uint64_t admittedUs;
+#endif
         alignas(uint64_t) uint8_t data[MAX_PAYLOAD_SIZE];
         EventId id;
         ModuleId producer;

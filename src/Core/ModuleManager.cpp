@@ -323,6 +323,7 @@ bool ModuleManager::declareTask_(Module& module, const ModuleTaskSpec& spec, boo
     entry.withCaps = (entry.stackCaps & MALLOC_CAP_SPIRAM) != 0U ||
                      (entry.stackCaps & MALLOC_CAP_INTERNAL) == 0U;
 #endif
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     TaskWakeTrace* wakeTrace = nullptr;
     TaskWakeRuntimeTrace* runtimeTrace = nullptr;
     if (spec.traceWake && initialState == TaskHealthState::Expected) {
@@ -347,6 +348,9 @@ bool ModuleManager::declareTask_(Module& module, const ModuleTaskSpec& spec, boo
         }
     }
     entry.health.configure(spec.timing, initialState, wakeTrace, runtimeTrace);
+#else
+    entry.health.configure(spec.timing, initialState);
+#endif
     return true;
 }
 
@@ -472,9 +476,11 @@ bool ModuleManager::tickStartup(ConfigStore& cfg, ServiceRegistry& services)
 }
 
 void ModuleManager::wireCoreServices(ServiceRegistry& services, ConfigStore& config) {
+#if FLOW_PERFORMANCE_DIAGNOSTICS
   if (const auto* health = services.get<SystemHealthService>(ServiceId::SystemHealth)) {
       wakeRuntimeReader_ = health->wakeRuntimeReader;
   }
+#endif
 
   auto* ebService = services.get<EventBusService>(ServiceId::EventBus);
   if (ebService && ebService->bus) {

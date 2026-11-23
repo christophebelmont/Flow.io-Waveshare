@@ -134,6 +134,7 @@ private:
     std::atomic<uint32_t> lastTaskCaptureRequestMs_{0};
     DurationSamples taskCaptureDurations_{};
     TaskWakeInterval lastTaskCapture_{};
+#endif
     portMUX_TYPE healthSnapshotMux_ = portMUX_INITIALIZER_UNLOCKED;
     SystemHealthSnapshot healthSnapshot_{};
     SystemHealthSnapshot readHealthSnapshot_();
@@ -141,7 +142,10 @@ private:
     void readCore1Runtime_(TaskRuntimeSnapshot& out);
     SystemHealthService healthService_{ServiceBinding::bind<&SystemMonitorModule::readHealthSnapshot_>, this,
                                       ServiceBinding::bind<&SystemMonitorModule::readTaskStack_>,
-                                      {ServiceBinding::bind<&SystemMonitorModule::readCore1Runtime_>, this}};
+#if FLOW_PERFORMANCE_DIAGNOSTICS
+                                      {ServiceBinding::bind<&SystemMonitorModule::readCore1Runtime_>, this}
+#endif
+                                      };
     TaskAlert taskAlerts_[Limits::Core::Capacity::MaxTaskHealthEntries]{};
     size_t nextTaskHealthReport_ = 0;
     bool haEntitiesRegistered_ = false;

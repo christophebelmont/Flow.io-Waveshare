@@ -48,6 +48,12 @@ Quand le reseau est disponible et que NTP est active:
 Si NTP echoue, flow.io garde la meilleure heure deja disponible. Une erreur NTP
 ne rend pas invalide une heure RTC deja acceptee.
 
+Pendant une nouvelle tentative NTP ou l'attente du reseau, l'heure deja acceptee
+reste valide et le planificateur continue de fonctionner. Les fenetres actives
+et les declenchements deja emis sont conserves: une tentative de synchronisation
+ne provoque pas de nouveau rejeu des actions de demarrage. L'horloge Nextion ne
+sert de secours que tant qu'aucune heure n'a encore ete acceptee.
+
 ## Horloge RTC
 
 Quand le reseau n'est pas disponible, flow.io peut utiliser l'horloge interne de

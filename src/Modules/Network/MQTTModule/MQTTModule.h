@@ -189,7 +189,7 @@ private:
     };
 
     struct ScratchBuffers {
-        char topic[Limits::Mqtt::Buffers::Topic] = {0};
+        char topic[Limits::Mqtt::Buffers::DynamicTopic] = {0};
         char payload[Limits::Mqtt::Buffers::Publish] = {0};
         char reply[Limits::Mqtt::Buffers::Reply] = {0};
     };

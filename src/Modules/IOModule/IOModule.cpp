@@ -1322,7 +1322,9 @@ bool IOModule::tickSlowDs_(void* ctx, uint32_t)
     for (uint8_t offset = 0; offset < self->dsProbeCount_; ++offset) {
         const uint8_t index = (self->nextDsProbe_ + offset) % self->dsProbeCount_;
         DsProbe& probe = self->dsProbes_[index];
+#if FLOW_PERFORMANCE_DIAGNOSTICS
         const uint64_t startedUs = esp_timer_get_time();
+#endif
         const Step step = probe.driver->poll(nowMs);
         if (step == Step::Idle) continue;
 
@@ -1334,11 +1336,13 @@ bool IOModule::tickSlowDs_(void* ctx, uint32_t)
                 }
             }
         }
+#if FLOW_PERFORMANCE_DIAGNOSTICS
         const uint64_t elapsedUs = uint64_t(esp_timer_get_time()) - startedUs;
         probe.durations.record(elapsedUs);
         probe.startedUs = startedUs;
         if (elapsedUs > kWorkBudgetUs) incrementSaturated(probe.overBudget);
         probe.pendingReport = step;
+#endif
         // Do not catch up by running both probes in the same IO cycle.
         self->nextDsProbe_ = (index + 1U) % self->dsProbeCount_;
         return true;
@@ -1346,6 +1350,7 @@ bool IOModule::tickSlowDs_(void* ctx, uint32_t)
     return false;
 }
 
+#if FLOW_PERFORMANCE_DIAGNOSTICS
 void IOModule::reportDsPollTiming_(uint32_t nowMs)
 {
     using Step = Ds18b20Driver::PollStep;
@@ -1365,6 +1370,7 @@ void IOModule::reportDsPollTiming_(uint32_t nowMs)
         dsPollLastReportMs_ = nowMs;
     }
 }
+#endif
 
 bool IOModule::tickI2cAnalogs_(void* ctx, uint32_t nowMs)
 {
@@ -4013,7 +4019,9 @@ void IOModule::loop()
     if (runtimeReady_ && dataStore_ && valueConfig_) valueConfig_->applyParameters(dataStore_->values, esp_timer_get_time() / 1000ULL);
     const IoStatus st = ioTick_(nowMs);
     if (!servicePulseRequest_(nowMs)) checkpointPulses_(nowMs);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     reportDsPollTiming_(nowMs);
+#endif
     if (st != IO_OK) {
         if (!cfgData_.enabled || !runtimeReady_) {
             delayNextCycle(pdMS_TO_TICKS(500));
@@ -4040,7 +4048,7 @@ ModuleTaskSpec IOModule::taskSpec(uint8_t index) const
     static_assert(serialPriority < configMAX_PRIORITIES, "RS485 task priority out of range");
     return {"rs485", 3072, serialPriority, taskCore(), &IOModule::serialTask_,
             const_cast<IOModule*>(this), TaskRole::Rs485, {TaskCadence::Periodic, 1000U, 1000U},
-            kDefaultTaskMinFreeBytes, true};
+            kDefaultTaskMinFreeBytes, FLOW_PERFORMANCE_DIAGNOSTICS != 0};
 }
 
 void IOModule::serialTask_(void* context, TaskHealth& health)

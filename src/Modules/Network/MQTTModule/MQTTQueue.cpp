@@ -176,7 +176,9 @@ void MQTTModule::releaseJob_(uint8_t slotIdx)
     // across reuse so they cannot become valid for the next message in this slot.
     if (job.state != JobState::Free) {
         ++txStorage_->counters.released;
+#if FLOW_PERFORMANCE_DIAGNOSTICS
         txStorage_->counters.residenceMs += (uint32_t)(millis() - job.admittedMs);
+#endif
     }
     const uint16_t token = job.queueToken;
     job = Job{};
@@ -582,10 +584,11 @@ void MQTTModule::updateAndReportQueueOccupancy_(uint32_t nowMs)
          (unsigned)occMaxLow_,
          (unsigned)LowQueueCap);
 
-    const uint32_t interval = nowMs - occLastReportMs_;
-    const uint32_t elapsed = interval == 0U ? 1U : interval;
     const auto& counters = snapshot.counters;
     logQueueSnapshot_(snapshot);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
+    const uint32_t interval = nowMs - occLastReportMs_;
+    const uint32_t elapsed = interval == 0U ? 1U : interval;
     LOGD("queue at=%lu enqueue_mHz=%lu dequeue_mHz=%lu released=%lu mean_slot_ms=%lu coalesced=%lu",
          (unsigned long)snapshot.atMs,
          (unsigned long)((uint64_t)(counters.admitted - lastReportedCounters_.admitted) * 1000000U / elapsed),
@@ -593,6 +596,7 @@ void MQTTModule::updateAndReportQueueOccupancy_(uint32_t nowMs)
          (unsigned long)counters.released,
          (unsigned long)(counters.released ? counters.residenceMs / counters.released : 0U),
          (unsigned long)counters.coalesced);
+#endif
     for (size_t i = 0; i < MqttDiagnostics::SourceCount; ++i) {
         for (uint8_t priority = 0; priority < 3; ++priority) {
             const uint32_t total = counters.rejected[i][priority];

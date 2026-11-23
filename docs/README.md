@@ -25,6 +25,29 @@ Les dépendances déclarées dans `platformio.ini` sont installées automatiquem
 
 Le mot de passe par défaut du point d'accès de provisioning Wi-Fi et du compte administrateur de l'interface web est `flowio1234`. Il doit être changé à la première connexion; voir [Identifiants par défaut](integration/mise-en-service.md#8-identifiants-par-défaut).
 
+## Mesures de performance à la compilation
+
+Les chronométrages de diagnostic sont désactivés par défaut. Pour les activer,
+remplacer `-D FLOW_PERFORMANCE_DIAGNOSTICS=0` par
+`-D FLOW_PERFORMANCE_DIAGNOSTICS=1` dans les `build_flags` de `platformio.ini`,
+puis recompiler le firmware. La valeur par défaut du code est également `0`
+si la directive est absente.
+
+Cette option couvre les durées des cycles de tâches, retards de réveil,
+relevés CPU pendant les attentes, chronométrages DS18B20, lectures de pile,
+captures SDK, latences EventBus, MQTT, HTTP, boucles Modbus TCP et durées
+des phases de mise à jour OTA.
+À `0`, les tampons de traces de réveil et CPU ne sont pas alloués et les
+lectures CPU avant/après les attentes sont supprimées.
+Les mesures de pile libre, compteurs de pertes et surveillances mémoire/web
+restent actifs, ainsi que les temporisations fonctionnelles des protocoles.
+Les champs temporels optionnels des snapshots restent à zéro sans profilage.
+
+`EVENTBUS_PROFILE` permet encore de désactiver le détail des handlers et du
+dispatch lorsque le profilage global est activé. `FLOW_WEB_HEAP_FORENSICS`
+reste une option supplémentaire, qui nécessite aussi le profilage global.
+Les diagnostics mémoire `FLOW_MEMORY_DIAGNOSTICS` conservent leur option dédiée.
+
 ## Parcours recommandé
 
 ### Installer et raccorder

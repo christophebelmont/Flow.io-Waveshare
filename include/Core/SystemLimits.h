@@ -147,7 +147,7 @@ constexpr size_t DeviceId = BoardCapacityProfile::kMqttBuffers.deviceId;
 constexpr size_t DeviceName = 32;
 /** @brief MQTT full topic buffer length used by `MQTTModule` fixed topics (`cmd`, `ack`, `status`, and `cfg/` subtopics). */
 constexpr size_t Topic = BoardCapacityProfile::kMqttBuffers.topic;
-/** @brief MQTT temporary topic buffer length for dynamic subtopics in `MQTTModule` (`cfg/<module>`, scheduler slots). */
+/** @brief MQTT publish scratch topic capacity, including HA discovery and dynamic subtopics. */
 constexpr size_t DynamicTopic = BoardCapacityProfile::kMqttBuffers.dynamicTopic;
 /** @brief RX command topic buffer length inside `MQTTModule::RxMsg`. */
 constexpr size_t RxTopic = BoardCapacityProfile::kMqttBuffers.rxTopic;
@@ -173,6 +173,7 @@ static_assert(Host >= 16, "MQTT host buffer is too small");
 static_assert(BaseTopic >= 8, "MQTT baseTopic buffer is too small");
 static_assert(DeviceId >= 12, "MQTT deviceId buffer must fit ESP32-XXXXXX");
 static_assert(Topic >= 70, "MQTT topic buffer is too small");
+static_assert(DynamicTopic >= Topic, "MQTT publish scratch must fit fixed topics");
 static_assert(RxTopic >= Topic, "MQTT rxTopic buffer must fit full subscribed topics");
 static_assert(RxPayload >= 32, "MQTT rxPayload buffer is too small");
 static_assert(Ack >= 128 && Reply >= 128 && Publish >= 128, "MQTT payload buffers are too small");

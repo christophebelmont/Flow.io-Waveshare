@@ -37,16 +37,18 @@ class SysmonStackSamplingTests(unittest.TestCase):
         production = '\n\n'.join(method(source, name) for name in (
             'readTaskStack_', 'sampleTaskStack_', 'readCore1Runtime_', 'requestTaskCapture_', 'captureTasksIfRequested_'))
         fixture = (ROOT / 'test/host/sysmon_stack_sampling.cpp').read_text()
-        with tempfile.TemporaryDirectory(prefix='flow-sysmon-') as tmp:
-            cpp, exe = Path(tmp) / 'test.cpp', Path(tmp) / 'test'
-            cpp.write_text(fixture.replace('// PRODUCTION_METHODS', production))
-            subprocess.run([
-                'c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
-                '-fsanitize=address,undefined', '-Itest/host/task_health_stubs',
-                '-Itest/host/value_stubs', '-Isrc', str(cpp),
-                'src/Core/TaskHealth.cpp', '-o', str(exe)
-            ], cwd=ROOT, check=True)
-            subprocess.run([str(exe)], check=True)
+        for enabled in (False, True):
+            with self.subTest(diagnostics=enabled), tempfile.TemporaryDirectory(prefix='flow-sysmon-') as tmp:
+                cpp, exe = Path(tmp) / 'test.cpp', Path(tmp) / 'test'
+                cpp.write_text(fixture.replace('// PRODUCTION_METHODS', production))
+                subprocess.run([
+                    'c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
+                    *(['-DFLOW_PERFORMANCE_DIAGNOSTICS=1'] if enabled else []),
+                    '-fsanitize=address,undefined', '-Itest/host/task_health_stubs',
+                    '-Itest/host/value_stubs', '-Isrc', str(cpp),
+                    'src/Core/TaskHealth.cpp', '-o', str(exe)
+                ], cwd=ROOT, check=True)
+                subprocess.run([str(exe)], check=True)
 
 
 if __name__ == '__main__':

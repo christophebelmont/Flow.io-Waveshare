@@ -34,17 +34,19 @@ class MqttQueueTests(unittest.TestCase):
         fixture = (ROOT / 'test/host/mqtt_queue.cpp').read_text()
         code = fixture.replace('// PRODUCTION_TYPES', types).replace('// PRODUCTION_DECLARATIONS', declarations)
         code = code.replace('// PRODUCTION_METHODS', '\n\n'.join(bodies))
-        with tempfile.TemporaryDirectory(prefix='flow-mqtt-queue-') as tmp:
-            cpp = Path(tmp) / 'mqtt_queue.cpp'
-            cpp.write_text(code)
-            binary = Path(tmp) / 'test'
-            for command in (['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
-                             '-fsanitize=address,undefined', '-fno-omit-frame-pointer',
-                             '-Isrc', str(cpp), '-o', str(binary)], [str(binary)]):
-                result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                if result.stdout:
-                    print(result.stdout, end='')
+        for enabled in (False, True):
+            with self.subTest(diagnostics=enabled), tempfile.TemporaryDirectory(prefix='flow-mqtt-queue-') as tmp:
+                cpp = Path(tmp) / 'mqtt_queue.cpp'
+                cpp.write_text(code)
+                binary = Path(tmp) / 'test'
+                for command in (['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
+                                 '-fsanitize=address,undefined', '-fno-omit-frame-pointer',
+                                 *(['-DFLOW_PERFORMANCE_DIAGNOSTICS=1'] if enabled else []),
+                                 '-Isrc', str(cpp), '-o', str(binary)], [str(binary)]):
+                    result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    if result.stdout:
+                        print(result.stdout, end='')
 
 
 if __name__ == '__main__':

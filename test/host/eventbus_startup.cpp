@@ -123,10 +123,18 @@ int main() {
     assert(snapshot.fullDrops == 2 && snapshot.isrDrops == 1 && snapshot.controlDrops == 2);
     assert(snapshot.oversizeDrops == 1 && snapshot.missingPayloadDrops == 1);
     assert(snapshot.oldestEvent == EventId::ConfigChanged && snapshot.oldestProducer == ModuleId::ConfigStore);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     assert(snapshot.oldestAgeUs == 150U && snapshot.maxQueueDelayUs == 0);
+#else
+    assert(snapshot.oldestAgeUs == 0 && snapshot.maxQueueDelayUs == 0);
+#endif
     bus.dispatch(EventBus::QUEUE_LENGTH);
     snapshot = bus.queueSnapshot();
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     assert(snapshot.maxQueueDelayUs == 150U && snapshot.slowestEvent == EventId::ConfigChanged);
+#else
+    assert(snapshot.maxQueueDelayUs == 0 && snapshot.slowestEvent == EventId::None);
+#endif
     assert(snapshot.oldestEvent == EventId::None && snapshot.oldestAgeUs == 0U);
     assert(snapshot.queued == 0 && snapshot.accepted == snapshot.dequeued);
     assert(eventbusWarnings.empty()); // Publication losses are reported by the Supervisor.

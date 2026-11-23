@@ -76,7 +76,7 @@ par défaut). Lorsque les deux sondes sont actives, la sonde d’air
 démarre une demi-période après celle d’eau. Le pilote attend 750 ms
 entre le lancement de la conversion et sa lecture, sans bloquer I/O.
 
-`DsPoll` identifie la sonde par `source` (2 pour l’eau, 3 pour l’air)
+`DsPoll`, disponible avec `FLOW_PERFORMANCE_DIAGNOSTICS=1` uniquement, identifie la sonde par `source` (2 pour l’eau, 3 pour l’air)
 et la dernière étape par `step` (`convert` ou `read`). Les temps sont
 mesurés en microsecondes monotones. `steps` compte les conversions
 lancées et les lectures traitées depuis le démarrage.
