@@ -15,7 +15,9 @@ bool IOModule::validateValueConfig_(const ConfigCandidate& candidate) const
                     candidate.contains(configDescriptors_->analog[i].secondaryBindingVar);
     for (uint8_t i = 0; i < MAX_DIGITAL_INPUTS; ++i) {
         const auto& vars = configDescriptors_->digitalInputs[i];
-        affected |= candidate.contains(vars.bindingVar) || candidate.contains(vars.secondaryBindingVar) || candidate.contains(vars.modeVar) || candidate.contains(vars.c0Var);
+        affected |= candidate.contains(vars.bindingVar) || candidate.contains(vars.secondaryBindingVar) ||
+                    candidate.contains(vars.modeVar) || candidate.contains(vars.c0Var) ||
+                    candidate.contains(vars.flowUnitVar);
     }
     if (!affected) return true;
     bool ioEnabled;
@@ -81,8 +83,15 @@ bool IOModule::validateValueConfig_(const ConfigCandidate& candidate) const
         if (!candidate.read(vars.bindingVar, current.binding.primaryPort, primary) ||
             !candidate.read(vars.secondaryBindingVar, current.binding.secondaryPort, secondary) ||
             !candidate.read(vars.modeVar, current.mode, mode) ||
-            !candidate.read(vars.c0Var, current.c0, scale) || scale < 0 ||
-            mode != (state ? IO_DIGITAL_INPUT_STATE : IO_DIGITAL_INPUT_COUNTER)) return false;
+            !candidate.read(vars.c0Var, current.c0, scale) || !isfinite(scale) || scale < 0) return false;
+        if (state ? (mode != IO_DIGITAL_INPUT_STATE) :
+            (mode == IO_DIGITAL_INPUT_STATE || mode > IO_DIGITAL_INPUT_PULSES_PER_MINUTE))
+            return false;
+        // A rate-only input has no ValueIds::Digital(count) or ValueIds::Total.
+        // Both the raw pulse frequency and the scaled flow are available.
+        if (!state && mode == IO_DIGITAL_INPUT_PULSES_PER_MINUTE &&
+            (id < ValueIds::PulseRate || (id >= ValueIds::Total && id < ValueIds::ConvertedRate)))
+            return false;
         bool hasCounterPort = false;
         for (PhysicalPortId port : {primary, secondary}) {
             if (!port) continue;
