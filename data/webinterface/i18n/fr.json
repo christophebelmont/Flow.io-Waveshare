@@ -758,6 +758,15 @@
     "data.introLess": "Masquer les détails",
     "data.introScope": "Home Assistant publie la donnée, l’historique l’enregistre et l’interface la rend sélectionnable dans les champs TFT/Web et les formules. Les trois réglages sont indépendants.",
     "data.introRestart": "Les changements d’exposition prennent effet après redémarrage.",
-    "data.introMigration": "Pour remplacer un ancien montage IOSlot → valeur calculée, sélectionnez la donnée d’origine dans vos champs puis désactivez ici les publications intermédiaires inutiles."
+    "data.introMigration": "Pour remplacer un ancien montage IOSlot → valeur calculée, sélectionnez la donnée d’origine dans vos champs puis désactivez ici les publications intermédiaires inutiles.",
+    "cfg.counter.value.title": "Valeur du Compteur",
+    "cfg.counter.value.help": "Cumul brut d’impulsions. Valeur chargée une seule fois à l’ouverture, sans rafraîchissement automatique.",
+    "cfg.counter.value.apply": "Enregistrer",
+    "cfg.counter.value.loading": "Lecture du compteur…",
+    "cfg.counter.value.confirm": "Remplacer le cumul actuel par la valeur saisie ?",
+    "cfg.counter.value.saving": "Enregistrement…",
+    "cfg.counter.value.saved": "Valeur enregistrée et sauvegardée.",
+    "cfg.counter.value.saveFailed": "Échec de l’enregistrement. Vérifiez la valeur avant de réessayer.",
+    "cfg.counter.value.loadFailed": "Compteur indisponible. Rechargez la page après son activation."
   }
 }
