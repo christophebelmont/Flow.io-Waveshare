@@ -11,7 +11,7 @@
 #define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::CoreEventBus)
 
 namespace {
-#if EVENTBUS_PROFILE
+#if FLOW_PERFORMANCE_DIAGNOSTICS && EVENTBUS_PROFILE
 uint32_t lastDispatchWarnMs = 0;
 uint32_t lastHandlerWarnMs = 0;
 
@@ -146,7 +146,9 @@ bool EventBus::post_(EventId id, const void* payload, size_t len, ModuleId produ
         }
     } else {
         QueuedEvent& entry = _queue[_tail];
+#if FLOW_PERFORMANCE_DIAGNOSTICS
         entry.admittedUs = esp_timer_get_time();
+#endif
         entry.id = id;
         entry.producer = producer;
         entry.len = static_cast<uint8_t>(len);
@@ -187,7 +189,9 @@ EventBus::QueueSnapshot EventBus::queueSnapshot()
         const QueuedEvent& head = _queue[_head];
         snapshot.oldestEvent = head.id;
         snapshot.oldestProducer = head.producer;
+#if FLOW_PERFORMANCE_DIAGNOSTICS
         snapshot.oldestAgeUs = esp_timer_get_time() - head.admittedUs;
+#endif
     }
     portEXIT_CRITICAL(&_mux);
     return snapshot;
@@ -202,12 +206,14 @@ bool EventBus::take_(QueuedEvent& event)
         _head = (_head + 1U) % QUEUE_LENGTH;
         --_stats.queued;
         incrementSaturated(_stats.dequeued);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
         const uint64_t delay = esp_timer_get_time() - event.admittedUs;
         if (delay >= _stats.maxQueueDelayUs) {
             _stats.maxQueueDelayUs = delay;
             _stats.slowestEvent = event.id;
             _stats.slowestProducer = event.producer;
         }
+#endif
     }
     portEXIT_CRITICAL(&_mux);
     return available;
@@ -237,7 +243,7 @@ void EventBus::reportSubscribeRejects_()
 void EventBus::dispatch(uint16_t maxEvents)
 {
     reportSubscribeRejects_();
-#if EVENTBUS_PROFILE
+#if FLOW_PERFORMANCE_DIAGNOSTICS && EVENTBUS_PROFILE
     const uint32_t startedUs = micros();
     const auto queuedBefore = queueSnapshot().queued;
 #endif
@@ -247,7 +253,7 @@ void EventBus::dispatch(uint16_t maxEvents)
         if (!take_(event)) break;
         dispatchOne(event);
     }
-#if EVENTBUS_PROFILE
+#if FLOW_PERFORMANCE_DIAGNOSTICS && EVENTBUS_PROFILE
     const uint32_t elapsedUs = micros() - startedUs;
     if (dispatched > 0U && elapsedUs > EVENTBUS_DISPATCH_WARN_US && canWarnNow(lastDispatchWarnMs)) {
         Log::warn(LOG_MODULE_ID, "dispatch slow: events=%u dt=%lu us queue=%u->%u/%u",
@@ -269,13 +275,13 @@ void EventBus::dispatchOne(const QueuedEvent& qe) {
     for (uint16_t i = 0; i < count; ++i) {
         if (_subs[i].id == qe.id && _subs[i].cb != nullptr) {
 
-#if EVENTBUS_PROFILE
+#if FLOW_PERFORMANCE_DIAGNOSTICS && EVENTBUS_PROFILE
             const uint32_t t0 = micros();
 #endif
 
             _subs[i].cb(e, _subs[i].user);
 
-#if EVENTBUS_PROFILE
+#if FLOW_PERFORMANCE_DIAGNOSTICS && EVENTBUS_PROFILE
             const uint32_t dt = (uint32_t)(micros() - t0);
             if (dt > EVENTBUS_HANDLER_WARN_US && canWarnNow(lastHandlerWarnMs)) {
                 const auto queuedAfter = queueSnapshot().queued;

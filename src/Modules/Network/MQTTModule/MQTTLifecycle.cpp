@@ -261,15 +261,19 @@ void MQTTModule::onEvent_(const Event& e)
 void MQTTModule::handleEvent_(const Event& e)
 {
     if (e.id == EventId::DataChanged) {
+#if FLOW_PERFORMANCE_DIAGNOSTICS
         const uint32_t t0 = micros();
+#endif
         const DataChangedPayload* p = (const DataChangedPayload*)e.payload;
         if (!p) return;
 
         if (p->id == DATAKEY_NETWORK_READY) {
             if (!dataStore_) return;
 
+#if FLOW_PERFORMANCE_DIAGNOSTICS
             const bool oldReady = netReady_;
             const MQTTState oldState = state_;
+#endif
             const bool ready = networkReady(*dataStore_);
             if (ready == netReady_) return;
 
@@ -282,6 +286,7 @@ void MQTTModule::handleEvent_(const Event& e)
                 stopClient_(true);
                 setState_(MQTTState::WaitingNetwork);
             }
+#if FLOW_PERFORMANCE_DIAGNOSTICS
             const uint32_t dtUs = (uint32_t)(micros() - t0);
             QueueSnapshot snapshot{};
             portENTER_CRITICAL(&jobsMux_);
@@ -322,10 +327,12 @@ void MQTTModule::handleEvent_(const Event& e)
                      (unsigned)snapshot.physical[0],
                      (unsigned)LowQueueCap);
             }
+#endif
             return;
         }
 
-        const RuntimeProducer::DataChangeStats stats = runtimeProducerCore_.onDataChanged(p->id);
+        [[maybe_unused]] const RuntimeProducer::DataChangeStats stats = runtimeProducerCore_.onDataChanged(p->id);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
         const uint32_t dtUs = (uint32_t)(micros() - t0);
         const bool slow = dtUs >= kDataChangedSlowWarnUs;
         const bool trace = dtUs >= kDataChangedTraceWarnUs ||
@@ -360,6 +367,7 @@ void MQTTModule::handleEvent_(const Event& e)
                  (unsigned)snapshot.physical[0],
                  (unsigned)LowQueueCap);
         }
+#endif
         return;
     }
 

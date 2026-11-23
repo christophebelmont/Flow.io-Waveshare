@@ -89,25 +89,29 @@ class ValueTests(unittest.TestCase):
             subprocess.run([str(binary)], cwd=ROOT, check=True)
 
     def test_eventbus_startup(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            binary = pathlib.Path(tmp) / 'eventbus'
-            subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
-                '-fsanitize=undefined,address', '-g', '-pthread',
-                '-DEVENTBUS_PROFILE=0', '-DFLOW_ENABLE_BUFFER_USAGE_TRACKING=0',
-                '-Itest/host/eventbus_stubs', '-Itest/host/value_stubs', '-Isrc', '-Iinclude',
-                'test/host/eventbus_startup.cpp', 'src/Core/EventBus/EventBus.cpp',
-                '-o', str(binary)], cwd=ROOT, check=True)
-            subprocess.run([str(binary)], cwd=ROOT, check=True)
+        for enabled in (False, True):
+            with self.subTest(diagnostics=enabled), tempfile.TemporaryDirectory() as tmp:
+                binary = pathlib.Path(tmp) / 'eventbus'
+                subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
+                    '-fsanitize=undefined,address', '-g', '-pthread',
+                    *(['-DFLOW_PERFORMANCE_DIAGNOSTICS=1'] if enabled else []),
+                    '-DFLOW_ENABLE_BUFFER_USAGE_TRACKING=0',
+                    '-Itest/host/eventbus_stubs', '-Itest/host/value_stubs', '-Isrc', '-Iinclude',
+                    'test/host/eventbus_startup.cpp', 'src/Core/EventBus/EventBus.cpp',
+                    '-o', str(binary)], cwd=ROOT, check=True)
+                subprocess.run([str(binary)], cwd=ROOT, check=True)
 
     def test_task_health(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            binary = pathlib.Path(tmp) / 'task-health'
-            subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
-                '-fsanitize=undefined,address', '-g', '-pthread',
-                '-Itest/host/task_health_stubs', '-Itest/host/value_stubs', '-Isrc',
-                'test/host/task_health.cpp', 'src/Core/TaskHealth.cpp', '-o', str(binary)],
-                cwd=ROOT, check=True)
-            subprocess.run([str(binary)], cwd=ROOT, check=True)
+        for enabled in (False, True):
+            with self.subTest(diagnostics=enabled), tempfile.TemporaryDirectory() as tmp:
+                binary = pathlib.Path(tmp) / 'task-health'
+                subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
+                    '-fsanitize=undefined,address', '-g', '-pthread',
+                    *(['-DFLOW_PERFORMANCE_DIAGNOSTICS=1'] if enabled else []),
+                    '-Itest/host/task_health_stubs', '-Itest/host/value_stubs', '-Isrc',
+                    'test/host/task_health.cpp', 'src/Core/TaskHealth.cpp', '-o', str(binary)],
+                    cwd=ROOT, check=True)
+                subprocess.run([str(binary)], cwd=ROOT, check=True)
 
     def test_runtime(self):
         with tempfile.TemporaryDirectory() as tmp:

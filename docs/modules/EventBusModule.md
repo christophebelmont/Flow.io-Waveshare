@@ -42,6 +42,11 @@ Abonnements:
 
 ## Pression et latence
 
+Les mesures de latence et de durée nécessitent
+`FLOW_PERFORMANCE_DIAGNOSTICS=1` (désactivé par défaut). Les compteurs de
+file et de pertes restent actifs sans profilage. `EVENTBUS_PROFILE` permet
+de couper le détail des handlers/dispatch quand le profilage global est actif.
+
 Le Supervisor lit un snapshot cohérent de la FIFO à chaque relevé de santé.
 L’occupation et le pic sont mis à jour avec les insertions et les retraits sur
 les deux cœurs. Un pic atteint entre deux relevés reste visible. Les compteurs

@@ -4,6 +4,7 @@
 #include <cassert>
 #include <esp_timer.h>
 
+#if FLOW_PERFORMANCE_DIAGNOSTICS
 static uint32_t runtimeCounter = 0;
 
 static void readRuntime(void*, TaskRuntimeSnapshot& out)
@@ -152,6 +153,37 @@ static void testWakeTrace(uint64_t start, const TaskTimingContract& contract)
     assert(overflow.worst.lateUs() == 99000U);
 }
 
+#else
+static void testDisabledMeasurements()
+{
+    TaskWakeTrace trace;
+    TaskWakeRuntimeTrace runtime;
+    unsigned reads = 0;
+    runtime.reader = {[](void* context, TaskRuntimeSnapshot&) {
+        ++*static_cast<unsigned*>(context);
+    }, &reads};
+    TaskHealth health;
+    health.configure({TaskCadence::Periodic, 1000, 2000}, TaskHealthState::Expected, &trace, &runtime);
+    assert(health.requestStart());
+    health.started();
+    for (unsigned i = 0; i < 100; ++i) {
+        health.beginCycle();
+        health.endCycle(1, 1);
+        health.recordDelayStart(TaskWaitStage::Module, 1);
+        fakeEspTimerUs += 100000;
+        health.recordModuleDelayReturn();
+        health.recordDelayStart(TaskWaitStage::Loop, 1);
+        health.recordDelayReturn(TaskWaitStage::Loop);
+    }
+    TaskWakeSample sample;
+    assert(reads == 0 && health.pendingWakeSamples().count == 0);
+    assert(!health.takeWakeSample(sample));
+    const auto timing = health.snapshot().timing;
+    assert(timing.cycles == 0 && timing.lateStarts == 0 && timing.workOverruns == 0);
+    assert(timing.maxWorkUs == 0 && timing.maxCycleUs == 0);
+}
+#endif
+
 int main()
 {
     constexpr TaskTimingContract periodic{TaskCadence::Periodic, 1000, 2000};
@@ -195,9 +227,13 @@ int main()
 
     int task = 0;
     fakeCurrentTask = &task;
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     testDetailedWaits();
     testRuntimeDifferences();
     testWakeTrace(later, periodic);
+#else
+    testDisabledMeasurements();
+#endif
     TaskHealth health;
     health.configure(periodic);
     TaskHealthSnapshot readSnapshot{};
@@ -223,7 +259,11 @@ int main()
     health.releaseStackRead();
     assert(health.canReap());
     assert(snapshot.stackSamples == 2 && snapshot.minFreeBytes == 700);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     assert(snapshot.timing.cycles == 1 && snapshot.timing.expectedWaitUs == 5000);
+#else
+    assert(snapshot.timing.cycles == 0 && snapshot.timing.expectedWaitUs == 0);
+#endif
     health.recordStack(fakeCurrentTask, 1, 0);
     health.reaped();
     snapshot = health.snapshot();

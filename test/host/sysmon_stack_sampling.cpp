@@ -154,7 +154,11 @@ int main() {
     tick(100);
     assert(stackReads == 1);
     assert(monitor.readTaskStack_(5632).freeBytes == 1000);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     assert(monitor.readTaskStack_(5632).lastDurationUs == 100);
+#else
+    assert(monitor.readTaskStack_(5632).lastDurationUs == 0);
+#endif
     tick(200);
     assert(stackReads == 1);
     tick(300);
@@ -186,6 +190,7 @@ int main() {
     assert(captureCalls == 0);
     TaskRuntimeSnapshot runtime;
     monitor.readCore1Runtime_(runtime);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     assert(runtime.available && runtime.count == 2);
     assert(runtime.tasks[0].taskId == 5380 && runtime.tasks[0].generation == 2);
     assert(runtime.tasks[1].taskId == 5 && runtime.tasks[1].generation == 1);
@@ -193,12 +198,23 @@ int main() {
     external.status = TaskStackReadStatus::Busy;
     monitor.readCore1Runtime_(runtime);
     assert(runtime.available && runtime.count == 1 && runtime.tasks[0].taskId == 5);
+#else
+    assert(!runtime.available && runtime.count == 0);
+    assert(!external.held && stackReads == before + 1 && captureCalls == 0);
+#endif
     char reply[64]{};
     assert(monitor.requestTaskCapture_(&monitor, {}, reply, sizeof(reply)));
     assert(monitor.requestTaskCapture_(&monitor, {}, reply, sizeof(reply)));
     assert(captureCalls == 0);
     monitor.captureTasksIfRequested_();
     assert(captureCalls == 1 && allocatedBuffers == 0);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
+    assert(monitor.taskCaptureDurations_.lastUs == 4000);
+    assert(monitor.taskCaptureDurations_.count == 1);
+#else
+    assert(monitor.taskCaptureDurations_.count == 0);
+    assert(monitor.lastTaskCapture_.startUs == 0);
+#endif
     monitor.captureTasksIfRequested_();
     assert(captureCalls == 1);
     failAllocation = true;

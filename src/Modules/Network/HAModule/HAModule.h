@@ -104,6 +104,12 @@ private:
     char objectIdBuf_[96] = {0};
     char commandTopicBuf_[96] = {0};
 
+    // Five terminated segments also cover four separators and the final NUL.
+    static_assert(Limits::Mqtt::Buffers::DynamicTopic >=
+                      sizeof(HAConfig::discoveryPrefix) + sizeof(nodeTopicId_) +
+                      sizeof(objectIdBuf_) + sizeof("binary_sensor") + sizeof("config"),
+                  "MQTT publish scratch must fit the longest HA discovery topic");
+
     HASensorEntry* sensors_ = nullptr;
     HABinarySensorEntry* binarySensors_ = nullptr;
     HASwitchEntry* switches_ = nullptr;

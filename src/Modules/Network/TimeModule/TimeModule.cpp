@@ -356,29 +356,13 @@ static uint8_t daysInMonthFastClock(int year, int month1to12)
 #endif
 
 void TimeModule::setState(TimeSyncState s) {
-    const TimeSyncState prev = state;
     state = s;
     stateTs = millis();
 
     if (dataStore) {
-        setTimeReady(*dataStore, s == TimeSyncState::Synced);
-    }
-
-    if (prev != TimeSyncState::Synced && s == TimeSyncState::Synced) {
-        // Re-evaluate and replay active slots when time becomes valid.
-        schedInitialized_ = false;
-        lastSchedulerEvalEpochSec_ = 0;
-    } else if (prev == TimeSyncState::Synced && s != TimeSyncState::Synced) {
-        // Invalidate runtime active states until next sync.
-        portENTER_CRITICAL(&schedMux_);
-        for (uint8_t i = 0; i < TIME_SCHED_MAX_SLOTS; ++i) {
-            sched_[i].active = false;
-            sched_[i].lastTriggerMinuteKey = INVALID_MINUTE_KEY;
-        }
-        activeMaskValue_ = 0;
-        schedInitialized_ = false;
-        portEXIT_CRITICAL(&schedMux_);
-        lastSchedulerEvalEpochSec_ = 0;
+        // Retrying NTP does not invalidate an already accepted clock or reset
+        // the scheduler's edge history.
+        setTimeReady(*dataStore, timeState_.valid);
     }
 }
 
@@ -599,15 +583,15 @@ void TimeModule::noteGoodTime_(TimeSource source, TimeQuality quality, uint64_t 
 }
 
 TimeSyncState TimeModule::stateSvc_() const {
-    return state;
+    return timeState_.valid ? TimeSyncState::Synced : state;
 }
 
 bool TimeModule::isSynced_() const {
-    return state == TimeSyncState::Synced;
+    return timeState_.valid;
 }
 
 bool TimeModule::isExternalRtc_() const {
-    return state == TimeSyncState::Synced && syncedFromExternalRtc_;
+    return timeState_.valid && syncedFromExternalRtc_;
 }
 
 TimeSource TimeModule::sourceSvc_() const {
@@ -681,6 +665,11 @@ bool TimeModule::setRtcEpoch_(uint64_t epochSec, TimeSource source, TimeQuality 
     syncedFromExternalRtc_ = (source != TimeSource::Ntp);
     syncedFromInternalRtc_ = (source == TimeSource::InternalRtc);
     recordSource_(source, true, true, epochSec, millis());
+    if (!timeState_.valid) {
+        // Replay boot slots only when acquiring the first valid clock.
+        schedInitialized_ = false;
+        lastSchedulerEvalEpochSec_ = 0;
+    }
     timeState_.valid = true;
     timeState_.quality = quality;
     timeState_.source = source;
@@ -910,7 +899,7 @@ void TimeModule::serviceInternalRtcFallback_(uint32_t nowMs)
 {
     if (!ensureInternalRtcInit_()) return;
     if (activeSource_ == TimeSource::InternalRtc) return;
-    if (state == TimeSyncState::Synced && activeSource_ == TimeSource::Ntp) return;
+    if (activeSource_ == TimeSource::Ntp) return;
 
     bool immediateFallback = false;
     if (state == TimeSyncState::Disabled) immediateFallback = true;
@@ -1118,10 +1107,9 @@ void TimeModule::serviceManualTimeConfig_(uint32_t nowMs)
 
 void TimeModule::serviceNextionFallback_(uint32_t nowMs)
 {
-    if (state == TimeSyncState::Synced &&
-        (activeSource_ == TimeSource::Ntp || activeSource_ == TimeSource::InternalRtc || activeSource_ == TimeSource::NextionManual)) {
-        return;
-    }
+    // This is a boot fallback, not a replacement for an accepted clock during
+    // network warmup or an NTP retry. Explicit manual updates use their own API.
+    if (timeState_.valid) return;
 
     if (nowMs < kNextionRtcFallbackDelayMs) return;
     if (lastNextionRtcReadAttemptMs_ != 0U &&
@@ -1376,6 +1364,7 @@ void TimeModule::loop() {
 
 #ifdef TIME_TEST_FAST_CLOCK
     if (cfgData.enabled) {
+        timeState_.valid = true;
         if (state != TimeSyncState::Synced) {
             setState(TimeSyncState::Synced);
         }
@@ -2248,7 +2237,7 @@ bool TimeModule::isActive_(uint8_t slot) const
 void TimeModule::tickScheduler_()
 {
     if (!eventBus) return;
-    if (state != TimeSyncState::Synced) return;
+    if (!timeState_.valid) return;
 
     time_t now = nowEpoch_();
     if (!isTimePlausible_((uint64_t)now)) return;
@@ -2261,10 +2250,10 @@ void TimeModule::tickScheduler_()
     const uint8_t prevWeekBit = (weekBit == 0) ? 6u : (uint8_t)(weekBit - 1u);
     const uint32_t dayMinute = minuteOfDay_(localNow);
 
+#ifdef TIME_TEST_FAST_CLOCK
     bool crossedDayBoundary = false;
     bool crossedWeekBoundary = false;
     bool crossedMonthBoundary = false;
-#ifdef TIME_TEST_FAST_CLOCK
     if (lastSchedulerEvalEpochSec_ != 0ULL && (uint64_t)now > lastSchedulerEvalEpochSec_) {
         const time_t prevNow = (time_t)lastSchedulerEvalEpochSec_;
         struct tm prevLocal{};

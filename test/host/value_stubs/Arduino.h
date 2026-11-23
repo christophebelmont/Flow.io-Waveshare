@@ -7,3 +7,4 @@ inline int fakeLevel = 0;
 inline void pinMode(uint8_t, int) {}
 inline int digitalRead(uint8_t) { return fakeLevel; }
 inline uint32_t millis() { return fakeMs; }
+inline uint32_t micros() { return fakeMs * 1000U; }

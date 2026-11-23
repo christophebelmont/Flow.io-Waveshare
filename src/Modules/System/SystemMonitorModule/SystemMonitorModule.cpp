@@ -426,12 +426,15 @@ void reportTaskHealth(const ModuleManager::TaskEntry& entry, const TaskHealthSna
          (unsigned)entry.id, (unsigned long)snapshot.generation, taskStateLabel(snapshot.state),
          (unsigned long)snapshot.stackSamples, freeBytes, (unsigned long)timing.cycles, (unsigned)overdue,
          (unsigned long long)ageMs);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     LOGD("TaskTime id=%u late=%lu over=%lu max_work_us=%llu max_cycle_us=%llu wait_us=%lu",
          (unsigned)entry.id, (unsigned long)timing.lateStarts, (unsigned long)timing.workOverruns,
          (unsigned long long)timing.maxWorkUs, (unsigned long long)timing.maxCycleUs,
          (unsigned long)timing.expectedWaitUs);
+#endif
 }
 
+#if FLOW_PERFORMANCE_DIAGNOSTICS
 void reportWakeSample(uint16_t taskId, const TaskWakeSample& sample, bool captureOverlap)
 {
     LOGD("TaskWake id=%u due_us=%llu run_us=%llu late_us=%llu wait_us=%lu capture=%u",
@@ -491,6 +494,7 @@ void reportTaskWake(const ModuleManager::TaskEntry& entry,
     if (worstCapture.actualUs != 0U) reportWakeSample(entry.id, worstCapture, true);
     if (worstOther.actualUs != 0U) reportWakeSample(entry.id, worstOther, false);
 }
+#endif
 }  // namespace
 
 void SystemMonitorModule::logTaskHealth(SystemHealthSnapshot::Tasks& summary)
@@ -543,7 +547,9 @@ void SystemMonitorModule::logTaskHealth(SystemHealthSnapshot::Tasks& summary)
                      (unsigned long long)stack.lastDurationUs, (unsigned long long)stack.maxDurationUs);
             }
         }
+#if FLOW_PERFORMANCE_DIAGNOSTICS
         if (entry.spec.traceWake) reportTaskWake(entry, {}, lastTaskCapture_);
+#endif
     }
     nextTaskHealthReport_ = (nextTaskHealthReport_ + kTaskHealthReportBatch) % taskCount;
     if (!stackSlots_) return;
@@ -583,6 +589,7 @@ TaskStackSample SystemMonitorModule::readTaskStack_(uint16_t taskId)
 
 void SystemMonitorModule::readCore1Runtime_(TaskRuntimeSnapshot& out)
 {
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     out.count = 0U;
     out.available = false;
     out.startedUs = esp_timer_get_time();
@@ -621,6 +628,9 @@ void SystemMonitorModule::readCore1Runtime_(TaskRuntimeSnapshot& out)
     out.available = out.count < TaskRuntimeSnapshot::kCapacity;
 #endif
     out.endedUs = esp_timer_get_time();
+#else
+    out = {};
+#endif
 }
 
 void SystemMonitorModule::sampleTaskStack_(uint32_t nowMs)
@@ -659,7 +669,9 @@ void SystemMonitorModule::sampleTaskStack_(uint32_t nowMs)
         portEXIT_CRITICAL(&stackSamplesMux_);
     }
 
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     const uint64_t startedUs = esp_timer_get_time();
+#endif
     const uint32_t freeBytes = uxTaskGetStackHighWaterMark(handle);
     const uint64_t endedUs = esp_timer_get_time();
     if (health) {
@@ -674,8 +686,10 @@ void SystemMonitorModule::sampleTaskStack_(uint32_t nowMs)
     sample.generation = generation;
     sample.sampledAtUs = endedUs;
     sample.freeBytes = std::min(sample.freeBytes, freeBytes);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     sample.lastDurationUs = endedUs - startedUs;
     sample.maxDurationUs = std::max(sample.maxDurationUs, sample.lastDurationUs);
+#endif
     incrementSaturated(sample.samples);
     portEXIT_CRITICAL(&stackSamplesMux_);
 }
@@ -705,8 +719,11 @@ void SystemMonitorModule::captureTasksIfRequested_()
         LOGD("Task capture unavailable: PSRAM allocation failed");
         return;
     }
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     const uint64_t startedUs = esp_timer_get_time();
+#endif
     const UBaseType_t captured = uxTaskGetSystemState(tasks, kTaskStatusSnapshotCapacity, nullptr);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     const uint64_t endedUs = esp_timer_get_time();
     lastTaskCapture_ = {startedUs, endedUs};
     taskCaptureDurations_.record(endedUs - startedUs);
@@ -714,6 +731,7 @@ void SystemMonitorModule::captureTasksIfRequested_()
          (unsigned long long)startedUs, (unsigned long long)taskCaptureDurations_.lastUs,
          (unsigned long long)taskCaptureDurations_.maxUs, (unsigned long)taskCaptureDurations_.count,
          (unsigned)captured);
+#endif
     if (captured == 0U) LOGD("Task capture unavailable capacity=%u", (unsigned)kTaskStatusSnapshotCapacity);
     for (UBaseType_t i = 0; i < captured; ++i) {
         const auto& task = tasks[i];

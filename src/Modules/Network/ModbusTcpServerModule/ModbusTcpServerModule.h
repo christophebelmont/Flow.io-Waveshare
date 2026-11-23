@@ -58,11 +58,15 @@ public:
             running_ = true;
         }
         const uint32_t now = millis();
+#if FLOW_PERFORMANCE_DIAGNOSTICS
         const uint32_t tickStartedUs = micros();
+#endif
         server_.tick(now);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
         const uint32_t elapsedUs = uint32_t(micros() - tickStartedUs);
         if (elapsedUs > tickMaxUs_) tickMaxUs_ = elapsedUs;
         if (elapsedUs >= 5000U) ++slowTicks_;
+#endif
         if (uint32_t(now - lastDiagnosticsMs_) < 60000U) return;
         lastDiagnosticsMs_ = now;
         ModbusMasterStats queue{};
@@ -75,10 +79,12 @@ public:
         const uint32_t freePsram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
         const uint32_t largestPsram = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
         const uint32_t stackWatermark = uxTaskGetStackHighWaterMark(nullptr);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
         Serial.printf("[MODBUS-TCP] tick_max_us=%lu tick_slow_5ms=%lu\n",
             (unsigned long)tickMaxUs_, (unsigned long)slowTicks_);
         tickMaxUs_ = 0U;
         slowTicks_ = 0U;
+#endif
         Serial.printf("[MODBUS-TCP] heap_internal=%lu min_internal=%lu largest_internal=%lu frag_est_percent=%lu psram=%lu largest_psram=%lu stack_hwm=%lu rtu_queue=%u rtu_peak=%u rtu_rejected=%lu rtu_crc=%lu rtu_timeouts=%lu\n",
             (unsigned long)freeInternal, (unsigned long)minInternal,
             (unsigned long)largestInternal, (unsigned long)fragEstimate,
@@ -194,6 +200,8 @@ private:
     bool running_ = false;
     bool eligible_ = false;
     uint32_t lastDiagnosticsMs_ = 0U;
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     uint32_t tickMaxUs_ = 0U;
     uint32_t slowTicks_ = 0U;
+#endif
 };

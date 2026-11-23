@@ -10,6 +10,13 @@ Cœur MQTT unifié (transport + scheduling TX):
 - dédup/coalescing par clé logique `(producerId, messageId)`
 - exposition du service `MqttService`
 
+Le topic du buffer de publication utilise la capacite `DynamicTopic` du profil
+carte (192 octets sur Waveshare), distincte des topics fixes de 70 octets. Le
+dimensionnement couvre les topics de decouverte Home Assistant, y compris les
+longueurs maximales du prefixe, du noeud et de l'identifiant d'objet; un controle
+a la compilation dans `HAModule` protege cette limite. Le buffer de publication
+reste alloue en PSRAM.
+
 Type: module actif.
 
 ## Dépendances

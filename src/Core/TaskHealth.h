@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include "Core/PerformanceDiagnostics.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -125,6 +126,7 @@ public:
 
 private:
     friend class TaskHealth;
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     TaskWakeSample queue_[kCapacity]{};
     uint64_t moduleDelayReturnedUs_ = 0;
     uint32_t moduleWaitUs_ = 0;
@@ -138,6 +140,7 @@ private:
 
     void push(const TaskWakeSample& sample);
     bool pop(TaskWakeSample& sample);
+#endif
 };
 
 struct TaskHealthSnapshot {
@@ -180,8 +183,13 @@ public:
                    TaskWakeTrace* wakeTrace = nullptr, TaskWakeRuntimeTrace* runtime = nullptr) {
         contract_ = contract;
         stats_.state = state;
+#if FLOW_PERFORMANCE_DIAGNOSTICS
         wakeTrace_ = wakeTrace;
         if (wakeTrace_) wakeTrace_->runtime_ = runtime;
+#else
+        (void)wakeTrace;
+        (void)runtime;
+#endif
     }
     TaskCadence cadence() const { return contract_.cadence; }
     TaskHealthSnapshot snapshot();
@@ -194,6 +202,7 @@ public:
     bool acquireStackRead(TaskHealthSnapshot& snapshot);
     void releaseStackRead();
     bool canReap();
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     void beginCycle();
     void endCycle(TickType_t waitTicks = 0, TickType_t moduleWaitTicks = 0);
     void recordModuleDelayReturn();
@@ -201,10 +210,21 @@ public:
     void recordDelayReturn(TaskWaitStage stage);
     TaskWakeBatch pendingWakeSamples();
     bool takeWakeSample(TaskWakeSample& sample);
+#else
+    void beginCycle() {}
+    void endCycle(TickType_t = 0, TickType_t = 0) {}
+    void recordModuleDelayReturn() {}
+    void recordDelayStart(TaskWaitStage, TickType_t) {}
+    void recordDelayReturn(TaskWaitStage) {}
+    TaskWakeBatch pendingWakeSamples() { return {}; }
+    bool takeWakeSample(TaskWakeSample&) { return false; }
+#endif
 
 private:
     TaskTimingContract contract_{};
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     TaskWakeTrace* wakeTrace_ = nullptr;
+#endif
     TaskHealthSnapshot stats_{};
     portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
     bool stackReadActive_ = false;

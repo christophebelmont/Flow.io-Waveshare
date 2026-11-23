@@ -4,6 +4,7 @@
  */
 
 #include "FirmwareUpdateModule.h"
+#include "Core/PerformanceDiagnostics.h"
 #include "Core/CounterPersistence.h"
 
 #include <Arduino.h>
@@ -271,19 +272,27 @@ bool cloneActiveReleaseFilesystem_(char* errOut, size_t errOutLen)
     LOGI("[OTA] phase=clone_start source=%s destination=%s bytes=%lu",
          source->label, destination->label, (unsigned long)source->size);
     otaMonitor_("clone_before");
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     const uint32_t cloneStartMs = millis();
     const uint32_t eraseStartMs = millis();
+#endif
     if (esp_partition_erase_range(destination, 0U, destination->size) != ESP_OK) {
-        LOGE("[OTA] phase=clone_erase_failed elapsed_ms=%lu",
-             (unsigned long)(millis() - eraseStartMs));
+        LOGE("[OTA] phase=clone_erase_failed");
+#if FLOW_PERFORMANCE_DIAGNOSTICS
+        LOGD("[OTA] timing=clone_erase_failed elapsed_ms=%lu", (unsigned long)(millis() - eraseStartMs));
+#endif
         otaMonitor_("clone_erase_failed");
         return writeSimpleError_(errOut, errOutLen, "inactive filesystem erase failed");
     }
-    LOGI("[OTA] phase=clone_erase_done elapsed_ms=%lu",
-         (unsigned long)(millis() - eraseStartMs));
+    LOGI("[OTA] phase=clone_erase_done");
+#if FLOW_PERFORMANCE_DIAGNOSTICS
+    LOGD("[OTA] timing=clone_erase_done elapsed_ms=%lu", (unsigned long)(millis() - eraseStartMs));
+#endif
     otaMonitor_("clone_erase_done");
     uint8_t buffer[1024]{};
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     const uint32_t copyStartMs = millis();
+#endif
     size_t nextProgress = 256U * 1024U;
     for (size_t offset = 0U; offset < source->size; offset += sizeof(buffer)) {
         const size_t count = ((source->size - offset) < sizeof(buffer))
@@ -291,21 +300,28 @@ bool cloneActiveReleaseFilesystem_(char* errOut, size_t errOutLen)
                                  : sizeof(buffer);
         if (esp_partition_read(source, offset, buffer, count) != ESP_OK ||
             esp_partition_write(destination, offset, buffer, count) != ESP_OK) {
-            LOGE("[OTA] phase=clone_failed offset=%lu elapsed_ms=%lu",
-                 (unsigned long)offset, (unsigned long)(millis() - cloneStartMs));
+            LOGE("[OTA] phase=clone_failed offset=%lu", (unsigned long)offset);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
+            LOGD("[OTA] timing=clone_failed elapsed_ms=%lu", (unsigned long)(millis() - cloneStartMs));
+#endif
             otaMonitor_("clone_failed");
             return writeSimpleError_(errOut, errOutLen, "inactive filesystem clone failed");
         }
         const size_t copied = offset + count;
         if (copied >= nextProgress) {
-            LOGI("[OTA] phase=clone_progress copied=%lu total=%lu elapsed_ms=%lu",
-                 (unsigned long)copied, (unsigned long)source->size,
-                 (unsigned long)(millis() - copyStartMs));
+            LOGI("[OTA] phase=clone_progress copied=%lu total=%lu",
+                 (unsigned long)copied, (unsigned long)source->size);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
+            LOGD("[OTA] timing=clone_progress elapsed_ms=%lu", (unsigned long)(millis() - copyStartMs));
+#endif
             otaMonitor_("clone_progress");
             nextProgress += 256U * 1024U;
         }
     }
-    LOGI("[OTA] phase=clone_done elapsed_ms=%lu", (unsigned long)(millis() - cloneStartMs));
+    LOGI("[OTA] phase=clone_done");
+#if FLOW_PERFORMANCE_DIAGNOSTICS
+    LOGD("[OTA] timing=clone_done elapsed_ms=%lu", (unsigned long)(millis() - cloneStartMs));
+#endif
     otaMonitor_("clone_done");
     return true;
 }
@@ -1137,7 +1153,9 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
         int32_t remaining = contentLength;
         uint8_t buf[Limits::FirmwareUpdate::Http::StreamChunkBytes];
         uint32_t lastReadMs = millis();
+#if FLOW_PERFORMANCE_DIAGNOSTICS
         const uint32_t writeStartMs = millis();
+#endif
         size_t writtenTotal = 0U;
         size_t nextWriteProgress = 256U * 1024U;
 
@@ -1172,9 +1190,11 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
             onProgressChunk_((uint32_t)wr);
             writtenTotal += wr;
             if (writtenTotal >= nextWriteProgress) {
-                LOGI("[OTA] phase=firmware_write_progress bytes=%lu expected=%ld elapsed_ms=%lu",
-                     (unsigned long)writtenTotal, (long)contentLength,
-                     (unsigned long)(millis() - writeStartMs));
+                LOGI("[OTA] phase=firmware_write_progress bytes=%lu expected=%ld",
+                     (unsigned long)writtenTotal, (long)contentLength);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
+                LOGD("[OTA] timing=firmware_write_progress elapsed_ms=%lu", (unsigned long)(millis() - writeStartMs));
+#endif
                 otaMonitor_("firmware_write_progress");
                 nextWriteProgress += 256U * 1024U;
             }
@@ -1187,9 +1207,11 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
             }
         }
 
-        LOGI("[OTA] phase=firmware_stream_end bytes=%lu expected=%ld elapsed_ms=%lu",
-             (unsigned long)writtenTotal, (long)contentLength,
-             (unsigned long)(millis() - writeStartMs));
+        LOGI("[OTA] phase=firmware_stream_end bytes=%lu expected=%ld",
+             (unsigned long)writtenTotal, (long)contentLength);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
+        LOGD("[OTA] timing=firmware_stream_end elapsed_ms=%lu", (unsigned long)(millis() - writeStartMs));
+#endif
         otaMonitor_("firmware_stream_end");
         if (failMsg[0] == '\0' && contentLength > 0 && remaining > 0) {
             snprintf(failMsg, sizeof(failMsg), "incomplete download");

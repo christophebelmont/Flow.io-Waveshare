@@ -86,7 +86,9 @@ private:
     TaskEntry taskEntries[Limits::Core::Capacity::MaxTaskHealthEntries]{};
     uint8_t taskEntryCount = 0;
     std::atomic<bool> reapRequested_{false};
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     TaskRuntimeReader wakeRuntimeReader_{};
+#endif
     uint32_t startupEpochMs_ = 0;
     uint32_t startupStartedMask_ = 0;
     uint8_t startupFlags_ = 0; // bit0: prepared, bit1: active, bit2: failed

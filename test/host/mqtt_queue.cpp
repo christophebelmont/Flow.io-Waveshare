@@ -1,3 +1,4 @@
+#include "Core/PerformanceDiagnostics.h"
 // Built by scripts/tests/test_mqtt_queue.py with the production types/methods.
 #include "Core/Services/IMqtt.h"
 #include "Modules/Network/MQTTModule/MqttDiagnostics.h"
@@ -276,7 +277,11 @@ static void diagnostics() {
     };
     m.tick();
     assert(m.storage.counters.dequeued == 1 && m.storage.counters.released == 1);
+#if FLOW_PERFORMANCE_DIAGNOSTICS
     assert(m.storage.counters.residenceMs == 5225);
+#else
+    assert(m.storage.counters.residenceMs == 0);
+#endif
     m.drain();
     clockMs = UINT32_MAX - 10;
     assert(m.add(40));
