@@ -14500,8 +14500,9 @@
       if (!txt) return NaN;
       if (txt === '0') return 0;
       if (txt === '1') return 1;
-      if (txt === '2') return 2;
-      if (txt.includes('impulsions / min') || txt.includes('pulses / min')) return 2;
+      if (txt === '2' || /^2\s*\|/.test(txt)) return 2;
+      if (txt.includes('debit instantane') || txt.includes('débit instantané') ||
+          txt.includes('instantaneous flow')) return 2;
       if (txt.includes('etat')) return 0;
       if (txt.includes('compteur')) return 1;
       return NaN;
