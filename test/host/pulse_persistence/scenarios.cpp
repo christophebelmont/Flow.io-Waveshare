@@ -32,6 +32,38 @@ int main() {
         assert(io.loadPulseCheckpoint_());
         assert(io.pulsePersisted_.count[0] == 59);
     }
+    { // Manual count adjustment is atomic, persists, and keeps later hardware pulses.
+        IOModule io;
+        io.drivers[0].raw = 100;
+        io.drivers[1].raw = 71;
+        io.processDigitalInputDefinition_(0, testNow);
+        io.processDigitalInputDefinition_(1, testNow);
+        io.request(64, true, 8750);
+        io.step();
+        assert(io.queued.count[0] == 8750 && io.queued.count[1] == 71);
+        assert(io.queued.generation[0] == 1 && io.slots[0].pulse.count == 8750);
+        io.complete(); io.step();
+        assert(io.pulseRequestResult_ == IO_OK);
+        assert(io.loadPulseCheckpoint_());
+        assert(io.pulsePersisted_.count[0] == 8750);
+
+        io.drivers[0].raw = 104;
+        io.processDigitalInputDefinition_(0, testNow);
+        assert(io.slots[0].pulse.count == 8754);
+        // An independent value in the other counter remains untouched.
+        assert(io.slots[1].pulse.count == 71);
+    }
+    { // Manual value at the upper uint64 boundary is accepted without conversion.
+        IOModule io;
+        io.drivers[0].raw = 3;
+        io.processDigitalInputDefinition_(0, testNow);
+        io.request(64, true, UINT64_MAX);
+        io.step();
+        assert(io.queued.count[0] == UINT64_MAX);
+        assert(io.slots[0].pulse.count == UINT64_MAX);
+        io.complete(); io.step();
+        assert(io.pulseRequestResult_ == IO_OK);
+    }
     { // Reset only the requested input, once, and preserve subsequent pulses.
         IOModule io;
         io.drivers[0].raw = 100; io.drivers[1].raw = 71;
