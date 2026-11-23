@@ -1663,10 +1663,12 @@ bool IOModule::processDigitalInputDefinition_(uint8_t slotIdx, uint32_t nowMs)
         if (!measurement.refreshed) return validRate; // One evaluation per second.
         const auto& cfg = digitalInCfg_[slot.logicalIdx];
         const bool validK = isfinite(cfg.c0) && cfg.c0 >= 0.0f;
-        const bool validUnit = cfg.flowUnit == IO_FLOW_LITERS_PER_MINUTE ||
-                               cfg.flowUnit == IO_FLOW_CUBIC_METERS_PER_MINUTE;
-        const double converted = (double)measurement.pulsesPerMinute * (double)cfg.c0;
-        const bool valid = validRate && validK && validUnit && isfinite(converted);
+        const bool validUnit = pulseFlowUnitValid(cfg.flowUnit);
+        const double converted = pulseFlowConvert((double)measurement.pulsesPerMinute,
+                                                  (double)cfg.c0, cfg.flowUnit);
+        // ioRoundToPrecision receives a float and must not overflow to Inf.
+        const bool valid = validRate && validK && validUnit && isfinite(converted) &&
+                           converted <= 3.402823466e38;
         const uint64_t stamp = esp_timer_get_time() / 1000ULL;
         auto& values = dataStore_->values;
         ValueNumber rate{};
@@ -3124,8 +3126,8 @@ bool IOModule::configureRuntime_()
                 const ValueMetadata rateMeta{ValueType::Float, AggregationMode::Rate, ValueUnit::PulsePerMinute};
                 ValueMetadata flowMeta{ValueType::Double, AggregationMode::Rate};
                 const auto& cfg = digitalInCfg_[s.logicalIdx];
-                setValueUnit(flowMeta.displayUnit,
-                    cfg.flowUnit == IO_FLOW_CUBIC_METERS_PER_MINUTE ? "m3/min" : "l/min");
+                setValueUnit(flowMeta.displayUnit, pulseFlowUnitText(cfg.flowUnit));
+                flowMeta.maxAgeMs = 3000U;  // Invalid if I/O sampling stops.
                 flowMeta.precision = sanitizeAnalogPrecision_(cfg.precision);
                 if (!dataStore_->values.define(ValueIds::PulseRate + s.logicalIdx, rateMeta) ||
                     !dataStore_->values.define(ValueIds::ConvertedRate + s.logicalIdx, flowMeta))
