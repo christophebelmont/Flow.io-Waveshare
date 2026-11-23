@@ -3133,6 +3133,7 @@ bool IOModule::configureRuntime_()
                 // Rate-only path: not even a ValueIds::Digital count is defined.
                 ValueMetadata rateMeta{ValueType::Float, AggregationMode::Rate, ValueUnit::PulsePerMinute};
                 setValueUnit(rateMeta.displayUnit, "imp/min");
+                rateMeta.maxAgeMs = 3000U;
                 ValueMetadata flowMeta{ValueType::Double, AggregationMode::Rate};
                 const auto& cfg = digitalInCfg_[s.logicalIdx];
                 setValueUnit(flowMeta.displayUnit, pulseFlowUnitText(cfg.flowUnit));
