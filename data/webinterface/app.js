@@ -14849,6 +14849,29 @@
           return (a < 0 ? 99 : a) - (b < 0 ? 99 : b);
         });
       }
+      // Harmonize digital-input Config Store fields across all i00..i15
+      // without changing their saved values or mode-dependent visibility.
+      // All remaining fields retain their previous alphabetical order.
+      const digitalInputMatch = String(moduleName || '').trim().toLowerCase()
+        .match(/^io\/input\/(?:digital\/)?(i\d{2})$/);
+      if (digitalInputMatch) {
+        const id = digitalInputMatch[1];
+        const order = [
+          id + '_name',
+          id + '_active_high',
+          'binding_port',
+          'secondary_binding_port',
+          id + '_pull_mode',
+          'mode'
+        ];
+        keys.sort((left, right) => {
+          const leftIndex = order.indexOf(left);
+          const rightIndex = order.indexOf(right);
+          const leftRank = leftIndex < 0 ? order.length : leftIndex;
+          const rightRank = rightIndex < 0 ? order.length : rightIndex;
+          return leftRank - rightRank || left.localeCompare(right);
+        });
+      }
       if (sectionTitle && keys.length > 0) {
         const sectionEl = document.createElement('div');
         sectionEl.className = 'control-section-title';
