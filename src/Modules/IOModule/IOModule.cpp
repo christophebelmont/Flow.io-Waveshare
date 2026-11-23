@@ -3828,6 +3828,10 @@ void IOModule::onConfigLoaded(ConfigStore& cfg, ServiceRegistry& services)
         !commands->registerHandler(commands->ctx, "io.counter.reset", &IOModule::cmdResetCounter_, this)) {
         LOGE("Failed to register io.counter.reset");
     }
+    if (!commands || !commands->registerHandler ||
+        !commands->registerHandler(commands->ctx, "io.counter.set", &IOModule::cmdSetCounter_, this)) {
+        LOGE("Failed to register io.counter.set");
+    }
     cfgStore_ = &cfg;
     cfgSvc_ = services.get<ConfigStoreService>(ServiceId::ConfigStore);
     for (uint8_t i = 0; i < ANALOG_CFG_SLOTS; ++i) {
