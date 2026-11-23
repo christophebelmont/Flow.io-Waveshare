@@ -33,6 +33,9 @@ const context = vm.createContext({
   }
 });
 vm.runInContext(source.slice(start, end), context);
+// Test the existing reset action in isolation. The new manual counter value
+// is rendered in its own row and tested separately.
+vm.runInContext('buildCounterValueField = () => null;', context);
 for (const name of ['isCounterModeOnlyConfigField', 'renderConfigFields']) {
   const begin = source.indexOf('    function ' + name + '(');
   const finish = source.indexOf('\n    function ', begin + 1);
