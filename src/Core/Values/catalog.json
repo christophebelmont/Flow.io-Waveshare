@@ -416,7 +416,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 0,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_48",
       "topic": "rt/value/48"
     },
@@ -428,7 +428,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 1,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_49",
       "topic": "rt/value/49"
     },
@@ -440,7 +440,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 2,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_50",
       "topic": "rt/value/50"
     },
@@ -452,7 +452,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 3,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_51",
       "topic": "rt/value/51"
     },
@@ -464,7 +464,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 4,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_52",
       "topic": "rt/value/52"
     },
@@ -476,7 +476,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 5,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_53",
       "topic": "rt/value/53"
     },
@@ -488,7 +488,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 6,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_54",
       "topic": "rt/value/54"
     },
@@ -500,7 +500,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 7,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_55",
       "topic": "rt/value/55"
     },
@@ -512,7 +512,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 8,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_56",
       "topic": "rt/value/56"
     },
@@ -524,7 +524,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 9,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_57",
       "topic": "rt/value/57"
     },
@@ -536,7 +536,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 10,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_58",
       "topic": "rt/value/58"
     },
@@ -548,7 +548,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 11,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_59",
       "topic": "rt/value/59"
     },
@@ -560,7 +560,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 12,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_60",
       "topic": "rt/value/60"
     },
