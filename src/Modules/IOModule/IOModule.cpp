@@ -3142,6 +3142,11 @@ bool IOModule::configureRuntime_()
                 if (!dataStore_->values.define(ValueIds::PulseRate + s.logicalIdx, rateMeta) ||
                     !dataStore_->values.define(ValueIds::ConvertedRate + s.logicalIdx, flowMeta))
                     return false;
+                // Reuse the physical input's configured name on its flow value.
+                // E.g. I05 "Flow Meter" remains selectable on TFT and Web when
+                // i05.state (mode 0) is replaced by i05.flow (mode 2).
+                if (cfg.name[0] != '\0')
+                    dataStore_->values.setName(ValueIds::ConvertedRate + s.logicalIdx, cfg.name);
             } else {
                 ValueMetadata stateMeta{}; stateMeta.type = ValueType::Bool; stateMeta.maxAgeMs = 5000;
                 if (!dataStore_->values.define(ValueIds::DigitalState + s.logicalIdx, stateMeta)) return false;
