@@ -14478,26 +14478,11 @@
       return !!(meta && meta.apply_per_field === true);
     }
 
-    function normalizeDigitalInputConfigKey(moduleName, key) {
-      const rawKey = String(key || '').trim().toLowerCase();
-      if (!rawKey) return '';
-      const modulePath = String(moduleName || '').trim().toLowerCase().replace(/\/+$/, '');
-      if (modulePath && rawKey.startsWith(modulePath + '/')) {
-        return rawKey.slice(modulePath.length + 1);
-      }
-      const slashIdx = rawKey.lastIndexOf('/');
-      return slashIdx >= 0 ? rawKey.slice(slashIdx + 1) : rawKey;
-    }
-
-    function parseDigitalInputModeValue(rawValue) {
-      if (typeof rawValue === 'number' && Number.isFinite(rawValue)) return rawValue;
-      const txt = String(rawValue ?? '').trim().toLowerCase();
-      if (!txt) return NaN;
-      if (txt === '0') return 0;
-      if (txt === '1') return 1;
-      if (txt.includes('etat')) return 0;
-      if (txt.includes('compteur')) return 1;
-      return NaN;
+    // Config Store must expose the same saved configuration controls for
+    // every digital input, regardless of its current state/counter mode.
+    function isDigitalInputConfigModule(moduleName) {
+      const path = String(moduleName || '').trim().toLowerCase().replace(/\/+$/, '');
+      return /^io\/input\/(?:digital\/)?i\d{2}$/.test(path);
     }
 
     function resetPrimaryCfgEditor(message) {
@@ -14815,7 +14800,6 @@
       const controlsPrimaryPane = !!opts.controlsPrimaryPane;
       const onApplyField = typeof opts.onApplyField === 'function' ? opts.onApplyField : null;
       const sectionTitle = String(opts.sectionTitle || '').trim();
-      let modeFieldInputEl = null;
       const visibilityEntries = [];
       if (controlsPrimaryPane) {
         flowCfgApplyBtn.hidden = perFieldApply;
@@ -15015,10 +14999,6 @@
           valueWrap.appendChild(input);
         }
 
-        if (normalizeDigitalInputConfigKey(moduleName, key) === 'mode') {
-          modeFieldInputEl = inputEl;
-        }
-
         if (perFieldApply && inputEl) {
           const applyBtn = document.createElement('button');
           applyBtn.type = 'button';
@@ -15054,7 +15034,13 @@
       }
 
       // Declarative conditions also apply when the user changes a field before saving.
-      const conditionalEntries = visibilityEntries.filter(entry => entry.doc && entry.doc.visible_when);
+      // The docs may declare counter-only fields with visible_when(mode=1).
+      // Do not hide those fields in Config Store: users need the same settings
+      // for i00..i12, including while an input is in "0 | État" mode.
+      // Preserve declarative visibility rules for all other modules.
+      const conditionalEntries = visibilityEntries.filter(entry =>
+        entry.doc && entry.doc.visible_when && !isDigitalInputConfigModule(moduleName)
+      );
       if (conditionalEntries.length > 0) {
         const refreshVisibility = () => {
           conditionalEntries.forEach(entry => {
