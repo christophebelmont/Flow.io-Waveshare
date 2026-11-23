@@ -33,6 +33,7 @@
 #include "Modules/IOModule/IOEndpoints/DigitalActuatorEndpoint.h"
 #include "Modules/IOModule/IOEndpoints/DigitalSensorEndpoint.h"
 #include "Core/Values/PulseRuntime.h"
+#include "Core/Values/PulseRateOnly.h"
 #include "ValueConfig.h"
 #include "Core/Values/PulseCheckpoint.h"
 #include "Modules/IOModule/IOEndpoints/RunningMedianAverageFloat.h"
@@ -380,7 +381,8 @@ private:
         uint32_t pulseDeadlineMs = 0;
         bool lastValid = false;
         bool lastValue = false;
-        PulseRuntime pulse{};
+        PulseRuntime pulse{}; // Cumulative mode 1 only.
+        PulseRateOnly pulseRateOnly{}; // Volatile rate mode 2 only.
         uint16_t counterResetSeen = 0;
     };
 
