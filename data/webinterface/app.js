@@ -14500,6 +14500,8 @@
       if (!txt) return NaN;
       if (txt === '0') return 0;
       if (txt === '1') return 1;
+      if (txt === '2') return 2;
+      if (txt.includes('impulsions / min') || txt.includes('pulses / min')) return 2;
       if (txt.includes('etat')) return 0;
       if (txt.includes('compteur')) return 1;
       return NaN;
@@ -14984,7 +14986,8 @@
           'binding_port',
           'secondary_binding_port',
           id + '_pull_mode',
-          'mode'
+          'mode',
+          'flow_unit'
         ];
         keys.sort((left, right) => {
           const leftIndex = order.indexOf(left);
@@ -15216,7 +15219,9 @@
         // Keep the manual counter value immediately below the reset action.
         // The same counter-only visibility rule hides both in "0 | État".
         if (key === 'counter_reset' && isDigitalInputConfigModule(moduleName)) {
-          const counterValueField = buildCounterValueField(moduleName);
+          // A rate-only input has no cumulative counter to read or modify.
+          const counterValueField = parseDigitalInputModeValue(data.mode) === 1
+            ? buildCounterValueField(moduleName) : null;
           if (counterValueField) {
             containerEl.appendChild(counterValueField.row);
             visibilityEntries.push({
@@ -15275,9 +15280,16 @@
         };
         const applyConditionalVisibility = () => {
           const modeValue = readModeValue();
-          const hideCounterOnly = Number.isFinite(modeValue) && modeValue === 0;
           visibilityEntries.forEach((entry) => {
-            const shouldHide = hideCounterOnly && isCounterModeOnlyConfigField(moduleName, entry.key, entry.doc);
+            const clean = normalizeDigitalInputConfigKey(moduleName, entry.key);
+            const isCountControl = clean === 'counter_reset' ||
+              clean === 'counter_value' || clean === 'counter_total' ||
+              (entry.doc && entry.doc.mode1_only === true);
+            const isFlowUnit = clean === 'flow_unit';
+            const shouldHide = (modeValue === 0 &&
+              isCounterModeOnlyConfigField(moduleName, entry.key, entry.doc)) ||
+              (modeValue === 2 && isCountControl) ||
+              (modeValue !== 2 && isFlowUnit);
             entry.row.hidden = shouldHide;
             if (entry.inputEl) {
               entry.inputEl.dataset.runtimeHidden = shouldHide ? '1' : '0';
