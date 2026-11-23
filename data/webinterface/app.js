@@ -14820,6 +14820,128 @@
       return wrap;
     }
 
+    // This is a one-shot runtime editor, not a ConfigStore variable.
+    // Never assign data-key: the numeric count is saved through io.counter.set,
+    // independently of the ordinary /api/flowcfg/apply configuration patch.
+    function buildCounterValueField(moduleName) {
+      const match = String(moduleName || '').trim().toLowerCase().match(/^io\/input\/i(\d{2})$/);
+      if (!match) return null;
+      const ioId = 64 + Number(match[1]);
+
+      const row = document.createElement('div');
+      row.className = 'control-row control-row-counter-value';
+      const labelWrap = document.createElement('div');
+      labelWrap.className = 'control-label-wrap';
+      const label = document.createElement('span');
+      label.className = 'control-label';
+      label.textContent = tr('cfg.counter.value.title', 'Valeur du Compteur');
+      const help = document.createElement('span');
+      help.className = 'control-help';
+      help.textContent = tr('cfg.counter.value.help',
+        'Cumul brut d’impulsions. Valeur chargée une fois à l’ouverture, sans rafraîchissement automatique.');
+      labelWrap.appendChild(label);
+      labelWrap.appendChild(help);
+
+      const wrap = document.createElement('div');
+      wrap.className = 'control-value-wrap control-value-wrap-counter';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.inputMode = 'numeric';
+      input.autocomplete = 'off';
+      input.className = 'control-input';
+      input.setAttribute('aria-label', label.textContent);
+      input.disabled = true;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'secondary';
+      button.textContent = tr('cfg.counter.value.apply', 'Enregistrer');
+      button.disabled = true;
+      const status = document.createElement('span');
+      status.className = 'control-help counter-value-status';
+      status.setAttribute('role', 'status');
+      status.textContent = tr('cfg.counter.value.loading', 'Lecture du compteur…');
+      wrap.appendChild(input);
+      wrap.appendChild(button);
+      wrap.appendChild(status);
+      row.appendChild(labelWrap);
+      row.appendChild(wrap);
+
+      // JavaScript Number would silently round integers above 2^53.
+      // Keep every decimal digit as text, up to the uint64 maximum.
+      const normalizedCount = (raw) => {
+        const text = String(raw ?? '').trim();
+        if (!/^\d{1,20}$/.test(text)) return null;
+        const value = text.replace(/^0+(?=\d)/, '');
+        if (value.length === 20 && value > '18446744073709551615') return null;
+        return value;
+      };
+      let loadedValue = null;
+      let busy = false;
+      const updateButton = () => {
+        const value = normalizedCount(input.value);
+        const dirty = value !== null && loadedValue !== null && value !== loadedValue;
+        button.disabled = busy || !dirty || input.disabled;
+        row.classList.toggle('is-dirty', dirty);
+        input.setAttribute('aria-invalid', input.value.trim() !== '' && value === null ? 'true' : 'false');
+      };
+      input.addEventListener('input', updateButton);
+      input.addEventListener('change', updateButton);
+
+      button.addEventListener('click', async () => {
+        const next = normalizedCount(input.value);
+        if (busy || button.disabled || next === null || next === loadedValue) return;
+        if (!window.confirm(tr('cfg.counter.value.confirm',
+          'Remplacer le cumul actuel par la valeur saisie ?') + ' ' + next)) return;
+        busy = true;
+        input.disabled = true;
+        updateButton();
+        status.textContent = tr('cfg.counter.value.saving', 'Enregistrement…');
+        try {
+          const response = await fetch('/api/io/counter/set', {
+            method: 'POST',
+            body: new URLSearchParams({ id: String(ioId), value: next }),
+            cache: 'no-store'
+          });
+          const result = await response.json();
+          if (!response.ok || !result || result.ok !== true) throw new Error('counter_set_failed');
+          const saved = normalizedCount(result.value);
+          if (saved === null) throw new Error('invalid_counter_response');
+          loadedValue = saved;
+          input.value = saved;
+          status.textContent = tr('cfg.counter.value.saved', 'Valeur enregistrée et sauvegardée.');
+        } catch (_) {
+          status.textContent = tr('cfg.counter.value.saveFailed',
+            'Échec de l’enregistrement. Vérifiez la valeur avant de réessayer.');
+        } finally {
+          busy = false;
+          input.disabled = false;
+          updateButton();
+        }
+      });
+
+      // Only this initial GET is performed. No timer, polling or live subscription.
+      (async () => {
+        try {
+          const response = await fetch('/api/io/counter/value?id=' + ioId, { cache: 'no-store' });
+          const result = await response.json();
+          if (!response.ok || !result || result.ok !== true) throw new Error('counter_unavailable');
+          const current = normalizedCount(result.value);
+          if (current === null) throw new Error('invalid_counter_value');
+          if (!row.isConnected) return;
+          loadedValue = current;
+          input.value = current;
+          input.disabled = false;
+          status.textContent = '';
+          updateButton();
+        } catch (_) {
+          if (row.isConnected) status.textContent = tr('cfg.counter.value.loadFailed',
+            'Compteur indisponible. Rechargez la page après son activation.');
+        }
+      })();
+
+      return { row, input };
+    }
+
     function renderConfigFields(containerEl, moduleName, dataObj, options) {
       const opts = options || {};
       const appendMode = !!opts.append;
@@ -15091,6 +15213,20 @@
         row.appendChild(valueWrap);
         containerEl.appendChild(row);
         visibilityEntries.push({ row, inputEl, key, doc });
+        // Keep the manual counter value immediately below the reset action.
+        // The same counter-only visibility rule hides both in "0 | État".
+        if (key === 'counter_reset' && isDigitalInputConfigModule(moduleName)) {
+          const counterValueField = buildCounterValueField(moduleName);
+          if (counterValueField) {
+            containerEl.appendChild(counterValueField.row);
+            visibilityEntries.push({
+              row: counterValueField.row,
+              inputEl: counterValueField.input,
+              key: 'counter_value',
+              doc: { counter_only: true }
+            });
+          }
+        }
       }
 
       // Declarative conditions also apply when the user changes a field before saving.
