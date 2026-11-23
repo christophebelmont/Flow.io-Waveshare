@@ -3122,7 +3122,8 @@ bool IOModule::configureRuntime_()
                 if (s.counterResetSeen != pulsePersisted_.resetToken[s.logicalIdx])
                     s.pulse.reset(0, s.pulse.generation + 1, millis());
                 const ValueMetadata countMeta{ValueType::UInt64, AggregationMode::Counter, ValueUnit::Pulse};
-                const ValueMetadata rateMeta{ValueType::Float, AggregationMode::Rate, ValueUnit::PulsePerMinute};
+                ValueMetadata rateMeta{ValueType::Float, AggregationMode::Rate, ValueUnit::PulsePerMinute};
+                setValueUnit(rateMeta.displayUnit, "imp/min");
                 const double scale = digitalInCfg_[s.logicalIdx].c0;
                 if (!dataStore_->values.define(ValueIds::Digital + s.logicalIdx, countMeta) ||
                     !dataStore_->values.define(ValueIds::PulseRate + s.logicalIdx, rateMeta) ||
@@ -3130,7 +3131,8 @@ bool IOModule::configureRuntime_()
                     !dataStore_->values.defineAffine(ValueIds::ConvertedRate + s.logicalIdx, ValueIds::PulseRate + s.logicalIdx, scale, 0, AggregationMode::Rate)) return false;
             } else if (s.inDef.mode == IO_DIGITAL_INPUT_PULSES_PER_MINUTE) {
                 // Rate-only path: not even a ValueIds::Digital count is defined.
-                const ValueMetadata rateMeta{ValueType::Float, AggregationMode::Rate, ValueUnit::PulsePerMinute};
+                ValueMetadata rateMeta{ValueType::Float, AggregationMode::Rate, ValueUnit::PulsePerMinute};
+                setValueUnit(rateMeta.displayUnit, "imp/min");
                 ValueMetadata flowMeta{ValueType::Double, AggregationMode::Rate};
                 const auto& cfg = digitalInCfg_[s.logicalIdx];
                 setValueUnit(flowMeta.displayUnit, pulseFlowUnitText(cfg.flowUnit));
