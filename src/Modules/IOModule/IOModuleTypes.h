@@ -9,6 +9,7 @@
 #include "Core/Services/IIO.h"
 #include "Core/ConfigDefaults.h"
 #include "Core/Values/Value.h"
+#include "Core/Values/PulseFlowUnits.h"
 
 typedef uint16_t BindingPointId;
 typedef BindingPointId PhysicalPortId;
@@ -133,11 +134,6 @@ enum IODigitalInputMode : uint8_t {
     IO_DIGITAL_INPUT_STATE = 0,
     IO_DIGITAL_INPUT_COUNTER = 1,
     IO_DIGITAL_INPUT_PULSES_PER_MINUTE = 2
-};
-
-enum IOFlowUnit : uint8_t {
-    IO_FLOW_LITERS_PER_MINUTE = 0,
-    IO_FLOW_CUBIC_METERS_PER_MINUTE = 1
 };
 
 enum IODigitalEdgeMode : uint8_t {
