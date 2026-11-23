@@ -8022,6 +8022,71 @@ void WebInterfaceModule::startServer_()
         return;
     });
 
+    // Single-shot counter snapshot for Config Store. No background refresh.
+    server_.on("/api/io/counter/value", HTTP_GET, [this](AsyncWebServerRequest* request) {
+        char idText[16]{};
+        uint32_t id = 0;
+        if (!copyRequestParamValue_(request, "id", false, idText, sizeof(idText)) ||
+            !parseStrictUInt32Param_(idText, id) ||
+            id < IO_ID_DI_BASE || id >= IO_ID_DI_BASE + 16U) {
+            request->send(400, "application/json", "{\"ok\":false,\"err\":{\"code\":\"InvalidArg\"}}");
+            return;
+        }
+        if (!dataStore_) {
+            request->send(503, "application/json", "{\"ok\":false,\"err\":{\"code\":\"NotReady\"}}");
+            return;
+        }
+        ValueSnapshot snapshot{};
+        ValueMetadata metadata{};
+        const ValueId valueId = ValueIds::Digital + (uint16_t)(id - IO_ID_DI_BASE);
+        if (!dataStore_->values.read(valueId, snapshot, &metadata) ||
+            metadata.type != ValueType::UInt64 || snapshot.quality != ValueQuality::Valid) {
+            request->send(503, "application/json", "{\"ok\":false,\"err\":{\"code\":\"CounterUnavailable\"}}");
+            return;
+        }
+        char reply[100]{};
+        snprintf(reply, sizeof(reply), "{\"ok\":true,\"value\":\"%llu\"}",
+                 (unsigned long long)snapshot.value.u64);
+        AsyncWebServerResponse* response = request->beginResponse(200, "application/json", reply);
+        addNoCacheHeaders_(response);
+        request->send(response);
+    });
+
+    // The same serialized I/O task and checkpoint path as the reset command.
+    server_.on("/api/io/counter/set", HTTP_POST, [this](AsyncWebServerRequest* request) {
+        char idText[16]{}, valueText[32]{};
+        uint32_t id = 0;
+        if (!copyRequestParamValue_(request, "id", true, idText, sizeof(idText)) ||
+            !parseStrictUInt32Param_(idText, id) ||
+            id < IO_ID_DI_BASE || id >= IO_ID_DI_BASE + 16U ||
+            !copyRequestParamValue_(request, "value", true, valueText, sizeof(valueText))) {
+            request->send(400, "application/json", "{\"ok\":false,\"err\":{\"code\":\"InvalidArg\"}}");
+            return;
+        }
+        // Validate decimal digits at the HTTP boundary as well as in the I/O command.
+        size_t digits = 0U;
+        for (const char* p = valueText; *p; ++p, ++digits) {
+            if (*p < '0' || *p > '9') break;
+        }
+        if (digits == 0U || digits > 20U || valueText[digits] != '\0') {
+            request->send(400, "application/json", "{\"ok\":false,\"err\":{\"code\":\"InvalidValue\"}}");
+            return;
+        }
+        if (!cmdSvc_ && services_) cmdSvc_ = services_->get<CommandService>(ServiceId::Command);
+        if (!cmdSvc_ || !cmdSvc_->execute) {
+            request->send(503, "application/json", "{\"ok\":false,\"err\":{\"code\":\"NotReady\"}}");
+            return;
+        }
+        char json[96]{}, reply[196]{};
+        snprintf(json, sizeof(json), "{\"id\":%lu,\"value\":\"%s\"}",
+                 (unsigned long)id, valueText);
+        Actor actor{};
+        resolveRequestActor_(request, actor);
+        const bool ok = cmdSvc_->execute(cmdSvc_->ctx, "io.counter.set", json, nullptr, actor,
+                                          reply, sizeof(reply));
+        request->send(ok ? 200 : 500, "application/json", reply);
+    });
+
     server_.on("/api/io/counter/reset", HTTP_POST, [this](AsyncWebServerRequest* request) {
         char idText[16]{};
         uint32_t id = 0;
