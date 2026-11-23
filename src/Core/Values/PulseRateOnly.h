@@ -12,14 +12,17 @@ struct PulseRateOnly {
     float pulsesPerMinute = 0.0f;
     bool initialized = false;
     bool valid = false;
+    bool refreshed = false; // Only publish a new value once per measurement window.
 
     bool sample(uint64_t raw, uint32_t nowMs) {
+        refreshed = false;
         if (!initialized) {
             initialized = true;
             previousRaw = raw;
             windowStartMs = nowMs;
             pulsesPerMinute = 0.0f;
             valid = true;
+            refreshed = true;
             return true;
         }
         if (raw < previousRaw) {  // PCNT restart/reinitialization.
@@ -28,6 +31,7 @@ struct PulseRateOnly {
             windowStartMs = nowMs;
             pulsesPerMinute = 0.0f;
             valid = true;
+            refreshed = true;
             return true;
         }
         const uint64_t delta = raw - previousRaw;
@@ -36,6 +40,7 @@ struct PulseRateOnly {
             windowPulses = 0;
             pulsesPerMinute = 0.0f;
             valid = false;
+            refreshed = true;
             return false;
         }
         windowPulses += delta;
@@ -45,6 +50,7 @@ struct PulseRateOnly {
             pulsesPerMinute = (isfinite(rate) && rate <= 3.402823466e38)
                 ? (float)rate : 0.0f;
             valid = isfinite(rate) && rate <= 3.402823466e38;
+            refreshed = true;
             windowPulses = 0;
             windowStartMs = nowMs;
         }
