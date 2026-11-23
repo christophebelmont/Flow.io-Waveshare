@@ -1120,20 +1120,20 @@
       ],
       "flowio_input_flow_unit": [
         {
-          "value": 0,
-          "label_t": "cfgmods_meta.iomodule.enum_sets.flowio_input_flow_unit.0.label"
-        },
-        {
-          "value": 1,
-          "label_t": "cfgmods_meta.iomodule.enum_sets.flowio_input_flow_unit.1.label"
+          "value": 3,
+          "label_t": "cfgmods_meta.iomodule.enum_sets.flowio_input_flow_unit.3.label"
         },
         {
           "value": 2,
           "label_t": "cfgmods_meta.iomodule.enum_sets.flowio_input_flow_unit.2.label"
         },
         {
-          "value": 3,
-          "label_t": "cfgmods_meta.iomodule.enum_sets.flowio_input_flow_unit.3.label"
+          "value": 1,
+          "label_t": "cfgmods_meta.iomodule.enum_sets.flowio_input_flow_unit.1.label"
+        },
+        {
+          "value": 0,
+          "label_t": "cfgmods_meta.iomodule.enum_sets.flowio_input_flow_unit.0.label"
         }
       ]
     }
