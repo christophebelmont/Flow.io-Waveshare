@@ -8048,6 +8048,10 @@ void WebInterfaceModule::startServer_()
         snprintf(reply, sizeof(reply), "{\"ok\":true,\"value\":\"%llu\"}",
                  (unsigned long long)snapshot.value.u64);
         AsyncWebServerResponse* response = request->beginResponse(200, "application/json", reply);
+        if (!response) {
+            sendTinyBusyJson_(request, "counter_value_response");
+            return;
+        }
         addNoCacheHeaders_(response);
         request->send(response);
     });
