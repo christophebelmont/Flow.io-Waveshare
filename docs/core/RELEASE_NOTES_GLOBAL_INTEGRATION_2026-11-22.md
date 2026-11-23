@@ -43,6 +43,15 @@ Cette intégration renforce les mises à jour **OTA A/B firmware + SPIFFS**, ré
 - Diagnostics de résolution de périphérique (Unit ID, fonction, adresse, mode, compteur d'échecs) sans modification automatique du routage RS485.
 - Exposition des événements à l'interface Web via LogHub en plus de la sortie série.
 
+### Ajustement manuel des compteurs d'impulsions
+- Nouveau champ **Valeur du Compteur** sous l'action **Remettre le compteur à zéro** pour les entrées I00 à I15 en mode compteur.
+- Chargement **unique** du cumul brut d'impulsions lors de l'ouverture de Config Store (aucun polling en arrière-plan).
+- Saisie décimale avec validation stricte `uint64`, confirmation utilisateur et bouton d'enregistrement distinct.
+- Modification du compteur dans la tâche d'acquisition IO, en conservant la valeur brute du driver comme référence pour additionner les impulsions futures.
+- Sauvegarde immédiate via le checkpoint NVS existant ; nouvelle génération du compteur pour signaler le changement de base.
+- Action indépendante du patch de configuration ordinaire ; état et règles de visibilité des autres entrées inchangés.
+- **À vérifier sur matériel :** compilation firmware/SPIFFS, saisie suivie d'impulsions, redémarrage, échec NVS et stabilité MQTT/HA.
+
 ## ⚡ Améliorations — Changed
 
 ### Gestion mémoire
