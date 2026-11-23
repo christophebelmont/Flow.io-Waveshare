@@ -758,6 +758,15 @@
     "data.introLess": "Hide details",
     "data.introScope": "Home Assistant publishes the value, history records it and the interface makes it selectable in TFT/Web fields and formulas. The three settings are independent.",
     "data.introRestart": "Exposure changes take effect after a restart.",
-    "data.introMigration": "To replace an old IOSlot → calculated value setup, select the source value in your fields, then disable the now-useless intermediate publications here."
+    "data.introMigration": "To replace an old IOSlot → calculated value setup, select the source value in your fields, then disable the now-useless intermediate publications here.",
+    "cfg.counter.value.title": "Counter Value",
+    "cfg.counter.value.help": "Raw pulse count. Read once when the page opens; no automatic refresh.",
+    "cfg.counter.value.apply": "Save",
+    "cfg.counter.value.loading": "Reading counter…",
+    "cfg.counter.value.confirm": "Replace the current pulse count with the entered value?",
+    "cfg.counter.value.saving": "Saving…",
+    "cfg.counter.value.saved": "Value saved and persisted.",
+    "cfg.counter.value.saveFailed": "Could not save the value. Check the count before trying again.",
+    "cfg.counter.value.loadFailed": "Counter unavailable. Reload the page after enabling it."
   }
 }
