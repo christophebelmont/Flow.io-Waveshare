@@ -3059,6 +3059,13 @@ bool IOModule::configureRuntime_()
             s.backend = backend;
             s.channel = channel;
             s.expanderId = expanderId;
+            // Both edge-counting modes need a GPIO-backed PCNT driver.
+            // An I2C expander's pin driver must never be cast as a counter.
+            if (s.inDef.mode != IO_DIGITAL_INPUT_STATE && backend != IO_BACKEND_GPIO) {
+                LOGW("Digital input %s mode=%u requires GPIO PCNT backend=%u",
+                     s.endpointId, (unsigned)s.inDef.mode, (unsigned)backend);
+                continue;
+            }
             IDigitalPinDriver* driver = nullptr;
             IDigitalCounterDriver* counterDriver = nullptr;
             if (backend == IO_BACKEND_MCP23017) {
