@@ -6,6 +6,9 @@
 #include "FirmwareUpdateModule.h"
 #include "Core/PerformanceDiagnostics.h"
 #include "Core/CounterPersistence.h"
+#include "Core/RebootDiagnostics.h"
+#include "Core/OtaPsramPolicy.h"
+#include "Core/OtaHttpRetryPolicy.h"
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -16,6 +19,7 @@
 #include <ctype.h>
 #include <string.h>
 #include <new>
+#include <memory>
 #include <esp_err.h>
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
@@ -24,6 +28,7 @@
 #include "App/BuildFlags.h"
 #include "Board/BoardSpec.h"
 #include "Core/BoundedBufferStream.h"
+#include "Core/SpiRamJsonDocument.h"
 #include "Core/ErrorCodes.h"
 #include "Core/FirmwareVersion.h"
 #include "Core/NvsKeys.h"
@@ -237,7 +242,10 @@ bool candidateFilesystemIsValid_(const char* label, const char* version, const c
     if (!label || label[0] == '\0') return false;
     fs::SPIFFSFS candidate;
     if (!candidate.begin(false, "/candidate", 4, label)) return false;
-    const bool valid = ReleaseStorage::validateReleaseFilesystem(candidate, version, hardware);
+    // A complete paired release must contain the new UI migration marker.
+    // A legacy SPIFFS image must never be accepted as the final A/B pair.
+    const bool valid = ReleaseStorage::validateReleaseFilesystem(candidate, version, hardware) &&
+                       candidate.exists("/ota-paired-v1.marker");
     candidate.end();
     return valid;
 }
@@ -246,14 +254,31 @@ static void otaMonitor_(const char* phase)
 {
     constexpr uint32_t internal = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
     constexpr uint32_t external = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
-    LOGI("[OTA] phase=%s ms=%lu ram=%lu ram_largest=%lu ram_min=%lu psram=%lu psram_largest=%lu stack_free_bytes=%lu",
+    // No allocation, filesystem I/O or NVS writes from these probes.
+    // Values are bytes, including FreeRTOS's ESP32 stack high-water mark.
+    const uint32_t freeInternal = heap_caps_get_free_size(internal);
+    const uint32_t largestInternal = heap_caps_get_largest_free_block(internal);
+    const uint32_t fragmentation = freeInternal
+        ? 100U - (uint32_t)((uint64_t)largestInternal * 100U / freeInternal) : 0U;
+    const TaskHandle_t task = xTaskGetCurrentTaskHandle();
+    const uint32_t hwm = uxTaskGetStackHighWaterMark(task);
+    // LogEntry.msg holds only 159 printable characters (LOG_MSG_MAX=160).
+    // Keep the stack watermark FIRST and every line below that limit.
+    // Do not increase LogEntry size: it also expands the LogHub/boot buffers.
+    LOGI("[OTA-MEM] phase=%s task=%s id=%p core=%d hwm_bytes=%lu internal=%lu largest=%lu",
+         phase, pcTaskGetName(task), (void*)task, (int)xPortGetCoreID(),
+         (unsigned long)hwm, (unsigned long)freeInternal,
+         (unsigned long)largestInternal);
+    LOGI("[OTA-HEAP] phase=%s ms=%lu min_internal=%lu frag_pct=%lu psram=%lu largest_psram=%lu",
          phase, (unsigned long)millis(),
-         (unsigned long)heap_caps_get_free_size(internal),
-         (unsigned long)heap_caps_get_largest_free_block(internal),
          (unsigned long)heap_caps_get_minimum_free_size(internal),
+         (unsigned long)fragmentation,
          (unsigned long)heap_caps_get_free_size(external),
-         (unsigned long)heap_caps_get_largest_free_block(external),
-         (unsigned long)uxTaskGetStackHighWaterMark(nullptr));
+         (unsigned long)heap_caps_get_largest_free_block(external));
+    if (hwm < 1024U) {
+        LOGW("[OTA-STACK] LOW phase=%s task=%s handle=%p hwm_bytes=%lu",
+             phase, pcTaskGetName(task), (void*)task, (unsigned long)hwm);
+    }
 }
 
 bool cloneActiveReleaseFilesystem_(char* errOut, size_t errOutLen)
@@ -343,10 +368,13 @@ FirmwareUpdateModule::FirmwareUpdateModule(const BoardSpec& board)
 
 static bool writeSimpleError_(char* out, size_t outLen, const char* msg)
 {
-    if (!out || outLen == 0) return false;
-    if (!msg) msg = "failed";
-    const int n = snprintf(out, outLen, "%s", msg);
-    return n > 0 && (size_t)n < outLen;
+    // This is an error-path helper. Its boolean result is propagated by
+    // callers (including OTA stream failures), so writing an error message
+    // successfully MUST NOT turn an unsuccessful operation into success.
+    if (out && outLen > 0U) {
+        (void)snprintf(out, outLen, "%s", msg ? msg : "failed");
+    }
+    return false;
 }
 
 static bool parseReqJsonObject_(const char* json, StaticJsonDocument<256>& doc)
@@ -509,6 +537,12 @@ void FirmwareUpdateModule::setStatus_(UpdateState state,
     status_.updatedAtMs = millis();
     if (!msg) msg = "";
     snprintf(status_.msg, sizeof(status_.msg), "%s", msg);
+    if (state == UpdateState::Queued || state == UpdateState::Idle ||
+        state == UpdateState::Error || state == UpdateState::Done ||
+        state == UpdateState::Rebooting) {
+        status_.otaStage[0] = '\0';
+        status_.otaStageProgress = 0U;
+    }
     portEXIT_CRITICAL(&lock_);
 
     const bool otaActive = state == UpdateState::Queued ||
@@ -518,9 +552,81 @@ void FirmwareUpdateModule::setStatus_(UpdateState state,
     setHmiOtaCondition_(otaActive);
 }
 
+void FirmwareUpdateModule::setOtaStage_(const char* stage, uint8_t phaseProgress)
+{
+    // Two distinct progress axes: existing overall flashed bytes and the
+    // current HTTP-download/flash-write phase. All readers see a coherent
+    // snapshot via statusJson_'s existing critical section.
+    portENTER_CRITICAL(&lock_);
+    // A null stage advances the active image's write percentage without
+    // changing its mode (PSRAM replay versus concurrent HTTP streaming).
+    if (stage) snprintf(status_.otaStage, sizeof(status_.otaStage), "%s", stage);
+    status_.otaStageProgress = phaseProgress > 100U ? 100U : phaseProgress;
+    status_.updatedAtMs = millis();
+    portEXIT_CRITICAL(&lock_);
+}
+
 void FirmwareUpdateModule::setError_(FirmwareUpdateTarget target, const char* msg, uint32_t operationId)
 {
+    // Preserve phase BEFORE UpdateState::Error clears the visible otaStage.
+    // Errors are rare and occur after transfer/flash failure; no per-chunk
+    // writes to NVS are added.
+    char stage[sizeof(status_.otaStage)]{};
+    portENTER_CRITICAL(&lock_);
+    snprintf(stage, sizeof(stage), "%s",
+             status_.otaStage[0] ? status_.otaStage : stateStr_(status_.state));
+    portEXIT_CRITICAL(&lock_);
     setStatus_(UpdateState::Error, target, 0, msg ? msg : "failed", operationId);
+    persistLastFailure_(target, operationId, stage, msg);
+}
+
+void FirmwareUpdateModule::loadLastFailure_()
+{
+    if (!cfgStore_) return;
+    OtaFailure::Record record{};
+    size_t length = 0U;
+    if (!cfgStore_->readRuntimeBlob(NvsKeys::FirmwareUpdate::LastFailure,
+                                    &record, sizeof(record), &length))
+        return;
+    if (length != sizeof(record) || !OtaFailure::valid(record)) {
+        LOGW("[OTA-LASTFAIL] persisted record invalid; ignored");
+        return;
+    }
+    portENTER_CRITICAL(&lock_);
+    lastFailure_ = record;
+    hasLastFailure_ = true;
+    portEXIT_CRITICAL(&lock_);
+    LOGW("[OTA-LASTFAIL] retained=1 op=%lu code=%u target=%u stage=%.27s",
+         (unsigned long)record.operationId, (unsigned)record.code,
+         (unsigned)record.target, record.stage);
+    LOGW("[OTA-LASTFAIL] reason=%.95s", record.reason);
+}
+
+void FirmwareUpdateModule::persistLastFailure_(
+    FirmwareUpdateTarget target, uint32_t operationId,
+    const char* stage, const char* reason)
+{
+    if (!cfgStore_ || operationId == 0U) return;
+    const OtaFailure::Record record = OtaFailure::make(
+        (uint8_t)target, operationId, stage, reason);
+    // A single operation can signal an error from both failLocalRelease_()
+    // and runJob_(). Retain the FIRST error once per operation.
+    portENTER_CRITICAL(&lock_);
+    if (hasLastFailure_ && lastFailure_.operationId == operationId) {
+        portEXIT_CRITICAL(&lock_);
+        return;
+    }
+    lastFailure_ = record;
+    hasLastFailure_ = true;
+    portEXIT_CRITICAL(&lock_);
+
+    // Rare error path only. An OTA success NEVER clears or overwrites this.
+    const bool saved = cfgStore_->writeRuntimeBlob(
+        NvsKeys::FirmwareUpdate::LastFailure, &record, sizeof(record));
+    LOGW("[OTA-LASTFAIL] persisted=%u op=%lu code=%u target=%u stage=%.27s",
+         saved ? 1U : 0U, (unsigned long)record.operationId,
+         (unsigned)record.code, (unsigned)record.target, record.stage);
+    LOGW("[OTA-LASTFAIL] reason=%.95s", record.reason);
 }
 
 bool FirmwareUpdateModule::loadReceipt_()
@@ -714,17 +820,21 @@ bool FirmwareUpdateModule::statusJson_(char* out, size_t outLen)
     bool pending = false;
     bool hasLastReceipt = false;
     FirmwareUpdateReceipt lastReceipt{};
+    bool hasLastFailure = false;
+    OtaFailure::Record lastFailure{};
     portENTER_CRITICAL(&lock_);
     snap = status_;
-    busy = busy_ || localReleaseActive_;
+    busy = busy_ || (localReleaseActive_ && status_.state != UpdateState::Error);
     pending = queuedJob_.pending;
     hasLastReceipt = hasLastReceipt_;
     lastReceipt = lastReceipt_;
+    hasLastFailure = hasLastFailure_;
+    lastFailure = lastFailure_;
     portEXIT_CRITICAL(&lock_);
 
     sanitizeJsonString_(snap.msg);
 
-    StaticJsonDocument<512> doc;
+    StaticJsonDocument<640> doc;
     doc["ok"] = true;
     doc["boot_id"] = bootId_;
     doc["operation_id"] = snap.operationId;
@@ -733,8 +843,24 @@ bool FirmwareUpdateModule::statusJson_(char* out, size_t outLen)
     doc["busy"] = busy;
     doc["pending"] = pending;
     doc["progress"] = snap.progress;
+    if (snap.otaStage[0] != '\0') {
+        doc["ota_stage"] = snap.otaStage;
+        doc["ota_stage_progress"] = snap.otaStageProgress;
+    }
     doc["ts_ms"] = snap.updatedAtMs;
     doc["msg"] = snap.msg;
+    // Boot evidence is necessary to distinguish an old slot/rollback from
+    // an OTA status receipt carried across a restart.
+    const esp_partition_t* activeApp = esp_ota_get_running_partition();
+    const esp_partition_t* bootApp = esp_ota_get_boot_partition();
+    doc["app_slot"] = activeApp ? activeApp->label : "unknown";
+    doc["boot_slot"] = bootApp ? bootApp->label : "unknown";
+    // Record ESP-IDF reset cause after an interrupted transaction. In
+    // particular this distinguishes a watchdog/panic reset from a clean
+    // software reboot and does not depend on persistent serial logs.
+    doc["reset_reason"] = (unsigned)esp_reset_reason();
+    doc["spiffs_valid"] = ReleaseStorage::validateReleaseFilesystem();
+    doc["migration_pending"] = ReleaseStorage::legacyPairedMigrationNeeded();
     if (hasLastReceipt) {
         JsonObject receipt = doc.createNestedObject("last_operation");
         receipt["operation_id"] = lastReceipt.operationId;
@@ -743,7 +869,29 @@ bool FirmwareUpdateModule::statusJson_(char* out, size_t outLen)
     } else {
         doc["last_operation"] = nullptr;
     }
+    // Optional persistent diagnostic for the 640-byte Web status endpoint.
+    // Do not break 512-byte command replies, or even the 640-byte endpoint,
+    // if insufficient JSON capacity/output space remains.
+    if (hasLastFailure && outLen >= 640U &&
+        doc.capacity() > doc.memoryUsage() +
+            JSON_OBJECT_SIZE(1) + JSON_OBJECT_SIZE(4) +
+            sizeof(lastFailure.stage) + sizeof(lastFailure.reason)) {
+        JsonObject last = doc.createNestedObject("last_failure");
+        last["operation_id"] = lastFailure.operationId;
+        last["code"] = lastFailure.code;
+        last["stage"] = lastFailure.stage;
+        last["reason"] = lastFailure.reason;
+        if (measureJson(doc) >= outLen) doc.remove("last_failure");
+    }
+    // Command-bus callers may still provide a 512-byte reply. The Web API
+    // reserves 640 bytes, but for smaller callers omit the optional phase
+    // fields instead of failing an otherwise valid status response.
     if (doc.overflowed()) return false;
+    if (measureJson(doc) >= outLen && snap.otaStage[0] != '\0') {
+        doc.remove("ota_stage");
+        doc.remove("ota_stage_progress");
+    }
+    if (measureJson(doc) >= outLen) return false;
     const size_t written = serializeJson(doc, out, outLen);
     return written > 0U && written < outLen;
 }
@@ -754,7 +902,11 @@ bool FirmwareUpdateModule::isBusy_()
 
     bool busy = false;
     portENTER_CRITICAL(&lock_);
-    busy = busy_ || localReleaseActive_ || queuedJob_.pending ||
+    // Preserve a failed upload record for diagnostics without blocking
+    // Modbus indefinitely. Actual running OTA work is still gated by busy_.
+    const bool localReleaseBusy = localReleaseActive_ &&
+                                  status_.state != UpdateState::Error;
+    busy = busy_ || localReleaseBusy || queuedJob_.pending ||
            nextionRebootQueued_ || updateStartPending_ ||
            manifestCheckIsActive_(manifestMetadata_->check.state);
     portEXIT_CRITICAL(&lock_);
@@ -994,6 +1146,72 @@ bool FirmwareUpdateModule::startUpdate_(FirmwareUpdateTarget target,
                  "%s",
                  selection.compatibility);
         job.expectedSize = selection.size;
+    } else if (target == FirmwareUpdateTarget::Spiffs ||
+               target == FirmwareUpdateTarget::Waveshare) {
+        // The old browser sends .../flowios3-spiffs-VERSION.bin, and the
+        // older firmware button sends .../flowios3-VERSION.bin. In this
+        // engine those names select a VERSIONED paired release manifest.
+        // After migration, only the grouped firmware button is presented.
+        if (target == FirmwareUpdateTarget::Spiffs &&
+            !ReleaseStorage::legacyPairedMigrationNeeded()) {
+            return writeSimpleError_(errOut, errOutLen,
+                                     "standalone SPIFFS update is forbidden after migration");
+        }
+        if (!url || !url[0]) {
+            if (target == FirmwareUpdateTarget::Spiffs) {
+                return writeSimpleError_(errOut, errOutLen, "SPIFFS migration requires versioned URL");
+            }
+            if (!resolveUpdateUrl_("release.json", job.url, sizeof(job.url),
+                                   errOut, errOutLen)) return false;
+        } else {
+            const size_t length = strlen(url);
+            if (strncmp(url, "http://", 7) != 0 &&
+                strncmp(url, "https://", 8) != 0) {
+                return writeSimpleError_(errOut, errOutLen, "invalid release URL scheme");
+            }
+            const char* finalSlash = strrchr(url, '/');
+            const char* filename = finalSlash ? finalSlash + 1 : nullptr;
+            if (!filename || !isSimpleArtifactFilename_(filename)) {
+                return writeSimpleError_(errOut, errOutLen, "invalid release filename");
+            }
+            const char* legacyPrefix = target == FirmwareUpdateTarget::Spiffs
+                ? "flowios3-spiffs-" : "flowios3-";
+            const size_t legacyPrefixLen = strlen(legacyPrefix);
+            const size_t filenameLen = strlen(filename);
+            const bool legacyBin =
+                strncmp(filename, legacyPrefix, legacyPrefixLen) == 0 &&
+                filenameLen > legacyPrefixLen + 4U &&
+                strcmp(filename + filenameLen - 4U, ".bin") == 0;
+            if (legacyBin) {
+                const size_t versionLen = filenameLen - legacyPrefixLen - 4U;
+                const char* version = filename + legacyPrefixLen;
+                if (target == FirmwareUpdateTarget::Spiffs &&
+                    (strlen(FirmwareVersion::Core) != versionLen ||
+                     strncmp(version, FirmwareVersion::Core, versionLen) != 0)) {
+                    return writeSimpleError_(errOut, errOutLen,
+                        "SPIFFS migration version must match installed transition firmware");
+                }
+                const size_t prefixLen = (size_t)(filename - url);
+                const int n = snprintf(job.url, sizeof(job.url),
+                    "%.*sflowio-release-%.*s.json",
+                    (int)prefixLen, url, (int)versionLen, version);
+                if (n <= 0 || (size_t)n >= sizeof(job.url)) {
+                    return writeSimpleError_(errOut, errOutLen, "release manifest URL too long");
+                }
+            } else if ((strcmp(filename, "release.json") == 0 ||
+                       (strncmp(filename, "flowio-release-", 15) == 0 &&
+                        filenameLen > 20U &&
+                        strcmp(filename + filenameLen - 5U, ".json") == 0)) &&
+                        target == FirmwareUpdateTarget::Waveshare) {
+                if (length >= sizeof(job.url)) {
+                    return writeSimpleError_(errOut, errOutLen, "release URL too long");
+                }
+                memcpy(job.url, url, length + 1U);
+            } else {
+                return writeSimpleError_(errOut, errOutLen,
+                    "expected versioned paired release or old firmware/SPIFFS BIN URL");
+            }
+        }
     } else if (!resolveUrl_(target, url, job.url, sizeof(job.url), errOut, errOutLen)) {
         return false;
     }
@@ -1067,194 +1285,800 @@ bool FirmwareUpdateModule::queueNextionReboot_(char* errOut, size_t errOutLen)
 
 bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOut, size_t errOutLen)
 {
-    const char* url = job.url;
-    setStatus_(UpdateState::Downloading,
-               FirmwareUpdateTarget::Waveshare,
-               0,
-               "downloading",
-               job.operationId);
+    // Remote OTA is a single, verified release transaction: both images are
+    // downloaded from one manifest and committed with ONE reboot.
+    setStatus_(UpdateState::Downloading, FirmwareUpdateTarget::Waveshare,
+               0U, "downloading paired release manifest", job.operationId);
+    RebootDiagnostics::noteOta(job.operationId, RebootDiagnostics::OtaStage::Manifest);
+    LOGI("[OTA-TRACE] op=%lu stage=manifest_start", (unsigned long)job.operationId);
+    setOtaStage_("manifest", 0U);
+    otaMonitor_("manifest_start");
 
-    otaMonitor_("firmware_start");
-    HTTPClient http;
-    configureDownloadHttp_(http);
-    if (!http.begin(url)) {
-        writeHttpBeginFailedError_("fichier de mise a jour", url, errOut, errOutLen);
-        return false;
+    constexpr size_t kManifestCapacity = 1024U;
+    // Keep the manifest buffer off the 6 KiB updater task stack.
+    std::unique_ptr<char, decltype(&heap_caps_free)> manifest(
+        static_cast<char*>(heap_caps_calloc(kManifestCapacity + 1U, 1U,
+                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)),
+        &heap_caps_free);
+    if (!manifest) return writeSimpleError_(errOut, errOutLen, "paired release manifest memory unavailable");
+    // Even the small release manifest receives up to three attempts.
+    // Restart from zero rather than requesting a partial JSON document.
+    size_t manifestLen = 0U;
+    bool manifestReady = false;
+    bool manifestPermanentError = false;
+    for (unsigned attempt = 1U;
+         !manifestReady && !manifestPermanentError &&
+         attempt <= OtaHttpRetryPolicy::kMaxAttempts; ++attempt) {
+        LOGI("[OTA-HTTP] op=%lu target=manifest attempt=%u/%u offset=0",
+             (unsigned long)job.operationId, attempt, OtaHttpRetryPolicy::kMaxAttempts);
+        HTTPClient manifestHttp;
+        configureDownloadHttp_(manifestHttp);
+        if (!manifestHttp.begin(job.url)) {
+            LOGW("[OTA-HTTP] op=%lu target=manifest attempt=%u stage=begin_failed",
+                 (unsigned long)job.operationId, attempt);
+        } else {
+            const int code = manifestHttp.GET();
+            const int manifestSize = manifestHttp.getSize();
+            if (code == HTTP_CODE_OK && manifestSize > 0 &&
+                manifestSize <= (int)kManifestCapacity) {
+                BoundedBufferStream sink(manifest.get(), kManifestCapacity);
+                const int manifestRead = manifestHttp.writeToStream(&sink);
+                manifestLen = sink.length();
+                manifestReady = !sink.overflowed() && manifestRead >= 0 &&
+                                manifestLen == (size_t)manifestSize;
+            } else if (!OtaHttpRetryPolicy::isRetryableStatus(code)) {
+                // A genuine 404, bad authorization or malformed manifest
+                // length will not become valid merely by retrying.
+                manifestPermanentError = true;
+            }
+            LOGI("[OTA-HTTP] op=%lu target=manifest attempt=%u code=%d length=%d received=%lu valid=%u",
+                 (unsigned long)job.operationId, attempt, code, manifestSize,
+                 (unsigned long)manifestLen, manifestReady ? 1U : 0U);
+            manifestHttp.end();
+        }
+        if (!manifestReady && !manifestPermanentError &&
+            attempt < OtaHttpRetryPolicy::kMaxAttempts) {
+            LOGW("[OTA-HTTP] op=%lu target=manifest stage=retry_scheduled next=%u/%u",
+                 (unsigned long)job.operationId, attempt + 1U,
+                 OtaHttpRetryPolicy::kMaxAttempts);
+            vTaskDelay(pdMS_TO_TICKS(OtaHttpRetryPolicy::kRetryDelayMs));
+        }
     }
-
-    const int code = http.GET();
-    const int32_t contentLength = http.getSize();
-    LOGI("[OTA] phase=firmware_http code=%d length=%ld", code, (long)contentLength);
-    otaMonitor_("firmware_http");
-    if (code != HTTP_CODE_OK) {
-        writeHttpCodeFailedError_("fichier de mise a jour", url, http, code, errOut, errOutLen);
-        http.end();
-        return false;
+    LOGI("[OTA-TRACE] op=%lu stage=manifest_complete got=%lu valid=%u",
+         (unsigned long)job.operationId, (unsigned long)manifestLen, manifestReady ? 1U : 0U);
+    otaMonitor_("manifest_complete");
+    if (manifestReady) setOtaStage_("manifest", 100U);
+    if (!manifestReady) {
+        return writeSimpleError_(errOut, errOutLen,
+                                 "paired release manifest transfer failed after HTTP retries");
     }
+    manifest.get()[manifestLen] = '\0';
+    LOGI("[OTA] manifest received bytes=%u stack_free_bytes=%u internal_ram=%u",
+         (unsigned)manifestLen,
+         (unsigned)uxTaskGetStackHighWaterMark(nullptr),
+         (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
 
-    setStatus_(UpdateState::Flashing,
-               FirmwareUpdateTarget::Waveshare,
-               0,
-               "flashing",
-               job.operationId);
+    // Complete the first manifest parse in its own scope so that the
+    // ArduinoJson document does not overlap nested beginLocalRelease_().
+    // JSON capacity is still allocated explicitly in PSRAM.
+    uint32_t fsSize = 0U;
+    uint32_t fwSize = 0U;
+    char fsUrl[kUrlLen]{};
+    char fwUrl[kUrlLen]{};
+    {
+    SpiRamJsonDocument doc(2048U);
+    if (doc.capacity() == 0U) {
+        return writeSimpleError_(errOut, errOutLen, "paired release manifest json psram unavailable");
+    }
+    otaMonitor_("paired_manifest_json_psram");
+    if (deserializeJson(doc, static_cast<const char*>(manifest.get()), manifestLen) != DeserializationError::Ok ||
+        !doc.is<JsonObjectConst>()) {
+        return writeSimpleError_(errOut, errOutLen, "paired release manifest invalid JSON");
+    }
+    // In the transitional SPIFFS-button path the remote release must be
+    // exactly the version of the firmware already installed by the first
+    // (legacy) click. Do not silently install a different published release.
+    const char* releaseVersion = doc["version"] | "";
+    LOGI("[OTA] manifest parsed version=%s stack_free_bytes=%u",
+         releaseVersion, (unsigned)uxTaskGetStackHighWaterMark(nullptr));
+    if (job.target == FirmwareUpdateTarget::Spiffs &&
+        strcmp(releaseVersion, FirmwareVersion::Core) != 0) {
+        return writeSimpleError_(errOut, errOutLen,
+                                 "paired release version does not match transition firmware");
+    }
+    const char* fsFile = doc["filesystem"]["file"] | "";
+    const char* fwFile = doc["firmware"]["file"] | "";
+    fsSize = doc["filesystem"]["size"] | 0U;
+    fwSize = doc["firmware"]["size"] | 0U;
+    // Accept the original flat binary/ filenames (flowios3-<version>.bin,
+    // flowios3-spiffs-<version>.bin) alongside canonical release filenames.
+    // Only simple filenames can be used: no paths, traversal or external URLs.
+    if (!isSimpleArtifactFilename_(fsFile) || !isSimpleArtifactFilename_(fwFile) ||
+        fsSize == 0U || fwSize == 0U || strcmp(fsFile, fwFile) == 0) {
+        return writeSimpleError_(errOut, errOutLen, "paired release artifact filename invalid");
+    }
+    if (!buildManifestSiblingUrl_(job.url, fsFile, fsUrl, sizeof(fsUrl)) ||
+        !buildManifestSiblingUrl_(job.url, fwFile, fwUrl, sizeof(fwUrl))) {
+        return writeSimpleError_(errOut, errOutLen, "paired release artifact URL invalid");
+    }
+    } // release initial JSON tree before nested parsing
+    otaMonitor_("paired_manifest_json_released");
+
+    // The worker owns busy_ while this function executes. Permit only this
+    // task to start the existing transactional upload implementation.
     portENTER_CRITICAL(&lock_);
-    activeTotalBytes_ = (contentLength > 0) ? (uint32_t)contentLength : 0U;
-    activeSentBytes_ = 0;
+    remoteReleaseWorker_ = xTaskGetCurrentTaskHandle();
+    remoteReleaseOperationId_ = job.operationId;
     portEXIT_CRITICAL(&lock_);
 
-    const esp_partition_t* runningPartition = esp_ota_get_running_partition();
-    const esp_partition_t* updatePartition = esp_ota_get_next_update_partition(nullptr);
-    if (!updatePartition) {
-        writeSimpleError_(errOut, errOutLen, "ota partition unavailable");
-        http.end();
-        return false;
+    // Avoid in-place JSON serialization: ArduinoJson may refer to strings
+    // inside the input buffer. Keep the original manifest and let the
+    // transaction validate its versioned artifact names for remote OTA only.
+    LOGI("[OTA] preparing paired release stack_free_bytes=%u",
+         (unsigned)uxTaskGetStackHighWaterMark(nullptr));
+    uint32_t transactionId = 0U;
+    bool success = beginLocalRelease_(manifest.get(), manifestLen, &transactionId,
+                                      errOut, errOutLen);
+    if (!success) {
+        LOGE("[OTA] paired release preparation failed: %s", errOut ? errOut : "-");
     }
-    if (runningPartition && updatePartition->address == runningPartition->address) {
-        writeSimpleError_(errOut, errOutLen, "ota target equals running partition");
-        http.end();
-        return false;
-    }
-    if (contentLength > 0 && (size_t)contentLength > updatePartition->size) {
-        writeSimpleError_(errOut, errOutLen, "ota image too large for partition");
-        http.end();
-        return false;
-    }
-
-    // Pause periodic WebInterface work before the first flash erase. HTTP OTA
-    // progress and RAM-backed status remain available while the task is paused.
-    attachWebInterfaceSvcIfNeeded_();
-    const bool pauseWeb = webInterfaceSvc_ && webInterfaceSvc_->setPaused;
-    if (pauseWeb) {
-        webInterfaceSvc_->setPaused(webInterfaceSvc_->ctx, true);
+    if (success) {
+        LOGI("[OTA] paired release preparation complete stack_free_bytes=%u",
+             (unsigned)uxTaskGetStackHighWaterMark(nullptr));
+        LOGI("[OTA] paired release begin id=%lu slot=%s fs=%lu fw=%lu",
+             (unsigned long)transactionId,
+             ReleaseStorage::inactiveSlot() == ReleaseSlot::A ? "A" : "B",
+             (unsigned long)fsSize, (unsigned long)fwSize);
     }
 
-    // Keep the inactive filesystem paired with the new firmware slot.
-    LOGI("[UPGRADE] stage=filesystem_clone_begin operation_id=%lu",
-         (unsigned long)job.operationId);
-    if (!cloneActiveReleaseFilesystem_(errOut, errOutLen)) {
-        LOGE("[UPGRADE] stage=filesystem_clone_failed operation_id=%lu",
-             (unsigned long)job.operationId);
-        if (pauseWeb) webInterfaceSvc_->setPaused(webInterfaceSvc_->ctx, false);
-        http.end();
-        return false;
-    }
-    LOGI("[UPGRADE] stage=filesystem_clone_done operation_id=%lu",
-         (unsigned long)job.operationId);
-    LOGI("[UPGRADE] stage=firmware_write_begin operation_id=%lu size=%ld",
-         (unsigned long)job.operationId, (long)contentLength);
+    // Reuse the *same* SHA-256, partition-overlap and release.json checks
+    // as the local paired A/B uploader. No second flash algorithm is needed.
+    const FirmwareUpdateTarget targets[2] = {
+        FirmwareUpdateTarget::Spiffs, FirmwareUpdateTarget::Waveshare
+    };
+    const char* urls[2] = {fsUrl, fwUrl};
+    const uint32_t sizes[2] = {fsSize, fwSize};
+    for (size_t imageIndex = 0U; success && imageIndex < 2U; ++imageIndex) {
+        const auto target = targets[imageIndex];
+        const uint32_t expectedSize = sizes[imageIndex];
+        // One 1 KiB INTERNAL stack buffer is shared by the PSRAM replay and
+        // legacy streaming paths; do not double OTA task-stack usage.
+        uint8_t chunk[1024]{};
 
-    char failMsg[128] = {0};
-    const size_t beginSize = (contentLength > 0) ? (size_t)contentLength : (size_t)UPDATE_SIZE_UNKNOWN;
-    otaMonitor_("firmware_write_begin");
-    if (!Update.begin(beginSize, U_FLASH)) {
-        snprintf(failMsg, sizeof(failMsg), "ota begin failed (%u)", (unsigned)Update.getError());
-    } else {
-        auto* stream = http.getStreamPtr();
-        int32_t remaining = contentLength;
-        uint8_t buf[Limits::FirmwareUpdate::Http::StreamChunkBytes];
-        uint32_t lastReadMs = millis();
-#if FLOW_PERFORMANCE_DIAGNOSTICS
-        const uint32_t writeStartMs = millis();
-#endif
-        size_t writtenTotal = 0U;
-        size_t nextWriteProgress = 256U * 1024U;
+        // Experimental preverified PSRAM mode. Download and validate each
+        // complete artifact BEFORE erasing/writing its inactive A/B partition.
+        // Keep 2 MiB free for Wi-Fi, AsyncTCP, MQTT, web assets and other tasks.
+        // If allocation is impossible, use the unchanged 1 KiB streaming path.
+        constexpr size_t kRamReserveBytes = OtaPsramPolicy::kReserveBytes;
+        constexpr size_t kRamReadBytes = 1024U;
+        constexpr size_t kRamHashBytes = 16U * 1024U;
+        constexpr size_t kRamProgressBytes = 256U * 1024U;
+        const size_t ramFreeBefore = heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        const size_t ramLargestBefore = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        std::unique_ptr<uint8_t, decltype(&heap_caps_free)> ramImage(nullptr, &heap_caps_free);
+        const bool enoughRam = OtaPsramPolicy::canStageImage(
+            expectedSize, ramFreeBefore, ramLargestBefore);
+        if (enoughRam) {
+            ramImage.reset(static_cast<uint8_t*>(
+                heap_caps_malloc(expectedSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+        }
+        if (ramImage) {
+            const char* targetName = targetStr_(target);
+            const uint32_t downloadStartedMs = millis();
+            const uint8_t baseProgress = imageIndex == 0U ? 0U
+                : (uint8_t)(((uint64_t)fsSize * 100U) / ((uint64_t)fsSize + fwSize));
+            size_t received = 0U;
+            size_t lastLogged = 0U;
+            uint8_t lastUiPercent = 0U;
+            uint32_t lastProgressMs = millis();
+            uint32_t lastWaitLogMs = lastProgressMs;
+            const auto ramStage = imageIndex == 0U
+                ? RebootDiagnostics::OtaStage::SpiffsRamDownload
+                : RebootDiagnostics::OtaStage::FirmwareRamDownload;
+            const auto ramVerifyStage = imageIndex == 0U
+                ? RebootDiagnostics::OtaStage::SpiffsRamVerify
+                : RebootDiagnostics::OtaStage::FirmwareRamVerify;
+            RebootDiagnostics::noteOta(job.operationId, ramStage, 0U, expectedSize);
+            // Keep the overall percentage tied to bytes committed to A/B,
+            // rather than jumping forward during RAM receipt and then back
+            // when flash writing begins. UI remains on the paired OTA track.
+            setStatus_(UpdateState::Downloading, FirmwareUpdateTarget::Waveshare,
+                       baseProgress, imageIndex == 0U ? "downloading filesystem to PSRAM"
+                                                    : "downloading firmware to PSRAM",
+                       job.operationId);
+            setOtaStage_(imageIndex == 0U ? "spiffs_download" : "firmware_download", 0U);
+            LOGI("[OTA-RAM] op=%lu target=%s stage=download_begin mode=psram size=%lu free_before=%lu largest_before=%lu free_after=%lu reserve=%lu",
+                 (unsigned long)job.operationId, targetName, (unsigned long)expectedSize,
+                 (unsigned long)ramFreeBefore, (unsigned long)ramLargestBefore,
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+                 (unsigned long)kRamReserveBytes);
 
-        while (http.connected() && (contentLength <= 0 || remaining > 0)) {
-            const size_t avail = stream ? stream->available() : 0;
-            if (avail == 0U) {
-                if (contentLength <= 0 && stream && !stream->connected()) {
+            // Three attempts TOTAL for each artifact. Resume via HTTP Range
+            // only after validating Content-Range; a server returning HTTP 200
+            // instead is treated as a clean restart into the same RAM buffer.
+            for (unsigned attempt = 1U;
+                 success && received < expectedSize && attempt <= OtaHttpRetryPolicy::kMaxAttempts;
+                 ++attempt) {
+                const size_t requestedOffset = received;
+                bool retryableFailure = false;
+                LOGI("[OTA-HTTP] op=%lu target=%s mode=psram attempt=%u/%u offset=%lu",
+                     (unsigned long)job.operationId, targetName, attempt,
+                     OtaHttpRetryPolicy::kMaxAttempts, (unsigned long)requestedOffset);
+                HTTPClient ramHttp;
+                configureDownloadHttp_(ramHttp);
+                if (!ramHttp.begin(urls[imageIndex])) {
+                    retryableFailure = true;
+                    LOGW("[OTA-HTTP] op=%lu target=%s attempt=%u stage=begin_failed",
+                         (unsigned long)job.operationId, targetName, attempt);
+                } else {
+                    const char* responseHeaders[] = {"Content-Range"};
+                    ramHttp.collectHeaders(responseHeaders, 1U);
+                    if (requestedOffset > 0U) {
+                        ramHttp.addHeader("Range", String("bytes=") +
+                                          String((unsigned long)requestedOffset) + "-");
+                    }
+                    const int code = ramHttp.GET();
+                    const int announced = ramHttp.getSize();
+                    const String contentRange = ramHttp.header("Content-Range");
+                    const auto mode = OtaHttpRetryPolicy::responseMode(
+                        code, requestedOffset, announced > 0 ? (size_t)announced : 0U,
+                        expectedSize, contentRange.c_str());
+                    LOGI("[OTA-HTTP] op=%lu target=%s attempt=%u code=%d length=%d offset=%lu mode=%u",
+                         (unsigned long)job.operationId, targetName, attempt, code,
+                         announced, (unsigned long)requestedOffset, (unsigned)mode);
+                    if (mode == OtaHttpRetryPolicy::ResponseMode::Invalid) {
+                        retryableFailure = OtaHttpRetryPolicy::isRetryableStatus(code);
+                        if (!retryableFailure) {
+                            success = writeSimpleError_(errOut, errOutLen,
+                                "PSRAM artifact HTTP response/Range invalid");
+                        }
+                    } else {
+                        if (mode == OtaHttpRetryPolicy::ResponseMode::Full &&
+                            requestedOffset > 0U) {
+                            LOGW("[OTA-HTTP] op=%lu target=%s attempt=%u stage=restart_full server_no_range=1",
+                                 (unsigned long)job.operationId, targetName, attempt);
+                            received = 0U;
+                            lastLogged = 0U;
+                            lastUiPercent = 0U;
+                            setOtaStage_(nullptr, 0U);
+                        }
+                        Stream* stream = ramHttp.getStreamPtr();
+                        lastProgressMs = millis();
+                        lastWaitLogMs = lastProgressMs;
+                        while (success && !retryableFailure && received < expectedSize) {
+                            const size_t available = stream ? stream->available() : 0U;
+                            if (available == 0U) {
+                                const uint32_t idleMs = millis() - lastProgressMs;
+                                if (!ramHttp.connected() ||
+                                    idleMs > Limits::FirmwareUpdate::Http::StreamReadTimeoutMs) {
+                                    retryableFailure = true;
+                                    LOGW("[OTA-HTTP] op=%lu target=%s attempt=%u stage=interrupted received=%lu/%lu idle_ms=%lu connected=%u",
+                                         (unsigned long)job.operationId, targetName,
+                                         attempt, (unsigned long)received,
+                                         (unsigned long)expectedSize, (unsigned long)idleMs,
+                                         ramHttp.connected() ? 1U : 0U);
+                                    break;
+                                }
+                                if (millis() - lastWaitLogMs >= 5000U) {
+                                    LOGW("[OTA-RAM] op=%lu target=%s stage=http_waiting received=%lu/%lu idle_ms=%lu attempt=%u",
+                                         (unsigned long)job.operationId, targetName,
+                                         (unsigned long)received, (unsigned long)expectedSize,
+                                         (unsigned long)idleMs, attempt);
+                                    lastWaitLogMs = millis();
+                                }
+                                vTaskDelay(1);
+                                continue;
+                            }
+                            size_t amount = available > kRamReadBytes ? kRamReadBytes : available;
+                            if (amount > expectedSize - received) amount = expectedSize - received;
+                            const int rd = stream->readBytes(
+                                reinterpret_cast<char*>(ramImage.get() + received), amount);
+                            if (rd <= 0) {
+                                if (!ramHttp.connected() ||
+                                    millis() - lastProgressMs > Limits::FirmwareUpdate::Http::StreamReadTimeoutMs) {
+                                    retryableFailure = true;
+                                    LOGW("[OTA-HTTP] op=%lu target=%s attempt=%u stage=read_stalled offset=%lu",
+                                         (unsigned long)job.operationId, targetName,
+                                         attempt, (unsigned long)received);
+                                    break;
+                                }
+                                vTaskDelay(1);
+                                continue;
+                            }
+                            received += (size_t)rd;
+                            lastProgressMs = millis();
+                            // Refresh the UI in 1% increments without emitting
+                            // extra 1 KiB network logs or status JSON traffic.
+                            const uint8_t downloadPercent =
+                                (uint8_t)(((uint64_t)received * 100U) / expectedSize);
+                            if (downloadPercent != lastUiPercent) {
+                                setOtaStage_(nullptr, downloadPercent);
+                                lastUiPercent = downloadPercent;
+                            }
+                            if (received - lastLogged >= kRamProgressBytes ||
+                                received == expectedSize) {
+                                RebootDiagnostics::noteOta(job.operationId, ramStage,
+                                                           (uint32_t)received, expectedSize);
+                                setStatus_(UpdateState::Downloading, FirmwareUpdateTarget::Waveshare,
+                                           baseProgress,
+                                           imageIndex == 0U ? "downloading filesystem to PSRAM"
+                                                            : "downloading firmware to PSRAM",
+                                           job.operationId);
+                                setOtaStage_(imageIndex == 0U ? "spiffs_download" : "firmware_download",
+                                    (uint8_t)(((uint64_t)received * 100U) / expectedSize));
+                                LOGI("[OTA-RAM] op=%lu target=%s stage=download_progress received=%lu/%lu attempt=%u",
+                                     (unsigned long)job.operationId, targetName,
+                                     (unsigned long)received, (unsigned long)expectedSize, attempt);
+                                lastLogged = received;
+                            }
+                            vTaskDelay(1);
+                        }
+                    }
+                    // Close the old TCP socket before a retry or flash.
+                    ramHttp.end();
+                }
+                if (success && !retryableFailure && received == expectedSize) break;
+                if (!success) break; // Fatal HTTP response; never retry an invalid Range.
+                if (!retryableFailure) {
+                    success = writeSimpleError_(errOut, errOutLen, "PSRAM artifact incomplete");
                     break;
                 }
-                if ((millis() - lastReadMs) > Limits::FirmwareUpdate::Http::StreamReadTimeoutMs) {
-                    snprintf(failMsg, sizeof(failMsg), "ota stream timeout");
+                if (attempt == OtaHttpRetryPolicy::kMaxAttempts) {
+                    LOGE("[OTA-HTTP] op=%lu target=%s stage=retries_exhausted attempts=%u received=%lu/%lu",
+                         (unsigned long)job.operationId, targetName,
+                         OtaHttpRetryPolicy::kMaxAttempts,
+                         (unsigned long)received, (unsigned long)expectedSize);
+                    success = writeSimpleError_(errOut, errOutLen,
+                                                "PSRAM artifact failed after 3 HTTP attempts");
                     break;
                 }
-                delay(1);
-                continue;
+                LOGW("[OTA-HTTP] op=%lu target=%s stage=retry_scheduled next=%u/%u offset=%lu",
+                     (unsigned long)job.operationId, targetName, attempt + 1U,
+                     OtaHttpRetryPolicy::kMaxAttempts, (unsigned long)received);
+                vTaskDelay(pdMS_TO_TICKS(OtaHttpRetryPolicy::kRetryDelayMs));
+            }
+            const uint32_t downloadMs = millis() - downloadStartedMs;
+            if (success) setOtaStage_(imageIndex == 0U ? "spiffs_download" : "firmware_download", 100U);
+            LOGI("[OTA-RAM] op=%lu target=%s stage=download_end success=%u bytes=%lu/%lu ms=%lu",
+                 (unsigned long)job.operationId, targetName, success ? 1U : 0U,
+                 (unsigned long)received, (unsigned long)expectedSize, (unsigned long)downloadMs);
+
+            uint32_t verifyMs = 0U;
+            if (success) {
+                const uint32_t verifyStarted = millis();
+                RebootDiagnostics::noteOta(job.operationId, ramVerifyStage, expectedSize, expectedSize);
+                setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare,
+                           baseProgress, imageIndex == 0U ? "SHA-256 filesystem in PSRAM"
+                                                        : "SHA-256 firmware in PSRAM",
+                           job.operationId);
+                setOtaStage_(imageIndex == 0U ? "spiffs_ram_verify" : "firmware_ram_verify", 0U);
+                mbedtls_sha256_context ramSha{};
+                mbedtls_sha256_init(&ramSha);
+                bool shaOk = mbedtls_sha256_starts(&ramSha, 0) == 0;
+                for (size_t offset = 0U; shaOk && offset < expectedSize;) {
+                    const size_t length = (expectedSize - offset) > kRamHashBytes
+                        ? kRamHashBytes : (expectedSize - offset);
+                    shaOk = mbedtls_sha256_update(&ramSha, ramImage.get() + offset, length) == 0;
+                    offset += length;
+                    vTaskDelay(1);
+                }
+                uint8_t digest[32]{};
+                if (shaOk) shaOk = mbedtls_sha256_finish(&ramSha, digest) == 0;
+                mbedtls_sha256_free(&ramSha);
+                const uint8_t* expectedSha = imageIndex == 0U
+                    ? localRelease_.filesystem.sha256 : localRelease_.firmware.sha256;
+                shaOk = shaOk && sha256Matches_(digest, expectedSha);
+                verifyMs = millis() - verifyStarted;
+                LOGI("[OTA-RAM] op=%lu target=%s stage=preverify_end sha256=%s ms=%lu flash_touched=0",
+                     (unsigned long)job.operationId, targetName, shaOk ? "OK" : "FAIL",
+                     (unsigned long)verifyMs);
+                if (!shaOk) {
+                    success = writeSimpleError_(errOut, errOutLen, "PSRAM artifact SHA-256 mismatch");
+                } else {
+                    setOtaStage_(imageIndex == 0U ? "spiffs_ram_verify" : "firmware_ram_verify", 100U);
+                }
             }
 
-            const size_t toRead = (avail > sizeof(buf)) ? sizeof(buf) : avail;
-            const int rd = stream->readBytes((char*)buf, toRead);
-            if (rd <= 0) {
-                delay(1);
-                continue;
+            uint32_t prepareMs = 0U;
+            uint32_t writeMs = 0U;
+            uint32_t maxFlashUs = 0U;
+            uint32_t slowFlashWrites = 0U;
+            if (success) {
+                // Only after complete HTTP + manifest hash validation is the
+                // inactive partition erased. Write from a small INTERNAL
+                // buffer: PSRAM need not be readable during flash-cache stalls.
+                RebootDiagnostics::noteOta(job.operationId,
+                    imageIndex == 0U ? RebootDiagnostics::OtaStage::Spiffs
+                                     : RebootDiagnostics::OtaStage::Firmware, 0U, expectedSize);
+                setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare,
+                           baseProgress, imageIndex == 0U ? "preparing release filesystem"
+                                                        : "preparing release firmware", job.operationId);
+                setOtaStage_(imageIndex == 0U ? "spiffs_prepare" : "firmware_prepare", 0U);
+                LOGI("[OTA-RAM] op=%lu target=%s stage=flash_prepare_start", (unsigned long)job.operationId, targetName);
+                otaMonitor_(imageIndex == 0U ? "spiffs_prepare_start" : "firmware_prepare_start");
+                const uint32_t prepareStarted = millis();
+                success = beginLocalImage_(transactionId, target, expectedSize, errOut, errOutLen);
+                prepareMs = millis() - prepareStarted;
+                LOGI("[OTA-RAM] op=%lu target=%s stage=flash_prepare_end success=%u ms=%lu",
+                     (unsigned long)job.operationId, targetName, success ? 1U : 0U,
+                     (unsigned long)prepareMs);
             }
-            lastReadMs = millis();
+            if (success) {
+                setOtaStage_(imageIndex == 0U ? "spiffs_write" : "firmware_write", 0U);
+                const uint32_t writingStarted = millis();
+                size_t flashed = 0U;
+                size_t lastFlashLog = 0U;
+                while (success && flashed < expectedSize) {
+                    const size_t amount = (expectedSize - flashed) > sizeof(chunk)
+                        ? sizeof(chunk) : (expectedSize - flashed);
+                    memcpy(chunk, ramImage.get() + flashed, amount);
+                    const uint32_t flashStartUs = micros();
+                    success = writeLocalImage_(transactionId, target, chunk, amount,
+                                               flashed, errOut, errOutLen);
+                    const uint32_t flashUs = (uint32_t)(micros() - flashStartUs);
+                    if (flashUs > maxFlashUs) maxFlashUs = flashUs;
+                    if (flashUs >= 20000U) ++slowFlashWrites;
+                    if (!success) {
+                        LOGE("[OTA-RAM] op=%lu target=%s stage=flash_error offset=%lu reason=%s",
+                             (unsigned long)job.operationId, targetName,
+                             (unsigned long)flashed, errOut ? errOut : "-");
+                        break;
+                    }
+                    flashed += amount;
+                    if (flashed - lastFlashLog >= kRamProgressBytes || flashed == expectedSize) {
+                        RebootDiagnostics::noteOta(job.operationId,
+                            imageIndex == 0U ? RebootDiagnostics::OtaStage::Spiffs
+                                             : RebootDiagnostics::OtaStage::Firmware,
+                            (uint32_t)flashed, expectedSize);
+                        LOGI("[OTA-RAM] op=%lu target=%s stage=flash_progress flashed=%lu/%lu flash_max_us=%lu slow20ms=%lu",
+                             (unsigned long)job.operationId, targetName,
+                             (unsigned long)flashed, (unsigned long)expectedSize,
+                             (unsigned long)maxFlashUs, (unsigned long)slowFlashWrites);
+                        otaMonitor_(imageIndex == 0U ? "spiffs_progress" : "firmware_progress");
+                        lastFlashLog = flashed;
+                    }
+                    vTaskDelay(1);
+                }
+                writeMs = millis() - writingStarted;
+            }
+            if (success) {
+                RebootDiagnostics::noteOta(job.operationId,
+                    imageIndex == 0U ? RebootDiagnostics::OtaStage::VerifySpiffs
+                                     : RebootDiagnostics::OtaStage::VerifyFirmware,
+                    expectedSize, expectedSize);
+                setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare,
+                           imageIndex == 0U ? (uint8_t)(((uint64_t)fsSize * 100U) / ((uint64_t)fsSize + fwSize))
+                                            : 99U,
+                           imageIndex == 0U ? "verifying release filesystem" : "verifying release firmware",
+                           job.operationId);
+                setOtaStage_(imageIndex == 0U ? "spiffs_verify" : "firmware_verify", 0U);
+                LOGI("[OTA-RAM] op=%lu target=%s stage=image_verify_start",
+                     (unsigned long)job.operationId, targetName);
+                success = endLocalImage_(transactionId, target, errOut, errOutLen);
+                LOGI("[OTA-RAM] op=%lu target=%s stage=image_verify_end success=%u",
+                     (unsigned long)job.operationId, targetName, success ? 1U : 0U);
+                if (success) setOtaStage_(imageIndex == 0U ? "spiffs_verify" : "firmware_verify", 100U);
+            }
+            LOGI("[OTA-RAM] op=%lu target=%s stage=image_end mode=psram success=%u download_ms=%lu preverify_ms=%lu flash_prepare_ms=%lu flash_write_ms=%lu flash_max_us=%lu free_psram=%lu",
+                 (unsigned long)job.operationId, targetName, success ? 1U : 0U,
+                 (unsigned long)downloadMs, (unsigned long)verifyMs,
+                 (unsigned long)prepareMs, (unsigned long)writeMs,
+                 (unsigned long)maxFlashUs,
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+            // Loop condition gates the next image and final A/B commit on success.
+            // A failed download/hash never touches that image's inactive flash.
+            continue;
+        }
+        LOGW("[OTA-RAM] op=%lu target=%s stage=fallback_stream reason=psram_reserve_or_alloc size=%lu free=%lu largest=%lu reserve=%lu",
+             (unsigned long)job.operationId, targetStr_(target),
+             (unsigned long)expectedSize, (unsigned long)ramFreeBefore,
+             (unsigned long)ramLargestBefore, (unsigned long)kRamReserveBytes);
+        // Legacy low-memory path: original HTTP -> 1 KiB flash streaming.
+        // Update the UI before a potentially slow partition erase/esp_ota_begin.
+        // This stage is informative only; the verified A/B commit is unchanged.
+        const uint8_t preparedProgress = imageIndex == 0U ? 0U
+            : (uint8_t)(((uint64_t)fsSize * 100U) / ((uint64_t)fsSize + fwSize));
+        setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare,
+                   preparedProgress,
+                   imageIndex == 0U ? "preparing release filesystem"
+                                    : "preparing release firmware",
+                   job.operationId);
+        setOtaStage_(imageIndex == 0U ? "spiffs_prepare" : "firmware_prepare", 0U);
+        // Prepare the inactive partition BEFORE starting the HTTP transfer,
+        // so a lengthy flash erase cannot starve an open TCP download.
+        RebootDiagnostics::noteOta(job.operationId,
+            imageIndex == 0U ? RebootDiagnostics::OtaStage::Spiffs
+                             : RebootDiagnostics::OtaStage::Firmware,
+            0U, expectedSize);
+        LOGI("[OTA-TRACE] op=%lu target=%s stage=partition_prepare_start",
+             (unsigned long)job.operationId, targetStr_(target));
+        otaMonitor_(imageIndex == 0U ? "spiffs_prepare_start" : "firmware_prepare_start");
+        const uint32_t prepareStartedMs = millis();
+        success = beginLocalImage_(transactionId, target, expectedSize, errOut, errOutLen);
+        LOGI("[OTA-TRACE] op=%lu target=%s stage=partition_prepare_end ms=%lu success=%u",
+             (unsigned long)job.operationId, targetStr_(target),
+             (unsigned long)(millis() - prepareStartedMs), success ? 1U : 0U);
+        otaMonitor_(imageIndex == 0U ? "spiffs_prepare_end" : "firmware_prepare_end");
+        if (!success) {
+            LOGE("[OTA] target preparation failed target=%s reason=%s",
+                 targetStr_(target), errOut ? errOut : "-");
+            break;
+        }
 
-            const size_t wr = Update.write(buf, (size_t)rd);
-            if (wr != (size_t)rd) {
-                snprintf(failMsg, sizeof(failMsg), "ota write failed (%u)", (unsigned)Update.getError());
+        LOGI("[OTA] beginning HTTP artifact target=%s size=%lu",
+             targetStr_(target), (unsigned long)expectedSize);
+        // Streaming fallback downloads and writes simultaneously, not as
+        // independent PSRAM/flash stages. Expose the combined mode explicitly.
+        setOtaStage_(imageIndex == 0U ? "spiffs_stream" : "firmware_stream", 0U);
+        // Streaming fallback also gets three transport attempts. If Range
+        // is unsupported, request the whole file again and DISCARD the already
+        // flashed prefix; the existing SHA-256 validator detects any mismatch
+        // between the first attempt and the replayed artifact.
+        size_t received = 0U;
+        size_t lastLoggedBytes = 0U;
+        uint32_t maxFlashWriteUs = 0U;
+        uint32_t slowFlashWrites = 0U;
+        for (unsigned attempt = 1U;
+             success && received < expectedSize && attempt <= OtaHttpRetryPolicy::kMaxAttempts;
+             ++attempt) {
+            const size_t requestedOffset = received;
+            size_t replaySkip = 0U;
+            bool retryableFailure = false;
+            LOGI("[OTA-HTTP] op=%lu target=%s mode=stream attempt=%u/%u offset=%lu",
+                 (unsigned long)job.operationId, targetStr_(target), attempt,
+                 OtaHttpRetryPolicy::kMaxAttempts, (unsigned long)requestedOffset);
+            HTTPClient artifactHttp;
+            configureDownloadHttp_(artifactHttp);
+            if (!artifactHttp.begin(urls[imageIndex])) {
+                retryableFailure = true;
+                LOGW("[OTA-HTTP] op=%lu target=%s attempt=%u stage=begin_failed mode=stream",
+                     (unsigned long)job.operationId, targetStr_(target), attempt);
+            } else {
+                const char* responseHeaders[] = {"Content-Range"};
+                artifactHttp.collectHeaders(responseHeaders, 1U);
+                if (requestedOffset > 0U) {
+                    artifactHttp.addHeader("Range", String("bytes=") +
+                                           String((unsigned long)requestedOffset) + "-");
+                }
+                const int code = artifactHttp.GET();
+                const int announced = artifactHttp.getSize();
+                const String contentRange = artifactHttp.header("Content-Range");
+                const auto mode = OtaHttpRetryPolicy::responseMode(
+                    code, requestedOffset, announced > 0 ? (size_t)announced : 0U,
+                    expectedSize, contentRange.c_str());
+                LOGI("[OTA-HTTP] op=%lu target=%s attempt=%u code=%d length=%d offset=%lu mode=%u stream=1",
+                     (unsigned long)job.operationId, targetStr_(target),
+                     attempt, code, announced, (unsigned long)requestedOffset, (unsigned)mode);
+                if (mode == OtaHttpRetryPolicy::ResponseMode::Invalid) {
+                    retryableFailure = OtaHttpRetryPolicy::isRetryableStatus(code);
+                    if (!retryableFailure) {
+                        success = writeSimpleError_(errOut, errOutLen,
+                            "streaming artifact HTTP response/Range invalid");
+                    }
+                } else {
+                    if (mode == OtaHttpRetryPolicy::ResponseMode::Full &&
+                        requestedOffset > 0U) {
+                        // HTTP 200: the server has ignored Range. Read and
+                        // discard the prefix without writing it again.
+                        // Final manifest SHA-256 still verifies all A/B data.
+                        replaySkip = requestedOffset;
+                        LOGW("[OTA-HTTP] op=%lu target=%s attempt=%u stage=restart_full_skip bytes=%lu",
+                             (unsigned long)job.operationId, targetStr_(target),
+                             attempt, (unsigned long)replaySkip);
+                    }
+                    Stream* stream = artifactHttp.getStreamPtr();
+                    uint32_t lastProgressMs = millis();
+                    uint32_t lastLogMs = lastProgressMs;
+                    while (success && !retryableFailure &&
+                           (received < expectedSize || replaySkip > 0U)) {
+                        const size_t available = stream ? stream->available() : 0U;
+                        if (available == 0U) {
+                            const uint32_t idleMs = millis() - lastProgressMs;
+                            if (!artifactHttp.connected() ||
+                                idleMs > Limits::FirmwareUpdate::Http::StreamReadTimeoutMs) {
+                                retryableFailure = true;
+                                LOGW("[OTA-HTTP] op=%lu target=%s attempt=%u stage=interrupted received=%lu/%lu skip=%lu idle_ms=%lu",
+                                     (unsigned long)job.operationId, targetStr_(target),
+                                     attempt, (unsigned long)received,
+                                     (unsigned long)expectedSize, (unsigned long)replaySkip,
+                                     (unsigned long)idleMs);
+                                break;
+                            }
+                            if (millis() - lastLogMs >= 5000U) {
+                                LOGW("[OTA] HTTP waiting target=%s received=%lu/%lu idle_ms=%lu attempt=%u",
+                                     targetStr_(target), (unsigned long)received,
+                                     (unsigned long)expectedSize, (unsigned long)idleMs, attempt);
+                                lastLogMs = millis();
+                            }
+                            vTaskDelay(1);
+                            continue;
+                        }
+                        size_t amount = available > sizeof(chunk) ? sizeof(chunk) : available;
+                        if (replaySkip > 0U) {
+                            if (amount > replaySkip) amount = replaySkip;
+                        } else if (amount > expectedSize - received) {
+                            amount = expectedSize - received;
+                        }
+                        const int rd = stream->readBytes(reinterpret_cast<char*>(chunk), amount);
+                        if (rd <= 0) {
+                            if (!artifactHttp.connected() ||
+                                millis() - lastProgressMs > Limits::FirmwareUpdate::Http::StreamReadTimeoutMs) {
+                                retryableFailure = true;
+                                LOGW("[OTA-HTTP] op=%lu target=%s attempt=%u stage=read_stalled offset=%lu",
+                                     (unsigned long)job.operationId, targetStr_(target),
+                                     attempt, (unsigned long)received);
+                                break;
+                            }
+                            vTaskDelay(1);
+                            continue;
+                        }
+                        lastProgressMs = millis();
+                        if (replaySkip > 0U) {
+                            replaySkip -= (size_t)rd;
+                            vTaskDelay(1);
+                            continue;
+                        }
+                        const uint32_t writeStartUs = micros();
+                        success = writeLocalImage_(transactionId, target, chunk, (size_t)rd,
+                                                   received, errOut, errOutLen);
+                        const uint32_t writeUs = (uint32_t)(micros() - writeStartUs);
+                        if (writeUs > maxFlashWriteUs) maxFlashWriteUs = writeUs;
+                        if (writeUs >= 20000U) ++slowFlashWrites;
+                        if (!success) {
+                            LOGE("[OTA-TRACE] op=%lu target=%s stage=flash_error offset=%lu write_us=%lu reason=%s",
+                                 (unsigned long)job.operationId, targetStr_(target),
+                                 (unsigned long)received, (unsigned long)writeUs,
+                                 errOut ? errOut : "-");
+                            otaMonitor_("flash_error");
+                            break;
+                        }
+                        received += (size_t)rd;
+                        if (received - lastLoggedBytes >= 256U * 1024U ||
+                            received == expectedSize) {
+                            RebootDiagnostics::noteOta(job.operationId,
+                                imageIndex == 0U ? RebootDiagnostics::OtaStage::Spiffs
+                                                 : RebootDiagnostics::OtaStage::Firmware,
+                                (uint32_t)received, expectedSize);
+                            LOGI("[OTA-TRACE] op=%lu target=%s stage=stream_progress received=%lu/%lu flash_max_us=%lu flash_slow20ms=%lu attempt=%u",
+                                 (unsigned long)job.operationId, targetStr_(target),
+                                 (unsigned long)received, (unsigned long)expectedSize,
+                                 (unsigned long)maxFlashWriteUs, (unsigned long)slowFlashWrites,
+                                 attempt);
+                            otaMonitor_(imageIndex == 0U ? "spiffs_progress" : "firmware_progress");
+                            lastLoggedBytes = received;
+                            lastLogMs = lastProgressMs;
+                        }
+                        vTaskDelay(1);
+                    }
+                }
+                artifactHttp.end();
+            }
+            LOGI("[OTA-TRACE] op=%lu target=%s stage=http_attempt_end attempt=%u success=%u received=%lu/%lu",
+                 (unsigned long)job.operationId, targetStr_(target), attempt,
+                 (success && !retryableFailure && received == expectedSize) ? 1U : 0U,
+                 (unsigned long)received, (unsigned long)expectedSize);
+            if (success && !retryableFailure && received == expectedSize) break;
+            if (!success) break; // Flash or validation error: never retry.
+            if (!retryableFailure) {
+                success = writeSimpleError_(errOut, errOutLen, "streaming artifact incomplete");
                 break;
             }
-
-            onProgressChunk_((uint32_t)wr);
-            writtenTotal += wr;
-            if (writtenTotal >= nextWriteProgress) {
-                LOGI("[OTA] phase=firmware_write_progress bytes=%lu expected=%ld",
-                     (unsigned long)writtenTotal, (long)contentLength);
-#if FLOW_PERFORMANCE_DIAGNOSTICS
-                LOGD("[OTA] timing=firmware_write_progress elapsed_ms=%lu", (unsigned long)(millis() - writeStartMs));
-#endif
-                otaMonitor_("firmware_write_progress");
-                nextWriteProgress += 256U * 1024U;
+            if (attempt == OtaHttpRetryPolicy::kMaxAttempts) {
+                LOGE("[OTA-HTTP] op=%lu target=%s stage=retries_exhausted attempts=%u received=%lu/%lu mode=stream",
+                     (unsigned long)job.operationId, targetStr_(target),
+                     OtaHttpRetryPolicy::kMaxAttempts,
+                     (unsigned long)received, (unsigned long)expectedSize);
+                success = writeSimpleError_(errOut, errOutLen,
+                    "streaming artifact failed after 3 HTTP attempts");
+                break;
             }
-
-            if (contentLength > 0) {
-                remaining -= rd;
-                if (remaining <= 0) {
-                    break;
+            LOGW("[OTA-HTTP] op=%lu target=%s stage=retry_scheduled next=%u/%u offset=%lu mode=stream",
+                 (unsigned long)job.operationId, targetStr_(target),
+                 attempt + 1U, OtaHttpRetryPolicy::kMaxAttempts,
+                 (unsigned long)received);
+            vTaskDelay(pdMS_TO_TICKS(OtaHttpRetryPolicy::kRetryDelayMs));
+        }
+        LOGI("[OTA-TRACE] op=%lu target=%s stage=http_end success=%u",
+             (unsigned long)job.operationId, targetStr_(target),
+             (success && received == expectedSize) ? 1U : 0U);
+        if (success) {
+            // The transport count and flash transaction count MUST agree
+            // before an image can be finalized. A mismatched stage/counter
+            // reveals unexpected concurrent mutation or an upload boundary
+            // bug instead of producing a misleading SHA/short-image error.
+            size_t flashed = 0U;
+            unsigned stage = 0U;
+            bool transactionMatches = false;
+            {
+                SemaphoreGuard imageGuard(localReleaseMutex_);
+                if (imageGuard.acquired()) {
+                    flashed = localRelease_.received;
+                    stage = (unsigned)localRelease_.stage;
+                    transactionMatches = localTransactionMatches_(transactionId);
+                }
+            }
+            if (!transactionMatches || flashed != expectedSize) {
+                LOGE("[OTA] stream/flash mismatch target=%s flashed=%lu expected=%lu stage=%u transaction=%u",
+                     targetStr_(target), (unsigned long)flashed,
+                     (unsigned long)expectedSize, stage, transactionMatches ? 1U : 0U);
+                success = writeSimpleError_(errOut, errOutLen, "release transport/flash counter mismatch");
+            } else {
+                LOGI("[OTA] transport and flash counters match target=%s bytes=%lu",
+                     targetStr_(target), (unsigned long)flashed);
+                RebootDiagnostics::noteOta(job.operationId,
+                    imageIndex == 0U ? RebootDiagnostics::OtaStage::VerifySpiffs
+                                     : RebootDiagnostics::OtaStage::VerifyFirmware,
+                    expectedSize, expectedSize);
+                LOGI("[OTA-TRACE] op=%lu target=%s stage=image_verify_start",
+                     (unsigned long)job.operationId, targetStr_(target));
+                const uint8_t verifyProgress = imageIndex == 0U
+                    ? (uint8_t)(((uint64_t)fsSize * 100U) / ((uint64_t)fsSize + fwSize))
+                    : 99U;
+                setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare,
+                           verifyProgress,
+                           imageIndex == 0U ? "verifying release filesystem"
+                                            : "verifying release firmware",
+                           job.operationId);
+                setOtaStage_(imageIndex == 0U ? "spiffs_verify" : "firmware_verify", 0U);
+                const uint32_t verifyStartedMs = millis();
+                success = endLocalImage_(transactionId, target, errOut, errOutLen);
+                if (success) setOtaStage_(imageIndex == 0U ? "spiffs_verify" : "firmware_verify", 100U);
+                LOGI("[OTA-TRACE] op=%lu target=%s stage=image_verify_end ms=%lu success=%u",
+                     (unsigned long)job.operationId, targetStr_(target),
+                     (unsigned long)(millis() - verifyStartedMs), success ? 1U : 0U);
+                otaMonitor_(imageIndex == 0U ? "spiffs_verify_end" : "firmware_verify_end");
+                if (!success) {
+                    LOGE("[OTA] image finalization failed target=%s reason=%s",
+                         targetStr_(target), errOut ? errOut : "-");
                 }
             }
         }
-
-        LOGI("[OTA] phase=firmware_stream_end bytes=%lu expected=%ld",
-             (unsigned long)writtenTotal, (long)contentLength);
-#if FLOW_PERFORMANCE_DIAGNOSTICS
-        LOGD("[OTA] timing=firmware_stream_end elapsed_ms=%lu", (unsigned long)(millis() - writeStartMs));
-#endif
-        otaMonitor_("firmware_stream_end");
-        if (failMsg[0] == '\0' && contentLength > 0 && remaining > 0) {
-            snprintf(failMsg, sizeof(failMsg), "incomplete download");
-        }
-        if (failMsg[0] == '\0' && !Update.end()) {
-            snprintf(failMsg, sizeof(failMsg), "ota end failed (%u)", (unsigned)Update.getError());
-        }
-        if (failMsg[0] == '\0' && !Update.isFinished()) {
-            snprintf(failMsg, sizeof(failMsg), "ota not finished");
-        }
     }
 
-    if (pauseWeb) webInterfaceSvc_->setPaused(webInterfaceSvc_->ctx, false);
-
-    http.end();
-    otaMonitor_("firmware_write_end");
-    LOGI("[UPGRADE] stage=firmware_write_%s operation_id=%lu",
-         failMsg[0] == '\0' ? "done" : "failed",
-         (unsigned long)job.operationId);
-
-    if (failMsg[0] != '\0') {
-        LOGE("[OTA] phase=firmware_error reason=%s", failMsg);
-        otaMonitor_("firmware_error");
-        writeSimpleError_(errOut, errOutLen, failMsg);
-        return false;
+    if (success) {
+        RebootDiagnostics::noteOta(job.operationId, RebootDiagnostics::OtaStage::Commit);
+        setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare, 99U,
+                   "activating paired release", job.operationId);
+        setOtaStage_("activate", 0U);
+        LOGI("[OTA-TRACE] op=%lu stage=commit_start", (unsigned long)job.operationId);
+        otaMonitor_("commit_start");
+        success = commitLocalRelease_(transactionId, errOut, errOutLen);
+        LOGI("[OTA-TRACE] op=%lu stage=commit_end success=%u",
+             (unsigned long)job.operationId, success ? 1U : 0U);
+        otaMonitor_("commit_end");
+        if (success) {
+            LOGI("[OTA] paired release verified and committed; one reboot scheduled");
+        }
     }
-
-    if (!persistReceipt_(job.target,
-                         job.operationId,
-                         FirmwareUpdateReceiptState::RebootPending)) {
-        writeSimpleError_(errOut, errOutLen, "failed to persist update completion");
-        return false;
+    char failedStage[sizeof(status_.otaStage)]{};
+    if (!success) {
+        // Remember the phase before abortLocalRelease_ resets the UI state to
+        // Idle. The updater's final runJob_ error would otherwise report
+        // stage=idle, losing the exact phase of the first failed attempt.
+        portENTER_CRITICAL(&lock_);
+        snprintf(failedStage, sizeof(failedStage), "%s",
+                 status_.otaStage[0] ? status_.otaStage : stateStr_(status_.state));
+        portEXIT_CRITICAL(&lock_);
+        LOGE("[OTA-TRACE] op=%lu stage=aborted reason=%s",
+             (unsigned long)job.operationId, errOut ? errOut : "-");
+        otaMonitor_("abort");
     }
-    otaMonitor_("firmware_reboot");
-    setStatus_(UpdateState::Rebooting,
-               FirmwareUpdateTarget::Waveshare,
-               100,
-               "rebooting",
-               job.operationId);
-    delay(1800);
-    if (!saveCountersBeforeUpdate_(errOut, errOutLen)) return false;
-    ESP.restart();
-    return true;
+    if (!success && transactionId != 0U) {
+        // Keeps the old paired release active on any download/validation fault.
+        char abortError[128]{};
+        (void)abortLocalRelease_(transactionId, abortError, sizeof(abortError));
+    }
+    if (!success) {
+        // At most one small NVS write, after the transaction was aborted;
+        // retain this error even if the user immediately retries and succeeds.
+        persistLastFailure_(FirmwareUpdateTarget::Waveshare,
+                            job.operationId, failedStage, errOut);
+    }
+    portENTER_CRITICAL(&lock_);
+    remoteReleaseWorker_ = nullptr;
+    remoteReleaseOperationId_ = 0U;
+    portEXIT_CRITICAL(&lock_);
+    return success;
 }
 
 bool FirmwareUpdateModule::runNextionUpdate_(const UpdateJob& job, char* errOut, size_t errOutLen)
@@ -1432,6 +2256,7 @@ bool FirmwareUpdateModule::runNextionUpdate_(const UpdateJob& job, char* errOut,
                job.operationId);
     delay(1800);
     if (!saveCountersBeforeUpdate_(errOut, errOutLen)) return false;
+    RebootDiagnostics::markPlanned(RebootDiagnostics::Origin::OtaNextion, job.operationId);
     ESP.restart();
     return true;
 }
@@ -1458,127 +2283,17 @@ bool FirmwareUpdateModule::runNextionReboot_(char* errOut, size_t errOutLen)
 
 bool FirmwareUpdateModule::runSpiffsUpdate_(const UpdateJob& job, char* errOut, size_t errOutLen)
 {
-    const char* url = job.url;
-    setStatus_(UpdateState::Downloading,
-               FirmwareUpdateTarget::Spiffs,
-               0,
-               "downloading",
-               job.operationId);
-
-    otaMonitor_("spiffs_start");
-    HTTPClient http;
-    configureDownloadHttp_(http);
-    if (!http.begin(url)) {
-        writeHttpBeginFailedError_("fichier de mise a jour", url, errOut, errOutLen);
-        return false;
+    // Legacy SPIFFS button is a migration trigger ONLY. It must never
+    // erase or write the mounted filesystem. The paired updater below writes
+    // firmware + filesystem to inactive A/B slots, validates both, and
+    // changes the boot slot after commit.
+    if (!ReleaseStorage::legacyPairedMigrationNeeded()) {
+        return writeSimpleError_(errOut, errOutLen,
+                                 "standalone SPIFFS OTA forbidden; use paired FlowIO update");
     }
-
-    const int code = http.GET();
-    const int32_t contentLength = http.getSize();
-    LOGI("[OTA] phase=spiffs_http code=%d length=%ld", code, (long)contentLength);
-    if (code != HTTP_CODE_OK) {
-        writeHttpCodeFailedError_("fichier de mise a jour", url, http, code, errOut, errOutLen);
-        http.end();
-        return false;
-    }
-
-    setStatus_(UpdateState::Flashing,
-               FirmwareUpdateTarget::Spiffs,
-               0,
-               "flashing spiffs",
-               job.operationId);
-    portENTER_CRITICAL(&lock_);
-    activeTotalBytes_ = (contentLength > 0) ? (uint32_t)contentLength : 0U;
-    activeSentBytes_ = 0;
-    portEXIT_CRITICAL(&lock_);
-
-    attachWebInterfaceSvcIfNeeded_();
-    if (webInterfaceSvc_ && webInterfaceSvc_->setPaused) {
-        webInterfaceSvc_->setPaused(webInterfaceSvc_->ctx, true);
-    }
-
-    char failMsg[128] = {0};
-    const char* activeLabel = ReleaseStorage::filesystemLabel(ReleaseStorage::runningSlot());
-    const auto remountActiveFilesystem = [this, activeLabel]() -> bool {
-        const bool remounted = SPIFFS.begin(false, "/spiffs", 10, activeLabel);
-        if (remounted && webInterfaceSvc_ && webInterfaceSvc_->setPaused) {
-            webInterfaceSvc_->setPaused(webInterfaceSvc_->ctx, false);
-        }
-        return remounted;
-    };
-    const esp_partition_t* activePartition = esp_partition_find_first(
-        ESP_PARTITION_TYPE_DATA,
-        ESP_PARTITION_SUBTYPE_ANY,
-        activeLabel);
-    LOGI("[UPGRADE] direct filesystem target=%s announced=%d expected=%u",
-         activeLabel,
-         (int)contentLength,
-         activePartition ? (unsigned)activePartition->size : 0U);
-    if (!activePartition || contentLength == 0 ||
-        (contentLength > 0 && (size_t)contentLength != activePartition->size)) {
-        snprintf(failMsg,
-                 sizeof(failMsg),
-                 "spiffs image size incompatible announced=%d expected=%u",
-                 (int)contentLength,
-                 activePartition ? (unsigned)activePartition->size : 0U);
-    } else {
-        otaMonitor_("spiffs_erase_before");
-        SPIFFS.end();
-        if (esp_partition_erase_range(activePartition, 0U, activePartition->size) != ESP_OK) {
-            snprintf(failMsg, sizeof(failMsg), "spiffs erase failed");
-        }
-    }
-
-    const auto reportProgress = [](void* context, size_t writtenBytes) {
-        static_cast<FirmwareUpdateModule*>(context)->onProgressChunk_((uint32_t)writtenBytes);
-    };
-    PartitionWriteStream partitionStream(activePartition, reportProgress, this);
-    int streamedBytes = 0;
-    if (failMsg[0] == '\0') {
-        streamedBytes = http.writeToStream(&partitionStream);
-    }
-    http.end();
-    otaMonitor_("spiffs_write_end");
-
-    if (failMsg[0] == '\0' && partitionStream.overflowed()) {
-        snprintf(failMsg, sizeof(failMsg), "spiffs image exceeds active slot");
-    } else if (failMsg[0] == '\0' && partitionStream.flashError()) {
-        snprintf(failMsg, sizeof(failMsg), "spiffs write failed");
-    } else if (failMsg[0] == '\0' && streamedBytes < 0) {
-        snprintf(failMsg, sizeof(failMsg), "spiffs download failed (%d)", streamedBytes);
-    } else if (failMsg[0] == '\0' && partitionStream.writtenBytes() != activePartition->size) {
-        snprintf(failMsg,
-                 sizeof(failMsg),
-                 "incomplete spiffs image received=%u expected=%u",
-                 (unsigned)partitionStream.writtenBytes(),
-                 (unsigned)activePartition->size);
-    }
-    if (failMsg[0] != '\0') {
-        LOGE("[OTA] phase=spiffs_error reason=%s", failMsg);
-        otaMonitor_("spiffs_error");
-        (void)remountActiveFilesystem();
-        writeSimpleError_(errOut, errOutLen, failMsg);
-        return false;
-    }
-
-    if (!persistReceipt_(job.target,
-                         job.operationId,
-                         FirmwareUpdateReceiptState::RebootPending)) {
-        (void)remountActiveFilesystem();
-        writeSimpleError_(errOut, errOutLen, "failed to persist update completion");
-        return false;
-    }
-    setStatus_(UpdateState::Rebooting,
-               FirmwareUpdateTarget::Spiffs,
-               100,
-               "rebooting",
-               job.operationId);
-    delay(1800);
-    if (!saveCountersBeforeUpdate_(errOut, errOutLen)) return false;
-    ESP.restart();
-    return true;
+    LOGI("[OTA] legacy SPIFFS button: starting verified paired A/B migration");
+    return runWaveshareUpdate_(job, errOut, errOutLen);
 }
-
 bool FirmwareUpdateModule::localTransactionMatches_(uint32_t transactionId) const
 {
     return localRelease_.active && transactionId != 0U && localRelease_.id == transactionId;
@@ -1640,9 +2355,19 @@ bool FirmwareUpdateModule::beginLocalRelease_(const char* manifestJson,
     if (!manifestJson || manifestLen == 0U || manifestLen > 1024U) {
         return writeSimpleError_(errOut, errOutLen, "invalid release manifest");
     }
-    StaticJsonDocument<1024> doc;
-    const auto jsonError = deserializeJson(doc, manifestJson, manifestLen);
+    // This is called from the remote OTA worker, which is already several
+    // stack frames deep. Keep the JSON tree on the heap, and NEVER mutate the
+    // manifest buffer that has already been parsed by the caller.
+    // This second manifest parse can overlap the caller's JSON pool.
+    // Place both pools explicitly in PSRAM to protect lwIP/OTA internal RAM.
+    SpiRamJsonDocument doc(2048U);
+    if (doc.capacity() == 0U) {
+        return writeSimpleError_(errOut, errOutLen, "release manifest json psram unavailable");
+    }
+    otaMonitor_("release_manifest_json_psram");
+    const auto jsonError = deserializeJson(doc, static_cast<const char*>(manifestJson), manifestLen);
     if (jsonError || !doc.is<JsonObjectConst>()) {
+        LOGE("[OTA] paired release second parse failed: %s", jsonError.c_str());
         return writeSimpleError_(errOut, errOutLen, "invalid release manifest json");
     }
     const uint32_t format = doc["format"] | 0U;
@@ -1666,7 +2391,15 @@ bool FirmwareUpdateModule::beginLocalRelease_(const char* manifestJson,
     candidate.firmware.size = firmware["size"] | 0U;
     const char* firmwareFile = firmware["file"] | "";
     const char* filesystemFile = filesystem["file"] | "";
-    if (strcmp(firmwareFile, "firmware.bin") != 0 || strcmp(filesystemFile, "spiffs.bin") != 0 ||
+    const bool fromPairedRemoteWorker = remoteReleaseWorker_ != nullptr &&
+                                        remoteReleaseWorker_ == xTaskGetCurrentTaskHandle();
+    const bool filenamesValid = fromPairedRemoteWorker
+        ? (isSimpleArtifactFilename_(firmwareFile) &&
+           isSimpleArtifactFilename_(filesystemFile) &&
+           strcmp(firmwareFile, filesystemFile) != 0)
+        : (strcmp(firmwareFile, "firmware.bin") == 0 &&
+           strcmp(filesystemFile, "spiffs.bin") == 0);
+    if (!filenamesValid ||
         candidate.filesystem.size == 0U || candidate.firmware.size == 0U ||
         !parseSha256_(filesystem["sha256"] | "", candidate.filesystem.sha256) ||
         !parseSha256_(firmware["sha256"] | "", candidate.firmware.sha256)) {
@@ -1695,22 +2428,36 @@ bool FirmwareUpdateModule::beginLocalRelease_(const char* manifestJson,
     snprintf(candidate.version, sizeof(candidate.version), "%s", version);
 
     portENTER_CRITICAL(&lock_);
-    if (busy_ || localReleaseActive_ || queuedJob_.pending || nextionRebootQueued_ ||
-        updateStartPending_ || !manifestMetadata_ ||
+    // Internal remote worker is already marked busy_ by loop(); external API
+    // callers cannot bypass the busy gate because their FreeRTOS task differs.
+    const bool internalRemoteWorker = remoteReleaseWorker_ != nullptr &&
+                                      remoteReleaseWorker_ == xTaskGetCurrentTaskHandle();
+    if ((busy_ && !internalRemoteWorker) || localReleaseActive_ || queuedJob_.pending ||
+        nextionRebootQueued_ || updateStartPending_ || !manifestMetadata_ ||
         manifestCheckIsActive_(manifestMetadata_->check.state) || manifestCopyReaders_ > 0U) {
         portEXIT_CRITICAL(&lock_);
         return writeSimpleError_(errOut, errOutLen, "updater busy");
     }
     localReleaseActive_ = true;
-    candidate.operationId = nextOperationId_++;
-    if (nextOperationId_ == 0U) nextOperationId_ = 1U;
+    if (internalRemoteWorker) {
+        // Preserve the operation ID returned to the Web client when queued.
+        candidate.operationId = remoteReleaseOperationId_;
+    } else {
+        candidate.operationId = nextOperationId_++;
+        if (nextOperationId_ == 0U) nextOperationId_ = 1U;
+    }
     portEXIT_CRITICAL(&lock_);
 
     localRelease_ = candidate;
+    LOGI("[OTA] paired transaction checkpoint begin operation_id=%lu stack_free_bytes=%u",
+         (unsigned long)candidate.operationId,
+         (unsigned)uxTaskGetStackHighWaterMark(nullptr));
     if (!saveCountersBeforeUpdate_(errOut, errOutLen)) {
+        LOGE("[OTA] paired transaction checkpoint failed: %s", errOut ? errOut : "-");
         resetLocalRelease_();
         return false;
     }
+    LOGI("[OTA] paired transaction checkpoint OK; persisting prepared receipt");
     if (!persistReceipt_(FirmwareUpdateTarget::Waveshare,
                          candidate.operationId,
                          FirmwareUpdateReceiptState::Running)) {
@@ -1719,9 +2466,9 @@ bool FirmwareUpdateModule::beginLocalRelease_(const char* manifestJson,
     }
     if (transactionIdOut) *transactionIdOut = candidate.id;
     setStatus_(UpdateState::Queued,
-               FirmwareUpdateTarget::Spiffs,
+               internalRemoteWorker ? FirmwareUpdateTarget::Waveshare : FirmwareUpdateTarget::Spiffs,
                0U,
-               "local release prepared",
+               internalRemoteWorker ? "remote paired release prepared" : "local release prepared",
                candidate.operationId);
     LOGI("[UPGRADE] begin release=%s target=%s",
          candidate.version,
@@ -1738,6 +2485,13 @@ bool FirmwareUpdateModule::beginLocalImage_(uint32_t transactionId,
     SemaphoreGuard transactionGuard(localReleaseMutex_);
     if (!transactionGuard.acquired()) {
         return writeSimpleError_(errOut, errOutLen, "upgrade synchronization unavailable");
+    }
+    // A remote paired transaction owns its upload/validation methods. Do not
+    // permit an asynchronous Web upload callback to finish or alter the same
+    // transaction while the OTA worker is still receiving its image.
+    if (remoteReleaseWorker_ != nullptr &&
+        remoteReleaseWorker_ != xTaskGetCurrentTaskHandle()) {
+        return writeSimpleError_(errOut, errOutLen, "remote paired release owns image transaction");
     }
     if (!isLocalReleaseImageTarget_(target)) {
         return writeSimpleError_(errOut, errOutLen, "unsupported release image target");
@@ -1776,10 +2530,33 @@ bool FirmwareUpdateModule::beginLocalImage_(uint32_t transactionId,
         return writeSimpleError_(errOut, errOutLen, "target partition unavailable");
     }
 
+    // A/B release uploads must never erase the active filesystem or firmware.
+    const esp_partition_t* active = filesystemTarget
+        ? esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY,
+                                   ReleaseStorage::filesystemLabel(ReleaseStorage::runningSlot()))
+        : esp_ota_get_running_partition();
+    const esp_partition_t* destination = localRelease_.writePartition;
+    if (!active || (active->address < destination->address + destination->size &&
+                    destination->address < active->address + active->size)) {
+        failLocalRelease_("release target overlaps active partition");
+        return writeSimpleError_(errOut, errOutLen, "release target overlaps active partition");
+    }
+
     esp_err_t flashError = ESP_OK;
     if (filesystemTarget) {
-        flashError = esp_partition_erase_range(
-            localRelease_.writePartition, 0U, localRelease_.writePartition->size);
+        // Erase the inactive SPIFFS in bounded chunks. This path serves both
+        // local and remote paired releases, so never monopolize the Wi-Fi CPU.
+        constexpr size_t kEraseBytes = 64U * 1024U;
+        const size_t partitionSize = localRelease_.writePartition->size;
+        if (partitionSize % kEraseBytes != 0U) {
+            failLocalRelease_("inactive filesystem erase alignment invalid");
+            return writeSimpleError_(errOut, errOutLen, "inactive filesystem erase alignment invalid");
+        }
+        for (size_t offset = 0U; offset < partitionSize; offset += kEraseBytes) {
+            flashError = esp_partition_erase_range(localRelease_.writePartition, offset, kEraseBytes);
+            if (flashError != ESP_OK) break;
+            vTaskDelay(1);
+        }
     } else {
         flashError = esp_ota_begin(localRelease_.writePartition, totalSize, &localRelease_.otaHandle);
     }
@@ -1798,14 +2575,23 @@ bool FirmwareUpdateModule::beginLocalImage_(uint32_t transactionId,
     localRelease_.lastActivityMs = millis();
     localRelease_.stage = filesystemTarget ? LocalReleaseStage::WritingFilesystem
                                            : LocalReleaseStage::WritingFirmware;
+    const bool remotePaired = remoteReleaseWorker_ != nullptr &&
+                              remoteReleaseWorker_ == xTaskGetCurrentTaskHandle();
     portENTER_CRITICAL(&lock_);
-    activeTotalBytes_ = (uint32_t)totalSize;
-    activeSentBytes_ = 0U;
+    if (remotePaired) {
+        activeTotalBytes_ = localRelease_.filesystem.size + localRelease_.firmware.size;
+        if (filesystemTarget) activeSentBytes_ = 0U;
+    } else {
+        activeTotalBytes_ = (uint32_t)totalSize;
+        activeSentBytes_ = 0U;
+    }
+    const uint8_t currentProgress = activeTotalBytes_
+        ? (uint8_t)(((uint64_t)activeSentBytes_ * 100U) / activeTotalBytes_) : 0U;
     portEXIT_CRITICAL(&lock_);
     setStatus_(UpdateState::Flashing,
-               target,
-               0U,
-               filesystemTarget ? "uploading release filesystem" : "uploading release firmware",
+               remotePaired ? FirmwareUpdateTarget::Waveshare : target,
+               currentProgress,
+               filesystemTarget ? "writing release filesystem" : "writing release firmware",
                localRelease_.operationId);
     LOGI("[UPGRADE] %s target=%s size=%u",
          filesystemTarget ? "filesystem" : "firmware",
@@ -1825,6 +2611,13 @@ bool FirmwareUpdateModule::writeLocalImage_(uint32_t transactionId,
     SemaphoreGuard transactionGuard(localReleaseMutex_);
     if (!transactionGuard.acquired()) {
         return writeSimpleError_(errOut, errOutLen, "upgrade synchronization unavailable");
+    }
+    // A remote paired transaction owns its upload/validation methods. Do not
+    // permit an asynchronous Web upload callback to finish or alter the same
+    // transaction while the OTA worker is still receiving its image.
+    if (remoteReleaseWorker_ != nullptr &&
+        remoteReleaseWorker_ != xTaskGetCurrentTaskHandle()) {
+        return writeSimpleError_(errOut, errOutLen, "remote paired release owns image transaction");
     }
     if (!isLocalReleaseImageTarget_(target)) {
         return writeSimpleError_(errOut, errOutLen, "unsupported release image target");
@@ -1861,6 +2654,11 @@ bool FirmwareUpdateModule::writeLocalImage_(uint32_t transactionId,
     localRelease_.received += len;
     localRelease_.lastActivityMs = millis();
     onProgressChunk_((uint32_t)len);
+    if (remoteReleaseWorker_ != nullptr &&
+        remoteReleaseWorker_ == xTaskGetCurrentTaskHandle()) {
+        // Image-local progress; preserve PSRAM write vs HTTP streaming mode.
+        setOtaStage_(nullptr, (uint8_t)(((uint64_t)localRelease_.received * 100U) / expectedSize));
+    }
     if (localRelease_.received == expectedSize) {
         LOGI("[UPGRADE] %s stream complete received=%u",
              filesystemTarget ? "filesystem" : "firmware",
@@ -1877,6 +2675,13 @@ bool FirmwareUpdateModule::endLocalImage_(uint32_t transactionId,
     SemaphoreGuard transactionGuard(localReleaseMutex_);
     if (!transactionGuard.acquired()) {
         return writeSimpleError_(errOut, errOutLen, "upgrade synchronization unavailable");
+    }
+    // A remote paired transaction owns its upload/validation methods. Do not
+    // permit an asynchronous Web upload callback to finish or alter the same
+    // transaction while the OTA worker is still receiving its image.
+    if (remoteReleaseWorker_ != nullptr &&
+        remoteReleaseWorker_ != xTaskGetCurrentTaskHandle()) {
+        return writeSimpleError_(errOut, errOutLen, "remote paired release owns image transaction");
     }
     if (!isLocalReleaseImageTarget_(target)) {
         return writeSimpleError_(errOut, errOutLen, "unsupported release image target");
@@ -1946,15 +2751,41 @@ bool FirmwareUpdateModule::endLocalImage_(uint32_t transactionId,
     localRelease_.writePartition = nullptr;
     localRelease_.received = 0U;
     localRelease_.lastActivityMs = millis();
-    portENTER_CRITICAL(&lock_);
-    activeTotalBytes_ = 0U;
-    activeSentBytes_ = 0U;
-    portEXIT_CRITICAL(&lock_);
-    setStatus_(UpdateState::Done,
-               target,
-               100U,
-               filesystemTarget ? "release filesystem verified" : "release firmware verified",
-               localRelease_.operationId);
+    const bool remotePaired = remoteReleaseWorker_ != nullptr &&
+                              remoteReleaseWorker_ == xTaskGetCurrentTaskHandle();
+    if (!remotePaired) {
+        portENTER_CRITICAL(&lock_);
+        activeTotalBytes_ = 0U;
+        activeSentBytes_ = 0U;
+        portEXIT_CRITICAL(&lock_);
+    }
+    if (remotePaired) {
+        // Never report Done between the two images; the browser must wait
+        // for the verified joint commit and the single reboot.
+        setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare,
+                   filesystemTarget ? (uint8_t)(((uint64_t)localRelease_.filesystem.size * 100U) /
+                                         (localRelease_.filesystem.size + localRelease_.firmware.size))
+                                    : 99U,
+                   filesystemTarget ? "filesystem SHA-256 OK; firmware next"
+                                    : "firmware SHA-256 OK; committing release",
+                   localRelease_.operationId);
+    } else {
+        // ZIP upload: an image has been verified, NOT the complete release.
+        // Keep the paired OTA in Flashing until commitLocalRelease_ has
+        // successfully verified both images and selected the inactive app.
+        // Reporting Done here could trigger a premature browser reconnect
+        // or give the operator a false success after SPIFFS alone.
+        const uint8_t pairedProgress = filesystemTarget
+            ? (uint8_t)(((uint64_t)localRelease_.filesystem.size * 100U) /
+                        ((uint64_t)localRelease_.filesystem.size + localRelease_.firmware.size))
+            : 99U;
+        setStatus_(UpdateState::Flashing,
+                   FirmwareUpdateTarget::Waveshare,
+                   pairedProgress,
+                   filesystemTarget ? "filesystem SHA-256 OK; firmware next"
+                                    : "firmware SHA-256 OK; committing release",
+                   localRelease_.operationId);
+    }
     return true;
 }
 
@@ -2187,7 +3018,18 @@ bool FirmwareUpdateModule::runManifestCheck_(const ManifestCheckJob& job,
     if (jsonCapacity < Limits::FirmwareUpdate::Buffers::ManifestParseJson) {
         jsonCapacity = Limits::FirmwareUpdate::Buffers::ManifestParseJson;
     }
-    DynamicJsonDocument doc(jsonCapacity);
+    // Manifest-check JSON may be larger than the paired-release manifest.
+    // Keep its pool off the internal heap even when under the malloc threshold.
+    SpiRamJsonDocument doc(jsonCapacity);
+    if (doc.capacity() == 0U) {
+        writeSimpleError_(errOut, errOutLen, "manifest json psram unavailable");
+        return false;
+    }
+    LOGI("[OTA-PSRAM] stage=manifest_check_json pool_bytes=%lu internal=%lu largest=%lu psram=%lu",
+         (unsigned long)doc.capacity(),
+         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+         (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     const DeserializationError jsonErr =
         deserializeJson(doc, static_cast<const char*>(manifestPayload_), payloadLen);
     if (jsonErr || !doc.is<JsonObjectConst>()) {
@@ -2434,8 +3276,13 @@ void FirmwareUpdateModule::init(ConfigStore& cfg, ServiceRegistry& services)
     cfg.registerVar(updateHostVar_);
     cfg.registerVar(updatePathVar_);
 
+    // Retained RTC breadcrumb: distinguishes intentional reboot from an
+    // unexpected reset during the preceding OTA transfer.
+    RebootDiagnostics::reportPreviousBoot();
+
     bootId_ = esp_random();
     if (bootId_ == 0U) bootId_ = 1U;
+    loadLastFailure_();
     if (loadReceipt_()) {
         nextOperationId_ = lastReceipt_.operationId + 1U;
         if (nextOperationId_ == 0U) nextOperationId_ = 1U;
@@ -2517,6 +3364,8 @@ void FirmwareUpdateModule::loop()
     if (localReleaseRebootDue) {
         if (!prepareLocalReleaseReboot_()) return;
         LOGI("[UPGRADE] reboot");
+        RebootDiagnostics::markPlanned(RebootDiagnostics::Origin::OtaRelease,
+                                      localRelease_.operationId);
         ESP.restart();
     }
 

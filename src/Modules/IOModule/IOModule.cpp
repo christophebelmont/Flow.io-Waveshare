@@ -780,7 +780,7 @@ uint8_t IOModule::digitalInputValueType(uint8_t logicalIdx) const
     if (logicalIdx >= MAX_DIGITAL_INPUTS) return IO_VAL_BOOL;
     if (!findDigitalSlotByLogical_(DIGITAL_SLOT_INPUT, logicalIdx, slotIdx)) return IO_VAL_BOOL;
     const DigitalSlot& s = digitalSlots_[slotIdx];
-    return (s.inDef.mode == IO_DIGITAL_INPUT_COUNTER) ? IO_VAL_FLOAT : IO_VAL_BOOL;
+    return (s.inDef.mode != IO_DIGITAL_INPUT_STATE) ? IO_VAL_FLOAT : IO_VAL_BOOL;
 }
 
 int32_t IOModule::digitalInputPrecision(uint8_t logicalIdx) const
@@ -1084,6 +1084,16 @@ bool IOModule::buildEndpointSnapshot_(IOEndpoint* ep, char* out, size_t len, uin
             else doc["converted_rate"] = nullptr;
             doc["count_id"] = ValueIds::Digital + logical;
             doc["rate_id"] = ValueIds::PulseRate + logical;
+        } else if (digitalInCfg_[logical].mode == IO_DIGITAL_INPUT_PULSES_PER_MINUTE) {
+            // No "count" member in this mode: publish only frequency and flow.
+            dataStore_->values.read(ValueIds::PulseRate + logical, rate);
+            dataStore_->values.read(ValueIds::ConvertedRate + logical, converted);
+            doc["rate"] = rate.quality == ValueQuality::Valid ? rate.value.f : NAN;
+            if (rate.quality != ValueQuality::Valid) doc["rate"] = nullptr;
+            doc["converted_rate"] = converted.quality == ValueQuality::Valid ? converted.value.d : NAN;
+            if (converted.quality != ValueQuality::Valid) doc["converted_rate"] = nullptr;
+            doc["rate_id"] = ValueIds::PulseRate + logical;
+            doc["flow_id"] = ValueIds::ConvertedRate + logical;
         }
     }
     doc["ts"] = millis();
@@ -1647,6 +1657,48 @@ bool IOModule::processDigitalInputDefinition_(uint8_t slotIdx, uint32_t nowMs)
         return valid;
     }
 
+    if (slot.inDef.mode == IO_DIGITAL_INPUT_PULSES_PER_MINUTE) {
+        // The HW PCNT peripheral counts edges. No cumulative software counter,
+        // checkpoint, reset token or NVS writes exist in rate-only mode.
+        if (!slot.provider.isBound() || !dataStore_) return false;
+        auto* driver = static_cast<IDigitalCounterDriver*>(slot.provider.ctx);
+        uint64_t raw = 0;
+        if (!driver || !driver->readCount(raw)) return false;
+        auto& measurement = slot.pulseRateOnly;
+        const bool validRate = measurement.sample(raw, nowMs);
+        if (!measurement.refreshed) return validRate; // One evaluation per second.
+        const auto& cfg = digitalInCfg_[slot.logicalIdx];
+        const bool validK = isfinite(cfg.c0) && cfg.c0 >= 0.0f;
+        const bool validUnit = pulseFlowUnitValid(cfg.flowUnit);
+        const double converted = pulseFlowConvert((double)measurement.pulsesPerMinute,
+                                                  (double)cfg.c0, cfg.flowUnit);
+        // ioRoundToPrecision receives a float and must not overflow to Inf.
+        const bool valid = validRate && validK && validUnit && isfinite(converted) &&
+                           converted <= 3.402823466e38;
+        const uint64_t stamp = esp_timer_get_time() / 1000ULL;
+        auto& values = dataStore_->values;
+        ValueNumber rate{};
+        rate.f = measurement.pulsesPerMinute;
+        values.write(ValueIds::PulseRate + slot.logicalIdx, rate, stamp,
+                     validRate ? ValueQuality::Valid : ValueQuality::Invalid);
+        ValueNumber flow{};
+        flow.d = converted;
+        values.write(ValueIds::ConvertedRate + slot.logicalIdx, flow, stamp,
+                     valid ? ValueQuality::Valid : ValueQuality::Invalid);
+        const float display = ioRoundToPrecision(static_cast<float>(converted),
+                                  sanitizeAnalogPrecision_(cfg.precision));
+        IOEndpointValue previous{};
+        const bool changed = !inputEp->read(previous) || previous.v.f != display || previous.valid != valid;
+        inputEp->updateFloat(display, valid, nowMs);
+        slot.lastValid = valid;
+        if (changed) {
+            if (valid) setIoEndpointFloat(*dataStore_, inputEp->runtimeIndex, display, nowMs);
+            else setIoEndpointInvalid(*dataStore_, inputEp->runtimeIndex, IO_VALUE_FLOAT, nowMs);
+            markIoCycleChanged_(slot.ioId);
+        }
+        return valid;
+    }
+
     if (!slot.provider.isBound()) return false;
 
     bool on = false;
@@ -1877,7 +1929,7 @@ IoStatus IOModule::ioMeta_(IoId id, IoEndpointMeta* outMeta) const
         outMeta->kind = (s.kind == DIGITAL_SLOT_OUTPUT) ? IO_KIND_DIGITAL_OUT : IO_KIND_DIGITAL_IN;
         outMeta->valueType = (s.kind == DIGITAL_SLOT_OUTPUT)
             ? IO_VAL_BOOL
-            : ((s.inDef.mode == IO_DIGITAL_INPUT_COUNTER) ? IO_VAL_FLOAT : IO_VAL_BOOL);
+            : ((s.inDef.mode != IO_DIGITAL_INPUT_STATE) ? IO_VAL_FLOAT : IO_VAL_BOOL);
         outMeta->backend = s.backend;
         outMeta->channel = s.channel;
         outMeta->bindingPort = s.binding.port;
@@ -1918,7 +1970,7 @@ IoStatus IOModule::ioMeta_(IoId id, IoEndpointMeta* outMeta) const
         if (s.kind == DIGITAL_SLOT_OUTPUT && s.provider.isBound()) {
             outMeta->capabilities |= IO_CAP_W;
         }
-        if (s.kind == DIGITAL_SLOT_INPUT && s.inDef.mode == IO_DIGITAL_INPUT_COUNTER && s.logicalIdx < MAX_DIGITAL_INPUTS) {
+        if (s.kind == DIGITAL_SLOT_INPUT && s.inDef.mode != IO_DIGITAL_INPUT_STATE && s.logicalIdx < MAX_DIGITAL_INPUTS) {
             outMeta->precision = sanitizeAnalogPrecision_(digitalInCfg_[s.logicalIdx].precision);
         }
 
@@ -3013,6 +3065,13 @@ bool IOModule::configureRuntime_()
             s.backend = backend;
             s.channel = channel;
             s.expanderId = expanderId;
+            // Both edge-counting modes need a GPIO-backed PCNT driver.
+            // An I2C expander's pin driver must never be cast as a counter.
+            if (s.inDef.mode != IO_DIGITAL_INPUT_STATE && backend != IO_BACKEND_GPIO) {
+                LOGW("Digital input %s mode=%u requires GPIO PCNT backend=%u",
+                     s.endpointId, (unsigned)s.inDef.mode, (unsigned)backend);
+                continue;
+            }
             IDigitalPinDriver* driver = nullptr;
             IDigitalCounterDriver* counterDriver = nullptr;
             if (backend == IO_BACKEND_MCP23017) {
@@ -3031,7 +3090,7 @@ bool IOModule::configureRuntime_()
                     false,
                     s.inDef.activeHigh,
                     s.inDef.pullMode,
-                    s.inDef.mode == IO_DIGITAL_INPUT_COUNTER,
+                    s.inDef.mode != IO_DIGITAL_INPUT_STATE,
                     s.inDef.edgeMode,
                     s.inDef.counterDebounceUs
                 );
@@ -3060,7 +3119,7 @@ bool IOModule::configureRuntime_()
                 continue;
             }
 
-            const uint8_t valueType = (s.inDef.mode == IO_DIGITAL_INPUT_COUNTER) ? IO_EP_VALUE_FLOAT : IO_EP_VALUE_BOOL;
+            const uint8_t valueType = (s.inDef.mode != IO_DIGITAL_INPUT_STATE) ? IO_EP_VALUE_FLOAT : IO_EP_VALUE_BOOL;
             s.endpoint = allocDigitalSensorEndpoint_(s.endpointId, valueType);
             if (!s.endpoint) continue;
             if (s.inDef.mode == IO_DIGITAL_INPUT_COUNTER) {
@@ -3069,12 +3128,31 @@ bool IOModule::configureRuntime_()
                 if (s.counterResetSeen != pulsePersisted_.resetToken[s.logicalIdx])
                     s.pulse.reset(0, s.pulse.generation + 1, millis());
                 const ValueMetadata countMeta{ValueType::UInt64, AggregationMode::Counter, ValueUnit::Pulse};
-                const ValueMetadata rateMeta{ValueType::Float, AggregationMode::Rate, ValueUnit::PulsePerMinute};
+                ValueMetadata rateMeta{ValueType::Float, AggregationMode::Rate, ValueUnit::PulsePerMinute};
+                setValueUnit(rateMeta.displayUnit, "imp/min");
                 const double scale = digitalInCfg_[s.logicalIdx].c0;
                 if (!dataStore_->values.define(ValueIds::Digital + s.logicalIdx, countMeta) ||
                     !dataStore_->values.define(ValueIds::PulseRate + s.logicalIdx, rateMeta) ||
                     !dataStore_->values.defineAffine(ValueIds::Total + s.logicalIdx, ValueIds::Digital + s.logicalIdx, scale, 0, AggregationMode::Counter) ||
                     !dataStore_->values.defineAffine(ValueIds::ConvertedRate + s.logicalIdx, ValueIds::PulseRate + s.logicalIdx, scale, 0, AggregationMode::Rate)) return false;
+            } else if (s.inDef.mode == IO_DIGITAL_INPUT_PULSES_PER_MINUTE) {
+                // Rate-only path: not even a ValueIds::Digital count is defined.
+                ValueMetadata rateMeta{ValueType::Float, AggregationMode::Rate, ValueUnit::PulsePerMinute};
+                setValueUnit(rateMeta.displayUnit, "imp/min");
+                rateMeta.maxAgeMs = 3000U;
+                ValueMetadata flowMeta{ValueType::Double, AggregationMode::Rate};
+                const auto& cfg = digitalInCfg_[s.logicalIdx];
+                setValueUnit(flowMeta.displayUnit, pulseFlowUnitText(cfg.flowUnit));
+                flowMeta.maxAgeMs = 3000U;  // Invalid if I/O sampling stops.
+                flowMeta.precision = sanitizeAnalogPrecision_(cfg.precision);
+                if (!dataStore_->values.define(ValueIds::PulseRate + s.logicalIdx, rateMeta) ||
+                    !dataStore_->values.define(ValueIds::ConvertedRate + s.logicalIdx, flowMeta))
+                    return false;
+                // Reuse the physical input's configured name on its flow value.
+                // E.g. I05 "Flow Meter" remains selectable on TFT and Web when
+                // i05.state (mode 0) is replaced by i05.flow (mode 2).
+                if (cfg.name[0] != '\0')
+                    dataStore_->values.setName(ValueIds::ConvertedRate + s.logicalIdx, cfg.name);
             } else {
                 ValueMetadata stateMeta{}; stateMeta.type = ValueType::Bool; stateMeta.maxAgeMs = 5000;
                 if (!dataStore_->values.define(ValueIds::DigitalState + s.logicalIdx, stateMeta)) return false;
@@ -3796,6 +3874,7 @@ void IOModule::init(ConfigStore& cfg, ServiceRegistry& services)
         cfg.registerVar(vars.c0Var, kCfgModuleId, branch);
         cfg.registerVar(vars.precisionVar, kCfgModuleId, branch);
         cfg.registerVar(vars.modeVar, kCfgModuleId, branch);
+        cfg.registerVar(vars.flowUnitVar, kCfgModuleId, branch);
         cfg.registerVar(vars.counterResetVar, kCfgModuleId, branch);
     }
 
@@ -3833,6 +3912,10 @@ void IOModule::onConfigLoaded(ConfigStore& cfg, ServiceRegistry& services)
     if (!commands || !commands->registerHandler ||
         !commands->registerHandler(commands->ctx, "io.counter.reset", &IOModule::cmdResetCounter_, this)) {
         LOGE("Failed to register io.counter.reset");
+    }
+    if (!commands || !commands->registerHandler ||
+        !commands->registerHandler(commands->ctx, "io.counter.set", &IOModule::cmdSetCounter_, this)) {
+        LOGE("Failed to register io.counter.set");
     }
     cfgStore_ = &cfg;
     cfgSvc_ = services.get<ConfigStoreService>(ServiceId::ConfigStore);
@@ -3953,8 +4036,10 @@ ModuleTaskSpec IOModule::taskSpec(uint8_t index) const
 {
     if (index != 1U) {
         auto spec = Module::taskSpec(index);
-        spec.traceWake = FLOW_PERFORMANCE_DIAGNOSTICS && index == 0U;
-        spec.traceWakeRuntime = FLOW_PERFORMANCE_DIAGNOSTICS && index == 0U;
+        spec.traceWake = index == 0U;
+        // Diagnostic Wi-Fi: disable per-cycle CPU runtime snapshots for IO.
+        // Keep lightweight wake/stack diagnostics and all IO/RS485 priorities unchanged.
+        spec.traceWakeRuntime = false;
         return spec;
     }
     // Service UART deadlines above acquisitions (11) and AsyncTCP (10).

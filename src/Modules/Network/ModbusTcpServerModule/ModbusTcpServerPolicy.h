@@ -41,6 +41,12 @@ struct PortStats {
     uint32_t crcErrors = 0U;
     uint32_t queueRejected = 0U;
     uint32_t resolverFailures = 0U;
+    // Last failed resolution (not a per-frame log); the owner publishes a
+    // bounded Web summary once per minute to diagnose wrong port mapping.
+    uint32_t lastResolverAtMs = 0U;
+    uint16_t lastResolverAddress = 0U;
+    uint8_t lastResolverUnitId = 0U;
+    uint8_t lastResolverFunction = 0U;
     uint32_t connectionsRejected = 0U;
     // Idle sockets reclaimed only when a new client needs a full port.
     uint32_t idleReclaimed = 0U;

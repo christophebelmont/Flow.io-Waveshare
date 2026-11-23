@@ -1,0 +1,73 @@
+#!/usr/bin/env node
+/**
+ * Host source-level guard for intermittent OTA crash diagnostics.
+ * Run: node scripts/tests/check_ota_reboot_diags.mjs
+ * This does NOT compile the ESP32 firmware or emulate RTC hardware.
+ */
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+const root = new URL("../../", import.meta.url);
+const read = (path) => readFileSync(new URL(path, root), "utf8");
+const reboot = read("src/Core/RebootDiagnostics.cpp");
+const rebootHeader = read("src/Core/RebootDiagnostics.h");
+const updater = read("src/Modules/Network/FirmwareUpdateModule/FirmwareUpdateModule.cpp");
+const system = read("src/Modules/System/SystemModule/SystemModule.cpp");
+const network = read("src/Modules/Network/ModbusTcpServerModule/ModbusTcpServerModule.h");
+
+assert.match(reboot, /RTC_NOINIT_ATTR\s+volatile\s+Record/);
+assert.match(reboot, /record\.checksum\s*==\s*checksumOf_\(record\)/);
+// Regression: noteOta() starts from a zeroed RTC record after reportPreviousBoot().
+// All values used to compute the checksum MUST match the stored RTC version,
+// otherwise every subsequent readRecord_() discards OTA progress.
+const writer = reboot.split("void writeRecord_(")[1]?.split("// Only markPlanned()")[0];
+assert.ok(writer, "writeRecord_() missing");
+assert.match(writer, /stored\.magic\s*=\s*kMagic;/);
+assert.match(writer, /stored\.version\s*=\s*kVersion;/);
+assert.match(writer, /stored\.checksum\s*=\s*checksumOf_\(stored\);/);
+assert.match(writer, /rtcRecord\.version\s*=\s*stored\.version;/);
+assert.match(writer, /rtcRecord\.checksum\s*=\s*stored\.checksum;/);
+assert.match(writer, /rtcRecord\.magic\s*=\s*stored\.magic;/);
+assert.doesNotMatch(writer, /rtcRecord\.checksum\s*=\s*checksumOf_\(record\)/);
+const otaBlock = reboot.split("void noteOta(")[1]?.split("void markPlanned(")[0];
+assert.ok(otaBlock && otaBlock.includes("writeRecord_(record);"),
+  "noteOta must use the validated RTC writer");
+assert.match(reboot, /rtcRecord\.magic = 0U; \/* One-shot/);
+assert.match(reboot, /\[BOOT-RESET\].*planned=.*last_ota_op=.*received=/);
+assert.match(rebootHeader, /Lost on power removal/);
+assert.match(reboot, /nvs_set_blob\(handle, kBootNvsKey/);
+assert.match(reboot, /nvs_get_blob\(handle, kBootNvsKey/);
+assert.match(reboot, /nvs_erase_key\(handle, kBootNvsKey/);
+assert.match(reboot, /reset == ESP_RST_SW/);
+const noteBlock = reboot.split("void noteOta(")[1].split("void markPlanned(")[0];
+assert.doesNotMatch(noteBlock, /nvs_set|nvs_commit|Preferences|esp_partition_write/);
+const plannedBlock = reboot.split("void markPlanned(")[1].split("void reportPreviousBoot(")[0];
+assert.match(plannedBlock, /savePlannedNvs_\(record\)/);
+assert.match(reboot, /nvs_valid=%u source=%s planned=/);
+
+assert.match(updater, /RebootDiagnostics::reportPreviousBoot\(\)/);
+assert.match(updater, /RebootDiagnostics::noteOta\(job\.operationId,\s*RebootDiagnostics::OtaStage::Manifest/);
+assert.match(updater, /RebootDiagnostics::OtaStage::Spiffs/);
+assert.match(updater, /RebootDiagnostics::OtaStage::Firmware/);
+assert.match(updater, /RebootDiagnostics::OtaStage::VerifyFirmware/);
+assert.match(updater, /RebootDiagnostics::OtaStage::Commit/);
+assert.match(updater, /RebootDiagnostics::markPlanned\(RebootDiagnostics::Origin::OtaNextion, job\.operationId\);\s*ESP\.restart\(\)/);
+assert.match(updater, /RebootDiagnostics::markPlanned\(RebootDiagnostics::Origin::OtaRelease,\s*localRelease_\.operationId\);\s*ESP\.restart\(\)/);
+assert.match(system, /RebootDiagnostics::markPlanned\([\s\S]*?RebootDiagnostics::Origin::System\);\s*esp_restart\(\)/);
+
+// This is the regression behind the missing OTA-NET traces: an early return
+// used to suppress all diagnostics when no TCP port or station IP was active.
+const loop = network.split("void loop() override {")[1]?.split("    // MQTT JSON extension")[0];
+assert.ok(loop);
+assert.ok(loop.indexOf("const bool otaBusy") < loop.indexOf("if (!eligible_) return;"));
+assert.ok(loop.indexOf("[OTA-NET] ms=") < loop.indexOf("if (!eligible_) return;"));
+// The large Serial printf was removed to protect Modbus stack.
+assert.doesNotMatch(loop, /char otaNetLine\[384\]/);
+assert.match(loop, /logWebSnapshot_\(now, stationConnected, true\)/);
+assert.match(loop, /ota_priority=1 paused=1 pool=/);
+assert.match(loop, /if \(otaBusy\) \{\s*if \(elapsedUs > otaTickMaxUs_\)/);
+assert.match(loop, /if \(uint32_t\(now - lastOtaTraceMs_\) >= 5000U\)/);
+assert.match(network, /taskStackSize\(\) const override \{ return 5120; \}/);
+assert.doesNotMatch(reboot, /malloc|new\s+|heap_caps_malloc/);
+
+console.log("PASS: OTA RTC/NVS checksum normalization, OTA progress preservation and offline TCP diagnostics");

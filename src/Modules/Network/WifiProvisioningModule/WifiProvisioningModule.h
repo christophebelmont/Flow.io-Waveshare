@@ -60,6 +60,14 @@ public:
     NetworkPortalReason portalReason(uint32_t nowMs) const {
         if (hasNetwork()) return NetworkPortalReason::None;
 
+        // Once a configured STA has obtained a usable network, transient outages
+        // must not switch the radio to captive-portal AP mode. WifiModule owns
+        // reconnection; provisioning remains available after a fresh boot or
+        // when WiFi credentials are missing/disabled.
+        if (hadUsableNetwork_ && wifiEnabled_ && wifiConfigured_) {
+            return NetworkPortalReason::None;
+        }
+
         if (hadUsableNetwork_ && lastNetworkLostMs_ != 0U &&
             (nowMs - lastNetworkLostMs_) < (uint32_t)ETH_TIMEOUT_MS) {
             return NetworkPortalReason::None;

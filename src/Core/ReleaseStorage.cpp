@@ -10,6 +10,7 @@
 #include <SPIFFS.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
+#include <string.h>
 
 namespace {
 
@@ -17,6 +18,21 @@ fs::SPIFFSFS gRuntimeFilesystem;
 ReleaseSlot gRunningSlot = ReleaseSlot::A;
 bool gReleaseReady = false;
 bool gRuntimeReady = false;
+bool gLegacyFilesystem = false;
+constexpr const char* kPairedMarker = "/ota-paired-v1.marker";
+
+bool validLegacyFilesystem_()
+{
+    // Pre-migration releases CANNOT be required to carry the new paired OTA
+    // marker or the new /release.json descriptor.  Verify only that this is
+    // a mounted, usable historical Web UI; the freshly downloaded candidate
+    // is validated strictly (version, hardware, SHA-256, paired marker).
+    const bool hasIndex = SPIFFS.exists("/webinterface/index.html") ||
+                          SPIFFS.exists("/webinterface/index.html.gz");
+    const bool hasApp = SPIFFS.exists("/webinterface/app.js") ||
+                        SPIFFS.exists("/webinterface/app.js.gz");
+    return hasIndex && hasApp;
+}
 
 ReleaseSlot slotFromPartition(const esp_partition_t* partition)
 {
@@ -43,6 +59,9 @@ bool beginReleaseFilesystem()
     const esp_partition_t* running = esp_ota_get_running_partition();
     gRunningSlot = slotFromPartition(running);
     gReleaseReady = SPIFFS.begin(false, "/spiffs", 10, filesystemLabel(gRunningSlot));
+    // Absence of the new marker is expected after the first firmware-only
+    // upgrade: the historical updater cloned its existing SPIFFS to this slot.
+    gLegacyFilesystem = gReleaseReady && !SPIFFS.exists(kPairedMarker) && validLegacyFilesystem_();
     if (!gReleaseReady && runningApplicationIsPending(running)) {
         // setup cannot reach the normal startup-complete confirmation without
         // its release filesystem, so reject the candidate immediately.
@@ -132,6 +151,11 @@ bool validateReleaseFilesystem(fs::FS& filesystem,
     return valid;
 }
 
+bool legacyPairedMigrationNeeded()
+{
+    return gLegacyFilesystem;
+}
+
 bool confirmPendingApplication()
 {
     const esp_partition_t* running = esp_ota_get_running_partition();
@@ -140,7 +164,7 @@ bool confirmPendingApplication()
     esp_ota_img_states_t state = ESP_OTA_IMG_UNDEFINED;
     if (esp_ota_get_state_partition(running, &state) != ESP_OK) return false;
     if (state != ESP_OTA_IMG_PENDING_VERIFY) return true;
-    if (!validateReleaseFilesystem()) {
+    if (!validateReleaseFilesystem() && !gLegacyFilesystem) {
         (void)esp_ota_mark_app_invalid_rollback_and_reboot();
         return false;
     }

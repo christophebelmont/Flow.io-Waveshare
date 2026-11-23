@@ -202,6 +202,166 @@
       "label_t": "cfgdocs.io.drivers.expander03.secondary_address.label",
       "help_t": "cfgdocs.io.drivers.expander03.secondary_address.help",
       "display_format": "hex"
+    },
+    "io/input/i00/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i00.flow_unit.label",
+      "help_t": "cfgmods.io.input.i00.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i01/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i01.flow_unit.label",
+      "help_t": "cfgmods.io.input.i01.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i02/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i02.flow_unit.label",
+      "help_t": "cfgmods.io.input.i02.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i03/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i03.flow_unit.label",
+      "help_t": "cfgmods.io.input.i03.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i04/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i04.flow_unit.label",
+      "help_t": "cfgmods.io.input.i04.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i05/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i05.flow_unit.label",
+      "help_t": "cfgmods.io.input.i05.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i06/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i06.flow_unit.label",
+      "help_t": "cfgmods.io.input.i06.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i07/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i07.flow_unit.label",
+      "help_t": "cfgmods.io.input.i07.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i08/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i08.flow_unit.label",
+      "help_t": "cfgmods.io.input.i08.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i09/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i09.flow_unit.label",
+      "help_t": "cfgmods.io.input.i09.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i10/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i10.flow_unit.label",
+      "help_t": "cfgmods.io.input.i10.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i11/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i11.flow_unit.label",
+      "help_t": "cfgmods.io.input.i11.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i12/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i12.flow_unit.label",
+      "help_t": "cfgmods.io.input.i12.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i13/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i13.flow_unit.label",
+      "help_t": "cfgmods.io.input.i13.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i14/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i14.flow_unit.label",
+      "help_t": "cfgmods.io.input.i14.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i15/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i15.flow_unit.label",
+      "help_t": "cfgmods.io.input.i15.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
     }
   },
   "meta": {
@@ -460,6 +620,10 @@
         {
           "value": 1,
           "label_t": "cfgmods_meta.iomodule.enum_sets.flowio_digital_input_mode.1.label"
+        },
+        {
+          "value": 2,
+          "label_t": "cfgmods_meta.iomodule.enum_sets.flowio_digital_input_mode.2.label"
         }
       ],
       "io_analog_source": [
@@ -952,6 +1116,24 @@
         {
           "value": 2,
           "label_t": "cfgmods_meta.iomodule.enum_sets.flowio_aggregation_mode.2.label"
+        }
+      ],
+      "flowio_input_flow_unit": [
+        {
+          "value": 3,
+          "label_t": "cfgmods_meta.iomodule.enum_sets.flowio_input_flow_unit.3.label"
+        },
+        {
+          "value": 2,
+          "label_t": "cfgmods_meta.iomodule.enum_sets.flowio_input_flow_unit.2.label"
+        },
+        {
+          "value": 1,
+          "label_t": "cfgmods_meta.iomodule.enum_sets.flowio_input_flow_unit.1.label"
+        },
+        {
+          "value": 0,
+          "label_t": "cfgmods_meta.iomodule.enum_sets.flowio_input_flow_unit.0.label"
         }
       ]
     }

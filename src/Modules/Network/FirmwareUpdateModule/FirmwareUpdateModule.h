@@ -10,6 +10,7 @@
 #include "Core/ConfigTypes.h"
 #include "Core/CommandRegistry.h"
 #include "FirmwareUpdateReceipt.h"
+#include "FirmwareUpdateFailure.h"
 #include "Core/ReleaseStorage.h"
 
 #include <esp_ota_ops.h>
@@ -26,7 +27,10 @@ public:
     const char* taskName() const override { return "fwupdate"; }
     BaseType_t taskCore() const override { return 0; }
     uint16_t taskStackSize() const override {
-        return 6144;
+        // Log captures showed stack high-water marks of 2..28 bytes
+        // during nested manifest parsing. Provide 2 KiB safety margin,
+        // retaining an INTERNAL stack (network/Flash safety).
+        return 10240;
     }
     uint8_t taskCount() const override { return 1; }
     uint32_t startDelayMs() const override {
@@ -112,6 +116,10 @@ private:
         uint8_t progress = 0;
         uint32_t updatedAtMs = 0;
         char msg[kMsgLen] = {0};
+        // Remote paired OTA UI: independent phase and phase-local percentage.
+        // Does not change progress semantics for ZIP or Nextion updates.
+        char otaStage[28] = {0};
+        uint8_t otaStageProgress = 0U;
     };
 
     struct ManifestCheckJob {
@@ -179,6 +187,9 @@ private:
     uint32_t nextOperationId_ = 1U;
     FirmwareUpdateReceipt lastReceipt_{};
     bool hasLastReceipt_ = false;
+    // Latest OTA failure is independent of the rolling success receipt.
+    OtaFailure::Record lastFailure_{};
+    bool hasLastFailure_ = false;
     bool updateStartPending_ = false;
     uint8_t manifestCopyReaders_ = 0;
     bool nextionRebootQueued_ = false;
@@ -193,6 +204,10 @@ private:
     // one synchronization domain without exposing the transaction internals.
     bool localReleaseActive_ = false;
     LocalReleaseTransaction localRelease_{};
+    // Only the OTA worker may create a remote paired-release transaction
+    // while busy_ is set; the old UI cannot bypass that admission control.
+    TaskHandle_t remoteReleaseWorker_ = nullptr;
+    uint32_t remoteReleaseOperationId_ = 0U;
 
     static bool cmdStatus_(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen);
     static bool cmdWaveshare_(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen);
@@ -275,7 +290,11 @@ private:
                     uint8_t progress,
                     const char* msg,
                     uint32_t operationId = 0U);
+    void setOtaStage_(const char* stage, uint8_t phaseProgress);
     void setError_(FirmwareUpdateTarget target, const char* msg, uint32_t operationId);
+    void loadLastFailure_();
+    void persistLastFailure_(FirmwareUpdateTarget target, uint32_t operationId,
+                             const char* stage, const char* reason);
     bool loadReceipt_();
     bool persistReceipt_(FirmwareUpdateTarget target,
                          uint32_t operationId,

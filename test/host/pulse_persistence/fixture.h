@@ -40,6 +40,8 @@ struct IOModule {
     static constexpr uint32_t PulseRequestTimeoutMs = 2000;
     uint32_t pulseRequestStartedMs_ = 0;
     IoId pulseRequestResetId_ = IO_ID_INVALID;
+    bool pulseRequestSetValue_ = false;
+    uint64_t pulseRequestCount_ = 0;
     IoStatus pulseRequestResult_ = IO_OK;
     bool pulseRequestSubmitted_ = false;
     struct Slot {
@@ -93,12 +95,17 @@ struct IOModule {
     bool loadPulseCheckpoint_();
     void checkpointPulses_(uint32_t, bool force = false);
     bool servicePulseRequest_(uint32_t);
-    IoStatus requestPulseSave_(IoId);
+    IoStatus requestPulseSave_(IoId, bool setValue = false, uint64_t desiredCount = 0);
     IoStatus resetCounter_(IoId);
+    IoStatus setCounter_(IoId, uint64_t);
     IoStatus saveCounters_();
     static bool cmdResetCounter_(void*, const CommandRequest&, char*, size_t);
-    void request(IoId id = IO_ID_INVALID) {
-        pulseRequestResetId_ = id; pulseRequestStartedMs_ = testNow;
+    static bool cmdSetCounter_(void*, const CommandRequest&, char*, size_t);
+    void request(IoId id = IO_ID_INVALID, bool setValue = false, uint64_t desiredCount = 0) {
+        pulseRequestResetId_ = id;
+        pulseRequestSetValue_ = setValue;
+        pulseRequestCount_ = desiredCount;
+        pulseRequestStartedMs_ = testNow;
         pulseRequestState_.store(PulseRequestState::Requested);
     }
     void step() { servicePulseRequest_(testNow); }

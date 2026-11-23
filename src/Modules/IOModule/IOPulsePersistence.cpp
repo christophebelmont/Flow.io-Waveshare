@@ -75,7 +75,7 @@ void IOModule::checkpointPulses_(uint32_t nowMs, bool force)
 
 // Only the IO task touches pulse state and the persistence receipt. Callers publish
 // a request and wait for its completion; a timed-out request retains its storage.
-IoStatus IOModule::requestPulseSave_(IoId resetId)
+IoStatus IOModule::requestPulseSave_(IoId resetId, bool setValue, uint64_t desiredCount)
 {
     if (pulseRequestCaller_.test_and_set()) return IO_ERR_BUSY;
     const auto state = pulseRequestState_.load();
@@ -84,6 +84,8 @@ IoStatus IOModule::requestPulseSave_(IoId resetId)
         return IO_ERR_BUSY;
     }
     pulseRequestResetId_ = resetId;
+    pulseRequestSetValue_ = setValue;
+    pulseRequestCount_ = desiredCount;
     pulseRequestStartedMs_ = millis();
     pulseRequestState_.store(PulseRequestState::Requested);
     const uint32_t started = millis();
@@ -102,6 +104,13 @@ IoStatus IOModule::resetCounter_(IoId id)
     if (id < IO_ID_DI_BASE || id >= IO_ID_DI_BASE + MAX_DIGITAL_INPUTS)
         return IO_ERR_INVALID_ARG;
     return requestPulseSave_(id);
+}
+
+IoStatus IOModule::setCounter_(IoId id, uint64_t desiredCount)
+{
+    if (id < IO_ID_DI_BASE || id >= IO_ID_DI_BASE + MAX_DIGITAL_INPUTS)
+        return IO_ERR_INVALID_ARG;
+    return requestPulseSave_(id, true, desiredCount);
 }
 
 IoStatus IOModule::saveCounters_()
@@ -161,9 +170,13 @@ bool IOModule::servicePulseRequest_(uint32_t nowMs)
                 finish(IO_ERR_HW);
                 return true;
             }
-            // The generation records the reset in the same atomic blob as the count.
-            // The legacy configuration token does not need to change.
-            slot.pulse.reset(raw, slot.pulse.generation + 1, nowMs);
+            // Reset or manually set the task-owned count. Both operations
+            // preserve the hardware baseline so subsequent pulses are added.
+            // The next generation and count are checkpointed together.
+            if (pulseRequestSetValue_)
+                slot.pulse.set(raw, pulseRequestCount_, slot.pulse.generation + 1, nowMs);
+            else
+                slot.pulse.reset(raw, slot.pulse.generation + 1, nowMs);
             (void)processDigitalInputDefinition_(index, nowMs);
         } else {
             for (uint8_t i = 0; i < MAX_DIGITAL_SLOTS; ++i) {
@@ -207,4 +220,42 @@ bool IOModule::cmdResetCounter_(void* ctx, const CommandRequest& req, char* repl
     }
     snprintf(reply, len, "{\"ok\":false,\"err\":{\"code\":\"CounterResetFailed\",\"status\":%u}}", unsigned(status));
     return false;
+}
+
+
+// The HTTP layer sends the desired integer as a JSON string, preserving all
+// uint64 digits (a JavaScript JSON number would lose precision above 2^53).
+bool IOModule::cmdSetCounter_(void* ctx, const CommandRequest& req, char* reply, size_t len)
+{
+    StaticJsonDocument<128> doc;
+    if (!ctx || !req.json || !reply || !len || deserializeJson(doc, req.json) ||
+        !doc["id"].is<uint16_t>() || !doc["value"].is<const char*>()) {
+        if (reply && len) snprintf(reply, len, "{\"ok\":false,\"err\":{\"code\":\"InvalidArg\"}}");
+        return false;
+    }
+    const char* text = doc["value"].as<const char*>();
+    if (!text || !*text) {
+        snprintf(reply, len, "{\"ok\":false,\"err\":{\"code\":\"InvalidValue\"}}");
+        return false;
+    }
+    uint64_t desired = 0;
+    for (const char* p = text; *p; ++p) {
+        if (*p < '0' || *p > '9') {
+            snprintf(reply, len, "{\"ok\":false,\"err\":{\"code\":\"InvalidValue\"}}");
+            return false;
+        }
+        const uint8_t digit = uint8_t(*p - '0');
+        if (desired > (UINT64_MAX - digit) / 10ULL) {
+            snprintf(reply, len, "{\"ok\":false,\"err\":{\"code\":\"ValueOverflow\"}}");
+            return false;
+        }
+        desired = desired * 10ULL + digit;
+    }
+    const auto status = static_cast<IOModule*>(ctx)->setCounter_(doc["id"].as<uint16_t>(), desired);
+    if (status != IO_OK) {
+        snprintf(reply, len, "{\"ok\":false,\"err\":{\"code\":\"CounterSetFailed\",\"status\":%u}}", unsigned(status));
+        return false;
+    }
+    snprintf(reply, len, "{\"ok\":true,\"value\":\"%llu\"}", (unsigned long long)desired);
+    return true;
 }

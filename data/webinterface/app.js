@@ -44,6 +44,8 @@
     const flowWebThemeStorageKey = 'flow_web_theme';
     const deferredVisualAssetsStateKey = 'flow_web_deferred_visual_assets';
     const upgradeUiSessionStorageKey = 'flow_upgrade_ui_session';
+    const upgradeSuccessReloadStorageKey = 'flow_upgrade_success_reloaded';
+    let upgradeSuccessReloadCountdownTimer = null;
     const upgradeStatusPollActiveMs = 900;
     const upgradeStatusPollReconnectMs = 5000;
     const upgradeStatusPollDoneMs = 7000;
@@ -994,6 +996,18 @@
       armDeferredMenuAssets();
     }
 
+    function shouldDeferWebAssetReloadForOta() {
+      const current = readUpgradeUiSession();
+      if (!current || !upgradeUsesReconnect(current.target)) return false;
+      const phase = String(current.phase || 'idle');
+      // Avoid the generic asset-version reload racing with the explicit
+      // three-second success countdown or interrupting OTA progress.
+      return !!current.awaitingReconnect
+        || upgradeSuccessReloadCountdownTimer !== null
+        || phase === 'target' || phase === 'download' || phase === 'flash'
+        || phase === 'reboot' || phase === 'reconnect';
+    }
+
     async function loadWebMeta(options) {
       try {
         const data = await fetchOkJson('/api/web/meta', { cache: 'no-store' }, 'meta web indisponible');
@@ -1009,7 +1023,8 @@
               runtimeManifestDomainLoadPromise = null;
             }
             setStorageValue(localStorage, flowWebAssetVersionStorageKey, announcedVersion);
-            if (loadedWebAssetVersion && loadedWebAssetVersion !== announcedVersion) {
+            if (loadedWebAssetVersion && loadedWebAssetVersion !== announcedVersion
+                && !shouldDeferWebAssetReloadForOta()) {
               const reloadKey = 'flow_web_asset_reload_once';
               try {
                 if (sessionStorage.getItem(reloadKey) !== announcedVersion) {
@@ -2343,9 +2358,11 @@
     const upgradePct = document.getElementById('upgradePct');
     const upgradeJourneyLabel = document.getElementById('upgradeJourneyLabel');
     const upgradeProgressHint = document.getElementById('upgradeProgressHint');
+    const upgradeStageDetail = document.getElementById('upgradeStageDetail');
     const upgradePhaseIcon = document.getElementById('upgradePhaseIcon');
     const upgradeSteps = document.getElementById('upgradeSteps');
     const upgradeFooterStatus = document.getElementById('upgradeFooterStatus');
+    const upgradeSuccessReloadCountdown = document.getElementById('upgradeSuccessReloadCountdown');
     const upgradeProgressPanel = document.getElementById('upgradeProgressPanel');
 
     const wifiEnabled = document.getElementById('wifiEnabled');
@@ -2706,16 +2723,9 @@
       {
         key: 'flowio',
         title: 'FlowIOS3',
-        subtitle: 'Firmware Waveshare',
+        subtitle: 'Firmware + SPIFFS (OTA A/B)',
         icon: 'layers',
         tone: 'blue'
-      },
-      {
-        key: 'spiffs',
-        title: 'SPIFFS',
-        subtitle: 'Fichiers système',
-        icon: 'memory',
-        tone: 'green'
       },
       {
         key: 'nextion',
@@ -3479,6 +3489,7 @@
 
     function clearUpgradeUiSession() {
       stopUpgradeReconnectFlow();
+      stopUpgradeSuccessReloadCountdown();
       try {
         sessionStorage.removeItem(upgradeUiSessionStorageKey);
       } catch (err) {
@@ -3500,7 +3511,33 @@
       return key === 'flowios3' || key === 'esp32s3' || key === 'waveshare' || key === 'spiffs' || key === 'nextion';
     }
 
+    function upgradeIsPairedTarget(target) {
+      return ['flowios3', 'waveshare', 'esp32s3'].includes(String(target || '').trim().toLowerCase());
+    }
+
     function upgradeStepDefinitions(target) {
+      if (upgradeIsPairedTarget(target)) {
+        // PSRAM OTA downloads and flash writes are distinct, independently
+        // measured phases for each image. The low-memory streaming fallback
+        // correctly identifies simultaneous receive+write instead.
+        return [
+          { id: 'ota-0', label: tr('updates.otaStage.init', 'Initialisation') },
+          { id: 'ota-1', label: tr('updates.otaStage.manifest', 'Lecture du manifeste') },
+          { id: 'ota-2', label: tr('updates.otaStage.downloadSpiffs', 'Téléchargement SPIFFS en PSRAM') },
+          { id: 'ota-3', label: tr('updates.otaStage.verifyRamSpiffs', 'SHA-256 SPIFFS en mémoire') },
+          { id: 'ota-4', label: tr('updates.otaStage.prepareSpiffs', 'Préparation de la partition SPIFFS') },
+          { id: 'ota-5', label: tr('updates.otaStage.writeSpiffs', 'Écriture du SPIFFS en flash') },
+          { id: 'ota-6', label: tr('updates.otaStage.verifySpiffs', 'Vérification SPIFFS en flash') },
+          { id: 'ota-7', label: tr('updates.otaStage.downloadFirmware', 'Téléchargement firmware en PSRAM') },
+          { id: 'ota-8', label: tr('updates.otaStage.verifyRamFirmware', 'SHA-256 firmware en mémoire') },
+          { id: 'ota-9', label: tr('updates.otaStage.prepareFirmware', 'Préparation de la partition firmware') },
+          { id: 'ota-10', label: tr('updates.otaStage.writeFirmware', 'Écriture du firmware en flash') },
+          { id: 'ota-11', label: tr('updates.otaStage.verifyFirmware', 'Vérification firmware en flash') },
+          { id: 'ota-12', label: tr('updates.otaStage.activate', 'Activation des partitions A/B') },
+          { id: 'ota-13', label: tr('updates.otaStage.reboot', 'Redémarrage') },
+          { id: 'ota-14', label: tr('updates.otaStage.reconnect', 'Reconnexion') }
+        ];
+      }
       return [
         { id: 'target', label: tr('updates.step.target', 'Initialisation') },
         { id: 'download', label: tr('updates.step.download', 'Connexion') },
@@ -3508,6 +3545,83 @@
         { id: 'reboot', label: tr('updates.step.reboot', 'Redémarrage') },
         { id: 'reconnect', label: tr('updates.step.reconnect', 'Reconnexion') }
       ];
+    }
+
+    function upgradePairedOtaStageIndex(session) {
+      if (!upgradeIsPairedTarget(session && session.target)) return null;
+      const phase = String(session && session.phase || 'idle');
+      const stage = String(session && session.otaBackendStage || '').trim().toLowerCase();
+      const msg = String(session && session.backendMessage || '').trim().toLowerCase();
+      if (phase === 'target') return 0;
+      if (phase === 'reboot') return 13;
+      if (phase === 'reconnect' || phase === 'done') return 14;
+      // Prefer the explicit firmware stage, not the generic HTTPClient state:
+      // an image may download and then flash in the same paired OTA operation.
+      const stages = {
+        manifest: 1,
+        spiffs_download: 2,
+        spiffs_ram_verify: 3,
+        spiffs_prepare: 4,
+        spiffs_write: 5,
+        spiffs_stream: 5,
+        spiffs_verify: 6,
+        firmware_download: 7,
+        firmware_ram_verify: 8,
+        firmware_prepare: 9,
+        firmware_write: 10,
+        firmware_stream: 10,
+        firmware_verify: 11,
+        activate: 12
+      };
+      if (Object.prototype.hasOwnProperty.call(stages, stage)) return stages[stage];
+      if (phase === 'download') return 1;
+      if (phase !== 'flash') return null;
+      // Compatibility with older paired firmware that sends only text.
+      if (msg.includes('downloading filesystem to psram')) return 2;
+      if (msg.includes('sha-256 filesystem in psram')) return 3;
+      if (msg.includes('preparing release filesystem')) return 4;
+      if (msg.includes('writing release filesystem')) return 5;
+      if (msg.includes('verifying release filesystem')) return 6;
+      if (msg.includes('filesystem sha-256 ok')) return 7;
+      if (msg.includes('downloading firmware to psram')) return 7;
+      if (msg.includes('sha-256 firmware in psram')) return 8;
+      if (msg.includes('preparing release firmware')) return 9;
+      if (msg.includes('writing release firmware')) return 10;
+      if (msg.includes('verifying release firmware')) return 11;
+      if (msg.includes('firmware sha-256 ok') || msg.includes('activating paired release')) return 12;
+      return null;
+    }
+
+    function upgradePairedPhaseDetail(target, phase, stage, stageProgress, msg) {
+      const session = { target: target, phase: phase, otaBackendStage: stage, backendMessage: msg };
+      const index = upgradePairedOtaStageIndex(session);
+      const defs = upgradeStepDefinitions(target);
+      if (index === null || !defs[index]) return tr('updates.otaStage.generic', 'Transfert OTA en cours');
+      const label = defs[index].label;
+      const progressKeys = ['spiffs_download', 'spiffs_write', 'spiffs_stream',
+        'firmware_download', 'firmware_write', 'firmware_stream'];
+      const text = progressKeys.includes(stage)
+        ? label + ' · ' + Math.max(0, Math.min(100, Number(stageProgress) || 0)) + '%'
+        : label;
+      if (stage === 'spiffs_stream' || stage === 'firmware_stream') {
+        return text + ' · ' + tr('updates.otaStage.streaming', 'Réception et écriture simultanées');
+      }
+      return text;
+    }
+
+    function upgradePairedOtaStageText(session) {
+      if (!upgradeIsPairedTarget(session && session.target)) return '';
+      const phase = String(session && session.phase || 'idle');
+      if (phase === 'idle' || phase === 'error') return '';
+      const index = upgradePairedOtaStageIndex(session);
+      if (index === null) return tr('updates.otaStage.generic', 'Transfert OTA en cours');
+      const defs = upgradeStepDefinitions(session.target);
+      const prefix = tr('updates.stepCounter', 'Étape {current} sur {total}')
+        .replace('{current}', String(index + 1))
+        .replace('{total}', String(defs.length));
+      const label = defs[index].label;
+      // The global percentage is already shown at the right of the progress bar.
+      return prefix + ' · ' + label;
     }
 
     function upgradePhaseIndex(phase) {
@@ -3523,8 +3637,18 @@
     function upgradePhaseTitle(session) {
       const phase = String(session && session.phase ? session.phase : 'idle');
       if (phase === 'target') return tr('updates.title.target', 'Préparation de la mise à jour');
+      if (upgradeIsPairedTarget(session && session.target) &&
+          (phase === 'download' || phase === 'flash')) {
+        const index = upgradePairedOtaStageIndex(session);
+        const stages = upgradeStepDefinitions(session.target);
+        if (index !== null && stages[index]) return stages[index].label;
+      }
       if (phase === 'download') return tr('updates.title.download', 'Téléchargement de la mise à jour');
-      if (phase === 'flash') return tr('updates.title.flash', 'Mise à jour du firmware');
+      if (phase === 'flash') {
+        const paired = upgradeIsPairedTarget(session && session.target);
+        return paired ? tr('updates.title.paired', 'Mise à jour du firmware et du SPIFFS')
+          : tr('updates.title.flash', 'Mise à jour du firmware');
+      }
       if (phase === 'reboot') return tr('updates.title.reboot', 'Redémarrage de l’appareil');
       if (phase === 'reconnect') return tr('updates.title.reconnect', 'Reconnexion de l’appareil');
       if (phase === 'done') return tr('updates.title.done', 'Mise à jour terminée');
@@ -3534,6 +3658,11 @@
 
     function upgradeProgressHintText(session, targetLabel) {
       const phase = String(session && session.phase ? session.phase : 'idle');
+      if (upgradeIsPairedTarget(session && session.target)) {
+        if (phase === 'flash' || phase === 'reboot') return tr('updates.hint.flash', 'Ne coupez pas l’alimentation.');
+        if (phase === 'reconnect') return tr('updates.hint.reconnect', 'Cette page se rafraîchit automatiquement.');
+        return '';
+      }
       if (phase === 'flash') return tr('updates.hint.flash', 'Ne coupez pas l’alimentation.');
       if (phase === 'reconnect') return tr('updates.hint.reconnect', 'Cette page se rafraîchit automatiquement.');
       const index = upgradePhaseIndex(phase);
@@ -3550,6 +3679,22 @@
       const progress = Math.max(0, Math.min(100, Number(session && session.backendProgress) || 0));
       const reconnectProgress = Math.max(0, Math.min(100, Number(session && session.reconnectProgress) || 0));
       if (phase === 'target') return 1;
+      if (upgradeIsPairedTarget(session && session.target) &&
+          (phase === 'download' || phase === 'flash')) {
+        const index = upgradePairedOtaStageIndex(session);
+        if (index !== null) {
+          // Overall bar follows completed stages while the active download
+          // or flash-write phase advances by its OWN byte percentage.
+          const key = String(session && session.otaBackendStage || '');
+          const moving = ['spiffs_download', 'spiffs_write', 'spiffs_stream',
+            'firmware_download', 'firmware_write', 'firmware_stream'].includes(key);
+          const phaseProgress = moving
+            ? Math.max(0, Math.min(100, Number(session.otaBackendStepProgress) || 0)) / 100
+            : 0;
+          return Math.max(2, Math.min(95, Math.round(2 + (Math.max(0, index - 1) +
+            phaseProgress) * 93 / 12)));
+        }
+      }
       if (phase === 'download') return 1 + Math.round(progress * 0.04);
       if (phase === 'flash') return 5 + Math.round(progress * 0.90);
       if (phase === 'reboot') return 97;
@@ -3561,6 +3706,16 @@
 
     function upgradeStepProgress(stepId, state, session) {
       if (state === 'done') return 100;
+      // Paired OTA dots display the image-local HTTP / flash percentage.
+      if (String(stepId || '').startsWith('ota-')) {
+        if (state !== 'active') return null;
+        const stage = String(session && session.otaBackendStage || '');
+        if (['spiffs_download', 'spiffs_write', 'spiffs_stream',
+             'firmware_download', 'firmware_write', 'firmware_stream'].includes(stage)) {
+          return Math.max(0, Math.min(100, Number(session.otaBackendStepProgress) || 0));
+        }
+        return null;
+      }
       if (state !== 'active') return null;
       const phase = String(session && session.phase ? session.phase : '');
       if (stepId !== phase) return null;
@@ -3591,6 +3746,16 @@
 
     function upgradeStepState(stepId, session) {
       const phase = String(session && session.phase ? session.phase : 'idle');
+      if (String(stepId || '').startsWith('ota-') && upgradeIsPairedTarget(session && session.target)) {
+        if (phase === 'idle') return 'pending';
+        if (phase === 'done') return 'done';
+        const stepIndex = Number(stepId.slice(4));
+        const currentIndex = Number(session && session.otaStageIndex);
+        if (!Number.isInteger(currentIndex) || currentIndex < 0) return 'pending';
+        if (stepIndex < currentIndex) return 'done';
+        if (stepIndex === currentIndex) return phase === 'error' ? 'error' : 'active';
+        return 'pending';
+      }
       if (phase === 'idle') return 'pending';
       if (phase === 'error') {
         const failedStep = String(session && session.failedStep ? session.failedStep : 'flash');
@@ -3660,7 +3825,13 @@
       const detail = String(safeSession.detail || '');
       const targetLabel = upgradeTargetLabel(safeSession.target);
       const phaseTitle = upgradePhaseTitle(safeSession);
+      if (upgradeStageDetail) {
+        const stageText = upgradePairedOtaStageText(safeSession);
+        upgradeStageDetail.textContent = stageText;
+        upgradeStageDetail.hidden = !stageText;
+      }
       if (upgradeProgressPanel) {
+        upgradeProgressPanel.classList.toggle('is-paired', upgradeIsPairedTarget(safeSession.target));
         const progressVisible = phase === 'target' || phase === 'download' || phase === 'flash'
           || phase === 'reboot' || phase === 'reconnect' || phase === 'error';
         upgradeProgressPanel.hidden = !progressVisible;
@@ -3679,7 +3850,8 @@
         if (glyph) glyph.textContent = phase === 'error' ? 'error' : 'sync';
         upgradePhaseIcon.classList.toggle('is-error', phase === 'error');
       }
-      setUpgradeProgress(upgradePhasePercent(safeSession));
+      setUpgradeProgress(Math.max(upgradePhasePercent(safeSession),
+        Math.max(0, Math.min(100, Number(safeSession.lastPercent) || 0))));
       setUpgradeMessage(detail || (phase === 'idle' ? tr('updates.none', 'Aucune opération en cours.') : phaseTitle));
       renderUpgradeSteps(safeSession);
       syncUpgradeCancelButton(safeSession);
@@ -3699,7 +3871,15 @@
         bootId: 0
       };
       const next = Object.assign({}, current, patch || {});
-      next.lastPercent = upgradePhasePercent(next);
+      const stageIndex = upgradePairedOtaStageIndex(next);
+      if (stageIndex !== null) {
+        const previousIndex = Number(next.otaStageIndex);
+        next.otaStageIndex = Math.max(Number.isInteger(previousIndex) ? previousIndex : 0, stageIndex);
+      }
+      // A 200-response retry may restart one download at byte zero.
+      // Keep the overall stage bar monotonic; show the real restarted
+      // percentage beside the active stage instead.
+      next.lastPercent = Math.max(Number(next.lastPercent) || 0, upgradePhasePercent(next));
       writeUpgradeUiSession(next);
       renderUpgradeJourney(next);
       return next;
@@ -3707,6 +3887,7 @@
 
     function startUpgradeUiSession(target) {
       stopUpgradeReconnectFlow();
+      stopUpgradeSuccessReloadCountdown();
       upgradeUiStatusMuted = false;
       return updateUpgradeUiSession({
         phase: 'target',
@@ -3719,11 +3900,17 @@
         reconnectProgress: 0,
         operationId: 0,
         bootId: 0,
+        backendMessage: '',
+        otaBackendStage: '',
+        otaBackendStepProgress: 0,
+        otaStageIndex: 0,
+        lastPercent: 0,
         failedStep: ''
       });
     }
 
     function cancelUpgradeUiSession() {
+      stopUpgradeSuccessReloadCountdown();
       upgradeUiStatusMuted = true;
       stopUpgradeStatusPolling();
       clearUpgradeUiSession();
@@ -3756,6 +3943,62 @@
         reconnectShown: true,
         reconnectProgress: Math.max(5, Math.min(95, Number(current.reconnectProgress) || 0))
       });
+    }
+
+    function stopUpgradeSuccessReloadCountdown() {
+      if (upgradeSuccessReloadCountdownTimer !== null) {
+        clearTimeout(upgradeSuccessReloadCountdownTimer);
+        upgradeSuccessReloadCountdownTimer = null;
+      }
+      if (upgradeSuccessReloadCountdown) {
+        upgradeSuccessReloadCountdown.textContent = '';
+        upgradeSuccessReloadCountdown.hidden = true;
+      }
+    }
+
+    function scheduleUpgradeReloadAfterSuccess(operationId, target) {
+      // Trigger only after the matching successful OTA receipt is observed
+      // after reconnect; a pre-reboot "done" status is not sufficient.
+      if (!upgradeUsesReconnect(target)) return false;
+      const id = Number(operationId);
+      if (!Number.isSafeInteger(id) || id <= 0) return false;
+      const token = String(target || '').trim().toLowerCase() + ':' + String(id);
+      try {
+        // Persist the reload token BEFORE starting the countdown so repeated
+        // polls and the new page cannot cause repeated auto-reloads.
+        if (sessionStorage.getItem(upgradeSuccessReloadStorageKey) === token) return false;
+        sessionStorage.setItem(upgradeSuccessReloadStorageKey, token);
+      } catch (err) {
+        // Without storage, prefer no automatic reload over a reload loop.
+        return false;
+      }
+
+      stopUpgradeSuccessReloadCountdown();
+      let secondsRemaining = 3;
+      const tick = () => {
+        const latest = readUpgradeUiSession();
+        // Cancel if a subsequent OTA started, failed or was dismissed.
+        if (!latest || latest.phase !== 'done' || Number(latest.operationId) !== id) {
+          stopUpgradeSuccessReloadCountdown();
+          return;
+        }
+        if (secondsRemaining === 0) {
+          stopUpgradeSuccessReloadCountdown();
+          window.location.reload();
+          return;
+        }
+        if (upgradeSuccessReloadCountdown) {
+          upgradeSuccessReloadCountdown.textContent = tr(
+            'updates.reloadCountdown',
+            'Rechargement de la page dans {seconds} s…'
+          ).replace('{seconds}', String(secondsRemaining));
+          upgradeSuccessReloadCountdown.hidden = false;
+        }
+        secondsRemaining -= 1;
+        upgradeSuccessReloadCountdownTimer = setTimeout(tick, 1000);
+      };
+      tick();
+      return true;
     }
 
     function markUpgradeUiCompletedAfterReceipt(target) {
@@ -3857,6 +4100,9 @@
       const target = String(data.target || (current && current.target) || '').trim().toLowerCase();
       const progress = Math.max(0, Math.min(100, Number(data.progress) || 0));
       const msg = String(data.msg || '').trim();
+      const otaBackendStage = String(data.ota_stage || '').trim().toLowerCase();
+      const otaBackendStepProgress = Math.max(0, Math.min(100,
+        Number(data.ota_stage_progress) || 0));
       const operationId = Number(data.operation_id) > 0 ? Number(data.operation_id) : 0;
       const bootId = Number(data.boot_id) > 0 ? Number(data.boot_id) : 0;
       const currentOperationId = Number(current && current.operationId) > 0
@@ -3872,7 +4118,9 @@
       const receiptResult = receiptMatches ? String(receipt.result || '') : '';
 
       if (receiptResult === 'succeeded') {
-        markUpgradeUiCompletedAfterReceipt(String(receipt.target || target));
+        const completedTarget = String(receipt.target || target);
+        markUpgradeUiCompletedAfterReceipt(completedTarget);
+        scheduleUpgradeReloadAfterSuccess(currentOperationId, completedTarget);
         return;
       }
       if (receiptResult === 'failed' || receiptResult === 'interrupted') {
@@ -3944,6 +4192,9 @@
         updateUpgradeUiSession({
           phase: 'target',
           target: target,
+          backendMessage: msg,
+          otaBackendStage: '',
+          otaBackendStepProgress: 0,
           detail: tr('updates.detail.targetSelected', 'Sélection de la cible {target}.')
             .replace('{target}', upgradeTargetLabel(target)),
           backendProgress: progress,
@@ -3962,7 +4213,13 @@
         updateUpgradeUiSession({
           phase: 'download',
           target: target,
-          detail: 'Connexion au serveur.',
+          backendMessage: msg,
+          otaBackendStage: otaBackendStage,
+          otaBackendStepProgress: otaBackendStepProgress,
+          detail: upgradeIsPairedTarget(target)
+            ? upgradePairedPhaseDetail(target, 'download', otaBackendStage,
+                                       otaBackendStepProgress, msg)
+            : 'Connexion au serveur.',
           backendProgress: progress,
           awaitingReconnect: false,
           reconnectShown: false,
@@ -3979,7 +4236,13 @@
         updateUpgradeUiSession({
           phase: 'flash',
           target: target,
-          detail: 'Mise à jour en cours.',
+          backendMessage: msg,
+          otaBackendStage: otaBackendStage,
+          otaBackendStepProgress: otaBackendStepProgress,
+          detail: upgradeIsPairedTarget(target)
+            ? upgradePairedPhaseDetail(target, 'flash', otaBackendStage,
+                                       otaBackendStepProgress, msg)
+            : 'Mise à jour en cours.',
           backendProgress: progress,
           awaitingReconnect: false,
           reconnectShown: false,
@@ -3996,6 +4259,7 @@
         updateUpgradeUiSession({
           phase: 'reboot',
           target: target,
+          backendMessage: msg,
           detail: 'Redémarrage.',
           backendProgress: 100,
           awaitingReconnect: true,
@@ -4140,7 +4404,6 @@
       if (!key) return false;
       if (isWaveshareProfile()) {
         return key === 'flowios3' || key === 'esp32s3' || key === 'waveshare'
-          || key === 'spiffs' || key === 'flowios3-spiffs' || key === 'esp32s3-spiffs' || key === 'waveshare-spiffs'
           || key === 'nextion';
       }
       if (isFlowIOProfile()) {
@@ -4499,7 +4762,9 @@
       icon.setAttribute('aria-hidden', 'true');
       icon.textContent = 'system_update_alt';
       const label = document.createElement('span');
-      label.textContent = tr('updates.updateButton', 'Mettre à jour');
+      label.textContent = row && row.key === 'flowio'
+        ? 'Mettre à jour Flow.io (Firmware + SPIFFS)'
+        : tr('updates.updateButton', 'Mettre à jour');
       button.appendChild(icon);
       button.appendChild(label);
       const isNextion = row && row.key === 'nextion';
@@ -4516,7 +4781,13 @@
           return checkFirmwareUpdates();
         }
         if (!confirmUpgradeLaunch(selectedEntry)) return;
-        return startUpgrade(selectedEntry.target, selectedEntry.url, selectedEntry.endpoint);
+        // A firmware-only URL is not safe: resolve the paired A/B manifest
+        // of the selected version. The build exporter publishes this layout.
+        const pairedUrl = row && row.key === 'flowio'
+          ? new URL('flowio-release-' + encodeURIComponent(selectedEntry.version) + '.json',
+                    selectedEntry.url).href
+          : selectedEntry.url;
+        return startUpgrade(selectedEntry.target, pairedUrl, selectedEntry.endpoint);
       });
       control.appendChild(button);
       return control;
@@ -8197,7 +8468,9 @@
             const reading = current.telemetry && current.telemetry[key];
             const text = reading == null ? '—' : typeof reading === 'boolean' ?
               (reading ? tr('pool.telemetry.yes', 'Oui') : tr('pool.telemetry.no', 'Non')) :
-              String(reading) + (current.telemetry_units?.[key] ? ' ' + current.telemetry_units[key] : '');
+              (key === 'current' && typeof reading === 'number' && Number.isFinite(reading)
+                ? reading.toFixed(2) : String(reading)) +
+              (current.telemetry_units?.[key] ? ' ' + current.telemetry_units[key] : '');
             setRuntimeActionText(value, text);
           });
           renderStatus(current);
@@ -14227,6 +14500,9 @@
       if (!txt) return NaN;
       if (txt === '0') return 0;
       if (txt === '1') return 1;
+      if (txt === '2' || /^2\s*\|/.test(txt)) return 2;
+      if (txt.includes('debit instantane') || txt.includes('débit instantané') ||
+          txt.includes('instantaneous flow')) return 2;
       if (txt.includes('etat')) return 0;
       if (txt.includes('compteur')) return 1;
       return NaN;
@@ -14547,6 +14823,128 @@
       return wrap;
     }
 
+    // This is a one-shot runtime editor, not a ConfigStore variable.
+    // Never assign data-key: the numeric count is saved through io.counter.set,
+    // independently of the ordinary /api/flowcfg/apply configuration patch.
+    function buildCounterValueField(moduleName) {
+      const match = String(moduleName || '').trim().toLowerCase().match(/^io\/input\/i(\d{2})$/);
+      if (!match || Number(match[1]) >= 16) return null;
+      const ioId = 64 + Number(match[1]);
+
+      const row = document.createElement('div');
+      row.className = 'control-row control-row-counter-value';
+      const labelWrap = document.createElement('div');
+      labelWrap.className = 'control-label-wrap';
+      const label = document.createElement('span');
+      label.className = 'control-label';
+      label.textContent = tr('cfg.counter.value.title', 'Valeur du Compteur');
+      const help = document.createElement('span');
+      help.className = 'control-help';
+      help.textContent = tr('cfg.counter.value.help',
+        'Cumul brut d’impulsions. Valeur chargée une fois à l’ouverture, sans rafraîchissement automatique.');
+      labelWrap.appendChild(label);
+      labelWrap.appendChild(help);
+
+      const wrap = document.createElement('div');
+      wrap.className = 'control-value-wrap control-value-wrap-counter';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.inputMode = 'numeric';
+      input.autocomplete = 'off';
+      input.className = 'control-input';
+      input.setAttribute('aria-label', label.textContent);
+      input.disabled = true;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'secondary';
+      button.textContent = tr('cfg.counter.value.apply', 'Enregistrer');
+      button.disabled = true;
+      const status = document.createElement('span');
+      status.className = 'control-help counter-value-status';
+      status.setAttribute('role', 'status');
+      status.textContent = tr('cfg.counter.value.loading', 'Lecture du compteur…');
+      wrap.appendChild(input);
+      wrap.appendChild(button);
+      wrap.appendChild(status);
+      row.appendChild(labelWrap);
+      row.appendChild(wrap);
+
+      // JavaScript Number would silently round integers above 2^53.
+      // Keep every decimal digit as text, up to the uint64 maximum.
+      const normalizedCount = (raw) => {
+        const text = String(raw ?? '').trim();
+        if (!/^\d{1,20}$/.test(text)) return null;
+        const value = text.replace(/^0+(?=\d)/, '');
+        if (value.length === 20 && value > '18446744073709551615') return null;
+        return value;
+      };
+      let loadedValue = null;
+      let busy = false;
+      const updateButton = () => {
+        const value = normalizedCount(input.value);
+        const dirty = value !== null && loadedValue !== null && value !== loadedValue;
+        button.disabled = busy || !dirty || input.disabled;
+        row.classList.toggle('is-dirty', dirty);
+        input.setAttribute('aria-invalid', input.value.trim() !== '' && value === null ? 'true' : 'false');
+      };
+      input.addEventListener('input', updateButton);
+      input.addEventListener('change', updateButton);
+
+      button.addEventListener('click', async () => {
+        const next = normalizedCount(input.value);
+        if (busy || button.disabled || next === null || next === loadedValue) return;
+        if (!window.confirm(tr('cfg.counter.value.confirm',
+          'Remplacer le cumul actuel par la valeur saisie ?') + ' ' + next)) return;
+        busy = true;
+        input.disabled = true;
+        updateButton();
+        status.textContent = tr('cfg.counter.value.saving', 'Enregistrement…');
+        try {
+          const response = await fetch('/api/io/counter/set', {
+            method: 'POST',
+            body: new URLSearchParams({ id: String(ioId), value: next }),
+            cache: 'no-store'
+          });
+          const result = await response.json();
+          if (!response.ok || !result || result.ok !== true) throw new Error('counter_set_failed');
+          const saved = normalizedCount(result.value);
+          if (saved === null) throw new Error('invalid_counter_response');
+          loadedValue = saved;
+          input.value = saved;
+          status.textContent = tr('cfg.counter.value.saved', 'Valeur enregistrée et sauvegardée.');
+        } catch (_) {
+          status.textContent = tr('cfg.counter.value.saveFailed',
+            'Échec de l’enregistrement. Vérifiez la valeur avant de réessayer.');
+        } finally {
+          busy = false;
+          input.disabled = false;
+          updateButton();
+        }
+      });
+
+      // Only this initial GET is performed. No timer, polling or live subscription.
+      (async () => {
+        try {
+          const response = await fetch('/api/io/counter/value?id=' + ioId, { cache: 'no-store' });
+          const result = await response.json();
+          if (!response.ok || !result || result.ok !== true) throw new Error('counter_unavailable');
+          const current = normalizedCount(result.value);
+          if (current === null) throw new Error('invalid_counter_value');
+          if (!row.isConnected) return;
+          loadedValue = current;
+          input.value = current;
+          input.disabled = false;
+          status.textContent = '';
+          updateButton();
+        } catch (_) {
+          if (row.isConnected) status.textContent = tr('cfg.counter.value.loadFailed',
+            'Compteur indisponible. Rechargez la page après son activation.');
+        }
+      })();
+
+      return { row, input };
+    }
+
     function renderConfigFields(containerEl, moduleName, dataObj, options) {
       const opts = options || {};
       const appendMode = !!opts.append;
@@ -14574,6 +14972,30 @@
           const a = order.indexOf(left);
           const b = order.indexOf(right);
           return (a < 0 ? 99 : a) - (b < 0 ? 99 : b);
+        });
+      }
+      // Harmonize digital-input Config Store fields across all i00..i15
+      // without changing their saved values or mode-dependent visibility.
+      // All remaining fields retain their previous alphabetical order.
+      const digitalInputMatch = String(moduleName || '').trim().toLowerCase()
+        .match(/^io\/input\/(?:digital\/)?(i\d{2})$/);
+      if (digitalInputMatch) {
+        const id = digitalInputMatch[1];
+        const order = [
+          id + '_name',
+          id + '_active_high',
+          'binding_port',
+          'secondary_binding_port',
+          id + '_pull_mode',
+          'mode',
+          'flow_unit'
+        ];
+        keys.sort((left, right) => {
+          const leftIndex = order.indexOf(left);
+          const rightIndex = order.indexOf(right);
+          const leftRank = leftIndex < 0 ? order.length : leftIndex;
+          const rightRank = rightIndex < 0 ? order.length : rightIndex;
+          return leftRank - rightRank || left.localeCompare(right);
         });
       }
       if (sectionTitle && keys.length > 0) {
@@ -14795,6 +15217,22 @@
         row.appendChild(valueWrap);
         containerEl.appendChild(row);
         visibilityEntries.push({ row, inputEl, key, doc });
+        // Keep the manual counter value immediately below the reset action.
+        // The same counter-only visibility rule hides both in "0 | État".
+        if (key === 'counter_reset' && isDigitalInputConfigModule(moduleName)) {
+          // A rate-only input has no cumulative counter to read or modify.
+          const counterValueField = parseDigitalInputModeValue(data.mode) === 1
+            ? buildCounterValueField(moduleName) : null;
+          if (counterValueField) {
+            containerEl.appendChild(counterValueField.row);
+            visibilityEntries.push({
+              row: counterValueField.row,
+              inputEl: counterValueField.input,
+              key: 'counter_value',
+              doc: { counter_only: true }
+            });
+          }
+        }
       }
 
       // Declarative conditions also apply when the user changes a field before saving.
@@ -14843,9 +15281,16 @@
         };
         const applyConditionalVisibility = () => {
           const modeValue = readModeValue();
-          const hideCounterOnly = Number.isFinite(modeValue) && modeValue === 0;
           visibilityEntries.forEach((entry) => {
-            const shouldHide = hideCounterOnly && isCounterModeOnlyConfigField(moduleName, entry.key, entry.doc);
+            const clean = normalizeDigitalInputConfigKey(moduleName, entry.key);
+            const isCountControl = clean === 'counter_reset' ||
+              clean === 'counter_value' || clean === 'counter_total' ||
+              (entry.doc && entry.doc.mode1_only === true);
+            const isFlowUnit = clean === 'flow_unit';
+            const shouldHide = (modeValue === 0 &&
+              isCounterModeOnlyConfigField(moduleName, entry.key, entry.doc)) ||
+              (modeValue === 2 && isCountControl) ||
+              (modeValue !== 2 && isFlowUnit);
             entry.row.hidden = shouldHide;
             if (entry.inputEl) {
               entry.inputEl.dataset.runtimeHidden = shouldHide ? '1' : '0';

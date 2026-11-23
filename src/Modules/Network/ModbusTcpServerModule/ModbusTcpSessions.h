@@ -2,7 +2,7 @@
 /**
  * @brief Fixed-capacity TCP session admission and stream framing.
  *
- * Three ports, two slots each. No heap allocations. This layer does not
+ * Three ports, two slots each. Frame storage is supplied by the caller. This layer does not
  * own sockets or touch UART: the network task retains all socket operations.
  */
 #include <stddef.h>
@@ -19,12 +19,18 @@ public:
         bool occupied = false;
         bool requestReady = false;
         uint16_t bytesUsed = 0U;
-        uint8_t frame[ModbusTcpAdu::kMaxAdu]{};
     };
+
+    // Bind before opening sockets. Owner guarantees lifetime and stable address.
+    void attachFrames(uint8_t (*frames)[ModbusTcpAdu::kMaxAdu]) {
+        frames_ = frames;
+        for (auto& session : sessions_) session = {};
+    }
+    bool ready() const { return frames_ != nullptr; }
 
     /** Returns slot index 0..5, or -1 if this port is at capacity. */
     int8_t accept(uint8_t portIndex) {
-        if (!validPortIndex(portIndex)) return -1;
+        if (!frames_ || !validPortIndex(portIndex)) return -1;
         const uint8_t first = portIndex * kClientsPerPort;
         for (uint8_t i = first; i < first + kClientsPerPort; ++i) {
             if (sessions_[i].occupied) continue;
@@ -47,19 +53,19 @@ public:
     FeedResult feed(uint8_t slot, const uint8_t* input, size_t size,
                     size_t& consumed) {
         consumed = 0U;
-        if (slot >= kMaxClients || !sessions_[slot].occupied ||
+        if (!frames_ || slot >= kMaxClients || !sessions_[slot].occupied ||
             (!input && size)) return FeedResult::Invalid;
         Session& s = sessions_[slot];
         if (s.requestReady) return FeedResult::Busy;
         while (consumed < size) {
-            if (s.bytesUsed >= sizeof(s.frame)) {
+            if (s.bytesUsed >= sizeof(frames_[slot])) {
                 s.bytesUsed = 0U;
                 return FeedResult::Invalid;
             }
-            s.frame[s.bytesUsed++] = input[consumed++];
+            frames_[slot][s.bytesUsed++] = input[consumed++];
             if (s.bytesUsed < ModbusTcpAdu::kMbapPrefix) continue;
-            const size_t expected = ModbusTcpAdu::expectedSize(s.frame, s.bytesUsed);
-            if (!expected || expected > sizeof(s.frame)) {
+            const size_t expected = ModbusTcpAdu::expectedSize(frames_[slot], s.bytesUsed);
+            if (!expected || expected > sizeof(frames_[slot])) {
                 s.bytesUsed = 0U;
                 return FeedResult::Invalid;
             }
@@ -77,35 +83,35 @@ public:
      * until the previous Modbus response has been sent.
      */
     size_t bytesNeeded(uint8_t slot) const {
-        if (slot >= kMaxClients) return 0U;
+        if (!frames_ || slot >= kMaxClients) return 0U;
         const Session& s = sessions_[slot];
         if (!s.occupied || s.requestReady) return 0U;
         if (s.bytesUsed < ModbusTcpAdu::kMbapPrefix)
             return ModbusTcpAdu::kMbapPrefix - s.bytesUsed;
-        const size_t expected = ModbusTcpAdu::expectedSize(s.frame, s.bytesUsed);
-        return expected > s.bytesUsed && expected <= sizeof(s.frame)
+        const size_t expected = ModbusTcpAdu::expectedSize(frames_[slot], s.bytesUsed);
+        return expected > s.bytesUsed && expected <= sizeof(frames_[slot])
             ? expected - s.bytesUsed : 0U;
     }
 
     /** Read transaction ID, unit and function even for an invalid/unsupported PDU. */
     bool headerRequest(uint8_t slot, ModbusTcpAdu::Request& out) const {
-        if (slot >= kMaxClients) return false;
+        if (!frames_ || slot >= kMaxClients) return false;
         const Session& s = sessions_[slot];
         if (!s.occupied || !s.requestReady || s.bytesUsed < 8U ||
-            ModbusTcpAdu::expectedSize(s.frame, s.bytesUsed) != s.bytesUsed)
+            ModbusTcpAdu::expectedSize(frames_[slot], s.bytesUsed) != s.bytesUsed)
             return false;
         out = ModbusTcpAdu::Request{};
-        out.transactionId = ModbusTcpAdu::word(s.frame);
-        out.unitId = s.frame[6];
-        out.function = s.frame[7];
+        out.transactionId = ModbusTcpAdu::word(frames_[slot]);
+        out.unitId = frames_[slot][6];
+        out.function = frames_[slot][7];
         return true;
     }
 
     bool request(uint8_t slot, ModbusTcpAdu::Request& out) const {
-        if (slot >= kMaxClients) return false;
+        if (!frames_ || slot >= kMaxClients) return false;
         const Session& s = sessions_[slot];
-        return s.occupied && s.requestReady &&
-            ModbusTcpAdu::decode(s.frame, s.bytesUsed, out);
+        return frames_ && s.occupied && s.requestReady &&
+            ModbusTcpAdu::decode(frames_[slot], s.bytesUsed, out);
     }
 
     void clearRequest(uint8_t slot) {
@@ -137,5 +143,6 @@ public:
     }
 private:
     Session sessions_[kMaxClients]{};
+    uint8_t (*frames_)[ModbusTcpAdu::kMaxAdu] = nullptr;
 };
 } // namespace ModbusTcpServer

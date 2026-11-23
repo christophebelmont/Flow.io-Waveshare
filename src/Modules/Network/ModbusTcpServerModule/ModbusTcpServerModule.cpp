@@ -134,6 +134,111 @@ MqttBuildResult ModbusTcpServerModule::buildConfigMqtt_(
     return MqttBuildResult::Ready;
 }
 
+// Web/bootlog snapshots: each entry fits LogEntry.msg (159 visible bytes).
+// Per-port counters are cumulative. No per-frame logging on the hot path.
+void ModbusTcpServerModule::logWebSnapshot_(
+    uint32_t now, bool stationConnected, bool otaBusy)
+{
+    if (!Log::hub()) return;
+    const auto& a = server_.stats(0U);
+    const auto& b = server_.stats(1U);
+    const auto& c = server_.stats(2U);
+    const uint32_t internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const uint32_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    ModbusMasterStats queue{};
+    if (master_ && master_->stats) (void)master_->stats(master_->ctx, &queue);
+
+    // Boot-local counters: actual listener stops/reopens only, not TCP SYN
+    // attempts (invisible to the application after listeners close).
+    Log::info(kLogModule_,
+              "[MODBUS-OTA] paused=%lu resumed=%lu pending=%u busy=%u listen=%u",
+              (unsigned long)otaSuspensions_, (unsigned long)otaResumptions_,
+              otaResumePending_ ? 1U : 0U, otaBusy ? 1U : 0U,
+              running_ ? 1U : 0U);
+    if (otaBusy) {
+        Log::info(kLogModule_,
+                  "[OTA-NET] ms=%lu en=%u%u%u sta=%u listen=%u clients=%u,%u,%u psram=%u",
+                  (unsigned long)now,
+                  configs_[0].enabled ? 1U : 0U,
+                  configs_[1].enabled ? 1U : 0U,
+                  configs_[2].enabled ? 1U : 0U,
+                  stationConnected ? 1U : 0U, running_ ? 1U : 0U,
+                  (unsigned)a.activeClients, (unsigned)b.activeClients,
+                  (unsigned)c.activeClients, (unsigned)server_.psramFrameBytes());
+        Log::info(kLogModule_,
+                  "[OTA-NET] rtu_q=%u reject=%lu tick_us=%lu slow=%lu internal=%lu largest=%lu",
+                  (unsigned)queue.queued, (unsigned long)queue.queueRejected,
+                  (unsigned long)otaTickMaxUs_, (unsigned long)otaSlowTicks_,
+                  (unsigned long)internal, (unsigned long)largest);
+    } else {
+        Log::info(kLogModule_,
+                  "[MODBUS-PSRAM] bytes=%u ready=%u en=%u%u%u sta=%u listen=%u",
+                  (unsigned)server_.psramFrameBytes(),
+                  server_.frameStorageReady() ? 1U : 0U,
+                  configs_[0].enabled ? 1U : 0U,
+                  configs_[1].enabled ? 1U : 0U,
+                  configs_[2].enabled ? 1U : 0U,
+                  stationConnected ? 1U : 0U, running_ ? 1U : 0U);
+        Log::info(kLogModule_,
+                  "[MODBUS-MEM] int=%lu largest=%lu min=%lu psram=%lu stack=%lu rtu_q=%u reject=%lu",
+                  (unsigned long)internal, (unsigned long)largest,
+                  (unsigned long)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                  (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+                  (unsigned long)uxTaskGetStackHighWaterMark(nullptr),
+                  (unsigned)queue.queued, (unsigned long)queue.queueRejected);
+    }
+    for (uint8_t i = 0U; i < ModbusTcpServer::kPortCount; ++i) {
+        const auto& p = server_.stats(i);
+        const unsigned port = (unsigned)ModbusTcpServer::kPorts[i];
+        if (otaBusy) {
+            Log::info(kLogModule_,
+                      "[OTA-TCP] port=%u clients=%u req=%lu reply=%lu exc=%lu tmo=%lu rxerr=%lu txerr=%lu",
+                      port, (unsigned)p.activeClients,
+                      (unsigned long)p.received, (unsigned long)p.completed,
+                      (unsigned long)p.exceptionsSent, (unsigned long)p.timeouts,
+                      (unsigned long)p.rxErrors, (unsigned long)p.txErrors);
+        } else {
+            Log::info(kLogModule_,
+                      "[MODBUS-TCP] port=%u clients=%u peak=%u req=%lu reply=%lu exc=%lu tmo=%lu rej=%lu",
+                      port, (unsigned)p.activeClients, (unsigned)p.maxActiveClients,
+                      (unsigned long)p.received, (unsigned long)p.completed,
+                      (unsigned long)p.exceptionsSent, (unsigned long)p.timeouts,
+                      (unsigned long)p.queueRejected);
+            if (p.rxErrors || p.txErrors || p.invalidTcpAdus ||
+                p.resolverFailures || p.silentFailures ||
+                p.connectionsRejected || p.keepaliveSetupFailures) {
+                Log::warn(kLogModule_,
+                          "[MODBUS-ERR] port=%u rxerr=%lu txerr=%lu invalid=%lu resolver=%lu silent=%lu connrej=%lu kaerr=%lu",
+                          port, (unsigned long)p.rxErrors, (unsigned long)p.txErrors,
+                          (unsigned long)p.invalidTcpAdus,
+                          (unsigned long)p.resolverFailures,
+                          (unsigned long)p.silentFailures,
+                          (unsigned long)p.connectionsRejected,
+                          (unsigned long)p.keepaliveSetupFailures);
+            }
+            if (p.resolverFailures) {
+                Log::warn(kLogModule_,
+                          "[MODBUS-RESOLVE] port=%u mode=%u device=%u unit=%u fc=%u addr=%u fails=%lu age_ms=%lu",
+                          port,
+                          configs_[i].serialSource == ModbusTcpServer::SerialSource::Manual ? 2U : 1U,
+                          (unsigned)configs_[i].deviceId,
+                          (unsigned)p.lastResolverUnitId,
+                          (unsigned)p.lastResolverFunction,
+                          (unsigned)p.lastResolverAddress,
+                          (unsigned long)p.resolverFailures,
+                          (unsigned long)(now - p.lastResolverAtMs));
+            }
+            if (p.received || p.completed) {
+                Log::info(kLogModule_,
+                          "[MODBUS-LAT] port=%u tcpmax_ms=%lu queue_ms=%lu rtu_ms=%lu",
+                          port, (unsigned long)p.responseTimeMaxMs,
+                          (unsigned long)p.queueWaitMaxMs,
+                          (unsigned long)p.rtuResponseMaxMs);
+            }
+        }
+    }
+}
+
 void ModbusTcpServerModule::init(ConfigStore& cfg, ServiceRegistry& services)
 {
     registry_ = &services;

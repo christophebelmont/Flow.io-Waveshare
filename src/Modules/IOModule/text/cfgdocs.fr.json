@@ -667,7 +667,8 @@
     "io/input/i00/counter_total": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.i00.counter_total.label",
-      "help_t": "cfgdocs.io.input.i00.counter_total.help"
+      "help_t": "cfgdocs.io.input.i00.counter_total.help",
+      "mode1_only": true
     },
     "io/input/i00/counter_debounce_us": {
       "type": "Int32",
@@ -717,7 +718,8 @@
     "io/input/i01/counter_total": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.i01.counter_total.label",
-      "help_t": "cfgdocs.io.input.i01.counter_total.help"
+      "help_t": "cfgdocs.io.input.i01.counter_total.help",
+      "mode1_only": true
     },
     "io/input/i01/counter_debounce_us": {
       "type": "Int32",
@@ -767,7 +769,8 @@
     "io/input/i02/counter_total": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.i02.counter_total.label",
-      "help_t": "cfgdocs.io.input.i02.counter_total.help"
+      "help_t": "cfgdocs.io.input.i02.counter_total.help",
+      "mode1_only": true
     },
     "io/input/i02/counter_debounce_us": {
       "type": "Int32",
@@ -817,7 +820,8 @@
     "io/input/i03/counter_total": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.i03.counter_total.label",
-      "help_t": "cfgdocs.io.input.i03.counter_total.help"
+      "help_t": "cfgdocs.io.input.i03.counter_total.help",
+      "mode1_only": true
     },
     "io/input/i03/counter_debounce_us": {
       "type": "Int32",
@@ -867,7 +871,8 @@
     "io/input/i04/counter_total": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.i04.counter_total.label",
-      "help_t": "cfgdocs.io.input.i04.counter_total.help"
+      "help_t": "cfgdocs.io.input.i04.counter_total.help",
+      "mode1_only": true
     },
     "io/input/i04/counter_debounce_us": {
       "type": "Int32",
@@ -917,7 +922,8 @@
     "io/input/i05/counter_total": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.i05.counter_total.label",
-      "help_t": "cfgdocs.io.input.i05.counter_total.help"
+      "help_t": "cfgdocs.io.input.i05.counter_total.help",
+      "mode1_only": true
     },
     "io/input/i05/counter_debounce_us": {
       "type": "Int32",
@@ -967,7 +973,8 @@
     "io/input/i06/counter_total": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.i06.counter_total.label",
-      "help_t": "cfgdocs.io.input.i06.counter_total.help"
+      "help_t": "cfgdocs.io.input.i06.counter_total.help",
+      "mode1_only": true
     },
     "io/input/i06/counter_debounce_us": {
       "type": "Int32",
@@ -1017,7 +1024,8 @@
     "io/input/i07/counter_total": {
       "type": "Float",
       "label_t": "cfgdocs.io.input.i07.counter_total.label",
-      "help_t": "cfgdocs.io.input.i07.counter_total.help"
+      "help_t": "cfgdocs.io.input.i07.counter_total.help",
+      "mode1_only": true
     },
     "io/input/i07/counter_debounce_us": {
       "type": "Int32",
@@ -2142,7 +2150,8 @@
         },
         "confirmation_t": "cfgdocs.io.input.i00.counter_reset.confirm",
         "success_t": "config.counter_reset.success"
-      }
+      },
+      "mode1_only": true
     },
     "io/input/i01/counter_reset": {
       "type": "UInt16",
@@ -2157,7 +2166,8 @@
         },
         "confirmation_t": "cfgdocs.io.input.i01.counter_reset.confirm",
         "success_t": "config.counter_reset.success"
-      }
+      },
+      "mode1_only": true
     },
     "io/input/i02/counter_reset": {
       "type": "UInt16",
@@ -2172,7 +2182,8 @@
         },
         "confirmation_t": "cfgdocs.io.input.i02.counter_reset.confirm",
         "success_t": "config.counter_reset.success"
-      }
+      },
+      "mode1_only": true
     },
     "io/input/i03/counter_reset": {
       "type": "UInt16",
@@ -2187,7 +2198,8 @@
         },
         "confirmation_t": "cfgdocs.io.input.i03.counter_reset.confirm",
         "success_t": "config.counter_reset.success"
-      }
+      },
+      "mode1_only": true
     },
     "io/input/i04/counter_reset": {
       "type": "UInt16",
@@ -2202,7 +2214,8 @@
         },
         "confirmation_t": "cfgdocs.io.input.i04.counter_reset.confirm",
         "success_t": "config.counter_reset.success"
-      }
+      },
+      "mode1_only": true
     },
     "io/input/i05/counter_reset": {
       "type": "UInt16",
@@ -2217,7 +2230,8 @@
         },
         "confirmation_t": "cfgdocs.io.input.i05.counter_reset.confirm",
         "success_t": "config.counter_reset.success"
-      }
+      },
+      "mode1_only": true
     },
     "io/input/i06/counter_reset": {
       "type": "UInt16",
@@ -2232,7 +2246,8 @@
         },
         "confirmation_t": "cfgdocs.io.input.i06.counter_reset.confirm",
         "success_t": "config.counter_reset.success"
-      }
+      },
+      "mode1_only": true
     },
     "io/input/i07/counter_reset": {
       "type": "UInt16",
@@ -2247,7 +2262,8 @@
         },
         "confirmation_t": "cfgdocs.io.input.i07.counter_reset.confirm",
         "success_t": "config.counter_reset.success"
-      }
+      },
+      "mode1_only": true
     },
     "io/input/i08/counter_reset": {
       "type": "UInt16",
@@ -2262,7 +2278,8 @@
         },
         "confirmation_t": "cfgdocs.io.input.i08.counter_reset.confirm",
         "success_t": "config.counter_reset.success"
-      }
+      },
+      "mode1_only": true
     },
     "io/input/i09/counter_reset": {
       "type": "UInt16",
@@ -2277,7 +2294,8 @@
         },
         "confirmation_t": "cfgdocs.io.input.i09.counter_reset.confirm",
         "success_t": "config.counter_reset.success"
-      }
+      },
+      "mode1_only": true
     },
     "io/input/i10/counter_reset": {
       "type": "UInt16",
@@ -2292,7 +2310,8 @@
         },
         "confirmation_t": "cfgdocs.io.input.i10.counter_reset.confirm",
         "success_t": "config.counter_reset.success"
-      }
+      },
+      "mode1_only": true
     },
     "io/input/i11/counter_reset": {
       "type": "UInt16",
@@ -2307,7 +2326,8 @@
         },
         "confirmation_t": "cfgdocs.io.input.i11.counter_reset.confirm",
         "success_t": "config.counter_reset.success"
-      }
+      },
+      "mode1_only": true
     },
     "io/input/i12/counter_reset": {
       "type": "UInt16",
@@ -2322,7 +2342,8 @@
         },
         "confirmation_t": "cfgdocs.io.input.i12.counter_reset.confirm",
         "success_t": "config.counter_reset.success"
-      }
+      },
+      "mode1_only": true
     },
     "io/input/i13/counter_reset": {
       "type": "UInt16",
@@ -2337,7 +2358,8 @@
         },
         "confirmation_t": "cfgdocs.io.input.i13.counter_reset.confirm",
         "success_t": "config.counter_reset.success"
-      }
+      },
+      "mode1_only": true
     },
     "io/input/i14/counter_reset": {
       "type": "UInt16",
@@ -2352,7 +2374,8 @@
         },
         "confirmation_t": "cfgdocs.io.input.i14.counter_reset.confirm",
         "success_t": "config.counter_reset.success"
-      }
+      },
+      "mode1_only": true
     },
     "io/input/i15/counter_reset": {
       "type": "UInt16",
@@ -2367,7 +2390,8 @@
         },
         "confirmation_t": "cfgdocs.io.input.i15.counter_reset.confirm",
         "success_t": "config.counter_reset.success"
-      }
+      },
+      "mode1_only": true
     },
     "io/drivers/ads1115_int/secondary_address": {
       "type": "UInt8",
@@ -3358,6 +3382,166 @@
       "type": "Float",
       "label_t": "cfgdocs.io.input.a31.secondary_c1.label",
       "help_t": "cfgdocs.io.input.a31.secondary_c1.help"
+    },
+    "io/input/i00/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i00.flow_unit.label",
+      "help_t": "cfgmods.io.input.i00.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i01/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i01.flow_unit.label",
+      "help_t": "cfgmods.io.input.i01.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i02/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i02.flow_unit.label",
+      "help_t": "cfgmods.io.input.i02.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i03/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i03.flow_unit.label",
+      "help_t": "cfgmods.io.input.i03.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i04/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i04.flow_unit.label",
+      "help_t": "cfgmods.io.input.i04.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i05/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i05.flow_unit.label",
+      "help_t": "cfgmods.io.input.i05.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i06/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i06.flow_unit.label",
+      "help_t": "cfgmods.io.input.i06.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i07/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i07.flow_unit.label",
+      "help_t": "cfgmods.io.input.i07.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i08/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i08.flow_unit.label",
+      "help_t": "cfgmods.io.input.i08.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i09/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i09.flow_unit.label",
+      "help_t": "cfgmods.io.input.i09.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i10/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i10.flow_unit.label",
+      "help_t": "cfgmods.io.input.i10.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i11/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i11.flow_unit.label",
+      "help_t": "cfgmods.io.input.i11.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i12/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i12.flow_unit.label",
+      "help_t": "cfgmods.io.input.i12.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i13/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i13.flow_unit.label",
+      "help_t": "cfgmods.io.input.i13.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i14/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i14.flow_unit.label",
+      "help_t": "cfgmods.io.input.i14.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
+    },
+    "io/input/i15/flow_unit": {
+      "type": "UInt8",
+      "label_t": "cfgmods.io.input.i15.flow_unit.label",
+      "help_t": "cfgmods.io.input.i15.flow_unit.help",
+      "enum_set": "flowio_input_flow_unit",
+      "visible_when": {
+        "field": "mode",
+        "equals": 2
+      }
     }
   }
 }

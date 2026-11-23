@@ -260,7 +260,7 @@
       "unit": "pulse",
       "kind": "counter",
       "slot": 0,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_32",
       "topic": "rt/value/32"
     },
@@ -272,7 +272,7 @@
       "unit": "pulse",
       "kind": "counter",
       "slot": 1,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_33",
       "topic": "rt/value/33"
     },
@@ -284,7 +284,7 @@
       "unit": "pulse",
       "kind": "counter",
       "slot": 2,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_34",
       "topic": "rt/value/34"
     },
@@ -296,7 +296,7 @@
       "unit": "pulse",
       "kind": "counter",
       "slot": 3,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_35",
       "topic": "rt/value/35"
     },
@@ -308,7 +308,7 @@
       "unit": "pulse",
       "kind": "counter",
       "slot": 4,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_36",
       "topic": "rt/value/36"
     },
@@ -320,7 +320,7 @@
       "unit": "pulse",
       "kind": "counter",
       "slot": 5,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_37",
       "topic": "rt/value/37"
     },
@@ -332,7 +332,7 @@
       "unit": "pulse",
       "kind": "counter",
       "slot": 6,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_38",
       "topic": "rt/value/38"
     },
@@ -344,7 +344,7 @@
       "unit": "pulse",
       "kind": "counter",
       "slot": 7,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_39",
       "topic": "rt/value/39"
     },
@@ -356,7 +356,7 @@
       "unit": "pulse",
       "kind": "counter",
       "slot": 8,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_40",
       "topic": "rt/value/40"
     },
@@ -368,7 +368,7 @@
       "unit": "pulse",
       "kind": "counter",
       "slot": 9,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_41",
       "topic": "rt/value/41"
     },
@@ -380,7 +380,7 @@
       "unit": "pulse",
       "kind": "counter",
       "slot": 10,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_42",
       "topic": "rt/value/42"
     },
@@ -392,7 +392,7 @@
       "unit": "pulse",
       "kind": "counter",
       "slot": 11,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_43",
       "topic": "rt/value/43"
     },
@@ -404,7 +404,7 @@
       "unit": "pulse",
       "kind": "counter",
       "slot": 12,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_44",
       "topic": "rt/value/44"
     },
@@ -416,7 +416,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 0,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_48",
       "topic": "rt/value/48"
     },
@@ -428,7 +428,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 1,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_49",
       "topic": "rt/value/49"
     },
@@ -440,7 +440,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 2,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_50",
       "topic": "rt/value/50"
     },
@@ -452,7 +452,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 3,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_51",
       "topic": "rt/value/51"
     },
@@ -464,7 +464,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 4,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_52",
       "topic": "rt/value/52"
     },
@@ -476,7 +476,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 5,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_53",
       "topic": "rt/value/53"
     },
@@ -488,7 +488,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 6,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_54",
       "topic": "rt/value/54"
     },
@@ -500,7 +500,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 7,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_55",
       "topic": "rt/value/55"
     },
@@ -512,7 +512,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 8,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_56",
       "topic": "rt/value/56"
     },
@@ -524,7 +524,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 9,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_57",
       "topic": "rt/value/57"
     },
@@ -536,7 +536,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 10,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_58",
       "topic": "rt/value/58"
     },
@@ -548,7 +548,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 11,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_59",
       "topic": "rt/value/59"
     },
@@ -560,7 +560,7 @@
       "unit": "pulse/m",
       "kind": "counter",
       "slot": 12,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_60",
       "topic": "rt/value/60"
     },
@@ -728,7 +728,7 @@
       "unit": "",
       "kind": "counter",
       "slot": 0,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_80",
       "topic": "rt/value/80"
     },
@@ -740,7 +740,7 @@
       "unit": "",
       "kind": "counter",
       "slot": 1,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_81",
       "topic": "rt/value/81"
     },
@@ -752,7 +752,7 @@
       "unit": "",
       "kind": "counter",
       "slot": 2,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_82",
       "topic": "rt/value/82"
     },
@@ -764,7 +764,7 @@
       "unit": "",
       "kind": "counter",
       "slot": 3,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_83",
       "topic": "rt/value/83"
     },
@@ -776,7 +776,7 @@
       "unit": "",
       "kind": "counter",
       "slot": 4,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_84",
       "topic": "rt/value/84"
     },
@@ -788,7 +788,7 @@
       "unit": "",
       "kind": "counter",
       "slot": 5,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_85",
       "topic": "rt/value/85"
     },
@@ -800,7 +800,7 @@
       "unit": "",
       "kind": "counter",
       "slot": 6,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_86",
       "topic": "rt/value/86"
     },
@@ -812,7 +812,7 @@
       "unit": "",
       "kind": "counter",
       "slot": 7,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_87",
       "topic": "rt/value/87"
     },
@@ -824,7 +824,7 @@
       "unit": "",
       "kind": "counter",
       "slot": 8,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_88",
       "topic": "rt/value/88"
     },
@@ -836,7 +836,7 @@
       "unit": "",
       "kind": "counter",
       "slot": 9,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_89",
       "topic": "rt/value/89"
     },
@@ -848,7 +848,7 @@
       "unit": "",
       "kind": "counter",
       "slot": 10,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_90",
       "topic": "rt/value/90"
     },
@@ -860,7 +860,7 @@
       "unit": "",
       "kind": "counter",
       "slot": 11,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_91",
       "topic": "rt/value/91"
     },
@@ -872,7 +872,7 @@
       "unit": "",
       "kind": "counter",
       "slot": 12,
-      "ha_default": false,
+      "ha_default": true,
       "ha_suffix": "data_92",
       "topic": "rt/value/92"
     },

@@ -17,6 +17,11 @@ struct PulseRuntime {
     void reset(uint64_t raw, uint32_t epoch, uint32_t now) {
         restore(0, epoch, now); previousRaw = raw;
     }
+    // Set a manual cumulative count without losing pulses that arrive later:
+    // keep the live hardware counter as the baseline for subsequent deltas.
+    void set(uint64_t raw, uint64_t desiredCount, uint32_t epoch, uint32_t now) {
+        restore(desiredCount, epoch, now); previousRaw = raw;
+    }
     bool sample(uint64_t raw, uint32_t now) {
         if (!initialized) restore(0, 0, now);
         if (raw < previousRaw) {

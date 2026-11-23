@@ -128,7 +128,10 @@ private:
     uint32_t lastStackSampleMs_ = 0;
     portMUX_TYPE stackSamplesMux_ = portMUX_INITIALIZER_UNLOCKED;
     std::atomic<bool> captureRequested_{false};
-#if FLOW_PERFORMANCE_DIAGNOSTICS
+    // 0: normal 5s+ summary; 1: detailed 2s summary. CPU snapshots are
+    // never collected from the time-critical IO task.
+    std::atomic<uint8_t> diagnosticsMode_{0};
+    std::atomic<uint32_t> lastTaskCaptureRequestMs_{0};
     DurationSamples taskCaptureDurations_{};
     TaskWakeInterval lastTaskCapture_{};
 #endif
@@ -187,6 +190,7 @@ private:
     void captureTasksIfRequested_();
     void pollMemoryMetrics_(uint32_t nowMs);
     static bool requestTaskCapture_(void* ctx, const CommandRequest&, char* reply, size_t replyLen);
+    static bool setDiagnosticsMode_(void* ctx, const CommandRequest&, char* reply, size_t replyLen);
     void logEventBusHealth(const EventBus::QueueSnapshot& queue);
     void sampleSystemHealth_();
     void logTrackedBuffers();

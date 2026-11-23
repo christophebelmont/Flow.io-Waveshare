@@ -57,6 +57,7 @@ constexpr char DeviceName[] = "sys_dname"; // System module persisted key for fi
 
 namespace FirmwareUpdate {
 constexpr char Receipt[] = "fw_up_receipt"; // Last update operation state, persisted across reboot.
+constexpr char LastFailure[] = "fw_up_fail"; // Previous OTA failure, kept even after a successful retry.
 }  // namespace FirmwareUpdate
 
 namespace SystemMonitor {

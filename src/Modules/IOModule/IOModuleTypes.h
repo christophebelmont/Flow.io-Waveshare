@@ -9,6 +9,7 @@
 #include "Core/Services/IIO.h"
 #include "Core/ConfigDefaults.h"
 #include "Core/Values/Value.h"
+#include "Core/Values/PulseFlowUnits.h"
 
 typedef uint16_t BindingPointId;
 typedef BindingPointId PhysicalPortId;
@@ -131,7 +132,8 @@ enum IODigitalPullMode : uint8_t {
 
 enum IODigitalInputMode : uint8_t {
     IO_DIGITAL_INPUT_STATE = 0,
-    IO_DIGITAL_INPUT_COUNTER = 1
+    IO_DIGITAL_INPUT_COUNTER = 1,
+    IO_DIGITAL_INPUT_PULSES_PER_MINUTE = 2
 };
 
 enum IODigitalEdgeMode : uint8_t {
@@ -205,6 +207,7 @@ struct IODigitalInputSlotConfig {
     uint8_t mode = IO_DIGITAL_INPUT_STATE;
     uint8_t edgeMode = IO_EDGE_RISING;
     int32_t counterDebounceUs = 0;
+    uint8_t flowUnit = IO_FLOW_LITERS_PER_MINUTE;
     float c0 = 1.0f;
     uint16_t counterReset = 0;
     int32_t precision = 0;

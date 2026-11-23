@@ -33,6 +33,7 @@
 #include "Modules/IOModule/IOEndpoints/DigitalActuatorEndpoint.h"
 #include "Modules/IOModule/IOEndpoints/DigitalSensorEndpoint.h"
 #include "Core/Values/PulseRuntime.h"
+#include "Core/Values/PulseRateOnly.h"
 #include "ValueConfig.h"
 #include "Core/Values/PulseCheckpoint.h"
 #include "Modules/IOModule/IOEndpoints/RunningMedianAverageFloat.h"
@@ -240,9 +241,11 @@ private:
     bool loadPulseCheckpoint_();
     void checkpointPulses_(uint32_t nowMs, bool force = false);
     bool servicePulseRequest_(uint32_t nowMs);
-    IoStatus requestPulseSave_(IoId resetId);
+    IoStatus requestPulseSave_(IoId resetId, bool setValue = false, uint64_t desiredCount = 0);
     IoStatus resetCounter_(IoId id);
+    IoStatus setCounter_(IoId id, uint64_t desiredCount);
     static bool cmdResetCounter_(void* ctx, const CommandRequest& req, char* reply, size_t len);
+    static bool cmdSetCounter_(void* ctx, const CommandRequest& req, char* reply, size_t len);
     IoStatus saveCounters_();
     enum class PulseRequestState : uint8_t { Idle, Requested, Saving, Complete };
     std::atomic<PulseRequestState> pulseRequestState_{PulseRequestState::Idle};
@@ -250,6 +253,8 @@ private:
     static constexpr uint32_t PulseRequestTimeoutMs = 2000U;
     uint32_t pulseRequestStartedMs_ = 0;
     IoId pulseRequestResetId_ = IO_ID_INVALID;
+    bool pulseRequestSetValue_ = false;
+    uint64_t pulseRequestCount_ = 0;
     IoStatus pulseRequestResult_ = IO_OK;
     bool pulseRequestSubmitted_ = false;
     PulseCheckpoint::State pulsePersisted_{}, pulsePending_{};
@@ -378,7 +383,8 @@ private:
         uint32_t pulseDeadlineMs = 0;
         bool lastValid = false;
         bool lastValue = false;
-        PulseRuntime pulse{};
+        PulseRuntime pulse{}; // Cumulative mode 1 only.
+        PulseRateOnly pulseRateOnly{}; // Volatile rate mode 2 only.
         uint16_t counterResetSeen = 0;
     };
 

@@ -4,6 +4,10 @@
 int main() {
     using namespace ModbusTcpServer;
     TcpSessions sessions;
+    assert(!sessions.ready() && sessions.accept(0) == -1);
+    uint8_t externalRx[kMaxClients][ModbusTcpAdu::kMaxAdu]{};
+    sessions.attachFrames(externalRx);
+    assert(sessions.ready());
     for (uint8_t port = 0; port < kPortCount; ++port) {
         assert(sessions.accept(port) == int8_t(port * 2));
         assert(sessions.accept(port) == int8_t(port * 2 + 1));
@@ -16,6 +20,7 @@ int main() {
     size_t consumed = 0;
     assert(sessions.feed(0, read24, 4, consumed) == TcpSessions::FeedResult::Incomplete);
     assert(consumed == 4);
+    assert(externalRx[0][0] == 0x12 && externalRx[1][0] == 0x00);
     assert(sessions.bytesNeeded(0) == 2U); // finish six-byte MBAP header
     assert(sessions.hasPartialRequest(0));
     assert(!sessions.hasPartialRequest(1)); // Open but completely idle: keep it.

@@ -43,6 +43,9 @@ bool validateReleaseFilesystem(fs::FS& filesystem,
                                const char* expectedVersion,
                                const char* expectedHardware);
 
+/** True when the running firmware is temporarily using a valid legacy SPIFFS. */
+bool legacyPairedMigrationNeeded();
+
 /** Mark a pending OTA image valid after the application startup completed. */
 bool confirmPendingApplication();
 

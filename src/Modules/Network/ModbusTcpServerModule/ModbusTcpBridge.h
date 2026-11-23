@@ -14,6 +14,11 @@ class BridgeSlot {
 public:
     enum class State : uint8_t { Idle, Pending, Ready, Silent };
     explicit BridgeSlot(uint8_t ownerId) : ownerId_(ownerId) {}
+    // Output remains owned by SocketServer; never rebinding an active request.
+    void attachOutput(uint8_t* output) {
+        if (state_ == State::Idle) output_ = output;
+    }
+    bool ready() const { return output_ != nullptr; }
     State state() const { return state_; }
     bool busy() const { return state_ == State::Pending; }
     ModbusResultCode resultCode() const { return lastResult_; }
@@ -30,7 +35,7 @@ public:
                 const SerialLineProfile& serialLine, ErrorMode mode,
                 uint32_t timeoutMs, uint32_t now, uint8_t rtuUnitId = 0U) {
         const uint8_t targetUnit = rtuUnitId ? rtuUnitId : tcp.unitId;
-        if (state_ != State::Idle || !service.submit || !service.poll ||
+        if (!output_ || state_ != State::Idle || !service.submit || !service.poll ||
             tcp.unitId > 247U || targetUnit < 1U || targetUnit > 247U || !timeoutMs)
             return false;
         service_ = &service;
@@ -91,7 +96,7 @@ public:
      */
     bool reject(const ModbusTcpAdu::Request& tcp, ErrorMode mode,
                 ModbusResultCode reason, uint32_t now) {
-        if (state_ != State::Idle) return false;
+        if (!output_ || state_ != State::Idle) return false;
         mode_ = mode;
         transactionId_ = tcp.transactionId;
         unitId_ = tcp.unitId;
@@ -110,7 +115,7 @@ public:
         if (!reject(tcp, mode, MODBUS_RESULT_PROTOCOL_ERROR, now)) return false;
         if (mode == ErrorMode::ModbusException) {
             outputSize_ = ModbusTcpAdu::exception(
-                transactionId_, unitId_, function_, code, output_, sizeof(output_));
+                transactionId_, unitId_, function_, code, output_, ModbusTcpAdu::kMaxAdu);
             state_ = outputSize_ ? State::Ready : State::Silent;
         }
         return true;
@@ -166,7 +171,7 @@ public:
         } else { fail_(MODBUS_RESULT_INVALID_ARGUMENT); return; }
         lastResult_ = MODBUS_RESULT_OK;
         outputSize_ = ModbusTcpAdu::response(transactionId_, unitId_,
-            pdu, pduSize, output_, sizeof(output_));
+            pdu, pduSize, output_, ModbusTcpAdu::kMaxAdu);
         state_ = outputSize_ ? State::Ready : State::Silent;
     }
 
@@ -189,7 +194,7 @@ private:
         if (mode_ == ErrorMode::ModbusException) {
             const uint8_t code = exceptionCode(result, slaveException);
             if (code) outputSize_ = ModbusTcpAdu::exception(transactionId_, unitId_,
-                function_, code, output_, sizeof(output_));
+                function_, code, output_, ModbusTcpAdu::kMaxAdu);
         }
         state_ = outputSize_ ? State::Ready : State::Silent;
     }
@@ -210,7 +215,7 @@ private:
     uint16_t requestedValue_ = 0U;
     uint32_t startedAtMs_ = 0U;
     uint32_t timeoutMs_ = 0U;
-    uint8_t output_[ModbusTcpAdu::kMaxAdu]{};
+    uint8_t* output_ = nullptr;
     size_t outputSize_ = 0U;
 };
 } // namespace ModbusTcpServer

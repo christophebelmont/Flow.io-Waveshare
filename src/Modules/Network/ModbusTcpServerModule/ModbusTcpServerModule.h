@@ -4,9 +4,11 @@
  * Disabled by default until ports have valid explicit configuration.
  */
 #include "Core/Module.h"
+#include "Core/Log.h"
 #include <esp_heap_caps.h>
 #include "Core/Services/IModbusMaster.h"
 #include "Core/Services/INetworkAccess.h"
+#include "Core/Services/IFirmwareUpdate.h"
 #include "Core/Services/IHA.h"
 #include "Modules/Network/MQTTModule/MqttConfigRouteProducer.h"
 #include "Modules/Network/ModbusTcpServerModule/ModbusTcpLineResolver.h"
@@ -28,7 +30,8 @@ public:
         return ModuleId::Unknown;
     }
     uint8_t taskCount() const override { return 1; }
-    uint16_t taskStackSize() const override { return 4096; }
+    // Keep the network task stack in internal RAM, with ~1 KiB more margin.
+    uint16_t taskStackSize() const override { return 5120; }
     void init(ConfigStore& cfg, ServiceRegistry& services) override;
     void onConfigLoaded(ConfigStore& cfg, ServiceRegistry&) override;
     void onStart(ConfigStore&, ServiceRegistry&) override {
@@ -37,15 +40,93 @@ public:
         eligible_ = master_ && master_->submit && master_->poll;
     }
     void loop() override {
-        if (!eligible_) return;
+        const uint32_t now = millis();
         const NetworkAccessService* network =
             registry_ ? registry_->get<NetworkAccessService>(ServiceId::NetworkAccess) : nullptr;
         const bool stationConnected = network && network->mode &&
             network->mode(network->ctx) == NetworkAccessMode::Station;
+        // Sample network/RS485 pressure even if no TCP listener can start.
+        // Important: early returns for disabled ports or no station IP must
+        // not suppress OTA-NET diagnostics. Core 1; updater runs on core 0.
+        if (!fwUpdateSvc_ && registry_) {
+            fwUpdateSvc_ = registry_->get<FirmwareUpdateService>(ServiceId::FirmwareUpdate);
+        }
+        const bool otaBusy = fwUpdateSvc_ && fwUpdateSvc_->isBusy &&
+                             fwUpdateSvc_->isBusy(fwUpdateSvc_->ctx);
+        if (otaBusy != otaTraceActive_) {
+            otaTraceActive_ = otaBusy;
+            if (otaBusy) {
+                otaResumePending_ = false;
+                otaBusySinceMs_ = now;
+                lastOtaTraceMs_ = now - 5000U;
+                otaTickMaxUs_ = 0U;
+                otaSlowTicks_ = 0U;
+            } else {
+                otaBusySinceMs_ = 0U;
+                if (otaQuiesced_) {
+                    otaQuiesced_ = false;
+                    otaResumePending_ = true;
+                    // "pending" means OTA released the lock, not yet listening.
+                    Log::info(kLogModule_,
+                              "[MODBUS-TCP] ota_priority=0 resume_pending=1 pool=%u",
+                              (unsigned)server_.psramFrameBytes());
+                }
+                Serial.printf("[OTA-NET] ms=%lu stage=load_end core=%d\n",
+                              (unsigned long)now, (int)xPortGetCoreID());
+                Log::info(kLogModule_, "[OTA-NET] stage=load_end ms=%lu listen=%u pool=%u",
+                          (unsigned long)now, running_ ? 1U : 0U,
+                          (unsigned)server_.psramFrameBytes());
+            }
+        }
+        if (otaBusy) {
+            if (uint32_t(now - lastOtaTraceMs_) >= 5000U) {
+                lastOtaTraceMs_ = now;
+                // The Web log already carries bounded [OTA-NET]/[OTA-TCP]
+                // diagnostics. Avoid the redundant 384-byte Serial formatting
+                // buffer and additional UART work on a task with tight stack.
+                // Web diagnostics must run even without an enabled TCP port.
+                logWebSnapshot_(now, stationConnected, true);
+                otaTickMaxUs_ = 0U;
+                otaSlowTicks_ = 0U;
+            }
+        }
+
+        // OTA takes absolute priority over the optional TCP/RTU gateway.
+        // A short manifest check usually completes below this debounce, so
+        // it need not disconnect production clients just for a version query.
+        // Never service/admit TCP clients while OTA is busy, even during
+        // the first 300 ms. Reconnecting peers cannot enter the Modbus
+        // application; after debounce, stop() closes the TCP listeners and
+        // existing clients once, while keeping frame buffers in PSRAM.
+        if (otaBusy) {
+            if (uint32_t(now - otaBusySinceMs_) >= 300U && !otaQuiesced_) {
+                otaQuiesced_ = true;
+                if (running_) {
+                    server_.stop();
+                    running_ = false;
+                    ++otaSuspensions_; // Actual client/listener shutdown.
+                }
+                Log::warn(kLogModule_,
+                          "[MODBUS-TCP] ota_priority=1 paused=1 pool=%u",
+                          (unsigned)server_.psramFrameBytes());
+            }
+            return;
+        }
+
+        // A 60-second baseline remains visible with all three ports disabled.
+        // The first snapshot is published immediately after task startup.
+        if (!otaBusy && (lastWebDiagnosticsMs_ == 0U ||
+                         uint32_t(now - lastWebDiagnosticsMs_) >= 60000U)) {
+            lastWebDiagnosticsMs_ = now;
+            logWebSnapshot_(now, stationConnected, false);
+        }
+        if (!eligible_) return;
         if (!stationConnected) {
             if (running_) {
                 server_.stop();
                 running_ = false;
+                Log::warn(kLogModule_, "[MODBUS-TCP] listeners_stopped reason=station_lost pool=%u",
+                          (unsigned)server_.psramFrameBytes());
             }
             return;
         }
@@ -54,11 +135,45 @@ public:
             for (uint8_t i = 0; i < ModbusTcpServer::kPortCount; ++i)
                 enabled = enabled || configs_[i].enabled;
             if (!enabled) return;
-            server_.begin(*master_, &ModbusTcpServer::LineResolver::resolveStatic, &resolver_);
+            // Retry unavailable external RAM slowly; avoid heap/log spam.
+            if (lastPsramStartFailureMs_ &&
+                uint32_t(now - lastPsramStartFailureMs_) < 10000U) return;
+            const bool reusedPool = server_.frameStorageReady();
+            if (!server_.begin(*master_, &ModbusTcpServer::LineResolver::resolveStatic, &resolver_)) {
+                lastPsramStartFailureMs_ = now ? now : 1U;
+                // Keep failure alerts bounded to one per minute in Web logs.
+                if (!psramFailureReported_ ||
+                    uint32_t(now - lastPsramFailureWebMs_) >= 60000U) {
+                    psramFailureReported_ = true;
+                    lastPsramFailureWebMs_ = now;
+                    Log::warn(kLogModule_,
+                              "[MODBUS-PSRAM] alloc_failed bytes=%u psram_free=%lu internal=%lu",
+                              (unsigned)(2U * ModbusTcpServer::kMaxClients * ModbusTcpAdu::kMaxAdu),
+                              (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+                              (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+                }
+                return;
+            }
+            lastPsramStartFailureMs_ = 0U;
+            psramFailureReported_ = false;
             running_ = true;
+            if (otaResumePending_) {
+                otaResumePending_ = false;
+                ++otaResumptions_; // Actual listener reopen, not just OTA unlock.
+                // Report recovery only after SocketServer::begin() succeeded.
+                Log::info(kLogModule_,
+                          "[MODBUS-TCP] resume_ready=1 ports=%u%u%u pool=%u",
+                          configs_[0].enabled ? 1U : 0U,
+                          configs_[1].enabled ? 1U : 0U,
+                          configs_[2].enabled ? 1U : 0U,
+                          (unsigned)server_.psramFrameBytes());
+            }
+            Log::info(kLogModule_,
+                      "[MODBUS-PSRAM] pool_ready bytes=%u reused=%u internal=%lu psram=%lu",
+                      (unsigned)server_.psramFrameBytes(), reusedPool ? 1U : 0U,
+                      (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                      (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
         }
-        const uint32_t now = millis();
-#if FLOW_PERFORMANCE_DIAGNOSTICS
         const uint32_t tickStartedUs = micros();
 #endif
         server_.tick(now);
@@ -66,7 +181,11 @@ public:
         const uint32_t elapsedUs = uint32_t(micros() - tickStartedUs);
         if (elapsedUs > tickMaxUs_) tickMaxUs_ = elapsedUs;
         if (elapsedUs >= 5000U) ++slowTicks_;
-#endif
+        if (otaBusy) {
+            if (elapsedUs > otaTickMaxUs_) otaTickMaxUs_ = elapsedUs;
+            if (elapsedUs >= 5000U) ++otaSlowTicks_;
+        }
+
         if (uint32_t(now - lastDiagnosticsMs_) < 60000U) return;
         lastDiagnosticsMs_ = now;
         ModbusMasterStats queue{};
@@ -84,7 +203,8 @@ public:
             (unsigned long)tickMaxUs_, (unsigned long)slowTicks_);
         tickMaxUs_ = 0U;
         slowTicks_ = 0U;
-#endif
+        Serial.printf("[MODBUS-PSRAM] active_frame_bytes=%u ready=%u\n",
+                      (unsigned)server_.psramFrameBytes(), server_.frameStorageReady() ? 1U : 0U);
         Serial.printf("[MODBUS-TCP] heap_internal=%lu min_internal=%lu largest_internal=%lu frag_est_percent=%lu psram=%lu largest_psram=%lu stack_hwm=%lu rtu_queue=%u rtu_peak=%u rtu_rejected=%lu rtu_crc=%lu rtu_timeouts=%lu\n",
             (unsigned long)freeInternal, (unsigned long)minInternal,
             (unsigned long)largestInternal, (unsigned long)fragEstimate,
@@ -140,6 +260,8 @@ public:
         return server_.stats(index);
     }
 private:
+    static constexpr LogModuleId kLogModule_ = (LogModuleId)LogModuleIdValue::ModbusTcpServerModule;
+    void logWebSnapshot_(uint32_t now, bool stationConnected, bool otaBusy);
     // Each TCP port is one native ConfigStore module. Keys remain under the
     // 15-character NVS limit; the old mbtcp0..2 blobs are migration-only.
     static constexpr uint32_t kConfigVersion = 1U;
@@ -199,9 +321,22 @@ private:
     ModbusTcpServer::PortConfig configs_[ModbusTcpServer::kPortCount]{};
     bool running_ = false;
     bool eligible_ = false;
+    uint32_t lastPsramStartFailureMs_ = 0U;
     uint32_t lastDiagnosticsMs_ = 0U;
-#if FLOW_PERFORMANCE_DIAGNOSTICS
+    uint32_t lastWebDiagnosticsMs_ = 0U;
+    uint32_t lastPsramFailureWebMs_ = 0U;
+    bool psramFailureReported_ = false;
     uint32_t tickMaxUs_ = 0U;
     uint32_t slowTicks_ = 0U;
-#endif
+    // Diagnostic state, touched only from the modbustcp task.
+    const FirmwareUpdateService* fwUpdateSvc_ = nullptr;
+    bool otaTraceActive_ = false;
+    bool otaQuiesced_ = false;
+    bool otaResumePending_ = false;
+    uint32_t otaSuspensions_ = 0U; // Cumulative since boot, actual shutdowns.
+    uint32_t otaResumptions_ = 0U; // Cumulative since boot, actual reopenings.
+    uint32_t otaBusySinceMs_ = 0U;
+    uint32_t lastOtaTraceMs_ = 0U;
+    uint32_t otaTickMaxUs_ = 0U;
+    uint32_t otaSlowTicks_ = 0U;
 };

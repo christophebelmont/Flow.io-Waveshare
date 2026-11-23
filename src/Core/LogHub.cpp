@@ -28,6 +28,7 @@ static bool shouldExposeConfigLevel_(LogModuleId moduleId)
         case LogModuleIdValue::SystemMonitorModule:
         case LogModuleIdValue::HAModule:
         case LogModuleIdValue::MQTTModule:
+        case LogModuleIdValue::ModbusTcpServerModule:
         case LogModuleIdValue::IOModule:
         case LogModuleIdValue::PoolDeviceModule:
         case LogModuleIdValue::PoolLogicModule:

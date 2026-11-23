@@ -10,7 +10,8 @@ inline void writePoolTelemetryJson(JsonObject root, PoolTelemetryProfile profile
     for (const auto& field : kHeatPumpPolyFields) {
         if (!(state.validBlocks & (1U << field.block))) values[field.key] = nullptr;
         else if (field.mask) values[field.key] = poolTelemetryValue(state, field) != 0;
-        else values[field.key] = poolTelemetryValue(state, field);
+        else if (field.metric == EquipmentMetric::Current) values[field.key] = poolTelemetryValue(state, field);
+        else values[field.key] = float(poolTelemetryValue(state, field));
     }
     for (uint16_t reg = 501; reg <= 503; ++reg) {
         const uint8_t block = 0;
