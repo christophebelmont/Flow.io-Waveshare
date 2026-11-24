@@ -3002,10 +3002,12 @@ bool IOModule::configureRuntime_()
         const char* displayUnit = internal
             ? InternalAnalogSources::unit(analogSlots_[i].sourceValue)
             : analogCfg_[i].unit;
-        // Generic analog slots default to no unit. Inherit the physical sensor
-        // unit for BME680/BME688 humidity, without overriding explicit units.
+        // Generic analog slots can have no configured unit. Physical
+        // humidity channels on SHT40 and BME680/BME688 report percent.
+        // Keep any explicitly configured display unit unchanged.
         if (!internal && (!displayUnit || displayUnit[0] == '\0') &&
-            analogSlots_[i].backend == IO_BACKEND_BME680 &&
+            (analogSlots_[i].backend == IO_BACKEND_SHT40 ||
+             analogSlots_[i].backend == IO_BACKEND_BME680) &&
             analogSlots_[i].channel == 1U) {
             displayUnit = "%";
         }
