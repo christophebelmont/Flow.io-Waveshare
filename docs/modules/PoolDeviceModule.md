@@ -6,6 +6,13 @@ L'architecture, les paramètres de pilotes, les nouvelles clés NVS et les exemp
 
 Le service `PoolDeviceService` expose `meta`, `setRunning`, `setTarget`, `readState`, `readActualOn`, `setWritesEnabled`, `writesEnabled` et `refillTank`. Les commandes passent toutes par les dépendances, l'activation et les limites journalières. Un acquittement de commande ne constitue pas une mesure physique.
 
+Les [modes Auto / Manu / Hivers](../integration/poollogic-operating-modes.md)
+sont définis par PoolLogic. Les commandes directes des appareils affectés à un
+rôle PoolLogic nécessitent Manu ; en Auto/Hivers, utiliser un forçage temporaire
+compatible. Cette autorisation est vérifiée dans `setTarget_` pour toutes les
+sources de commande. Les consignes restent éditables et les types de traitement
+ne sont jamais modifiés par une commande directe.
+
 Les métriques comprennent temps de fonctionnement, volumes estimés et niveau de cuve. Les événements du scheduler réinitialisent les périodes jour/semaine/mois ; les changements d'heure déclenchent leur réconciliation. La persistance runtime est effectuée à l'arrêt, sur remise à zéro/remplissage ou toutes les 60 secondes pendant le fonctionnement.
 
 Le profil Waveshare expose 16 appareils, `pd0` à `pd15`. Les huit premiers conservent leurs préréglages : filtration, pH, chlore, robot, remplissage, électrolyse, lumières, chauffage. Les suivants sont des relais génériques `PD08` à `PD15`. Le descripteur de commande décide des sorties ou de l'adresse série ; il n'impose plus `pdN == dN`. Les dépendances utilisent un masque 16 bits.

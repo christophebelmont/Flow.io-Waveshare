@@ -304,10 +304,7 @@ private:
                        const char* detail,
                        const char* icon,
                        const Actor& actor) const;
-    void emitAutoModeDisabledByManualActivity_(ActivityRole role,
-                                               uint8_t slot,
-                                               const char* autoLabel,
-                                               const Actor& actor) const;
+
     ActivityRole activityRoleForSlot_(uint8_t slot) const;
     bool ensureStorage_();
     bool lockState_(TickType_t timeoutTicks = pdMS_TO_TICKS(200)) const;

@@ -9,7 +9,6 @@ public:
  struct OverrideLock { explicit OverrideLock(int){} };
  int overrideMutex_=0,pendingMux_=0;
  uint8_t filtrationDeviceSlot_=3,robotDeviceSlot_=6;
- bool robotManualOverride_=true,robotManualDesired_=true;
  struct Adapter {
   void* ctx;
   bool (*overrideCommand)(void*,const CommandRequest&,char*,size_t,ActuatorOverrideCommand)=

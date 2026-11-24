@@ -98,9 +98,9 @@ Bits actuellement utilisés :
 - bit `0` : filtration ON
 - bit `1` : pompe pH ON
 - bit `2` : pompe ORP ON
-- bit `3` : mode auto global
-- bit `4` : mode auto pH
-- bit `5` : mode auto ORP
+- bit `3` : filtration automatique autorisée (Auto ou Hivers)
+- bit `4` : régulation pH autorisée (Auto et correction active)
+- bit `5` : régulation ORP autorisée (Auto et Chlore/Brome)
 - bit `6` : mode hiver
 - bit `7` : WiFi connecté
 - bit `8` : MQTT connecté
@@ -395,7 +395,7 @@ Payload :
 
 Actions supportées :
 - `0x01` : `FILTRATION_SET`
-- `0x02` : `AUTO_MODE_SET`
+- `0x02` : `OPERATING_MODE_SET`
 - `0x03` : `SYNC_REQUEST`
 - `0x04` : `CONFIG_OPEN` (compatibilite no-op cote flow.io; ne change pas la page Nextion)
 - `0x05` : `PH_PUMP_SET`
@@ -403,10 +403,10 @@ Actions supportées :
 - `0x07` : `PH_PUMP_TOGGLE`
 - `0x08` : `ORP_PUMP_TOGGLE`
 - `0x09` : `FILTRATION_TOGGLE`
-- `0x0A` : `AUTO_MODE_TOGGLE`
-- `0x0B` : `ORP_AUTO_MODE_TOGGLE`
-- `0x0C` : `PH_AUTO_MODE_TOGGLE`
-- `0x0D` : `WINTER_MODE_TOGGLE`
+- `0x0A` : `OPERATING_MODE_CYCLE`
+- `0x0B` : retiré (ancien ORP auto)
+- `0x0C` : retiré (ancien pH auto)
+- `0x0D` : `WINTER_MODE_SELECT`
 - `0x0E` : `LIGHTS_TOGGLE`
 - `0x0F` : `ROBOT_TOGGLE`
 - `0x10` : `DISPLAY_WIFI_FACTORY_RESET` (consommee localement par Flow Connect Display)
@@ -479,10 +479,8 @@ Les toggles utilisent `HOME_ACTION` (`0x60`) avec `value=01` (valeur ignorée
 pour les toggles, conservée pour homogénéité de trame).
 
 - Filtration toggle : `printh 23 03 60 09 01`
-- Auto global toggle : `printh 23 03 60 0A 01`
-- ORP auto toggle : `printh 23 03 60 0B 01`
-- pH auto toggle : `printh 23 03 60 0C 01`
-- Hivernage toggle : `printh 23 03 60 0D 01`
+- Cycle Manu → Auto → Hivers : `printh 23 03 60 0A 01`
+- Sélection Hivers : `printh 23 03 60 0D 01`
 - Eclairage toggle : `printh 23 03 60 0E 01`
 - Robot toggle : `printh 23 03 60 0F 01`
 - Pompe pH toggle : `printh 23 03 60 07 01`
@@ -510,13 +508,9 @@ Les actions Home sont routées via `CommandService` :
 {"value":true}
 ```
 
-- `AUTO_MODE_SET`
-  - commande : `poollogic.auto_mode.set`
-  - payload envoyé par l'ESP :
-
-```json
-{"value":false}
-```
+- `OPERATING_MODE_SET`
+  - commande : `poollogic.operating_mode.set`
+  - payload : `{"value":0}` Manu, `{"value":1}` Auto, `{"value":2}` Hivers
 
 - `SYNC_REQUEST`
   - ne passe pas par `CommandService`
@@ -526,28 +520,15 @@ Les actions Home sont routées via `CommandService` :
   - compatibilité uniquement; flow.io ne change plus la page Nextion
   - le rendu du menu démarre uniquement lorsque `pageCfgMenu` envoie
     `printh 23 02 50 0A`
-- `PH_PUMP_SET`
-  - `value=1` : désactive `ph_auto_mode` puis force l'état de la pompe pH (`pooldevice.write`)
-  - `value=0` : repasse la pompe pH OFF (`pooldevice.write`) sans réactiver l'auto
-- `ORP_PUMP_SET`
-  - `value=1` : passe `disinfection_type=3` (`Désactivé`) puis force l'état de la pompe ORP (`pooldevice.write`)
-  - `value=0` : repasse la pompe ORP OFF (`pooldevice.write`) sans réactiver l'auto
-- `PH_PUMP_TOGGLE`
-  - inverse l'état réel de la pompe pH
-  - si la cible est `ON`, désactive d'abord `ph_auto_mode`, puis force la pompe
-- `ORP_PUMP_TOGGLE`
-  - inverse l'état réel de la pompe ORP
-  - si la cible est `ON`, passe `disinfection_type=3` (`Désactivé`), puis force la pompe
-- `FILTRATION_TOGGLE`
-  - inverse l'état réel de filtration (`poollogic.filtration.write`)
-- `AUTO_MODE_TOGGLE`
-  - inverse le mode auto global (`poollogic.auto_mode.set`)
-- `ORP_AUTO_MODE_TOGGLE`
-  - inverse `dis_auto_mode`
-- `PH_AUTO_MODE_TOGGLE`
-  - inverse `ph_auto_mode`
-- `WINTER_MODE_TOGGLE`
-  - inverse `winter_mode`
+- `PH_PUMP_SET`, `ORP_PUMP_SET`, `PH_PUMP_TOGGLE`, `ORP_PUMP_TOGGLE`, `FILTRATION_TOGGLE`
+  - commandes directes autorisées en Manu ; aucune modification des types de produit
+  - en Auto/Hivers, utiliser les forçages temporaires via une interface compatible
+- `OPERATING_MODE_CYCLE`
+  - fait défiler Manu → Auto → Hivers → Manu
+- anciennes actions `ORP_AUTO_MODE_TOGGLE` et `PH_AUTO_MODE_TOGGLE`
+  - retirées, aucune mutation de configuration
+- `WINTER_MODE_SELECT`
+  - sélectionne Hivers
 - `LIGHTS_TOGGLE`
   - inverse l'état runtime du device éclairage (`pooldevice.write`)
 - `ROBOT_TOGGLE`
@@ -675,3 +656,7 @@ du menu.
 - Pas d'ACK binaire structuré renvoyé vers Nextion.
 - `globals.vaStates` et `globals.vaAlarms` sont des contrats de firmware : toute
   modification d'ordre de bits doit être synchronisée entre ESP et Nextion.
+
+Le [guide des modes PoolLogic](poollogic-operating-modes.md) décrit les sélecteurs
+et la limite des images Nextion `.HMI`/`.tft` existantes : leur présentation Home
+doit être adaptée dans Nextion Editor. Le menu dynamique utilise le nouveau contrat.

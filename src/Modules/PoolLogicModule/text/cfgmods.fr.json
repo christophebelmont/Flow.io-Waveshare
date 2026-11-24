@@ -40,6 +40,12 @@
     },
     "poollogic/swg/swg_control_mode": {
       "enum_set": "poollogic_swg_control_mode"
+    },
+    "poollogic/modes/operating_mode": {
+      "enum_set": "poollogic_operating_mode"
+    },
+    "poollogic/ph/correction_type": {
+      "enum_set": "poollogic_ph_correction"
     }
   },
   "meta": {
@@ -234,6 +240,34 @@
         {
           "value": 1,
           "label_t": "cfgmods_meta.poollogicmodule.enum_sets.poollogic_swg_control_mode.1.label"
+        }
+      ],
+      "poollogic_operating_mode": [
+        {
+          "value": 1,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.poollogic_operating_mode.1.label"
+        },
+        {
+          "value": 0,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.poollogic_operating_mode.0.label"
+        },
+        {
+          "value": 2,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.poollogic_operating_mode.2.label"
+        }
+      ],
+      "poollogic_ph_correction": [
+        {
+          "value": 0,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.poollogic_ph_correction.0.label"
+        },
+        {
+          "value": 1,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.poollogic_ph_correction.1.label"
+        },
+        {
+          "value": 2,
+          "label_t": "cfgmods_meta.poollogicmodule.enum_sets.poollogic_ph_correction.2.label"
         }
       ]
     }

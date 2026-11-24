@@ -402,6 +402,9 @@ constexpr char DsRomAir[] = "io_dsarm"; // IO module runtime DS18 air ROM blob.
 }  // namespace Io
 
 namespace PoolLogic {
+constexpr char OperatingMode[] = "pl_mode";
+constexpr char PhCorrectionType[] = "pl_phcorr";
+constexpr char ModesMigrated[] = "pl_modes_v2";
 constexpr char OverrideFiltrationDuration[] = "ovr_flt_dur"; // Next timed override duration, versioned runtime blob.
 constexpr char OverrideRobotDuration[] = "ovr_rbt_dur";
 constexpr char Enabled[] = "pl_en"; // Pool logic module persisted key for field `pl_en`.

@@ -277,7 +277,7 @@ private:
     bool executeHmiCommand_(HmiCommandId command, uint8_t value);
     bool executeCommandBool_(const char* cmdName, bool value);
     bool executePoolDeviceWrite_(uint8_t slot, bool value);
-    bool executePoolLogicModePatch_(const char* key, bool value);
+    bool executePoolOperatingMode_(PoolOperatingMode mode);
     void setHomeErrorMessage_(const char* message, bool forceStateRefresh);
     void reportCommandError_(const char* operation, const char* reply);
     void refreshLocale_();

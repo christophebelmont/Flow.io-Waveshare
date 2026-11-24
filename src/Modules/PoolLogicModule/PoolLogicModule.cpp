@@ -30,13 +30,9 @@ static constexpr const char* kCfgModuleRefill = "poollogic/refill";
 
 static void poolLogicCfgDocsAnchor_(PoolLogicModule& self)
 {
-    self.enabledVar_.moduleName = kCfgModuleModes;
-    self.autoModeVar_.moduleName = kCfgModuleModes;
-    self.winterModeVar_.moduleName = kCfgModuleModes;
-    self.phAutoModeVar_.moduleName = kCfgModulePh;
-    self.orpAutoModeVar_.moduleName = kCfgModuleChlorine;
+    self.operatingModeVar_.moduleName = kCfgModuleModes;
+    self.phCorrectionTypeVar_.moduleName = kCfgModulePh;
     self.heaterAutoModeVar_.moduleName = kCfgModuleHeater;
-    self.phDosePlusVar_.moduleName = kCfgModulePh;
     self.disinfectionTypeVar_.moduleName = kCfgModuleModes;
     self.tempLowVar_.moduleName = kCfgModuleFiltration;
     self.tempSetpointVar_.moduleName = kCfgModuleFiltration;

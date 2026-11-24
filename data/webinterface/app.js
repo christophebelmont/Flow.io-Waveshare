@@ -2665,8 +2665,9 @@
     let poolAiPreviewPollTimer = null;
     let poolAiReady = false;
     const poolConfigModuleDefs = Object.freeze([
-      Object.freeze({ module: 'poollogic/modes', titleKey: 'pool.card.modes.title', title: 'Pilotage général', icon: 'tune', noteKey: 'pool.card.modes.note', note: 'Ces interrupteurs définissent si PoolLogic pilote la piscine et quelle stratégie de traitement est retenue.' }),
+      Object.freeze({ module: 'poollogic/modes', titleKey: 'pool.card.modes.title', title: 'Pilotage général', icon: 'tune', noteKey: 'pool.card.modes.note', note: 'Choisir Auto, Manu ou Hivers et le type de désinfection.' }),
       Object.freeze({ module: 'poollogic/filtration', titleKey: 'pool.card.filtration.title', title: 'Filtration', icon: 'waves', noteKey: 'pool.card.filtration.note', note: 'La plage de filtration combine contraintes horaires et température d’eau pour protéger le bassin.' }),
+      Object.freeze({ module: 'poollogic/ph', titleKey: 'pool.card.ph.title', title: 'Correction pH', icon: 'science', noteKey: 'pool.card.ph.note', note: 'Choisir Désactivée, pH− ou pH+. La régulation fonctionne uniquement en Auto.' }),
       Object.freeze({ module: 'poollogic/heater', titleKey: 'pool.card.heater.title', title: 'Chauffage', icon: 'thermostat', noteKey: 'pool.card.heater.note', note: 'Le chauffage suit sa consigne seulement quand le mode automatique le permet.' }),
       Object.freeze({ module: 'poollogic/refill', titleKey: 'pool.card.refill.title', title: 'Remplissage', icon: 'water_drop', noteKey: 'pool.card.refill.note', note: 'Le remplissage garde une durée minimale pour éviter les cycles trop courts.' }),
       Object.freeze({ module: 'poollogic/safety', titleKey: 'pool.card.safety.title', title: 'Protections', icon: 'health_and_safety', noteKey: 'pool.card.safety.note', note: 'Seuils de pression, hors gel et bascule hiver utilisés par les automatismes.' }),
@@ -7473,7 +7474,9 @@
           onOpen: opts.onOpen,
           openLabel: opts.openLabel,
           onAction: action
-            ? (requested) => executeRuntimeAction(entry, action, requested)
+            ? (requested) => runtimeValue?.control?.control_automatic && opts.onOpen
+              ? opts.onOpen(tile)
+              : executeRuntimeAction(entry, action, requested)
             : null
         }
       );
@@ -7493,10 +7496,7 @@
         'pool.chlorine_generator_on': 'bolt',
         'pool.lights_on': 'light',
         'pool.heater_on': 'thermometer',
-        'pool.auto_mode': 'tune',
-        'pool.winter_mode': 'snow',
-        'pool.ph_auto_mode': 'flask',
-        'pool.dis_auto_mode': 'drop'
+        'pool.operating_mode': 'tune'
       };
       return icons[String(entry && entry.key || '')] || 'equipment';
     }
@@ -8702,15 +8702,18 @@
           if (actualUnknown && typeof current.desiredOn === 'boolean') state = current.desiredOn;
           available = !!action && typeof state === 'boolean' && runtimeCounterValue(current, column.eligibleKey) === true;
           // Keep unlimited manual control for devices without active automation.
-          const timed = !!override && (current.control_automatic || current.control_mode !== 'guided');
-          control.available = available && !timed;
+          const automaticOwner = current.control_automatic === true;
+          const timed = !!override && (automaticOwner || current.control_mode !== 'guided');
+          control.available = available && !automaticOwner && !timed;
           switchView.element.hidden = timed;
           if (override) override.update(current);
           if (setpoint) setpoint.update(current);
           switchView.update({
             checked: state === true,
             label: column.label + ' — ' + current.label,
-            title: available ? current.label : tr('dashboard.action.unavailable', 'Commande indisponible')
+            title: automaticOwner
+              ? tr('dashboard.action.manualModeRequired', 'Choisir Manu pour une commande directe, ou utiliser Forcer… si disponible.')
+              : available ? current.label : tr('dashboard.action.unavailable', 'Commande indisponible')
           });
           setRuntimeActionText(status, actualUnknown ? tr('dashboard.action.unknownState', 'État indisponible') : (state ? 'On' : 'Off'));
         } };
@@ -9606,10 +9609,9 @@
         fragment.appendChild(buildDashboardAlarmCard(state.entries, state.alarmSlots));
         return fragment;
       }
-      // Auto / Hiver are driven by the header mode selector, so they are not
-      // repeated as tiles in the Mode card.
+      // The operating mode is already displayed by the header selector.
       const entries = domainKey === 'mode'
-        ? state.entries.filter((entry) => entry.key !== 'pool.auto_mode' && entry.key !== 'pool.winter_mode')
+        ? state.entries.filter((entry) => entry.key !== 'pool.operating_mode')
         : state.entries;
       fragment.appendChild(buildPoolMeasureCards(entries, state.values, {
         sondeSlots: state.sondeSlots,
@@ -9678,63 +9680,33 @@
       renderDashboardModeControl();
     }
 
-    function dashboardModeBool(valueById, entries, key) {
-      const entry = entries.find((item) => item.key === key);
-      const value = entry ? valueById.get(Number(entry.id)) : null;
-      return value && typeof value.value === 'boolean' ? value.value : null;
+    // The header and ConfigStore select share one atomic operating-mode value.
+    const poolOperatingModes = Object.freeze({ manual: 0, auto: 1, winter: 2 });
+
+    function dashboardOperatingMode() {
+      const state = poolMeasureDomainState.mode;
+      const entry = state?.entries?.find(item => item.key === 'pool.operating_mode');
+      const runtime = state?.values?.find(item => Number(item.id) === Number(entry?.id));
+      return { entry, value: runtime?.value };
     }
 
-    // The Auto/Manuel/Hiver segmented control is a high-level view of the two
-    // PoolLogic booleans (auto_mode, winter_mode). It reflects their current state
-    // and applies the combination that matches the selected strategy.
     function renderDashboardModeControl() {
-      if (!dashModeButtons.length) return;
-      const state = poolMeasureDomainState.mode;
-      const entries = state && Array.isArray(state.entries) ? state.entries : [];
-      const valueById = new Map();
-      (state && Array.isArray(state.values) ? state.values : []).forEach((item) => {
-        const id = Number(item && item.id);
-        if (Number.isFinite(id)) valueById.set(id, item);
-      });
-      const autoValue = dashboardModeBool(valueById, entries, 'pool.auto_mode');
-      const winterValue = dashboardModeBool(valueById, entries, 'pool.winter_mode');
-      const current = winterValue === true ? 'winter' : autoValue === true ? 'auto' : autoValue === false ? 'manual' : '';
-      const known = autoValue !== null;
-      const busy = !!runtimeActionBusyKey;
-      dashModeButtons.forEach((button) => {
-        const selected = button.dataset.mode === current;
+      const { value } = dashboardOperatingMode();
+      const known = Number.isInteger(value) && Object.values(poolOperatingModes).includes(value);
+      dashModeButtons.forEach(button => {
+        const selected = known && poolOperatingModes[button.dataset.mode] === value;
         button.classList.toggle('is-selected', selected);
         button.setAttribute('aria-pressed', selected ? 'true' : 'false');
-        button.disabled = busy || !known;
+        button.disabled = !!runtimeActionBusyKey || !known;
       });
     }
 
     async function applyDashboardMode(mode) {
-      const state = poolMeasureDomainState.mode;
-      const entries = state && Array.isArray(state.entries) ? state.entries : [];
-      const autoEntry = entries.find((entry) => entry.key === 'pool.auto_mode');
-      const winterEntry = entries.find((entry) => entry.key === 'pool.winter_mode');
-      const autoAction = autoEntry ? runtimeMeasureSwitchAction(autoEntry) : null;
-      const winterAction = winterEntry ? runtimeMeasureSwitchAction(winterEntry) : null;
-      if (!autoEntry || !autoAction) return;
-
-      const valueById = new Map();
-      (state && Array.isArray(state.values) ? state.values : []).forEach((item) => {
-        const id = Number(item && item.id);
-        if (Number.isFinite(id)) valueById.set(id, item);
-      });
-      const targets = mode === 'winter'
-        ? { auto: true, winter: true }
-        : mode === 'manual'
-          ? { auto: false, winter: false }
-          : { auto: true, winter: false };
-
-      if (dashboardModeBool(valueById, entries, 'pool.auto_mode') !== targets.auto) {
-        await executeRuntimeAction(autoEntry, autoAction, targets.auto);
-      }
-      if (winterEntry && winterAction && dashboardModeBool(valueById, entries, 'pool.winter_mode') !== targets.winter) {
-        await executeRuntimeAction(winterEntry, winterAction, targets.winter);
-      }
+      const { entry, value } = dashboardOperatingMode();
+      const requested = poolOperatingModes[mode];
+      const action = entry?.actions?.find(item => item.id === 'set');
+      if (!entry || !action || !Number.isInteger(requested) || requested === value) return;
+      await executeRuntimeAction(entry, action, requested);
     }
 
     function formatDashboardGaugeRange(value) {
@@ -10081,25 +10053,15 @@
       const source = modules && typeof modules === 'object' ? modules : {};
       const modes = source['poollogic/modes'] || {};
       const heater = source['poollogic/heater'] || {};
-      const poolLogicEnabled = toBool(modes.enabled);
-      const autoMode = toBool(modes.auto_mode);
-      const winterMode = toBool(modes.winter_mode);
+      const mode = Number(modes.operating_mode);
       const treatment = poolConfigDisinfectionLabel(modes.disinfection_type);
       const heaterState = poolConfigBoolLabel(heater.heater_auto_mode, tr('pool.state.autoShort', 'auto'), tr('pool.state.off', 'arrêt'));
-
-      if (!poolLogicEnabled) {
-        return tr('pool.summary.poollogicOff', 'PoolLogic désactivé : le système reste en manuel et ne pilote pas la piscine.');
+      if (mode === poolOperatingModes.manual) {
+        return tr('pool.summary.manual', 'Manu : commandes manuelles, sans filtration ni régulation automatiques. Les protections restent actives.');
       }
-      if (!autoMode) {
-        return tr('pool.summary.manual', 'Mode manuel : PoolLogic est actif, mais les automatismes sont suspendus. Traitement configuré : {treatment}.')
-          .replace('{treatment}', treatment);
-      }
-      if (winterMode) {
-        return tr('pool.summary.autoWinter', 'Mode automatique hiver : filtration {start}-{stop}, traitement {treatment}, chauffage {heater}.')
-          .replace('{start}', start)
-          .replace('{stop}', stop)
-          .replace('{treatment}', treatment)
-          .replace('{heater}', heaterState);
+      if (mode === poolOperatingModes.winter) {
+        return tr('pool.summary.autoWinter', 'Hivers : filtration {start}-{stop} et antigel. Dosages, chauffage, robot et remplissage automatiques suspendus.')
+          .replace('{start}', start).replace('{stop}', stop);
       }
       return tr('pool.summary.auto', 'Mode automatique : filtration {start}-{stop}, traitement {treatment}, chauffage {heater}.')
         .replace('{start}', start)
@@ -10298,7 +10260,6 @@
       metrics.className = 'pool-metric-grid';
       if (selected) {
         if (selectedDef.key === 'chlorine') {
-          poolConfigAppendMetric(metrics, tr('pool.metric.autoOrp', 'Auto ORP'), poolConfigBoolLabel(data.dis_auto_mode));
           poolConfigAppendMetric(metrics, tr('pool.metric.setpoint', 'Consigne'), poolConfigFormatValue(selectedDef.module, 'dis_setpoint', data.dis_setpoint), { featured: true });
           poolConfigAppendMetric(metrics, tr('pool.metric.window', 'Fenêtre'), poolConfigFormatValue(selectedDef.module, 'dis_window_ms', data.dis_window_ms));
         } else if (selectedDef.key === 'swg') {
@@ -10455,7 +10416,6 @@
         const metrics = document.createElement('div');
         metrics.className = 'dash-disinfection-metrics';
         if (selectedDef.key === 'chlorine') {
-          poolConfigAppendMetric(metrics, tr('pool.metric.autoOrp', 'Auto ORP'), poolConfigBoolLabel(data.dis_auto_mode));
           poolConfigAppendMetric(metrics, tr('pool.metric.setpoint', 'Consigne'), poolConfigFormatValue(selectedDef.module, 'dis_setpoint', data.dis_setpoint), { featured: true });
           poolConfigAppendMetric(metrics, tr('pool.metric.window', 'Fenêtre'), poolConfigFormatValue(selectedDef.module, 'dis_window_ms', data.dis_window_ms));
         } else if (selectedDef.key === 'swg') {

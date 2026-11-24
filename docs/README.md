@@ -1,5 +1,7 @@
 # Documentation technique de flow.io
 
+Voir [Modes PoolLogic : Auto / Manu / Hivers](integration/poollogic-operating-modes.md).
+
 Cette documentation s'adresse aux personnes qui installent le matériel, compilent le firmware, adaptent les raccordements ou interviennent sur le logiciel. La présentation fonctionnelle destinée aux utilisateurs reste disponible dans le [README principal](../README.md).
 
 Le dépôt contient une seule cible matérielle et un seul environnement PlatformIO : `Flowio-waveshare-esp32-s3`.

@@ -215,7 +215,7 @@ int main() {
  assert(adapted.slots_[3].overrideTimer.active()&&adapted.slots_[3].control.remainingSec==2700);
  assert(adapted.loggedActor==73);
  assert(oldCall(R"({"role":"robot"})",Cmd::Off));
- assert(adapted.slots_[6].overrideTimer.active()&&!logic.robotManualOverride_);
+ assert(adapted.slots_[6].overrideTimer.active());
  assert(!oldCall(R"({"role":"robot","slot":6})",Cmd::On));
  assert(!oldCall(R"({"role":"Robot traduit"})",Cmd::On));
  assert(!oldCall(R"({"slot":9})",Cmd::On));

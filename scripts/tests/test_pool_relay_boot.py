@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class PoolRelayBootTests(unittest.TestCase):
-    def test_equipment_boot_and_safety(self):
+    def build_source(self):
         module = ROOT / 'src/Modules/PoolDeviceModule'
         header = (module / 'PoolDeviceModule.h').read_text()
         source = (ROOT / 'test/host/pool_relay_boot.cpp').read_text()
@@ -42,6 +42,9 @@ class PoolRelayBootTests(unittest.TestCase):
         startup = (module / 'PoolDeviceStartup.cpp').read_text()
         production += '\n' + startup[startup.index('bool PoolDeviceModule::restoreRunning_'):]
         source = source.replace('// PRODUCTION_FUNCTIONS', production)
+        return source, module
+
+    def compile_and_run(self, source, module):
         with tempfile.TemporaryDirectory(prefix='flow-relay-boot-') as directory:
             main, binary = Path(directory) / 'main.cpp', Path(directory) / 'test'
             main.write_text(source)
@@ -56,6 +59,39 @@ class PoolRelayBootTests(unittest.TestCase):
             ):
                 result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_equipment_boot_and_safety(self):
+        self.compile_and_run(*self.build_source())
+
+    def test_manual_control_obeys_poollogic_ownership(self):
+        source, module = self.build_source()
+        source = source[:source.index('void allDriverPolicies()')] + """int main()
+{
+    PoolDeviceModule device;
+    assert(device.configureRuntime_());
+    assert(device.svcSetWritesEnabledImpl_(1) == POOLDEV_SVC_OK);
+    PoolConfigurationService configuration{};
+    bool allowed = false;
+    configuration.ctx = &allowed;
+    configuration.manualControlAllowed = [](void* ctx, uint8_t) { return *static_cast<bool*>(ctx); };
+    device.poolConfigurationSvc_ = &configuration;
+    const auto previous = device.slots_[0].desired;
+    const PoolDeviceTarget on{true, 100};
+    const PoolDeviceTarget off{false, 100};
+    assert(device.setTarget_(0, &on, true) == POOLDEV_SVC_ERR_INTERLOCK);
+    assert(device.setTarget_(0, &off, true) == POOLDEV_SVC_ERR_INTERLOCK);
+    assert(device.slots_[0].desired.running == previous.running);
+    allowed = true;
+    assert(device.setTarget_(0, &on, true) == POOLDEV_SVC_OK);
+    assert(device.slots_[0].desired.running);
+    assert(device.setTarget_(0, &off, true) == POOLDEV_SVC_OK);
+    allowed = false;
+    // Controller writes remain valid in Auto/Hivers; only direct manual writes are gated.
+    assert(device.setTarget_(0, &on, false) == POOLDEV_SVC_OK);
+    assert(device.slots_[0].desired.running);
+}
+"""
+        self.compile_and_run(source, module)
 
 
 if __name__ == '__main__':

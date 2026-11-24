@@ -64,9 +64,8 @@
     "derived.effect.saved": "À jour",
     "pool.summary": "Lecture des paramètres utilisateur de filtration, traitement, chauffage et remplissage.",
     "pool.summary.loaded": "Filtration prévue de {start} à {stop}, consigne eau {setpoint}, chauffage {heater}.",
-    "pool.summary.poollogicOff": "PoolLogic désactivé : le système reste en manuel et ne pilote pas la piscine.",
-    "pool.summary.manual": "Mode manuel : PoolLogic est actif, mais les automatismes sont suspendus. Traitement configuré : {treatment}.",
-    "pool.summary.autoWinter": "Mode automatique hiver : filtration {start}-{stop}, traitement {treatment}, chauffage {heater}.",
+    "pool.summary.manual": "Manu : commandes manuelles, sans filtration ni régulation automatiques. Les protections restent actives.",
+    "pool.summary.autoWinter": "Hivers : filtration {start}-{stop} et antigel. Dosages, chauffage, robot et remplissage automatiques suspendus.",
     "pool.summary.auto": "Mode automatique : filtration {start}-{stop}, traitement {treatment}, chauffage {heater}.",
     "pool.state.active": "Actif",
     "pool.state.disabled": "Désactivé",
@@ -104,7 +103,7 @@
     "pool.metric.injections": "Injections",
     "pool.metric.pending": "En attente",
     "pool.card.modes.title": "Pilotage général",
-    "pool.card.modes.note": "Ces interrupteurs définissent si PoolLogic pilote la piscine et quelle stratégie de traitement est retenue.",
+    "pool.card.modes.note": "Choisir Auto, Manu ou Hivers et le type de désinfection.",
     "pool.card.filtration.title": "Filtration",
     "pool.card.filtration.note": "La plage de filtration combine contraintes horaires et température d’eau pour protéger le bassin.",
     "pool.card.heater.title": "Chauffage",
@@ -169,8 +168,8 @@
     "dashboard.alarms.allNormal": "Tout est normal",
     "dashboard.mode.aria": "Mode de pilotage",
     "dashboard.mode.auto": "Auto",
-    "dashboard.mode.manual": "Manuel",
-    "dashboard.mode.winter": "Hiver",
+    "dashboard.mode.manual": "Manu",
+    "dashboard.mode.winter": "Hivers",
     "dashboard.forced": "forcé",
     "dashboard.header.updated": "mise à jour à {time}",
     "dashboard.alarm.condition": "Condition",
@@ -772,6 +771,8 @@
     "cfg.counter.value.saving": "Enregistrement…",
     "cfg.counter.value.saved": "Valeur enregistrée et sauvegardée.",
     "cfg.counter.value.saveFailed": "Échec de l’enregistrement. Vérifiez la valeur avant de réessayer.",
-    "cfg.counter.value.loadFailed": "Compteur indisponible. Rechargez la page après son activation."
+    "cfg.counter.value.loadFailed": "Compteur indisponible. Rechargez la page après son activation.",
+    "pool.card.ph.title": "Correction pH",
+    "pool.card.ph.note": "Choisir Désactivée, pH− ou pH+. La régulation fonctionne uniquement en Auto."
   }
 }

@@ -151,14 +151,8 @@ bool PoolLogicModule::writeRuntimeUiValue(uint8_t valueId, IRuntimeUiWriter& wri
     const RuntimeUiId runtimeId = makeRuntimeUiId(moduleId(), valueId);
 
     switch (valueId) {
-        case RuntimeUiAutoMode:
-            return writer.writeBool(runtimeId, autoMode_);
-        case RuntimeUiWinterMode:
-            return writer.writeBool(runtimeId, winterMode_);
-        case RuntimeUiPhAutoMode:
-            return writer.writeBool(runtimeId, phAutoMode_);
-        case RuntimeUiOrpAutoMode:
-            return writer.writeBool(runtimeId, orpAutoMode_);
+        case RuntimeUiOperatingMode:
+            return writer.writeEnum(runtimeId, operatingMode_);
         default:
             return false;
     }
@@ -239,6 +233,7 @@ bool PoolLogicModule::buildRuntimeSnapshot(uint16_t idx, char* out, size_t len, 
             switch (heatAssistReason_) {
                 case HeatAssistReason::Disabled: return "DISABLED";
                 case HeatAssistReason::ManualMode: return "MANUAL_MODE";
+                case HeatAssistReason::WinterMode: return "WINTER_MODE";
                 case HeatAssistReason::PsiBlocked: return "PSI_BLOCKED";
                 case HeatAssistReason::SetpointInvalid: return "SETPOINT_INVALID";
                 case HeatAssistReason::TempUnavailable: return "TEMP_UNAVAILABLE";
@@ -269,7 +264,7 @@ bool PoolLogicModule::buildRuntimeSnapshot(uint16_t idx, char* out, size_t len, 
                                    len,
                                    "{\"en\":%s,\"pr\":%s,\"ha\":%s,\"fc\":false,"
                                    "\"ri\":\"%s\",\"prm\":%lu,\"irm\":%lu,\"t\":%lu}",
-                                   (autoMode_ && heaterAutoMode_) ? "true" : "false",
+                                   (regulationAutomatic_() && heaterAutoMode_) ? "true" : "false",
                                    probeRunning ? "true" : "false",
                                    heatingActive ? "true" : "false",
                                    reasonToStr(),

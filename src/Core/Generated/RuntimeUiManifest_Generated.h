@@ -52,13 +52,10 @@ inline constexpr RuntimeUiActionManifestItem kRuntimeUiActionManifestItems[] = {
     {2307, "set", "poollogic.chlorine_generator.write", "value", RuntimeUiActionInputType::Bool, nullptr},
     {2308, "set", "poollogic.lights.write", "value", RuntimeUiActionInputType::Bool, nullptr},
     {2309, "set", "poollogic.heater.write", "value", RuntimeUiActionInputType::Bool, nullptr},
-    {2401, "set", "poollogic.auto_mode.set", "value", RuntimeUiActionInputType::Bool, nullptr},
-    {2402, "set", "poollogic.winter_mode.set", "value", RuntimeUiActionInputType::Bool, nullptr},
-    {2403, "set", "poollogic.ph_auto_mode.set", "value", RuntimeUiActionInputType::Bool, nullptr},
-    {2404, "set", "poollogic.dis_auto_mode.set", "value", RuntimeUiActionInputType::Bool, nullptr},
+    {2401, "set", "poollogic.operating_mode.set", "value", RuntimeUiActionInputType::UInt32, nullptr},
 };
 
-inline constexpr size_t kRuntimeUiActionManifestItemCount = 22U;
+inline constexpr size_t kRuntimeUiActionManifestItemCount = 19U;
 
 inline constexpr RuntimeUiManifestItem kRuntimeUiManifestItems[] = {
     {901, "alarms.active_mask", "uint32", nullptr, 65535},
@@ -73,10 +70,7 @@ inline constexpr RuntimeUiManifestItem kRuntimeUiManifestItems[] = {
     {2307, "pool.chlorine_generator_on", "bool", nullptr, 65535},
     {2308, "pool.lights_on", "bool", nullptr, 65535},
     {2309, "pool.heater_on", "bool", nullptr, 65535},
-    {2401, "pool.auto_mode", "bool", nullptr, 65535},
-    {2402, "pool.winter_mode", "bool", nullptr, 65535},
-    {2403, "pool.ph_auto_mode", "bool", nullptr, 65535},
-    {2404, "pool.dis_auto_mode", "bool", nullptr, 65535},
+    {2401, "pool.operating_mode", "enum", nullptr, 65535},
     {2101, "mqtt.ready", "bool", nullptr, 65535},
     {2102, "mqtt.server", "string", nullptr, 65535},
     {2103, "mqtt.rx_drop", "uint32", nullptr, 65535},

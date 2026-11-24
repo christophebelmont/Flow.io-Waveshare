@@ -60,10 +60,7 @@ public:
 
 private:
     enum RuntimeUiValueId : uint8_t {
-        RuntimeUiAutoMode = 1,
-        RuntimeUiWinterMode = 2,
-        RuntimeUiPhAutoMode = 3,
-        RuntimeUiOrpAutoMode = 4,
+        RuntimeUiOperatingMode = 1,
     };
 
     enum DisinfectionType : uint8_t {
@@ -137,6 +134,7 @@ private:
     enum class HeatAssistReason : uint8_t {
         Disabled = 0,
         ManualMode,
+        WinterMode,
         PsiBlocked,
         SetpointInvalid,
         TempUnavailable,
@@ -161,20 +159,30 @@ private:
     static constexpr IoId IO_ID_PH_LEVEL_DEFAULT = ioIdFromSlot(digitalInputSlot(PoolInputSlots::PhLevel));
     static constexpr IoId IO_ID_CHLORINE_LEVEL_DEFAULT = ioIdFromSlot(digitalInputSlot(PoolInputSlots::ChlorineLevel));
 
-    // State and configuration storage
-    bool enabled_ = false;
-
-    // Modes
-    bool autoMode_ = false;
-    bool winterMode_ = false;
-    bool phAutoMode_ = false;
-    bool orpAutoMode_ = false;
+    // ConfigStore stores bounded numeric values; all business decisions use typed accessors.
+    uint8_t operatingMode_ = uint8_t(PoolOperatingMode::Manual);
+    uint8_t phCorrectionType_ = uint8_t(PoolPhCorrection::Disabled);
     bool heaterAutoMode_ = false;
     ModeStateTrace autoModeTrace_{};
     ModeStateTrace winterModeTrace_{};
     ModeStateTrace phAutoModeTrace_{};
     ModeStateTrace orpAutoModeTrace_{};
-    bool phDosePlus_ = false;
+    uint8_t appliedMode_ = 0xFF;
+    uint8_t appliedPhCorrection_ = 0xFF;
+    uint8_t appliedDisinfection_ = 0xFF;
+    bool modesReady_ = false;
+    uint32_t modeSinceMs_ = 0;
+    PoolOperatingMode operatingMode() const { return static_cast<PoolOperatingMode>(operatingMode_); }
+    PoolPhCorrection phCorrection() const { return static_cast<PoolPhCorrection>(phCorrectionType_); }
+    bool filtrationAutomatic_() const { return poolFiltrationAutomatic(operatingMode()); }
+    bool regulationAutomatic_() const { return poolRegulationAutomatic(operatingMode()); }
+    bool winterMode_() const { return poolFrostProtection(operatingMode()); }
+    bool phAutomatic_() const { return poolPhAutomatic(operatingMode(), phCorrection()); }
+    bool orpAutomatic_() const { return regulationAutomatic_() && disinfectionType_ == DisinfectionChlorineBromine; }
+    bool migrateModes_();
+    void reconcileModes_(uint32_t nowMs);
+    static bool validateModes_(void* ctx, const ConfigCandidate& candidate);
+    static bool serviceManualControlAllowed_(void* ctx, uint8_t slot);
     bool indoorPool_ = false;
     bool automaticCoverPresent_ = false;
     bool coverClosedAtNight_ = false;
@@ -284,28 +292,17 @@ private:
     bool phTankLowError_ = false;
     bool chlorineTankLowError_ = false;
     bool cleaningDone_ = false;
-    bool robotManualOverride_ = false;
-    bool robotManualDesired_ = false;
     bool phPidEnabled_ = false;
     bool orpPidEnabled_ = false;
 
     portMUX_TYPE pendingMux_ = portMUX_INITIALIZER_UNLOCKED;
 
-    ConfigVariable<bool,0> enabledVar_{NVS_KEY(NvsKeys::PoolLogic::Enabled), "enabled", "poollogic/modes", ConfigType::Bool,
-                                       &enabled_, ConfigPersistence::Persistent, 0};
-
-    ConfigVariable<bool,0> autoModeVar_{NVS_KEY(NvsKeys::PoolLogic::AutoMode), "auto_mode", "poollogic/modes", ConfigType::Bool,
-                                        &autoMode_, ConfigPersistence::Persistent, 0};
-    ConfigVariable<bool,0> winterModeVar_{NVS_KEY(NvsKeys::PoolLogic::WinterMode), "winter_mode", "poollogic/modes", ConfigType::Bool,
-                                          &winterMode_, ConfigPersistence::Persistent, 0};
-    ConfigVariable<bool,0> phAutoModeVar_{NVS_KEY(NvsKeys::PoolLogic::PhAutoMode), "ph_auto_mode", "poollogic/ph", ConfigType::Bool,
-                                          &phAutoMode_, ConfigPersistence::Persistent, 0};
-    ConfigVariable<bool,0> orpAutoModeVar_{NVS_KEY(NvsKeys::PoolLogic::OrpAutoMode), "dis_auto_mode", "poollogic/chlorine", ConfigType::Bool,
-                                           &orpAutoMode_, ConfigPersistence::Persistent, 0};
+    ConfigVariable<uint8_t,0> operatingModeVar_{NVS_KEY(NvsKeys::PoolLogic::OperatingMode), "operating_mode", "poollogic/modes", ConfigType::UInt8,
+        &operatingMode_, ConfigPersistence::Persistent, 0};
+    ConfigVariable<uint8_t,0> phCorrectionTypeVar_{NVS_KEY(NvsKeys::PoolLogic::PhCorrectionType), "correction_type", "poollogic/ph", ConfigType::UInt8,
+        &phCorrectionType_, ConfigPersistence::Persistent, 0};
     ConfigVariable<bool,0> heaterAutoModeVar_{NVS_KEY(NvsKeys::PoolLogic::HeaterAutoMode), "heater_auto_mode", "poollogic/heater", ConfigType::Bool,
-                                              &heaterAutoMode_, ConfigPersistence::Persistent, 0};
-    ConfigVariable<bool,0> phDosePlusVar_{NVS_KEY(NvsKeys::PoolLogic::PhDosePlus), "ph_dose_plus", "poollogic/ph", ConfigType::Bool,
-                                          &phDosePlus_, ConfigPersistence::Persistent, 0};
+        &heaterAutoMode_, ConfigPersistence::Persistent, 0};
     ConfigVariable<uint8_t,0> disinfectionTypeVar_{NVS_KEY(NvsKeys::PoolLogic::DisinfectionType), "disinfection_type", "poollogic/modes", ConfigType::UInt8,
                                                    &disinfectionType_, ConfigPersistence::Persistent, 0};
     ConfigVariable<uint8_t,0> swgControlModeVar_{NVS_KEY(NvsKeys::PoolLogic::SwgControlMode), "swg_control_mode", "poollogic/swg", ConfigType::UInt8,
@@ -485,7 +482,8 @@ private:
         this,
         &PoolLogicModule::serviceGetDeviceAssignments_,
         &PoolLogicModule::serviceGetDeviceSetpoint_,
-        &PoolLogicModule::serviceSetDeviceSetpoint_
+        &PoolLogicModule::serviceSetDeviceSetpoint_,
+        &PoolLogicModule::serviceManualControlAllowed_
     };
     MqttConfigRouteProducer* cfgMqttPub_ = nullptr;
 
@@ -571,10 +569,7 @@ private:
                              uint8_t deviceSlot,
                              const char* label,
                              ActivityReason reason) const;
-    void emitAutoModeDisabledByManualActivity_(ActivityRole role,
-                                               uint8_t deviceSlot,
-                                               const char* autoLabel,
-                                               const Actor& actor) const;
+
     bool isDisinfectionType_(DisinfectionType type) const;
     bool readPoolDeviceFlowLh_(uint8_t deviceSlot, float& flowLhOut) const;
     bool currentO2LocalTime_(uint16_t& dayKeyOut,
@@ -606,12 +601,12 @@ private:
     // Commands
     static bool cmdFiltrationWriteStatic_(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen);
     static bool cmdFiltrationRecalcStatic_(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen);
-    static bool cmdAutoModeSetStatic_(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen);
+    static bool cmdOperatingModeSetStatic_(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen);
     static bool cmdMqttControlStatic_(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen);
     static bool cmdDeviceWriteStatic_(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen);
     bool cmdDeviceWrite_(const CommandRequest& req, char* reply, size_t replyLen);
     bool cmdFiltrationWrite_(const CommandRequest& req, char* reply, size_t replyLen);
     bool cmdFiltrationRecalc_(const CommandRequest& req, char* reply, size_t replyLen);
-    bool cmdAutoModeSet_(const CommandRequest& req, char* reply, size_t replyLen);
+    bool cmdOperatingModeSet_(const CommandRequest& req, char* reply, size_t replyLen);
     bool cmdMqttControl_(const CommandRequest& req, char* reply, size_t replyLen);
 };

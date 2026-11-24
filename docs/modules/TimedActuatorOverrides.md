@@ -14,8 +14,11 @@ de 1 à 1 440 minutes. **Modifier…** remplace la demande ; **Terminer le forç
 revient à la consigne guidée. Un badge apparaît seulement lors d'un forçage,
 d'une attente d'heure ou d'une erreur. L'état réel reste présenté séparément.
 
-Le tableau de bord garde ses commandes manuelles sans durée, avec leur gestion
-historique du mode automatique. Une commande manuelle validée remplace la consigne
+Les [modes PoolLogic](../integration/poollogic-operating-modes.md) déterminent
+le contrôle : en Auto et Hivers, les rôles PoolLogic utilisent les forçages
+temporaires ; en Manu, leurs commandes directes sont disponibles. Changer de
+mode termine les forçages des rôles gérés. Un redémarrage simple conserve
+les forçages compatibles et leur échéance. Une commande manuelle validée remplace la consigne
 et annule le forçage dans une même transaction, sans appliquer brièvement l'ancienne
 consigne guidée entre les deux. Cliquer sur la carte ouvre la gestion ; seul le
 toggle envoie une commande. Chaque demande temporaire ON/OFF acceptée est journalisée

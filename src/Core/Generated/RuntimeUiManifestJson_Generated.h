@@ -761,140 +761,30 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
       "moduleId": 24,
       "module": "poollogic",
       "valueId": 1,
-      "key": "pool.auto_mode",
-      "label": "Mode auto",
-      "type": "bool",
+      "key": "pool.operating_mode",
+      "label": "Mode de fonctionnement",
+      "type": "enum",
       "domain": "mode",
       "group": "Mode",
       "unit": null,
       "decimals": null,
       "order": 50,
-      "enum": null,
-      "flags": null,
-      "display": "boolean",
-      "displayConfig": {
-        "activeText": "Actif",
-        "inactiveText": "Manuel"
+      "enum": {
+        "0": "Manu",
+        "1": "Auto",
+        "2": "Hivers"
       },
+      "flags": null,
+      "display": "badge",
+      "displayConfig": null,
       "actions": [
         {
           "id": "set",
-          "command": "poollogic.auto_mode.set",
-          "presentation": "switch",
+          "command": "poollogic.operating_mode.set",
+          "presentation": "button",
           "input": {
             "name": "value",
-            "type": "bool"
-          },
-          "refreshDomains": [
-            "mode",
-            "equipements"
-          ]
-        }
-      ]
-    },
-    {
-      "id": 2402,
-      "runtimeId": 2402,
-      "moduleId": 24,
-      "module": "poollogic",
-      "valueId": 2,
-      "key": "pool.winter_mode",
-      "label": "Mode hiver",
-      "type": "bool",
-      "domain": "mode",
-      "group": "Mode",
-      "unit": null,
-      "decimals": null,
-      "order": 60,
-      "enum": null,
-      "flags": null,
-      "display": "boolean",
-      "displayConfig": {
-        "activeText": "Actif",
-        "inactiveText": "Arret"
-      },
-      "actions": [
-        {
-          "id": "set",
-          "command": "poollogic.winter_mode.set",
-          "presentation": "switch",
-          "input": {
-            "name": "value",
-            "type": "bool"
-          },
-          "refreshDomains": [
-            "mode",
-            "equipements"
-          ]
-        }
-      ]
-    },
-    {
-      "id": 2403,
-      "runtimeId": 2403,
-      "moduleId": 24,
-      "module": "poollogic",
-      "valueId": 3,
-      "key": "pool.ph_auto_mode",
-      "label": "pH Auto",
-      "type": "bool",
-      "domain": "mode",
-      "group": "Mode",
-      "unit": null,
-      "decimals": null,
-      "order": 70,
-      "enum": null,
-      "flags": null,
-      "display": "boolean",
-      "displayConfig": {
-        "activeText": "Actif",
-        "inactiveText": "Arret"
-      },
-      "actions": [
-        {
-          "id": "set",
-          "command": "poollogic.ph_auto_mode.set",
-          "presentation": "switch",
-          "input": {
-            "name": "value",
-            "type": "bool"
-          },
-          "refreshDomains": [
-            "mode",
-            "equipements"
-          ]
-        }
-      ]
-    },
-    {
-      "id": 2404,
-      "runtimeId": 2404,
-      "moduleId": 24,
-      "module": "poollogic",
-      "valueId": 4,
-      "key": "pool.dis_auto_mode",
-      "label": "Traitement auto",
-      "type": "bool",
-      "domain": "mode",
-      "group": "Mode",
-      "unit": null,
-      "decimals": null,
-      "order": 80,
-      "enum": null,
-      "flags": null,
-      "display": "boolean",
-      "displayConfig": {
-        "activeText": "Actif",
-        "inactiveText": "Arret"
-      },
-      "actions": [
-        {
-          "id": "set",
-          "command": "poollogic.dis_auto_mode.set",
-          "presentation": "switch",
-          "input": {
-            "name": "value",
-            "type": "bool"
+            "type": "uint32"
           },
           "refreshDomains": [
             "mode",

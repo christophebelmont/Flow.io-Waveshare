@@ -1086,45 +1086,15 @@ bool HMIModule::readPoolLogicModeFlags_(bool& autoMode,
                                         bool& phAutoMode,
                                         bool& orpAutoMode) const
 {
-    autoMode = false;
-    winterMode = false;
-    phAutoMode = false;
-    orpAutoMode = false;
-    if (!cfgSvc_ || !cfgSvc_->toJsonModule) return false;
-
-    char jsonBuf[kPoolLogicModeJsonBufSize]{};
-    bool truncated = false;
-    if (!cfgSvc_->toJsonModule(cfgSvc_->ctx,
-                               kPoolLogicModesModule,
-                               jsonBuf,
-                               sizeof(jsonBuf),
-                               &truncated)) {
-        return false;
-    }
-
-    bool v = false;
-    if (findJsonBool_(jsonBuf, "auto_mode", v)) autoMode = v;
-    if (findJsonBool_(jsonBuf, "winter_mode", v)) winterMode = v;
-
-    memset(jsonBuf, 0, sizeof(jsonBuf));
-    truncated = false;
-    if (cfgSvc_->toJsonModule(cfgSvc_->ctx,
-                              kPoolLogicPhModule,
-                              jsonBuf,
-                              sizeof(jsonBuf),
-                              &truncated)) {
-        if (findJsonBool_(jsonBuf, "ph_auto_mode", v)) phAutoMode = v;
-    }
-
-    memset(jsonBuf, 0, sizeof(jsonBuf));
-    truncated = false;
-    if (cfgSvc_->toJsonModule(cfgSvc_->ctx,
-                              kPoolLogicChlorineModule,
-                              jsonBuf,
-                              sizeof(jsonBuf),
-                              &truncated)) {
-        if (findJsonBool_(jsonBuf, "dis_auto_mode", v)) orpAutoMode = v;
-    }
+    autoMode = winterMode = phAutoMode = orpAutoMode = false;
+    const auto* service = services_ ? services_->get<PoolConfigurationService>(ServiceId::PoolConfiguration) : nullptr;
+    PoolOperatingConfiguration config;
+    if (!service || !service->getOperatingConfiguration ||
+        !service->getOperatingConfiguration(service->ctx, &config)) return false;
+    autoMode = config.filtrationAutoMode;
+    winterMode = poolFrostProtection(config.operatingMode);
+    phAutoMode = config.phAutoMode;
+    orpAutoMode = config.orpAutoMode;
     return true;
 }
 
@@ -2375,8 +2345,8 @@ bool HMIModule::executeHmiCommand_(HmiCommandId command, uint8_t value)
         case HmiCommandId::HomeFiltrationSet:
             return executeCommandBool_("poollogic.filtration.write", value != 0U);
 
-        case HmiCommandId::HomeAutoModeSet:
-            return executePoolLogicModePatch_("auto_mode", value != 0U);
+        case HmiCommandId::HomeOperatingModeSet:
+            return poolModeValid(value) && executePoolOperatingMode_(static_cast<PoolOperatingMode>(value));
 
         case HmiCommandId::HomePhPumpSet:
             return executeCommandBool_("poollogic.ph_pump.write", value != 0U);
@@ -2405,21 +2375,16 @@ bool HMIModule::executeHmiCommand_(HmiCommandId command, uint8_t value)
             }
             return executeCommandBool_("poollogic.filtration.write", !current);
 
-        case HmiCommandId::HomeAutoModeToggle:
-            (void)readPoolLogicModeFlags_(modes.autoMode, modes.winterMode, modes.phAutoMode, modes.orpAutoMode);
-            return executePoolLogicModePatch_("auto_mode", !modes.autoMode);
-
-        case HmiCommandId::HomeOrpAutoModeToggle:
-            (void)readPoolLogicModeFlags_(modes.autoMode, modes.winterMode, modes.phAutoMode, modes.orpAutoMode);
-            return executePoolLogicModePatch_("dis_auto_mode", !modes.orpAutoMode);
-
-        case HmiCommandId::HomePhAutoModeToggle:
-            (void)readPoolLogicModeFlags_(modes.autoMode, modes.winterMode, modes.phAutoMode, modes.orpAutoMode);
-            return executePoolLogicModePatch_("ph_auto_mode", !modes.phAutoMode);
-
-        case HmiCommandId::HomeWinterModeToggle:
-            (void)readPoolLogicModeFlags_(modes.autoMode, modes.winterMode, modes.phAutoMode, modes.orpAutoMode);
-            return executePoolLogicModePatch_("winter_mode", !modes.winterMode);
+        case HmiCommandId::HomeOperatingModeCycle: {
+            const auto* service = services_ ? services_->get<PoolConfigurationService>(ServiceId::PoolConfiguration) : nullptr;
+            PoolOperatingConfiguration config;
+            if (!service || !service->getOperatingConfiguration ||
+                !service->getOperatingConfiguration(service->ctx, &config)) return false;
+            const auto next = static_cast<PoolOperatingMode>((uint8_t(config.operatingMode) + 1U) % 3U);
+            return executePoolOperatingMode_(next);
+        }
+        case HmiCommandId::HomeWinterModeSelect:
+            return executePoolOperatingMode_(PoolOperatingMode::Winter);
 
         case HmiCommandId::HomeLightsToggle:
             if (!readPoolDeviceActualOn_(lightsDeviceSlot_, current)) {
@@ -2500,33 +2465,16 @@ bool HMIModule::executePoolDeviceWrite_(uint8_t slot, bool value)
     return true;
 }
 
-bool HMIModule::executePoolLogicModePatch_(const char* key, bool value)
+bool HMIModule::executePoolOperatingMode_(PoolOperatingMode mode)
 {
-    if (!key || key[0] == '\0') return false;
-    if (!cfgSvc_ || !cfgSvc_->applyJson) {
-        LOGW("HMI config service unavailable key=%s", key);
-        setHomeErrorMessage_("CfgServiceUnavailable", true);
-        return false;
-    }
-
-    char json[96]{};
-    const char* moduleName = "poollogic/modes";
-    if (strcmp(key, "ph_auto_mode") == 0) {
-        moduleName = "poollogic/ph";
-    } else if (strcmp(key, "dis_auto_mode") == 0) {
-        moduleName = "poollogic/chlorine";
-    }
-    snprintf(json, sizeof(json), "{\"%s\":{\"%s\":%s}}", moduleName, key, value ? "true" : "false");
-    const bool ok = cfgSvc_->applyJson(cfgSvc_->ctx, json);
-    if (!ok) {
-        LOGW("HMI config patch failed json=%s", json);
-        reportCommandError_("cfg.applyJson", "{\"ok\":false,\"err\":{\"code\":\"CfgApplyFailed\",\"where\":\"cfg.applyJson\"}}");
-        return false;
-    }
-
-    LOGI("HMI config patch ok json=%s", json);
-    queueHomePublish_(kHomePublishAll);
-    return true;
+    if (!cmdSvc_ || !cmdSvc_->execute) return false;
+    char args[32], reply[192];
+    snprintf(args, sizeof(args), "{\"value\":%u}", unsigned(mode));
+    const bool ok = cmdSvc_->execute(cmdSvc_->ctx, "poollogic.operating_mode.set", nullptr, args,
+        systemActor(), reply, sizeof(reply));
+    if (!ok) reportCommandError_("poollogic.operating_mode.set", reply);
+    else queueHomePublish_(kHomePublishAll);
+    return ok;
 }
 
 uint32_t HMIModule::cacheCurrentConfigContext_()

@@ -64,7 +64,11 @@ class DashboardTests(unittest.TestCase):
 
     def test_entity_coverage_and_actions(self):
         ids = set(re.findall(r'\b(?:sensor|binary_sensor|switch|number|select|button)\.fio_[a-z0-9_]+', json.dumps(self.config)))
-        self.assertEqual(len(ids), 115)
+        self.assertEqual(len(ids), 112)
+        self.assertIn('select.fio_pl_operating_mode', ids)
+        self.assertIn('select.fio_pl_ph_correction', ids)
+        for suffix in ('pl_modes_auto', 'pl_modes_winter', 'pl_ph_auto_mode', 'pl_ph_dose_plus', 'pl_dis_auto'):
+            self.assertNotIn('switch.fio_' + suffix, ids)
         paths = {v['path'] for v in self.config['views']}
         for node in self.nodes:
             if node.get('action') == 'navigate':

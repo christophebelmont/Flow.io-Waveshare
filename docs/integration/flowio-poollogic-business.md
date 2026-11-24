@@ -3,6 +3,9 @@
 Ce document résume la logique métier compilée dans l'environnement `Flowio-waveshare-esp32-s3`, avec la carte `WaveshareESP32S3` et le domaine `Pool`.
 Il complète la documentation module par module avec une vue orientée fonctionnement du bassin : filtration, hivernage, injection pH/ORP, électrolyse, chauffage, robot et remplissage.
 
+Le [guide utilisateur Auto / Manu / Hivers](poollogic-operating-modes.md) détaille
+le sélecteur unique, les traitements et la migration des installations.
+
 ## 1) Contexte de compilation
 
 Le profil Waveshare assemble:
@@ -63,7 +66,7 @@ Responsabilités:
 - exécute le protocole oxygène actif liquide par volume calculé quand `disinfection_type=2`
 - publie la configuration `cfg/poollogic/*` et snapshots `rt/poollogic/ph|orp`
 
-Important: en mode manuel (`auto_mode=false`), la filtration reste pilotée manuellement **sauf sécurité PSI** (qui garde priorité et peut couper).
+Important: en mode manuel (`operating_mode=0`), la filtration reste pilotée manuellement **sauf sécurité PSI** (qui garde priorité et peut couper).
 
 ## 3.2 `PoolDeviceModule` (device manager / couche d’exécution)
 
@@ -90,26 +93,26 @@ Responsabilités:
 - écrit les sorties digitales physiques
 - maintient la config des bindings (`binding_port`) + calibration analogique (`c0`,`c1`,`precision`) + logique d’entrée digitale (actif haut, pull, edge/counter)
 
-## 4) Modes métier (auto, hiver, manuel)
+## 4) Modes métier : Auto / Manu / Hivers
 
-## 4.1 Auto global (`auto_mode=true`)
+PoolLogic reste toujours actif. `poollogic/modes/operating_mode` est la seule
+source du mode :
 
-- filtration demandée par:
-  - fenêtre scheduler calculée
-  - ou mode hiver + condition de température air
-  - avec logique de maintien hors-gel (`freeze_hold_t`) si la filtration tourne déjà
-- robot, électrolyse, PID pH/ORP sont pilotés automatiquement
+| Valeur | Mode | Fonctionnement |
+|---|---|---|
+| `0` | Manu | Commandes directes, aucune filtration ni régulation automatiques |
+| `1` | Auto | Filtration calculée, correction pH et traitement configurés, chauffage/robot/remplissage automatiques |
+| `2` | Hivers | Filtration calculée et antigel ; autres automatismes suspendus |
 
-## 4.2 Manuel (`auto_mode=false`)
+Hivers ajoute une demande lorsque `air_temp < winter_start_t`. Si la filtration
+tourne déjà, elle reste maintenue jusqu'à dépasser `freeze_hold_t`. L'antigel
+ne déclenche aucune demande en Manu ou Auto. Les protections pression et
+PoolDevice restent actives dans les trois modes.
 
-- `PoolLogic` n’impose plus de logique auto de filtration
-- un ordre manuel filtration (`poollogic.filtration.write`) force explicitement `auto_mode=false`
-- les sécurités PSI restent actives (coupure possible)
-
-## 4.3 Hiver (`winter_mode=true`)
-
-- ajout d’une demande de filtration quand `air_temp < winter_start_t`
-- logique hors-gel: si filtration déjà active et `air_temp <= freeze_hold_t`, elle reste maintenue
+Passer en Manu conserve la demande de filtration courante ; les autres demandes
+automatiques sont arrêtées. Les interventions temporaires en Auto ou Hivers
+passent par les [forçages](../modules/TimedActuatorOverrides.md). Elles ne
+modifient pas le mode ni les types de produits.
 
 ## 5) Détail des équipements
 
@@ -128,27 +131,27 @@ La fenêtre est recalculée quotidiennement et peut être relancée via commande
 Conditions d’autorisation:
 
 - filtration demandée ON
-- PID pH armé (`ph_auto_mode` + délai post-filtration)
+- mode Auto, correction pH active et délai post-filtration écoulé
 - mesure pH disponible
 - pas d’erreur PSI
 - cuve pH non vide
 
 Le PID est temporel (sortie en `outputOnMs` dans une fenêtre), avec minimum ON configurable (`pid_min_on_ms`).
 
-`ph_dose_plus` inverse le sens d’erreur (injection pH+ vs pH-).
+`correction_type` choisit Désactivée (`0`), pH− (`1`) ou pH+ (`2`).
 
 ## 5.3 Injection ORP / chlore liquide (pompe ORP)
 
 Conditions d’autorisation:
 
 - filtration demandée ON
-- PID désinfection armé (`dis_auto_mode` + délai post-filtration)
+- mode Auto et délai post-filtration écoulé
 - mesure ORP disponible
 - pas d’erreur PSI
 - cuve chlore non vide
 - **et** `disinfection_type=0` (`Chlore/Brome`; la pompe ORP automatique est inhibée en mode électrolyse, oxygène actif ou désactivé)
 
-`disinfection_type=3` (`Désactivé`) coupe la désinfection automatique. Un démarrage manuel de la pompe chlore/O2 bascule aussi ce champ sur `Désactivé`, afin de laisser la main à l'utilisateur sans relance automatique de dosage.
+`disinfection_type=3` (`Désactivé`) coupe la désinfection automatique. Les commandes directes nécessitent Manu et conservent le type de traitement.
 
 ## 5.4 Électrolyseur
 
@@ -195,6 +198,8 @@ En auto:
 
 ## 5.7 Remplissage
 
+Automatique uniquement en Auto. En Manu, commande directe ; en Hivers, demande guidée arrêtée.
+
 - basé sur le capteur de niveau bassin (`i02` par défaut)
 - si le niveau bas est actif : marche
 - quand niveau revient OK: maintien ON jusqu’à atteindre au moins `fill_min_on_s`
@@ -217,22 +222,18 @@ Si le service alarme n’est pas disponible, `PoolLogic` utilise un fallback loc
 
 ### `poollogic/modes`
 
-- `enabled`
-- `auto_mode`
-- `winter_mode`
+- `operating_mode` (`0` Manu, `1` Auto, `2` Hivers)
 - `disinfection_type`
 
 ### `poollogic/ph`
 
-- `ph_auto_mode`
-- `ph_dose_plus`
+- `correction_type` (`0` Désactivée, `1` pH−, `2` pH+)
 - `ph_setpoint`
 - `ph_kp`, `ph_ki`, `ph_kd`
 - `ph_window_ms`
 
 ### `poollogic/chlorine`
 
-- `dis_auto_mode`
 - `dis_setpoint`
 - `dis_kp`, `dis_ki`, `dis_kd`
 - `dis_window_ms`
@@ -342,12 +343,12 @@ Runtime persistant par slot, stocké en blob NVS interne `pdNrt`:
 ## 8) Commandes métier principales
 
 - `poollogic.filtration.write`:
-  - force `auto_mode=false`
+  - nécessite Manu ; conserve le mode et les types de produits
   - écrit directement la demande filtration
 - `poollogic.filtration.recalc`:
   - demande recalcul de la fenêtre de filtration
-- `poollogic.auto_mode.set`:
-  - bascule explicite mode auto
+- `poollogic.operating_mode.set`:
+  - sélectionne `0` Manu, `1` Auto ou `2` Hivers
 - `pooldevice.write`:
   - commande directe d’un slot appareil
 - `pool.refill`:

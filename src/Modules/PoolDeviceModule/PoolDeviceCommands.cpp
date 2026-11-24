@@ -57,37 +57,6 @@ void writeCmdErrorSlot_(char* reply, size_t replyLen, const char* where, ErrorCo
     }
 }
 
-bool readConfigBool_(ConfigStore* cfgStore, const char* moduleName, const char* key, bool& out)
-{
-    if (!cfgStore || !moduleName || !key) return false;
-    char json[192]{};
-    bool truncated = false;
-    if (!cfgStore->toJsonModule(moduleName, json, sizeof(json), &truncated) || truncated) return false;
-
-    StaticJsonDocument<192> doc;
-    const DeserializationError err = deserializeJson(doc, json);
-    if (err || !doc.is<JsonObjectConst>()) return false;
-    JsonVariantConst value = doc.as<JsonObjectConst>()[key];
-    if (!value.is<bool>()) return false;
-    out = value.as<bool>();
-    return true;
-}
-
-bool readConfigUInt8_(ConfigStore* cfgStore, const char* moduleName, const char* key, uint8_t& out)
-{
-    if (!cfgStore || !moduleName || !key) return false;
-    char json[192]{};
-    bool truncated = false;
-    if (!cfgStore->toJsonModule(moduleName, json, sizeof(json), &truncated) || truncated) return false;
-
-    StaticJsonDocument<192> doc;
-    const DeserializationError err = deserializeJson(doc, json);
-    if (err || !doc.is<JsonObjectConst>()) return false;
-    JsonVariantConst value = doc.as<JsonObjectConst>()[key];
-    if (!value.is<uint8_t>()) return false;
-    out = value.as<uint8_t>();
-    return true;
-}
 } // namespace
 
 bool PoolDeviceModule::cmdPoolWrite_(void* userCtx, const CommandRequest& req, char* reply, size_t replyLen)
@@ -159,43 +128,6 @@ void PoolDeviceModule::emitActivity_(ActivityCode code,
     (void)activityLogSvc_->emit(activityLogSvc_->ctx, &event);
 }
 
-void PoolDeviceModule::emitAutoModeDisabledByManualActivity_(ActivityRole role,
-                                                             uint8_t slot,
-                                                             const char* autoLabel,
-                                                             const Actor& actor) const
-{
-    const char* roleLabel = "équipement";
-    const char* icon = "settings";
-    if (role == ActivityRole::Ph) {
-        roleLabel = "pompe pH";
-        icon = "science";
-    } else if (role == ActivityRole::Disinfection) {
-        roleLabel = "pompe ORP";
-        icon = "science";
-    } else if (role == ActivityRole::Filtration) {
-        roleLabel = "filtration";
-        icon = "pool";
-    }
-
-    char title[48] = {0};
-    char detail[128] = {0};
-    snprintf(title, sizeof(title), "Mode auto %s désactivé", autoLabel ? autoLabel : roleLabel);
-    snprintf(detail,
-             sizeof(detail),
-             "Commande manuelle sur %s: l'automatisme a été désactivé.",
-             roleLabel);
-    emitActivity_(ActivityCode::SystemConfigChanged,
-                  ActivitySource::Manual,
-                  ActivitySeverity::Info,
-                  role,
-                  ActivityState::None,
-                  ActivityReason::Manual,
-                   slot,
-                   title,
-                   detail,
-                   icon,
-                   actor);
-}
 
 bool PoolDeviceModule::handlePoolWrite_(const CommandRequest& req, char* reply, size_t replyLen)
 {
@@ -261,88 +193,6 @@ bool PoolDeviceModule::handlePoolWrite_(const CommandRequest& req, char* reply, 
         else if (st == POOLDEV_SVC_ERR_IO) code = ErrorCode::IoError;
         writeCmdErrorSlot_(reply, replyLen, "pooldevice.write", code, slot);
         return false;
-    }
-
-    // Global business rule for manual starts:
-    // if a dosing pump is manually forced ON, disable the corresponding auto mode
-    // regardless of the command source (HMI, MQTT, Web, ...).
-    if (requested && cfgStore_) {
-        uint8_t phPumpSlot = PoolIds::DevicePhPump;
-        uint8_t orpPumpSlot = PoolIds::DeviceChlorinePump;
-
-        char modeJson[160]{};
-        bool truncated = false;
-        if (cfgStore_->toJsonModule("poollogic/devices", modeJson, sizeof(modeJson), &truncated) && !truncated) {
-            StaticJsonDocument<192> modeDoc;
-            const DeserializationError modeErr = deserializeJson(modeDoc, modeJson);
-            if (!modeErr && modeDoc.is<JsonObjectConst>()) {
-                const JsonObjectConst obj = modeDoc.as<JsonObjectConst>();
-                if (obj["ph_pump_slot"].is<uint16_t>()) {
-                    const uint16_t v = obj["ph_pump_slot"].as<uint16_t>();
-                    if (v < POOL_DEVICE_MAX) phPumpSlot = (uint8_t)v;
-                }
-                if (obj["dis_pump_slot"].is<uint16_t>()) {
-                    const uint16_t v = obj["dis_pump_slot"].as<uint16_t>();
-                    if (v < POOL_DEVICE_MAX) orpPumpSlot = (uint8_t)v;
-                }
-            }
-        }
-
-        const char* modeKey = nullptr;
-        if (slot == phPumpSlot) modeKey = "ph_auto_mode";
-        else if (slot == orpPumpSlot) modeKey = "disinfection_type";
-
-        if (modeKey) {
-            bool shouldLogAutoDisabled = false;
-            ActivityRole disabledRole = ActivityRole::None;
-            const char* disabledLabel = nullptr;
-            char patch[96]{};
-            if (strcmp(modeKey, "disinfection_type") == 0) {
-                uint8_t disinfectionType = 0;
-                shouldLogAutoDisabled = !readConfigUInt8_(cfgStore_,
-                                                           "poollogic/modes",
-                                                           "disinfection_type",
-                                                           disinfectionType) ||
-                                        disinfectionType != 3U;
-                disabledRole = ActivityRole::Disinfection;
-                disabledLabel = "ORP";
-                snprintf(patch, sizeof(patch), "{\"poollogic/modes\":{\"disinfection_type\":3}}");
-            } else if (strcmp(modeKey, "ph_auto_mode") == 0) {
-                bool phAutoMode = false;
-                shouldLogAutoDisabled = !readConfigBool_(cfgStore_,
-                                                         "poollogic/ph",
-                                                         "ph_auto_mode",
-                                                         phAutoMode) ||
-                                        phAutoMode;
-                disabledRole = ActivityRole::Ph;
-                disabledLabel = "pH";
-                snprintf(patch, sizeof(patch), "{\"poollogic/ph\":{\"ph_auto_mode\":false}}");
-            } else {
-                snprintf(patch, sizeof(patch), "{\"poollogic/modes\":{\"%s\":false}}", modeKey);
-            }
-            if (!cfgStore_->applyJson(patch)) {
-                LOGW("Manual pump start slot=%u failed to clear %s",
-                     (unsigned)slot,
-                     modeKey);
-            } else {
-                if (strcmp(modeKey, "disinfection_type") == 0) {
-                    const PoolDeviceSvcStatus rest = svcSetRunningImpl_(slot, 1U);
-                    if (rest != POOLDEV_SVC_OK) {
-                        writeCmdErrorSlot_(reply, replyLen, "pooldevice.write", ErrorCode::Failed, slot);
-                        return false;
-                    }
-                    LOGI("Manual pump start slot=%u -> disinfection_type=3",
-                         (unsigned)slot);
-                } else {
-                    LOGI("Manual pump start slot=%u -> %s=false",
-                         (unsigned)slot,
-                         modeKey);
-                }
-                if (shouldLogAutoDisabled) {
-                    emitAutoModeDisabledByManualActivity_(disabledRole, slot, disabledLabel, req.actor);
-                }
-            }
-        }
     }
 
     char label[sizeof(PoolDeviceDefinition::label)] = {0};

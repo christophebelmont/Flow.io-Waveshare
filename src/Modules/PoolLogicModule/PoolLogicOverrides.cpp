@@ -16,7 +16,7 @@ void PoolLogicModule::resetOverridePolicies_()
 {
     if (!poolSvc_ || !poolSvc_->setOverridePolicies) return;
     ActuatorOverridePolicy policies[POOL_DEVICE_MAX]{};
-    if (enabled_) {
+    {
         for (auto slot : {filtrationDeviceSlot_, robotDeviceSlot_, phPumpDeviceSlot_, orpPumpDeviceSlot_,
                           swgDeviceSlot_, heaterDeviceSlot_, fillingDeviceSlot_}) {
             if (slot < POOL_DEVICE_MAX) policies[slot].ready = false;
@@ -78,13 +78,5 @@ bool PoolLogicModule::handleOverride_(const CommandRequest& req, char* reply, si
     if (measureJson(args) >= sizeof(normalized)) return fail(ErrorCode::BadCmdJson);
     serializeJson(args, normalized, sizeof(normalized));
     const CommandRequest forwarded{req.cmd, nullptr, normalized, req.actor};
-    const bool ok = poolSvc_->overrideCommand(poolSvc_->ctx, forwarded, reply, len, command);
-    if (ok && args["slot"].as<uint8_t>() == robotDeviceSlot_ &&
-        (command == OverrideCommand::On || command == OverrideCommand::Off || command == OverrideCommand::FromArgs)) {
-        portENTER_CRITICAL(&pendingMux_);
-        robotManualOverride_ = false;
-        robotManualDesired_ = false;
-        portEXIT_CRITICAL(&pendingMux_);
-    }
-    return ok;
+    return poolSvc_->overrideCommand(poolSvc_->ctx, forwarded, reply, len, command);
 }

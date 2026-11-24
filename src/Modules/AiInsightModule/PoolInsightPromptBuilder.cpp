@@ -312,7 +312,8 @@ void appendCurrentContext_(TextWriter& out, const PoolHistorySnapshot& history)
         out.append("- configuration de régulation actuelle : indisponible\n");
         return;
     }
-    out.appendFormat("- modes automatiques actuels : filtration %s, pH %s, ORP %s, chauffage %s\n",
+    out.appendFormat("- mode de fonctionnement actuel : %s\n", poolOperatingModeName(config.operatingMode));
+    out.appendFormat("- autorisations automatiques actuelles : filtration %s, pH %s, ORP %s, chauffage %s\n",
                      config.filtrationAutoMode ? "actif" : "inactif",
                      config.phAutoMode ? "actif" : "inactif",
                      config.orpAutoMode ? "actif" : "inactif",

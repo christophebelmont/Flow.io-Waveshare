@@ -243,6 +243,7 @@ private:
     bool allocateUiStorage_();
 
     ConfigStore* cfgStore_ = nullptr;
+    const PoolConfigurationService* poolConfigurationSvc_ = nullptr;
     const AlarmService* alarmSvc_ = nullptr;
     const IOServiceV2* ioSvc_ = nullptr;
     const DataStoreService* dsSvc_ = nullptr;

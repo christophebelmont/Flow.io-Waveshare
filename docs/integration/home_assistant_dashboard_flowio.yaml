@@ -22,9 +22,9 @@ views:
           - type: custom:mushroom-legacy-template-card
             entity: binary_sensor.fio_alm_any_active
             primary: |-
-              {% if not has_value(entity) %}Piscine indisponible{% elif is_state(entity, 'on') %}Intervention requise{% elif is_state('switch.fio_pl_modes_winter', 'on') %}Mode hivernage{% else %}Piscine · aucune alarme{% endif %}
+              {% if not has_value(entity) %}Piscine indisponible{% elif is_state(entity, 'on') %}Intervention requise{% elif is_state('select.fio_pl_operating_mode', 'Hivers') %}Mode hivernage{% else %}Piscine · aucune alarme{% endif %}
             secondary: |-
-              {% if has_value('switch.fio_pl_modes_auto') %}{{ 'Automatique' if is_state('switch.fio_pl_modes_auto', 'on') else 'Manuel' }}{% else %}Mode indisponible{% endif %} · {% if is_number(states('sensor.fio_pl_flt_start')) and is_number(states('sensor.fio_pl_flt_stop')) %}filtration {{ states('sensor.fio_pl_flt_start') }}h–{{ states('sensor.fio_pl_flt_stop') }}h{% else %}horaires indisponibles{% endif %} · {{ states('select.fio_pl_modes_dis') }}
+              {% if has_value('select.fio_pl_operating_mode') %}{{ states('select.fio_pl_operating_mode') }}{% else %}Mode indisponible{% endif %} · {% if is_number(states('sensor.fio_pl_flt_start')) and is_number(states('sensor.fio_pl_flt_stop')) %}filtration {{ states('sensor.fio_pl_flt_start') }}h–{{ states('sensor.fio_pl_flt_stop') }}h{% else %}horaires indisponibles{% endif %} · {{ states('select.fio_pl_modes_dis') }}
             icon: mdi:pool
             icon_color: |-
               {% if not has_value(entity) %}grey{% elif is_state(entity, 'on') %}red{% else %}blue{% endif %}
@@ -247,12 +247,11 @@ views:
             show_header_toggle: false
             state_color: true
             entities:
-              - entity: switch.fio_pl_modes_auto
-                name: Filtration automatique
-                icon: mdi:autorenew
-              - entity: switch.fio_pl_modes_winter
-                name: Hivernage
-                icon: mdi:snowflake
+              - entity: select.fio_pl_operating_mode
+                name: Mode de fonctionnement
+                icon: mdi:pool
+                type: simple-entity
+                tap_action: *more_info
             card_mod: &settings_list
               style: |
                 ha-card {
@@ -343,12 +342,11 @@ views:
             show_header_toggle: false
             state_color: true
             entities:
-              - entity: switch.fio_pl_modes_auto
-                name: Régulation automatique
-                icon: mdi:autorenew
-              - entity: switch.fio_pl_modes_winter
-                name: Mode hivernage
-                icon: mdi:snowflake
+              - entity: select.fio_pl_operating_mode
+                name: Mode de fonctionnement
+                icon: mdi:pool
+                type: simple-entity
+                tap_action: *more_info
             card_mod: *settings_list
             grid_options:
               columns: 12
@@ -614,12 +612,11 @@ views:
                 icon: mdi:flask-outline
                 type: simple-entity
                 tap_action: *more_info
-              - entity: switch.fio_pl_ph_auto_mode
-                name: Correction automatique
-                icon: mdi:autorenew
-              - entity: switch.fio_pl_ph_dose_plus
-                name: Dosage avec pH+
+              - entity: select.fio_pl_ph_correction
+                name: Correction pH
                 icon: mdi:test-tube
+                type: simple-entity
+                tap_action: *more_info
               - entity: number.fio_pl_ph_window
                 name: Fenêtre PID
                 icon: mdi:clock-outline
@@ -779,9 +776,6 @@ views:
                 icon: mdi:flask-outline
                 type: simple-entity
                 tap_action: *more_info
-              - entity: switch.fio_pl_dis_auto
-                name: Régulation automatique
-                icon: mdi:autorenew
               - entity: number.fio_pl_dis_setpoint
                 name: Consigne ORP
                 icon: mdi:lightning-bolt-outline

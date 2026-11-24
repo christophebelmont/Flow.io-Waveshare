@@ -64,9 +64,8 @@
     "derived.effect.saved": "Up to date",
     "pool.summary": "Reading user settings for filtration, treatment, heating, and refill.",
     "pool.summary.loaded": "Filtration scheduled from {start} to {stop}, water setpoint {setpoint}, heater {heater}.",
-    "pool.summary.poollogicOff": "PoolLogic disabled: the system remains manual and does not control the pool.",
-    "pool.summary.manual": "Manual mode: PoolLogic is active, but automations are suspended. Configured treatment: {treatment}.",
-    "pool.summary.autoWinter": "Automatic winter mode: filtration {start}-{stop}, treatment {treatment}, heater {heater}.",
+    "pool.summary.manual": "Manu: manual commands without automatic filtration or regulation. Safety protections remain active.",
+    "pool.summary.autoWinter": "Hivers: filtration {start}-{stop} and frost protection. Automatic dosing, heating, robot and filling are suspended.",
     "pool.summary.auto": "Automatic mode: filtration {start}-{stop}, treatment {treatment}, heater {heater}.",
     "pool.state.active": "Active",
     "pool.state.disabled": "Disabled",
@@ -104,7 +103,7 @@
     "pool.metric.injections": "Injections",
     "pool.metric.pending": "Pending",
     "pool.card.modes.title": "General control",
-    "pool.card.modes.note": "These switches define whether PoolLogic controls the pool and which treatment strategy is selected.",
+    "pool.card.modes.note": "Choose Auto, Manu or Hivers and the disinfection type.",
     "pool.card.filtration.title": "Filtration",
     "pool.card.filtration.note": "The filtration window combines timing constraints and water temperature to protect the pool.",
     "pool.card.heater.title": "Heater",
@@ -169,8 +168,8 @@
     "dashboard.alarms.allNormal": "All normal",
     "dashboard.mode.aria": "Operating mode",
     "dashboard.mode.auto": "Auto",
-    "dashboard.mode.manual": "Manual",
-    "dashboard.mode.winter": "Winter",
+    "dashboard.mode.manual": "Manu",
+    "dashboard.mode.winter": "Hivers",
     "dashboard.forced": "forced",
     "dashboard.header.updated": "updated at {time}",
     "dashboard.alarm.condition": "Condition",
@@ -772,6 +771,8 @@
     "cfg.counter.value.saving": "Saving…",
     "cfg.counter.value.saved": "Value saved and persisted.",
     "cfg.counter.value.saveFailed": "Could not save the value. Check the count before trying again.",
-    "cfg.counter.value.loadFailed": "Counter unavailable. Reload the page after enabling it."
+    "cfg.counter.value.loadFailed": "Counter unavailable. Reload the page after enabling it.",
+    "pool.card.ph.title": "pH correction",
+    "pool.card.ph.note": "Choose Disabled, pH− or pH+. Regulation runs only in Auto."
   }
 }

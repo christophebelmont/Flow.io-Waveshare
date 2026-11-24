@@ -582,6 +582,7 @@ void TFTModuleS3::init(ConfigStore& cfg, ServiceRegistry& services)
 
 void TFTModuleS3::onConfigLoaded(ConfigStore&, ServiceRegistry& services)
 {
+    poolConfigurationSvc_ = services.get<PoolConfigurationService>(ServiceId::PoolConfiguration);
     if (!uiStorage_) return;
 
     if (!ioSvc_) ioSvc_ = services.get<IOServiceV2>(ServiceId::Io);
@@ -1453,20 +1454,12 @@ bool TFTModuleS3::readRuntimeValue_(RuntimeUiId runtimeId, RuntimeValue& out) co
         }
 
         case ModuleId::PoolLogic: {
-            bool autoMode = false;
-            bool winterMode = false;
-            bool phAutoMode = false;
-            bool orpAutoMode = false;
-            bool swgAutoMode = false;
-            if (!loadPoolModeFlags_(autoMode, winterMode, phAutoMode, orpAutoMode, swgAutoMode)) return false;
-            (void)swgAutoMode;
+            PoolOperatingConfiguration config;
+            if (valueId != 1U || !poolConfigurationSvc_ || !poolConfigurationSvc_->getOperatingConfiguration ||
+                !poolConfigurationSvc_->getOperatingConfiguration(poolConfigurationSvc_->ctx, &config)) return false;
             out.available = true;
-            out.wireType = RuntimeUiWireType::Bool;
-            if (valueId == 1U) out.boolValue = autoMode;
-            else if (valueId == 2U) out.boolValue = winterMode;
-            else if (valueId == 3U) out.boolValue = phAutoMode;
-            else if (valueId == 4U) out.boolValue = orpAutoMode;
-            else return false;
+            out.wireType = RuntimeUiWireType::Enum;
+            out.u32Value = uint8_t(config.operatingMode);
             return true;
         }
 
@@ -1903,44 +1896,18 @@ bool TFTModuleS3::loadPoolModeFlags_(bool& autoMode,
                                      bool& orpAutoMode,
                                      bool& swgAutoMode) const
 {
-    autoMode = false;
-    winterMode = false;
-    phAutoMode = false;
-    orpAutoMode = false;
-    swgAutoMode = false;
-    if (!cfgStore_) return false;
-
-    char moduleJson[320] = {0};
-    bool truncated = false;
-    if (!cfgStore_->toJsonModule("poollogic/modes", moduleJson, sizeof(moduleJson), &truncated, true) || truncated) return false;
-
-    StaticJsonDocument<384> doc;
-    if (deserializeJson(doc, moduleJson)) return false;
-    JsonObjectConst root = doc.as<JsonObjectConst>();
-    if (root.isNull()) return false;
-    autoMode = root["auto_mode"] | false;
-    winterMode = root["winter_mode"] | false;
-    swgAutoMode = ((root["disinfection_type"] | 0) == 1);
-
-    memset(moduleJson, 0, sizeof(moduleJson));
-    truncated = false;
-    if (cfgStore_->toJsonModule("poollogic/ph", moduleJson, sizeof(moduleJson), &truncated, true) && !truncated) {
-        StaticJsonDocument<128> phDoc;
-        if (!deserializeJson(phDoc, moduleJson)) {
-            JsonObjectConst phRoot = phDoc.as<JsonObjectConst>();
-            if (!phRoot.isNull()) phAutoMode = phRoot["ph_auto_mode"] | false;
-        }
-    }
-
-    memset(moduleJson, 0, sizeof(moduleJson));
-    truncated = false;
-    if (cfgStore_->toJsonModule("poollogic/chlorine", moduleJson, sizeof(moduleJson), &truncated, true) && !truncated) {
-        StaticJsonDocument<128> disDoc;
-        if (!deserializeJson(disDoc, moduleJson)) {
-            JsonObjectConst disRoot = disDoc.as<JsonObjectConst>();
-            if (!disRoot.isNull()) orpAutoMode = disRoot["dis_auto_mode"] | false;
-        }
-    }
+    autoMode = winterMode = phAutoMode = orpAutoMode = swgAutoMode = false;
+    PoolOperatingConfiguration config;
+    if (!poolConfigurationSvc_ || !poolConfigurationSvc_->getOperatingConfiguration ||
+        !poolConfigurationSvc_->getOperatingConfiguration(poolConfigurationSvc_->ctx, &config)) return false;
+    autoMode = config.filtrationAutoMode;
+    winterMode = poolFrostProtection(config.operatingMode);
+    phAutoMode = config.phAutoMode;
+    orpAutoMode = config.orpAutoMode;
+    PoolCharacteristics characteristics;
+    swgAutoMode = poolRegulationAutomatic(config.operatingMode) && poolConfigurationSvc_->getCharacteristics &&
+        poolConfigurationSvc_->getCharacteristics(poolConfigurationSvc_->ctx, &characteristics) &&
+        characteristics.disinfectionMethod == PoolDisinfectionMethod::SaltElectrolysis;
     return true;
 }
 

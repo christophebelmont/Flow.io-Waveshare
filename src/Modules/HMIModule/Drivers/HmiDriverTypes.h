@@ -34,13 +34,12 @@ enum class HmiEventType : uint8_t {
 enum class HmiCommandId : uint8_t {
     None = 0,
     HomeFiltrationSet = 1,
-    HomeAutoModeSet = 2,
+    HomeOperatingModeSet = 2,
     HomeSyncRequest = 3,
     HomeFiltrationToggle = 4,
-    HomeAutoModeToggle = 5,
-    HomeOrpAutoModeToggle = 6,
-    HomePhAutoModeToggle = 7,
-    HomeWinterModeToggle = 8,
+    HomeOperatingModeCycle = 5,
+    // Command ids 6 and 7 (independent ORP/pH auto) are retired.
+    HomeWinterModeSelect = 8,
     HomeLightsToggle = 9,
     HomeRobotToggle = 10,
     HomeConfigOpen = 11,

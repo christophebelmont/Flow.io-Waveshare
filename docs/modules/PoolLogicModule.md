@@ -1,5 +1,8 @@
 # PoolLogicModule (`moduleId: poollogic`)
 
+Le [guide Auto / Manu / Hivers](../integration/poollogic-operating-modes.md) présente
+les modes, la correction pH, les commandes et la migration.
+
 ## Rôle
 
 `PoolLogicModule` est l'orchestrateur métier principal de la piscine.
@@ -19,8 +22,9 @@ Type: module actif.
 Le popup « Gérer les équipements » commande les slots via
 `poollogic.device.write` (`slot`, `value`). Cette commande route vers les
 commandes métier existantes selon les rôles configurés dans `poollogic/devices`,
-indépendamment de leur visibilité sur le tableau de bord. Un arrêt manuel de
-filtration désactive donc `auto_mode`, comme le bouton de la carte Équipements.
+indépendamment de leur visibilité sur le tableau de bord. Les commandes directes
+des rôles PoolLogic nécessitent Manu ; Auto et Hivers utilisent les forçages
+temporaires des équipements compatibles.
 Les équipements sans rôle PoolLogic utilisent la commande `pooldevice.write`.
 Les switches d'équipement Home Assistant Waveshare utilisent le même point
 d'entrée, avec le slot de leur état runtime, pour partager ce comportement.
@@ -44,12 +48,10 @@ reste associé à `pd6`, car il n'a pas d'affectation configurable dans PoolLogi
 | Éclairage (`pd6`) | `poollogic.lights.write` |
 | Remplissage et slots sans rôle PoolLogic | `pooldevice.write` |
 
-Le routage conserve les règles de ces commandes : la filtration désactive
-`auto_mode` sur On et Off ; les pompes de dosage désactivent leur automatisme
-sur une mise en marche manuelle acceptée. L'arrêt d'une pompe de dosage ne
-modifie pas cet automatisme dans les commandes existantes. Le robot utilise
-son override manuel ; les commandes de chauffage et d'électrolyse ne changent
-pas les modes automatiques. Le popup ne définit pas de règles supplémentaires.
+Les commandes directes conservent le mode et les types de produits configurés.
+Le contrôle d'autorisation est commun dans PoolDevice, via le service typé
+PoolConfiguration. Les commandes de consigne restent disponibles dans les trois
+modes. L'éclairage et les slots sans rôle PoolLogic conservent leur contrôle direct.
 
 ## Forçage temporaire persistant
 
@@ -100,7 +102,7 @@ Le protocole `heat_assist` résout ce point: il fait d'abord un cycle court de f
 
 ### Conditions d'activation
 
-- `auto_mode` activé
+- `operating_mode=1` (Auto)
 - `heater_auto_mode` activé
 - pas d'alarme pression PSI bloquante
 
@@ -142,12 +144,13 @@ La pompe démarre 5 minutes avant l'échéance. Ainsi, un intervalle calculé de
 
 2. Eau proche de la consigne (pompe arrêtée): sondage 5 min, mesure au-dessus du seuil bas, pas de chauffe, retour en attente jusqu'au prochain sondage.
 
-3. Passage en manuel: si `auto_mode` est désactivé, `heat_assist` n'orchestre plus la chauffe automatique et la raison affichée passe à `MANUAL_MODE`.
+3. Passage en manuel: en Manu ou Hivers, `heat_assist` n'orchestre plus la chauffe automatique et la raison affichée passe à `MANUAL_MODE` ou `WINTER_MODE`.
 
 ### Lecture des motifs (`reason`) pour comprendre le comportement
 
 - `DISABLED`: mode auto chauffage désactivé.
-- `MANUAL_MODE`: mode auto global désactivé.
+- `MANUAL_MODE`: mode Manu.
+- `WINTER_MODE`: mode Hivers.
 - `PSI_BLOCKED`: chauffage bloqué par la sécurité pression.
 - `SETPOINT_INVALID`: consigne chauffage invalide.
 - `TEMP_UNAVAILABLE`: température indisponible au moment de la décision.
@@ -174,17 +177,17 @@ En mode `Chlore/Brome`, la pompe de désinfection est pilotée par le PID ORP: s
 
 En mode `Oxygène actif`, la même sortie de pompe de désinfection est pilotée autrement:
 - la sonde ORP n'est pas utilisée pour décider l'injection
-- `dis_auto_mode` et les paramètres PID de désinfection liquide ne déclenchent pas la pompe
+- les paramètres PID de désinfection liquide ne déclenchent pas la pompe
 - la pompe injecte le volume O2 restant à doser (`pending_ml`)
 - la filtration est demandée automatiquement quand une dose O2 est en attente
 
-La régulation pH reste indépendante: le pH peut continuer à être régulé automatiquement si `ph_auto_mode=true`.
+La régulation pH reste indépendante: le pH peut continuer à être régulé automatiquement en Auto avec `correction_type=1` ou `2`.
 
 ### Conditions pour que le protocole O2 fonctionne
 
 Les conditions principales sont:
 
-- `auto_mode=true`
+- `operating_mode=1` (Auto)
 - `disinfection_type=2` (`Oxygène actif`)
 - heure système synchronisée
 - pas de défaut pression PSI bloquant
@@ -271,7 +274,7 @@ Exemple avec une pompe à `1.5 L/h`:
 Dans `poollogic/modes`:
 
 - `disinfection_type`: choisir `Oxygène actif`
-- `auto_mode`: doit être actif pour que flow.io pilote le protocole
+- `operating_mode` : doit être Auto (`1`) pour piloter le protocole
 
 Dans `poollogic/o2`:
 
@@ -375,9 +378,7 @@ Persistance: `ConfigStore` + `NvsKeys::PoolLogic::*`
 
 ### Paramètres modes et stratégie
 
-- `enabled`
-- `auto_mode`
-- `winter_mode`
+- `operating_mode` : `0` Manu, `1` Auto, `2` Hivers
 - `disinfection_type`
   - `0`: `Chlore/Brome`
   - `1`: `Electrolyse`
@@ -386,15 +387,13 @@ Persistance: `ConfigStore` + `NvsKeys::PoolLogic::*`
 
 ### Régulation pH (`poollogic/ph`)
 
-- `ph_auto_mode`
-- `ph_dose_plus`
+- `correction_type` : `0` désactivée, `1` pH−, `2` pH+
 - `ph_setpoint`
 - `ph_kp`, `ph_ki`, `ph_kd`
 - `ph_window_ms`
 
 ### Désinfection chlore/brome liquide (`poollogic/chlorine`)
 
-- `dis_auto_mode`
 - `dis_setpoint`
 - `dis_kp`, `dis_ki`, `dis_kd`
 - `dis_window_ms`
@@ -499,70 +498,28 @@ Enregistrées via `CommandService`:
 Transport MQTT (`<base>/<device>/cmd`) :
 - payload attendu: `{"cmd":"<nom_commande>","args":{...}}`
 
-Commandes modes:
-- `poollogic.auto_mode.set`
-  - args: `{"value":true|false}`
-  - persiste et applique `auto_mode`
-- `poollogic.auto_mode.toggle`
-  - inverse `auto_mode`
-- `poollogic.ph_auto_mode.set`
-  - args: `{"value":true|false}`
-  - persiste et applique `ph_auto_mode`
-- `poollogic.ph_auto_mode.toggle`
-  - inverse `ph_auto_mode`
-- `poollogic.dis_auto_mode.set` / alias `poollogic.orp_auto_mode.set`
-  - args: `{"value":true|false}`
-  - persiste et applique `dis_auto_mode`
-- `poollogic.dis_auto_mode.toggle` / alias `poollogic.orp_auto_mode.toggle`
-  - inverse `dis_auto_mode`
-- `poollogic.winter_mode.set`
-  - args: `{"value":true|false}`
-  - persiste et applique `winter_mode`
-- `poollogic.winter_mode.toggle`
-  - inverse `winter_mode`
+Commande de mode :
+- `poollogic.operating_mode.set`, args `{"value":0|1|2}` : Manu, Auto, Hivers.
+- Le mode utilise une valeur numérique validée ; une valeur hors domaine est refusée.
+- Les anciennes commandes booléennes Auto/Hiver/pH/ORP sont retirées.
+- `poollogic.heater_auto_mode.set` / `.toggle` restent des réglages du chauffage,
+  effectifs uniquement en Auto.
 
-Commandes actionneurs:
-- `poollogic.filtration.write`
-  - args: `{"value":true|false}`
-  - force `auto_mode=false`
-  - écrit l'état désiré du slot filtration via `pooldev.writeDesired`
-- `poollogic.filtration.toggle`
-  - inverse l'état réel filtration
-  - force `auto_mode=false`
-- `poollogic.ph_pump.write`
-  - args: `{"value":true|false}`
-  - écrit la consigne de pompe pH
-  - si `value=true`, force `ph_auto_mode=false` (aligné avec `pooldevice.write`)
-- `poollogic.ph_pump.toggle`
-  - inverse l'état réel pompe pH
-  - si passage ON, force `ph_auto_mode=false`
-- `poollogic.dis_pump.write` / alias `poollogic.orp_pump.write`
-  - args: `{"value":true|false}`
-  - écrit la consigne de pompe ORP/chlore liquide
-  - si `value=true`, force `disinfection_type=3` (`Désactivé`, aligné avec `pooldevice.write`)
-- `poollogic.dis_pump.toggle` / alias `poollogic.orp_pump.toggle`
-  - inverse l'état réel pompe ORP/chlore liquide
-  - si passage ON, force `disinfection_type=3` (`Désactivé`)
-- `poollogic.light.write` / `poollogic.lights.write`
-  - args: `{"value":true|false}`
-  - écrit la consigne éclairage
-- `poollogic.light.toggle` / `poollogic.lights.toggle`
-  - inverse l'état réel éclairage
-- `poollogic.robot.write`
-  - args: `{"value":true|false}`
-  - écrit la consigne robot
-- `poollogic.robot.toggle`
-  - inverse l'état réel robot
-- `poollogic.heater.write`
-  - args: `{"value":true|false}`
-  - écrit la consigne chauffage
-- `poollogic.heater.toggle`
-  - inverse l'état réel chauffage
-- `poollogic.chlorine_generator.write` / `poollogic.swg.write`
-  - args: `{"value":true|false}`
-  - écrit la consigne électrolyseur (SWG)
-- `poollogic.chlorine_generator.toggle` / `poollogic.swg.toggle`
-  - inverse l'état réel électrolyseur (SWG)
+Commandes actionneurs :
+- `poollogic.filtration.write` / `.toggle`
+- `poollogic.ph_pump.write` / `.toggle`
+- `poollogic.dis_pump.write` / `.toggle` (alias `orp_pump`)
+- `poollogic.robot.write` / `.toggle`
+- `poollogic.fill_pump.write` / `.toggle`
+- `poollogic.heater.write` / `.toggle`
+- `poollogic.chlorine_generator.write` / `.toggle` (alias `swg`)
+- `poollogic.lights.write` / `.toggle` (alias `light`)
+
+Les écritures prennent `{"value":true|false}` et les toggles inversent l'état
+réel. Les rôles PoolLogic nécessitent Manu. En Auto et Hivers, une commande
+directe est refusée avec `InterlockBlocked` ; utiliser un forçage temporaire
+compatible ou choisir Manu. Les paramètres de correction et de traitement ne
+sont jamais modifiés par une commande manuelle.
 
 Commande utilitaire:
 - `poollogic.filtration.recalc`
@@ -609,8 +566,9 @@ Ordre de décision appliqué à chaque cycle (`200 ms`):
 2. statut sécurité PSI recalculé (`psiError_`)
 3. si `psiError_==true` -> **filtration forcée OFF**, même en manuel
 4. sinon:
-   - mode manuel (`auto_mode=false`): consigne manuelle conservée
-   - mode auto: décision fenêtre scheduler / hiver / freeze-hold
+   - mode Manu (`operating_mode=0`): consigne manuelle conservée
+   - Auto : fenêtre calculée, demandes chauffage/O₂ éventuelles
+   - Hivers : fenêtre calculée et antigel
 5. actionnement via `PoolDeviceService::writeDesired` (avec interlocks `PoolDeviceModule`)
 
 ### Pilotage filtration / robot / SWG / remplissage
@@ -618,18 +576,18 @@ Ordre de décision appliqué à chaque cycle (`200 ms`):
 Logique principale:
 - filtration:
   - sécurité PSI prioritaire: coupe sur erreur PSI (auto **et** manuel)
-  - en auto: suit fenêtre scheduler, mode hiver et freeze-hold
-  - en manuel (`auto_mode=false`): `PoolLogic` n'impose pas de demande auto hors sécurité PSI
-- robot:
+  - Auto : fenêtre calculée ; Hivers : fenêtre calculée et maintien antigel
+  - en Manu (`operating_mode=0`): `PoolLogic` n'impose pas de demande auto hors sécurité PSI
+- robot (Auto uniquement):
   - démarre après `robot_delay_min` de filtration
   - s'arrête après `robot_dur_min`
   - un cycle/jour (`cleaningDone_`)
-- électrolyse:
+- électrolyse (Auto uniquement):
   - nécessite filtration active, température mini (`secure_elec_t`) et délai (`dly_electro_min`)
   - active uniquement si `disinfection_type == 1`
   - en mode `swg_control_mode == 0`, asservissement ORP avec hystérésis implicite (`<= 100%` pour maintenir, `<= 90%` pour démarrer)
   - en mode `swg_control_mode == 1`, marche continue pendant la filtration autorisée
-- remplissage:
+- remplissage (Auto uniquement):
   - démarre si `Pool Level` est actif (`pool_lvl_io_id == true`)
   - respecte un minimum de marche `fill_min_on_s`
 
@@ -686,7 +644,7 @@ Le mode PID est autorisé seulement si:
 - filtration en marche
 - pas de mode hiver
 - délai de stabilisation atteint (`dly_pid_min`)
-- mode auto de la boucle activé (`ph_auto_mode` / `dis_auto_mode`)
+- mode Auto, correction pH active pour la boucle pH, traitement Chlore/Brome pour la boucle ORP
 
 Le calcul et la commande sont ensuite conditionnés par:
 - capteur disponible (`ph_io_id` / `dis_io_id`)
@@ -779,7 +737,7 @@ Sémantique importante:
 
 ### Snapshot `rt/poollogic/heat_assist` (lecture orientée usage)
 
-- `en`: protocole autorisé (`auto_mode` + `heater_auto_mode`)
+- `en`: protocole autorisé (mode Auto + `heater_auto_mode`)
 - `pr`: sondage 5 min en cours
 - `ha`: chauffe active
 - `fc`: cadence rapide historique active (toujours `false` sur Waveshare ESP32-S3)
@@ -823,11 +781,15 @@ Le mapping `ConfigChanged -> messageId -> topic` est local au module.
 ## Home Assistant
 
 Entités enregistrées par `PoolLogicModule`:
-- switches:
-  - `pool_auto_mode` (`Pool Auto-regulation`)
-  - `pool_winter_mode`
-  - `pool_ph_auto_mode` (`pH Auto-regulation`)
-  - `pool_dis_auto_mode` (`Disinfection Auto-regulation`)
+- selects :
+  - `pl_operating_mode` : Auto / Manu / Hivers
+  - `pl_ph_correction` : Désactivée / pH− / pH+
+  - type de désinfection et paramètres spécifiques existants
+- switch : chauffage automatique (autorisé seulement en Auto)
+
+Aucun effacement des anciennes entités HA n'est publié par cette migration.
+Leur suppression et l'adaptation des automatisations existantes sont manuelles.
+
 - sensors:
   - `calculated_filtration_start`
   - `calculated_filtration_stop`

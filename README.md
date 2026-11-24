@@ -2,6 +2,8 @@
   <img src="docs/pictures/Logo_flowio.png" alt="Logo flow.io" width="600">
 </p>
 
+Voir [Fonctionnement des modes Auto / Manu / Hivers](docs/integration/poollogic-operating-modes.md).
+
 Pour suivre les dernières informations et en discuter au fil de l'eau, rejoignez le [fil de discussion sur le forum Arduino](https://forum.arduino.cc/t/poolmaster-gestion-et-domotisation-de-ma-piscine/563058/2260). Les échanges se font principalement en français, mais l'anglais est également bienvenu — mostly French, but English is welcome.
 
 <p>
@@ -147,7 +149,7 @@ Le contrôleur [Waveshare ESP32-S3-POE-ETH-8DI-8RO](https://www.waveshare.com/pr
 
 Le port RS485 isolé du contrôleur Waveshare est pris en charge par un maître Modbus RTU asynchrone intégré à `IOModule`. Il permet à plusieurs modules d’équipements de partager le même bus série, avec sérialisation des requêtes, priorités, contrôle CRC, gestion des réponses d’exception, délais d’attente et nouvelles tentatives.
 
-Le premier squelette métier disponible est `VariableSpeedPumpModule`, destiné aux pompes de filtration à vitesse variable. Les registres, facteurs d’échelle et valeurs de commande restent décrits dans un profil propre à chaque constructeur : flow.io n’essaie pas de déduire le modèle à partir de son nom et n’active aucun registre d’écriture non validé. Voir la [documentation du maître RS485/Modbus](docs/modules/ModbusMaster.md) et celle du [module de pompe à vitesse variable](docs/modules/VariableSpeedPumpModule.md).
+Les pilotes de `PoolDeviceModule` prennent en charge les équipements à relais, les pompes à vitesse variable et les appareils série. Les registres, facteurs d’échelle et valeurs de commande restent décrits dans un profil propre à chaque constructeur : flow.io n’essaie pas de déduire le modèle à partir de son nom et n’active aucun registre d’écriture non validé. Voir la [documentation du maître RS485/Modbus](docs/modules/ModbusMaster.md) et celle du [pilotage des équipements piscine](docs/modules/PoolActuators.md).
 
 La carte flow.io Companion regroupe les raccordements utiles à la piscine sur des borniers et connecteurs clairement identifiés : sondes pH et ORP, pression, températures, niveaux, compteur d'eau, afficheur et extensions. Elle simplifie le câblage et permet une intégration plus compacte et plus lisible dans le coffret technique. La carte est prévue pour s'intégrer dans un boitier DIN standard.
 

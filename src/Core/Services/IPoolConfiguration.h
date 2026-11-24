@@ -5,6 +5,7 @@
  */
 
 #include <stdint.h>
+#include "PoolOperatingMode.h"
 
 enum class PoolDisinfectionMethod : uint8_t {
     ChlorineBromine = 0,
@@ -37,6 +38,11 @@ struct PoolCharacteristics {
 /** @brief Current typed regulation settings exposed by PoolLogic. */
 struct PoolOperatingConfiguration {
     bool available = false;
+    PoolOperatingMode operatingMode = PoolOperatingMode::Manual;
+    PoolPhCorrection phCorrection = PoolPhCorrection::Disabled;
+    bool modeSinceValid = false;
+    uint32_t modeSinceMs = 0;
+    // Derived read-only capabilities; never independent configuration flags.
     bool filtrationAutoMode = false;
     bool phAutoMode = false;
     bool orpAutoMode = false;
@@ -78,4 +84,5 @@ struct PoolConfigurationService {
     // A false read means this slot has no configuration-owned setpoint.
     bool (*getDeviceSetpoint)(void* ctx, uint8_t slot, float* out) = nullptr;
     bool (*setDeviceSetpoint)(void* ctx, uint8_t slot, float value) = nullptr;
+    bool (*manualControlAllowed)(void* ctx, uint8_t slot) = nullptr;
 };

@@ -1,5 +1,7 @@
 # Ressources Nextion flow.io
 
+Voir [Modes PoolLogic et adaptation des écrans Nextion](../docs/integration/poollogic-operating-modes.md).
+
 Les fichiers `.HMI` sont les sources éditables dans Nextion Editor. Les fichiers `.tft` sont les images compilées à transférer vers un écran précis.
 
 La [version 6.0.0](releases/6.0.0/) correspond à la valeur `TFT_FIRMW=6.0.0` déclarée dans `platformio.ini`.

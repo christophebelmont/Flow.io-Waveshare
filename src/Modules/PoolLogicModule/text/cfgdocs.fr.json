@@ -5,11 +5,6 @@
     "version": 1
   },
   "docs": {
-    "poollogic/chlorine/dis_auto_mode": {
-      "type": "Bool",
-      "label_t": "cfgdocs.poollogic.chlorine.dis_auto_mode.label",
-      "help_t": "cfgdocs.poollogic.chlorine.dis_auto_mode.help"
-    },
     "poollogic/chlorine/dis_kd": {
       "type": "Float",
       "label_t": "cfgdocs.poollogic.chlorine.dis_kd.label",
@@ -121,26 +116,11 @@
       "help_t": "cfgdocs.poollogic.heater.heater_setpoint.help",
       "unit": "C"
     },
-    "poollogic/modes/auto_mode": {
-      "type": "Bool",
-      "label_t": "cfgdocs.poollogic.modes.auto_mode.label",
-      "help_t": "cfgdocs.poollogic.modes.auto_mode.help"
-    },
     "poollogic/modes/disinfection_type": {
       "type": "UInt8",
       "label_t": "cfgdocs.poollogic.modes.disinfection_type.label",
       "help_t": "cfgdocs.poollogic.modes.disinfection_type.help",
       "enum_set": "poollogic_disinfection_type"
-    },
-    "poollogic/modes/enabled": {
-      "type": "Bool",
-      "label_t": "cfgdocs.poollogic.modes.enabled.label",
-      "help_t": "cfgdocs.poollogic.modes.enabled.help"
-    },
-    "poollogic/modes/winter_mode": {
-      "type": "Bool",
-      "label_t": "cfgdocs.poollogic.modes.winter_mode.label",
-      "help_t": "cfgdocs.poollogic.modes.winter_mode.help"
     },
     "poollogic/o2/dose_ml_10m3_week": {
       "type": "Float",
@@ -202,16 +182,6 @@
       "label_t": "cfgdocs.poollogic.o2.weekly_done_ml.label",
       "help_t": "cfgdocs.poollogic.o2.weekly_done_ml.help",
       "unit": "ml"
-    },
-    "poollogic/ph/ph_auto_mode": {
-      "type": "Bool",
-      "label_t": "cfgdocs.poollogic.ph.ph_auto_mode.label",
-      "help_t": "cfgdocs.poollogic.ph.ph_auto_mode.help"
-    },
-    "poollogic/ph/ph_dose_plus": {
-      "type": "Bool",
-      "label_t": "cfgdocs.poollogic.ph.ph_dose_plus.label",
-      "help_t": "cfgdocs.poollogic.ph.ph_dose_plus.help"
     },
     "poollogic/ph/ph_kd": {
       "type": "Float",
@@ -385,6 +355,16 @@
       "label_t": "cfgdocs.poollogic.swg.swg_control_mode.label",
       "help_t": "cfgdocs.poollogic.swg.swg_control_mode.help",
       "enum_set": "poollogic_swg_control_mode"
+    },
+    "poollogic/modes/operating_mode": {
+      "type": "UInt8",
+      "label_t": "cfgdocs.poollogic.modes.operating_mode.label",
+      "help_t": "cfgdocs.poollogic.modes.operating_mode.help"
+    },
+    "poollogic/ph/correction_type": {
+      "type": "UInt8",
+      "label_t": "cfgdocs.poollogic.ph.correction_type.label",
+      "help_t": "cfgdocs.poollogic.ph.correction_type.help"
     }
   }
 }

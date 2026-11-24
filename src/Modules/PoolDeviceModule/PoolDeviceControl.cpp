@@ -260,6 +260,9 @@ PoolDeviceSvcStatus PoolDeviceModule::svcSetTargetImpl_(uint8_t slot, const Pool
 PoolDeviceSvcStatus PoolDeviceModule::setTarget_(uint8_t slot, const PoolDeviceTarget* target, bool manual)
 {
     if (!target) return POOLDEV_SVC_ERR_INVALID_ARG;
+    if (manual && poolConfigurationSvc_ && poolConfigurationSvc_->manualControlAllowed &&
+        !poolConfigurationSvc_->manualControlAllowed(poolConfigurationSvc_->ctx, slot))
+        return POOLDEV_SVC_ERR_INTERLOCK;
     if (!lockState_()) return POOLDEV_SVC_ERR_NOT_READY;
     auto finish = [this](PoolDeviceSvcStatus status) { unlockState_(); return status; };
     if (slot >= POOL_DEVICE_MAX || !slots_[slot].used) return finish(POOLDEV_SVC_ERR_UNKNOWN_SLOT);

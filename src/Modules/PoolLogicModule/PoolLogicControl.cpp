@@ -246,36 +246,6 @@ void PoolLogicModule::emitDeviceActivity_(bool requested,
                    systemActor());
 }
 
-void PoolLogicModule::emitAutoModeDisabledByManualActivity_(ActivityRole role,
-                                                            uint8_t deviceSlot,
-                                                            const char* autoLabel,
-                                                            const Actor& actor) const
-{
-    const char* roleLabel = activityRoleLabel_(role);
-    const char* label = (autoLabel && autoLabel[0] != '\0') ? autoLabel : roleLabel;
-    const char* icon = "settings";
-    if (role == ActivityRole::Filtration) icon = "pool";
-    else if (role == ActivityRole::Ph || role == ActivityRole::Disinfection) icon = "science";
-
-    char title[48] = {0};
-    char detail[128] = {0};
-    snprintf(title, sizeof(title), "Mode auto %s désactivé", label);
-    snprintf(detail,
-             sizeof(detail),
-             "Commande manuelle sur %s: l'automatisme a été désactivé.",
-             roleLabel);
-    emitActivity_(ActivityCode::SystemConfigChanged,
-                  ActivitySource::Manual,
-                  ActivitySeverity::Info,
-                  role,
-                  ActivityState::None,
-                  ActivityReason::Manual,
-                  deviceSlot,
-                  title,
-                  detail,
-                  icon,
-                  actor);
-}
 
 bool PoolLogicModule::readPoolDeviceFlowLh_(uint8_t deviceSlot, float& flowLhOut) const
 {
@@ -417,7 +387,7 @@ bool PoolLogicModule::stepO2Protocol_(bool filtrationOn,
     requestFiltrationOut = false;
     pumpDesiredOut = false;
 
-    if (!isDisinfectionType_(DisinfectionActiveOxygen) || !autoMode_) {
+    if (!isDisinfectionType_(DisinfectionActiveOxygen) || !regulationAutomatic_()) {
         o2LastProgressMs_ = 0;
         if (o2PendingMl_ <= kO2DoseEpsilonMl) {
             o2PendingMl_ = 0.0f;
@@ -563,7 +533,7 @@ bool PoolLogicModule::stepO2Protocol_(bool filtrationOn,
 AlarmCondState PoolLogicModule::condPsiLowStatic_(void* ctx, uint32_t nowMs)
 {
     PoolLogicModule* self = static_cast<PoolLogicModule*>(ctx);
-    if (!self || !self->enabled_) return AlarmCondState::False;
+    if (!self || !self->modesReady_) return AlarmCondState::False;
     if (!self->filtrationFsm_.on) return AlarmCondState::False;
     const uint32_t runSec = self->stateUptimeSec_(self->filtrationFsm_, nowMs);
     if (runSec <= self->psiStartupDelaySec_) return AlarmCondState::False;
@@ -579,7 +549,7 @@ AlarmCondState PoolLogicModule::condPsiLowStatic_(void* ctx, uint32_t nowMs)
 AlarmCondState PoolLogicModule::condPsiHighStatic_(void* ctx, uint32_t)
 {
     PoolLogicModule* self = static_cast<PoolLogicModule*>(ctx);
-    if (!self || !self->enabled_) return AlarmCondState::False;
+    if (!self || !self->modesReady_) return AlarmCondState::False;
     if (!self->filtrationFsm_.on) return AlarmCondState::False;
 
     float psi = 0.0f;
@@ -593,7 +563,7 @@ AlarmCondState PoolLogicModule::condPsiHighStatic_(void* ctx, uint32_t)
 AlarmCondState PoolLogicModule::condPhTankLowStatic_(void* ctx, uint32_t)
 {
     PoolLogicModule* self = static_cast<PoolLogicModule*>(ctx);
-    if (!self || !self->enabled_) return AlarmCondState::False;
+    if (!self || !self->modesReady_) return AlarmCondState::False;
 
     bool low = false;
     if (!self->loadDigitalSensor_(self->phLevelIoId_, low)) {
@@ -605,7 +575,7 @@ AlarmCondState PoolLogicModule::condPhTankLowStatic_(void* ctx, uint32_t)
 AlarmCondState PoolLogicModule::condChlorineTankLowStatic_(void* ctx, uint32_t)
 {
     PoolLogicModule* self = static_cast<PoolLogicModule*>(ctx);
-    if (!self || !self->enabled_) return AlarmCondState::False;
+    if (!self || !self->modesReady_) return AlarmCondState::False;
 
     bool low = false;
     if (!self->loadDigitalSensor_(self->chlorineLevelIoId_, low)) {
@@ -617,7 +587,7 @@ AlarmCondState PoolLogicModule::condChlorineTankLowStatic_(void* ctx, uint32_t)
 AlarmCondState PoolLogicModule::condWaterLevelLowStatic_(void* ctx, uint32_t)
 {
     PoolLogicModule* self = static_cast<PoolLogicModule*>(ctx);
-    if (!self || !self->enabled_) return AlarmCondState::False;
+    if (!self || !self->modesReady_) return AlarmCondState::False;
 
     bool low = false;
     if (!self->loadDigitalSensor_(self->levelIoId_, low)) {
@@ -781,10 +751,10 @@ void PoolLogicModule::syncModeStateTraces_(uint32_t nowMs)
             trace.sinceMs = now;
         }
     };
-    syncTrace(autoModeTrace_, autoMode_, nowMs);
-    syncTrace(winterModeTrace_, winterMode_, nowMs);
-    syncTrace(phAutoModeTrace_, phAutoMode_, nowMs);
-    syncTrace(orpAutoModeTrace_, orpAutoMode_, nowMs);
+    syncTrace(autoModeTrace_, filtrationAutomatic_(), nowMs);
+    syncTrace(winterModeTrace_, winterMode_(), nowMs);
+    syncTrace(phAutoModeTrace_, phAutomatic_(), nowMs);
+    syncTrace(orpAutoModeTrace_, orpAutomatic_(), nowMs);
 }
 
 void PoolLogicModule::adoptBootDeviceState_(uint32_t nowMs)
@@ -975,6 +945,11 @@ void PoolLogicModule::applyDeviceControl_(uint8_t deviceSlot,
 
 void PoolLogicModule::runControlLoop_(uint32_t nowMs)
 {
+    reconcileModes_(nowMs);
+    const bool transitionReady = appliedMode_ == operatingMode_ &&
+        appliedPhCorrection_ == phCorrectionType_ && appliedDisinfection_ == disinfectionType_;
+    // Continue reading sensors and applying safety even while a durable lease
+    // cancellation is being retried. Only automatic demands are suspended.
     syncModeStateTraces_(nowMs);
 
     // The loop always starts by refreshing observed actuator states so all
@@ -1004,19 +979,8 @@ void PoolLogicModule::runControlLoop_(uint32_t nowMs)
         orpPidEnabled_ = false;
         resetTemporalPidState_(phPidState_, nowMs);
         resetTemporalPidState_(orpPidState_, nowMs);
-        portENTER_CRITICAL(&pendingMux_);
-        robotManualOverride_ = false;
-        robotManualDesired_ = false;
-        portEXIT_CRITICAL(&pendingMux_);
     }
-    if (robotStopped) {
-        if (!robotWasForced_) cleaningDone_ = true;
-        portENTER_CRITICAL(&pendingMux_);
-        if (robotManualOverride_ && !robotManualDesired_) {
-            robotManualOverride_ = false;
-        }
-        portEXIT_CRITICAL(&pendingMux_);
-    }
+    if (robotStopped && !robotWasForced_) cleaningDone_ = true;
 
     float psi = 0.0f;
     float ph = 0.0f;
@@ -1094,10 +1058,10 @@ void PoolLogicModule::runControlLoop_(uint32_t nowMs)
 
     // PID regulation is armed only after filtration has been stable long enough
     // to avoid reacting to startup transients.
-    if (filtrationFsm_.on && !winterMode_) {
+    if (filtrationFsm_.on && regulationAutomatic_() && transitionReady) {
         const uint32_t runMin = stateUptimeSec_(filtrationFsm_, nowMs) / 60U;
 
-        if (phAutoMode_ && !phPidEnabled_ && runMin >= delayPidsMin_) {
+        if (phAutomatic_() && !phPidEnabled_ && runMin >= delayPidsMin_) {
             phPidEnabled_ = true;
             LOGI("Activate pH regulation (delay=%umin)", (unsigned)runMin);
             emitActivity_(ActivityCode::PoolLogicPhRegulationEnabled,
@@ -1112,7 +1076,7 @@ void PoolLogicModule::runControlLoop_(uint32_t nowMs)
                           "science",
                           systemActor());
         }
-        if (orpAutoMode_ && isDisinfectionType_(DisinfectionChlorineBromine) &&
+        if (orpAutomatic_() && isDisinfectionType_(DisinfectionChlorineBromine) &&
             !orpPidEnabled_ && runMin >= delayPidsMin_) {
             orpPidEnabled_ = true;
             LOGI("Activate ORP regulation (delay=%umin)", (unsigned)runMin);
@@ -1132,12 +1096,11 @@ void PoolLogicModule::runControlLoop_(uint32_t nowMs)
         phPidEnabled_ = false;
         orpPidEnabled_ = false;
     }
-    // Manual forcing relies on *_auto_mode=false. In that case, PID must not
-    // keep a stale enabled state that could override manual requests.
-    if (!phAutoMode_ && phPidEnabled_) {
+    // Derived permissions must never leave a stale armed regulator.
+    if (!phAutomatic_() && phPidEnabled_) {
         phPidEnabled_ = false;
     }
-    if (!orpAutoMode_ && orpPidEnabled_) {
+    if (!orpAutomatic_() && orpPidEnabled_) {
         orpPidEnabled_ = false;
     }
 
@@ -1272,8 +1235,8 @@ void PoolLogicModule::runControlLoop_(uint32_t nowMs)
     if (psiError_) {
         // Safety first: PSI alarms must stop filtration even in manual mode.
         filtrationDesiredBase = false;
-    } else if (!autoMode_) {
-        // Legacy-like manual mode: when auto_mode is off, keep filtration fully manual.
+    } else if (!filtrationAutomatic_() || !transitionReady) {
+        // Manu only follows explicit manual demands.
         filtrationDesiredBase = guidedDeviceOn_(filtrationDeviceSlot_, filtrationFsm_.on);
     } else {
         const bool timeSynced = timeSvc_ && timeSvc_->isSynced && timeSvc_->isSynced(timeSvc_->ctx);
@@ -1281,69 +1244,30 @@ void PoolLogicModule::runControlLoop_(uint32_t nowMs)
             // Preserve the equipment's restored demand while the clock is
             // unavailable, including asynchronous drivers not yet reporting ON.
             filtrationDesiredBase = true;
-        } else if (filtrationFsm_.on && haveAirTemp && airTemp <= freezeHoldTempC_) {
+        } else if (winterMode_() && filtrationFsm_.on && haveAirTemp && airTemp <= freezeHoldTempC_) {
             // Freeze hold: once running, never stop under freeze-hold threshold.
             filtrationDesiredBase = true;
         } else {
             const bool scheduleDemand = windowActive;
-            const bool winterDemand = winterMode_ && haveAirTemp && (airTemp < winterStartTempC_);
+            const bool winterDemand = winterMode_() && haveAirTemp && (airTemp < winterStartTempC_);
             filtrationDesiredBase = (scheduleDemand || winterDemand);
         }
     }
     bool filtrationDesired = filtrationDesiredBase;
 
-    // Robot and SWG remain derived outputs in auto mode. A manual robot request
-    // is still arbitrated here so PoolLogic, not the HMI or PoolDeviceModule,
-    // owns interlocks and duration limits.
-    bool robotDesired = guidedDeviceOn_(robotDeviceSlot_, robotFsm_.on);
-    bool robotManualOverride = false;
-    bool robotManualDesired = false;
-    portENTER_CRITICAL(&pendingMux_);
-    robotManualOverride = robotManualOverride_;
-    robotManualDesired = robotManualDesired_;
-    portEXIT_CRITICAL(&pendingMux_);
-    if (autoMode_) {
+    bool robotDesired = transitionReady && operatingMode() == PoolOperatingMode::Manual && guidedDeviceOn_(robotDeviceSlot_, robotFsm_.on);
+    if (regulationAutomatic_() && transitionReady) {
         robotDesired = false;
         if (filtrationFsm_.on && !cleaningDone_) {
             const uint32_t filtrationRunMin = stateUptimeSec_(filtrationFsm_, nowMs) / 60U;
             if (filtrationRunMin >= robotDelayMin_) robotDesired = true;
         }
-        if (robotFsm_.on) {
-            const uint32_t robotRunMin = stateUptimeSec_(robotFsm_, nowMs) / 60U;
-            if (robotRunMin >= robotDurationMin_) robotDesired = false;
-        }
+        if (robotFsm_.on && stateUptimeSec_(robotFsm_, nowMs) / 60U >= robotDurationMin_) robotDesired = false;
         if (!filtrationFsm_.on) robotDesired = false;
     }
-    if (robotManualOverride) {
-        if (!filtrationFsm_.on) {
-            robotDesired = false;
-            portENTER_CRITICAL(&pendingMux_);
-            robotManualOverride_ = false;
-            robotManualDesired_ = false;
-            portEXIT_CRITICAL(&pendingMux_);
-        } else {
-            robotDesired = robotManualDesired;
-            if (robotManualDesired && robotFsm_.on) {
-                const uint32_t robotRunMin = stateUptimeSec_(robotFsm_, nowMs) / 60U;
-                if (robotRunMin >= robotDurationMin_) {
-                    robotDesired = false;
-                    cleaningDone_ = true;
-                    portENTER_CRITICAL(&pendingMux_);
-                    robotManualOverride_ = false;
-                    robotManualDesired_ = false;
-                    portEXIT_CRITICAL(&pendingMux_);
-                }
-            }
-            if (!robotManualDesired && !robotFsm_.on) {
-                portENTER_CRITICAL(&pendingMux_);
-                robotManualOverride_ = false;
-                portEXIT_CRITICAL(&pendingMux_);
-            }
-        }
-    }
 
-    bool swgDesired = guidedDeviceOn_(swgDeviceSlot_, swgFsm_.on);
-    if (autoMode_) {
+    bool swgDesired = transitionReady && operatingMode() == PoolOperatingMode::Manual && guidedDeviceOn_(swgDeviceSlot_, swgFsm_.on);
+    if (regulationAutomatic_() && transitionReady) {
         swgDesired = false;
         if (isDisinfectionType_(DisinfectionSwg) && filtrationFsm_.on) {
             if (swgControlMode_ == SwgControlOrp) {
@@ -1370,7 +1294,7 @@ void PoolLogicModule::runControlLoop_(uint32_t nowMs)
         }
     }
 
-    bool heaterDesired = guidedDeviceOn_(heaterDeviceSlot_, heaterFsm_.on);
+    bool heaterDesired = transitionReady && operatingMode() == PoolOperatingMode::Manual && guidedDeviceOn_(heaterDeviceSlot_, heaterFsm_.on);
     if (!heaterAutoMode_) {
         resetHeatAssistSession();
         setHeatAssistFlag(kHeatAssistFlagFastCycle, false);
@@ -1379,9 +1303,9 @@ void PoolLogicModule::runControlLoop_(uint32_t nowMs)
         heatAssistAdaptiveInputsValid_ = false;
         heatAssistIntervalMin_ = kHeatAssistAdaptiveFallbackMin;
         setHeatAssistReason(HeatAssistReason::Disabled);
-    } else if (!autoMode_) {
+    } else if (!regulationAutomatic_() || !transitionReady) {
         resetHeatAssistSession();
-        setHeatAssistReason(HeatAssistReason::ManualMode);
+        setHeatAssistReason(winterMode_() ? HeatAssistReason::WinterMode : HeatAssistReason::ManualMode);
     } else if (psiError_) {
         resetHeatAssistSession();
         heaterDesired = false;
@@ -1528,11 +1452,11 @@ void PoolLogicModule::runControlLoop_(uint32_t nowMs)
 
     // Chemical dosing is computed last because it depends on the resolved
     // filtration state, alarm state, and sensor freshness.
-    bool phPumpDesired = guidedDeviceOn_(phPumpDeviceSlot_, phPumpFsm_.on);
-    bool orpPumpDesired = guidedDeviceOn_(orpPumpDeviceSlot_, orpPumpFsm_.on);
-    if (phAutoMode_ || orpAutoMode_) {
+    bool phPumpDesired = transitionReady && operatingMode() == PoolOperatingMode::Manual && guidedDeviceOn_(phPumpDeviceSlot_, phPumpFsm_.on);
+    bool orpPumpDesired = transitionReady && operatingMode() == PoolOperatingMode::Manual && guidedDeviceOn_(orpPumpDeviceSlot_, orpPumpFsm_.on);
+    if (transitionReady && (phAutomatic_() || orpAutomatic_())) {
         if (filtrationDesired) {
-            if (phAutoMode_) {
+            if (phAutomatic_()) {
                 const bool phAllowed = phPidEnabled_ && havePh && !psiError_ && !phTankLowError_;
                 if (phAllowed) {
                     uint32_t outMs = 0;
@@ -1543,7 +1467,7 @@ void PoolLogicModule::runControlLoop_(uint32_t nowMs)
                                            phKi_,
                                            phKd_,
                                            phWindowMs_,
-                                           !phDosePlus_,
+                                           !(phCorrection() == PoolPhCorrection::Plus),
                                            nowMs,
                                            phPumpDesired,
                                            outMs);
@@ -1554,7 +1478,7 @@ void PoolLogicModule::runControlLoop_(uint32_t nowMs)
                 resetTemporalPidState_(phPidState_, nowMs);
             }
 
-            if (orpAutoMode_) {
+            if (orpAutomatic_()) {
                 const bool orpAllowed =
                     orpPidEnabled_ && haveOrp && isDisinfectionType_(DisinfectionChlorineBromine) &&
                     !psiError_ && !chlorineTankLowError_;
@@ -1578,10 +1502,10 @@ void PoolLogicModule::runControlLoop_(uint32_t nowMs)
                 resetTemporalPidState_(orpPidState_, nowMs);
             }
         } else {
-            if (phAutoMode_ && (phPidState_.initialized || phPidState_.outputOnMs != 0U || phPidState_.lastDemandOn)) {
+            if (phAutomatic_() && (phPidState_.initialized || phPidState_.outputOnMs != 0U || phPidState_.lastDemandOn)) {
                 resetTemporalPidState_(phPidState_, nowMs);
             }
-            if (orpAutoMode_ &&
+            if (orpAutomatic_() &&
                 (orpPidState_.initialized || orpPidState_.outputOnMs != 0U || orpPidState_.lastDemandOn)) {
                 resetTemporalPidState_(orpPidState_, nowMs);
             }
@@ -1597,7 +1521,7 @@ void PoolLogicModule::runControlLoop_(uint32_t nowMs)
 
     bool o2RequestFiltration = false;
     bool o2PumpDesired = false;
-    (void)stepO2Protocol_(filtrationFsm_.on,
+    if (transitionReady) (void)stepO2Protocol_(filtrationFsm_.on,
                           stateUptimeSec_(filtrationFsm_, nowMs) / 60U,
                           haveWaterTemp,
                           waterTemp,
@@ -1609,12 +1533,12 @@ void PoolLogicModule::runControlLoop_(uint32_t nowMs)
     if (o2RequestFiltration && !psiError_) {
         filtrationDesired = true;
     }
-    if (isDisinfectionType_(DisinfectionActiveOxygen)) {
+    if (transitionReady && regulationAutomatic_() && isDisinfectionType_(DisinfectionActiveOxygen)) {
         orpPumpDesired = o2PumpDesired;
     }
 
-    bool fillingDesired = false;
-    if (haveLevel) {
+    bool fillingDesired = transitionReady && operatingMode() == PoolOperatingMode::Manual && guidedDeviceOn_(fillingDeviceSlot_, fillingFsm_.on);
+    if (transitionReady && regulationAutomatic_() && haveLevel) {
         if (!fillingFsm_.on) {
             fillingDesired = poolLevelOn;
         } else {
@@ -1630,20 +1554,20 @@ void PoolLogicModule::runControlLoop_(uint32_t nowMs)
         if (slot >= POOL_DEVICE_MAX) return;
         auto& policy = policies[slot];
         policy.automatic = policy.automatic || automatic;
-        policy.ready = bootControlReady_;
+        policy.ready = bootControlReady_ && transitionReady;
         policy.allowOn = policy.allowOn && allowOn;
         policy.allowOff = policy.allowOff && allowOff;
     };
     const bool flowSafe = !psiError_;
-    const bool freezeHold = filtrationFsm_.on && haveAirTemp && airTemp <= freezeHoldTempC_;
-    protect(filtrationDeviceSlot_, autoMode_, !psiError_, !freezeHold);
-    protect(robotDeviceSlot_, autoMode_, flowSafe);
-    protect(swgDeviceSlot_, autoMode_, flowSafe && haveWaterTemp && waterTemp >= secureElectroTempC_);
-    protect(heaterDeviceSlot_, heaterAutoMode_ && autoMode_, flowSafe && waterTempFresh && std::isfinite(waterTemp));
-    protect(phPumpDeviceSlot_, phAutoMode_, flowSafe && havePh && !phTankLowError_);
-    protect(orpPumpDeviceSlot_, orpAutoMode_, flowSafe && !chlorineTankLowError_ &&
+    const bool freezeHold = winterMode_() && filtrationFsm_.on && haveAirTemp && airTemp <= freezeHoldTempC_;
+    protect(filtrationDeviceSlot_, filtrationAutomatic_(), !psiError_, !freezeHold);
+    protect(robotDeviceSlot_, filtrationAutomatic_(), flowSafe);
+    protect(swgDeviceSlot_, filtrationAutomatic_(), flowSafe && haveWaterTemp && waterTemp >= secureElectroTempC_);
+    protect(heaterDeviceSlot_, filtrationAutomatic_(), flowSafe && waterTempFresh && std::isfinite(waterTemp));
+    protect(phPumpDeviceSlot_, filtrationAutomatic_(), flowSafe && havePh && !phTankLowError_);
+    protect(orpPumpDeviceSlot_, filtrationAutomatic_(), flowSafe && !chlorineTankLowError_ &&
         (isDisinfectionType_(DisinfectionActiveOxygen) ? haveWaterTemp : haveOrp));
-    protect(fillingDeviceSlot_, true, haveLevel && poolLevelOn);
+    protect(fillingDeviceSlot_, filtrationAutomatic_(), haveLevel && poolLevelOn);
     if (filtrationDeviceSlot_ < POOL_DEVICE_MAX) {
         for (auto slot : {robotDeviceSlot_, swgDeviceSlot_, heaterDeviceSlot_, phPumpDeviceSlot_, orpPumpDeviceSlot_})
             if (slot < POOL_DEVICE_MAX && slot != filtrationDeviceSlot_)

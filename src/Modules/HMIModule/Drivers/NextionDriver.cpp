@@ -38,7 +38,7 @@ static constexpr uint8_t NAV_NEXT = 4;
 static constexpr uint8_t NAV_PREV = 5;
 static constexpr uint8_t NAV_CONFIG_EXIT = 6;
 static constexpr uint8_t HOME_ACTION_FILTRATION = 1;
-static constexpr uint8_t HOME_ACTION_AUTO_MODE = 2;
+static constexpr uint8_t HOME_ACTION_OPERATING_MODE = 2;
 static constexpr uint8_t HOME_ACTION_SYNC = 3;
 static constexpr uint8_t HOME_ACTION_CONFIG_OPEN = 4;
 static constexpr uint8_t HOME_ACTION_PH_PUMP = 5;
@@ -46,10 +46,8 @@ static constexpr uint8_t HOME_ACTION_ORP_PUMP = 6;
 static constexpr uint8_t HOME_ACTION_PH_PUMP_TOGGLE = 7;
 static constexpr uint8_t HOME_ACTION_ORP_PUMP_TOGGLE = 8;
 static constexpr uint8_t HOME_ACTION_FILTRATION_TOGGLE = 9;
-static constexpr uint8_t HOME_ACTION_AUTO_MODE_TOGGLE = 10;
-static constexpr uint8_t HOME_ACTION_ORP_AUTO_MODE_TOGGLE = 11;
-static constexpr uint8_t HOME_ACTION_PH_AUTO_MODE_TOGGLE = 12;
-static constexpr uint8_t HOME_ACTION_WINTER_MODE_TOGGLE = 13;
+static constexpr uint8_t HOME_ACTION_OPERATING_MODE_CYCLE = 10;
+static constexpr uint8_t HOME_ACTION_WINTER_MODE_SELECT = 13;
 static constexpr uint8_t HOME_ACTION_LIGHTS_TOGGLE = 14;
 static constexpr uint8_t HOME_ACTION_ROBOT_TOGGLE = 15;
 static constexpr uint8_t HOME_ACTION_DISPLAY_WIFI_FACTORY_RESET = 16;
@@ -1019,8 +1017,8 @@ bool NextionDriver::parseCustomFrame_(const uint8_t* frame, uint8_t len, HmiEven
                 case HOME_ACTION_FILTRATION:
                     out.command = (payloadLen >= 2U) ? HmiCommandId::HomeFiltrationSet : HmiCommandId::HomeFiltrationToggle;
                     return true;
-                case HOME_ACTION_AUTO_MODE:
-                    out.command = (payloadLen >= 2U) ? HmiCommandId::HomeAutoModeSet : HmiCommandId::HomeAutoModeToggle;
+                case HOME_ACTION_OPERATING_MODE:
+                    out.command = (payloadLen >= 2U) ? HmiCommandId::HomeOperatingModeSet : HmiCommandId::HomeOperatingModeCycle;
                     return true;
                 case HOME_ACTION_SYNC:
                     out.command = HmiCommandId::HomeSyncRequest;
@@ -1043,17 +1041,11 @@ bool NextionDriver::parseCustomFrame_(const uint8_t* frame, uint8_t len, HmiEven
                 case HOME_ACTION_FILTRATION_TOGGLE:
                     out.command = HmiCommandId::HomeFiltrationToggle;
                     return true;
-                case HOME_ACTION_AUTO_MODE_TOGGLE:
-                    out.command = HmiCommandId::HomeAutoModeToggle;
+                case HOME_ACTION_OPERATING_MODE_CYCLE:
+                    out.command = HmiCommandId::HomeOperatingModeCycle;
                     return true;
-                case HOME_ACTION_ORP_AUTO_MODE_TOGGLE:
-                    out.command = HmiCommandId::HomeOrpAutoModeToggle;
-                    return true;
-                case HOME_ACTION_PH_AUTO_MODE_TOGGLE:
-                    out.command = HmiCommandId::HomePhAutoModeToggle;
-                    return true;
-                case HOME_ACTION_WINTER_MODE_TOGGLE:
-                    out.command = HmiCommandId::HomeWinterModeToggle;
+                case HOME_ACTION_WINTER_MODE_SELECT:
+                    out.command = HmiCommandId::HomeWinterModeSelect;
                     return true;
                 case HOME_ACTION_LIGHTS_TOGGLE:
                     out.command = HmiCommandId::HomeLightsToggle;

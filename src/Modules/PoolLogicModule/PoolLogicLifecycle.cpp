@@ -252,11 +252,15 @@ bool PoolLogicModule::getPoolOperatingConfiguration_(
     PoolOperatingConfiguration& outConfiguration) const
 {
     outConfiguration = PoolOperatingConfiguration{};
-    outConfiguration.available = true;
-    outConfiguration.filtrationAutoMode = autoMode_;
-    outConfiguration.phAutoMode = phAutoMode_;
-    outConfiguration.orpAutoMode = orpAutoMode_;
-    outConfiguration.heaterAutoMode = heaterAutoMode_;
+    outConfiguration.available = modesReady_;
+    outConfiguration.operatingMode = operatingMode();
+    outConfiguration.phCorrection = phCorrection();
+    outConfiguration.modeSinceValid = appliedMode_ != 0xFF;
+    outConfiguration.modeSinceMs = uint32_t(millis() - modeSinceMs_);
+    outConfiguration.filtrationAutoMode = filtrationAutomatic_();
+    outConfiguration.phAutoMode = phAutomatic_();
+    outConfiguration.orpAutoMode = orpAutomatic_();
+    outConfiguration.heaterAutoMode = regulationAutomatic_() && heaterAutoMode_;
     outConfiguration.phSetpointValid = std::isfinite(phSetpoint_);
     outConfiguration.phSetpoint = phSetpoint_;
     outConfiguration.orpSetpointValid = std::isfinite(orpSetpoint_);
@@ -293,13 +297,9 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
 
     // Runtime moduleName reassignment keeps the config tree grouped by branch
     // even though the variables are declared on a single facade class.
-    enabledVar_.moduleName = kCfgModuleModes;
-    autoModeVar_.moduleName = kCfgModuleModes;
-    winterModeVar_.moduleName = kCfgModuleModes;
-    phAutoModeVar_.moduleName = kCfgModulePh;
-    orpAutoModeVar_.moduleName = kCfgModuleChlorine;
+    operatingModeVar_.moduleName = kCfgModuleModes;
+    phCorrectionTypeVar_.moduleName = kCfgModulePh;
     heaterAutoModeVar_.moduleName = kCfgModuleHeater;
-    phDosePlusVar_.moduleName = kCfgModulePh;
     disinfectionTypeVar_.moduleName = kCfgModuleModes;
     swgControlModeVar_.moduleName = kCfgModuleSwg;
     indoorPoolVar_.moduleName = kCfgModulePool;
@@ -370,14 +370,11 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
 
     // Registration order mirrors the published config branches so init remains
     // easy to diff against the generated cfgdocs and MQTT routes.
-    cfg.registerVar(enabledVar_, kCfgModuleId, kCfgBranchModes);
 
-    cfg.registerVar(autoModeVar_, kCfgModuleId, kCfgBranchModes);
-    cfg.registerVar(winterModeVar_, kCfgModuleId, kCfgBranchModes);
-    cfg.registerVar(phAutoModeVar_, kCfgModuleId, kCfgBranchPh);
-    cfg.registerVar(orpAutoModeVar_, kCfgModuleId, kCfgBranchChlorine);
+    cfg.registerVar(operatingModeVar_, kCfgModuleId, kCfgBranchModes);
+    cfg.registerVar(phCorrectionTypeVar_, kCfgModuleId, kCfgBranchPh);
+    cfg.registerValidator(&PoolLogicModule::validateModes_, this);
     cfg.registerVar(heaterAutoModeVar_, kCfgModuleId, kCfgBranchHeater);
-    cfg.registerVar(phDosePlusVar_, kCfgModuleId, kCfgBranchPh);
     cfg.registerVar(disinfectionTypeVar_, kCfgModuleId, kCfgBranchModes);
     cfg.registerVar(swgControlModeVar_, kCfgModuleId, kCfgBranchSwg);
     cfg.registerVar(indoorPoolVar_, kCfgModuleId, kCfgBranchPool);
@@ -469,54 +466,6 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
     // HA entities are still registered from the lifecycle layer because they
     // are part of startup wiring, not of the control algorithm itself.
     if (haSvc && haSvc->addSwitch) {
-        const HASwitchEntry autoModeSwitch{
-            "poollogic",
-            "pl_modes_auto",
-            "Pool Auto-regulation",
-            "cfg/poollogic/modes",
-            "{% if value_json.auto_mode %}ON{% else %}OFF{% endif %}",
-            MqttTopics::SuffixCfgSet,
-            R"({"poollogic/modes":{"auto_mode":true}})",
-            R"({"poollogic/modes":{"auto_mode":false}})",
-            "mdi:calendar-clock",
-            "config"
-        };
-        const HASwitchEntry winterModeSwitch{
-            "poollogic",
-            "pl_modes_winter",
-            "Winter Mode",
-            "cfg/poollogic/modes",
-            "{% if value_json.winter_mode %}ON{% else %}OFF{% endif %}",
-            MqttTopics::SuffixCfgSet,
-            R"({"poollogic/modes":{"winter_mode":true}})",
-            R"({"poollogic/modes":{"winter_mode":false}})",
-            "mdi:snowflake",
-            "config"
-        };
-        const HASwitchEntry phAutoModeSwitch{
-            "poollogic",
-            "pl_ph_auto_mode",
-            "pH Auto-regulation",
-            "cfg/poollogic/ph",
-            "{% if value_json.ph_auto_mode %}ON{% else %}OFF{% endif %}",
-            MqttTopics::SuffixCfgSet,
-            R"({"poollogic/ph":{"ph_auto_mode":true}})",
-            R"({"poollogic/ph":{"ph_auto_mode":false}})",
-            "mdi:beaker-check-outline",
-            "config"
-        };
-        const HASwitchEntry orpAutoModeSwitch{
-            "poollogic",
-            "pl_dis_auto",
-            "Orp Auto-regulation",
-            "cfg/poollogic/chlorine",
-            "{% if value_json.dis_auto_mode %}ON{% else %}OFF{% endif %}",
-            MqttTopics::SuffixCfgSet,
-            R"({"poollogic/chlorine":{"dis_auto_mode":true}})",
-            R"({"poollogic/chlorine":{"dis_auto_mode":false}})",
-            "mdi:water-check-outline",
-            "config"
-        };
         const HASwitchEntry heaterAutoModeSwitch{
             "poollogic",
             "pl_heat_auto",
@@ -529,39 +478,27 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
             "mdi:radiator",
             "config"
         };
-        const HASwitchEntry phDosePlusSwitch{
-            "poollogic",
-            "pl_ph_dose_plus",
-            "pH Dosing uses pH+",
-            "cfg/poollogic/ph",
-            "{% if value_json.ph_dose_plus %}ON{% else %}OFF{% endif %}",
-            MqttTopics::SuffixCfgSet,
-            R"({"poollogic/ph":{"ph_dose_plus":true}})",
-            R"({"poollogic/ph":{"ph_dose_plus":false}})",
-            "mdi:beaker-plus-outline",
-            "config"
-        };
-        const HASwitchEntry o2TempCompSwitch{
-            "poollogic",
-            "pl_o2_temp_comp",
-            "O2 Temperature Compensation",
-            "cfg/poollogic/o2",
-            "{% if value_json.temp_comp %}ON{% else %}OFF{% endif %}",
-            MqttTopics::SuffixCfgSet,
-            R"({"poollogic/o2":{"temp_comp":true}})",
-            R"({"poollogic/o2":{"temp_comp":false}})",
-            "mdi:thermometer-lines",
-            "config"
-        };
-        (void)haSvc->addSwitch(haSvc->ctx, &autoModeSwitch);
-        (void)haSvc->addSwitch(haSvc->ctx, &winterModeSwitch);
-        (void)haSvc->addSwitch(haSvc->ctx, &phAutoModeSwitch);
-        (void)haSvc->addSwitch(haSvc->ctx, &orpAutoModeSwitch);
         (void)haSvc->addSwitch(haSvc->ctx, &heaterAutoModeSwitch);
-        (void)haSvc->addSwitch(haSvc->ctx, &phDosePlusSwitch);
-        (void)haSvc->addSwitch(haSvc->ctx, &o2TempCompSwitch);
     }
+
     if (haSvc && haSvc->addSelect) {
+        const HASelectEntry operatingModeSelect{
+            "poollogic", "pl_operating_mode", "Pool Operating Mode", "cfg/poollogic/modes",
+            R"({{ ['Manu', 'Auto', 'Hivers'][value_json.operating_mode | int(0)] }})",
+            MqttTopics::SuffixCfgSet,
+            R"({\"poollogic/modes\":{\"operating_mode\":{{ {'Manu': 0, 'Auto': 1, 'Hivers': 2}[value] }}}})",
+            "[\"Auto\",\"Manu\",\"Hivers\"]", "mdi:pool", "config"
+        };
+        const HASelectEntry phCorrectionSelect{
+            "poollogic", "pl_ph_correction", "pH Correction Type", "cfg/poollogic/ph",
+            R"({{ ['Désactivée', 'pH−', 'pH+'][value_json.correction_type | int(0)] }})",
+            MqttTopics::SuffixCfgSet,
+            R"({\"poollogic/ph\":{\"correction_type\":{{ {'Désactivée': 0, 'pH−': 1, 'pH+': 2}[value] }}}})",
+            "[\"Désactivée\",\"pH−\",\"pH+\"]", "mdi:beaker-check-outline", "config"
+        };
+        (void)haSvc->addSelect(haSvc->ctx, &operatingModeSelect);
+        (void)haSvc->addSelect(haSvc->ctx, &phCorrectionSelect);
+
         static const char* kDisinfectionTypeStateTpl =
             R"({% set v = value_json.disinfection_type | int(0) %}{% if v == 1 %}Electrolyse{% elif v == 2 %}Oxygène actif{% elif v == 3 %}Désactivé{% else %}Chlore/Brome{% endif %})";
         static const char* kDisinfectionTypeCmdTpl =
@@ -636,7 +573,7 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
             "h"
         };
         static const char* kHeatAssistStatusFrTemplate =
-            R"({% set st = value_json.ri | default('UNKNOWN', true) %}{% if st == 'DISABLED' %}Désactivé{% elif st == 'MANUAL_MODE' %}Mode manuel{% elif st == 'PSI_BLOCKED' %}Pression bloquée{% elif st == 'SETPOINT_INVALID' %}Consigne invalide{% elif st == 'TEMP_UNAVAILABLE' %}Température indisponible{% elif st == 'PROBE_WAIT_30M' %}Attente sonde 30 min{% elif st == 'PROBE_WAIT_20M' %}Attente sonde 20 min{% elif st == 'PROBE_WAIT_ADAPTIVE' %}Attente sonde adaptative{% elif st == 'PROBE_RUNNING' %}Sondage en cours{% elif st == 'HEATING' %}Chauffe active{% elif st == 'IDLE_PUMP_ON' %}Pompe active sans chauffe{% elif st == 'SETPOINT_REACHED' %}Consigne atteinte{% else %}Inconnu{% endif %})";
+            R"({% set st = value_json.ri | default('UNKNOWN', true) %}{% if st == 'DISABLED' %}Désactivé{% elif st == 'WINTER_MODE' %}Mode Hivers{% elif st == 'MANUAL_MODE' %}Mode manuel{% elif st == 'PSI_BLOCKED' %}Pression bloquée{% elif st == 'SETPOINT_INVALID' %}Consigne invalide{% elif st == 'TEMP_UNAVAILABLE' %}Température indisponible{% elif st == 'PROBE_WAIT_30M' %}Attente sonde 30 min{% elif st == 'PROBE_WAIT_20M' %}Attente sonde 20 min{% elif st == 'PROBE_WAIT_ADAPTIVE' %}Attente sonde adaptative{% elif st == 'PROBE_RUNNING' %}Sondage en cours{% elif st == 'HEATING' %}Chauffe active{% elif st == 'IDLE_PUMP_ON' %}Pompe active sans chauffe{% elif st == 'SETPOINT_REACHED' %}Consigne atteinte{% else %}Inconnu{% endif %})";
         const HASensorEntry heatAssistStatus{
             "poollogic",
             "pl_has_rsn",
@@ -1085,19 +1022,10 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
         cmdSvc->registerHandler(cmdSvc->ctx, "poollogic.device.write", &PoolLogicModule::cmdDeviceWriteStatic_, this);
         cmdSvc->registerHandler(cmdSvc->ctx, "poollogic.filtration.write", &PoolLogicModule::cmdFiltrationWriteStatic_, this);
         cmdSvc->registerHandler(cmdSvc->ctx, "poollogic.filtration.recalc", &PoolLogicModule::cmdFiltrationRecalcStatic_, this);
-        cmdSvc->registerHandler(cmdSvc->ctx, "poollogic.auto_mode.set", &PoolLogicModule::cmdAutoModeSetStatic_, this);
+        cmdSvc->registerHandler(cmdSvc->ctx, "poollogic.operating_mode.set", &PoolLogicModule::cmdOperatingModeSetStatic_, this);
         static constexpr const char* kMqttControlCmds[] = {
-            "poollogic.auto_mode.toggle",
-            "poollogic.ph_auto_mode.set",
-            "poollogic.ph_auto_mode.toggle",
-            "poollogic.orp_auto_mode.set",
-            "poollogic.orp_auto_mode.toggle",
-            "poollogic.dis_auto_mode.set",
-            "poollogic.dis_auto_mode.toggle",
             "poollogic.heater_auto_mode.set",
             "poollogic.heater_auto_mode.toggle",
-            "poollogic.winter_mode.set",
-            "poollogic.winter_mode.toggle",
             "poollogic.filtration.toggle",
             "poollogic.ph_pump.write",
             "poollogic.ph_pump.toggle",
@@ -1236,11 +1164,6 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
         eventBus_->subscribe(EventId::ConfigChanged, &PoolLogicModule::onEventStatic_, this);
     }
 
-    if (!enabled_) {
-        LOGI("PoolLogic disabled");
-        return;
-    }
-
     LOGI("PoolLogic ready");
     (void)cfgStore_;
 }
@@ -1265,7 +1188,8 @@ void PoolLogicModule::onConfigLoaded(ConfigStore&, ServiceRegistry& services)
     // Discovery also needs validated assignments when automatic regulation is disabled.
     normalizeDeviceSlots_();
     deviceAssignmentsReady_ = true;
-    if (!enabled_) return;
+    modesReady_ = migrateModes_();
+
 
     if (disinfectionType_ > DisinfectionDisabled) {
         disinfectionType_ = DisinfectionChlorineBromine;
@@ -1308,7 +1232,7 @@ void PoolLogicModule::onConfigLoaded(ConfigStore&, ServiceRegistry& services)
         if (cfgStore_) (void)cfgStore_->set(o2PendingVar_, o2PendingMl_);
     }
 
-    LOGI("PoolLogic pH dosing mode=%s", phDosePlus_ ? "pH+" : "pH-");
+    LOGI("PoolLogic pH dosing mode=%s", phCorrection() == PoolPhCorrection::Plus ? "pH+" : phCorrection() == PoolPhCorrection::Minus ? "pH-" : "disabled");
     LOGI("PoolLogic disinfection=%s swg_control=%s",
          disinfectionTypeStr_(disinfectionType_),
          swgControlModeStr_(swgControlMode_));
@@ -1346,31 +1270,11 @@ void PoolLogicModule::emitStartupActivityIfReady_(uint32_t nowMs)
     const bool timeReady = activityTimeReady_();
     if (!timeReady && elapsedMs < kStartupActivityMaxDelayMs) return;
 
-    if (enabled_) {
-        emitActivity_(ActivityCode::PoolLogicReady,
-                      ActivitySource::System,
-                      ActivitySeverity::Success,
-                      ActivityRole::None,
-                      ActivityState::None,
-                      ActivityReason::None,
-                      ACTIVITY_TARGET_NONE,
-                      "PoolLogic est prêt",
-                      "Les automatismes piscine sont initialisés.",
-                      "pool",
-                      systemActor());
-    } else {
-        emitActivity_(ActivityCode::PoolLogicDisabled,
-                      ActivitySource::System,
-                      ActivitySeverity::Info,
-                      ActivityRole::None,
-                      ActivityState::None,
-                      ActivityReason::None,
-                      ACTIVITY_TARGET_NONE,
-                      "PoolLogic est désactivé",
-                      "Les automatismes piscine ne pilotent pas les équipements.",
-                      "toggle_off",
-                      systemActor());
-    }
+    emitActivity_(ActivityCode::PoolLogicReady,
+                  ActivitySource::System, ActivitySeverity::Success,
+                  ActivityRole::None, ActivityState::None, ActivityReason::None,
+                  ACTIVITY_TARGET_NONE, "PoolLogic est prêt",
+                  "Les automatismes piscine sont initialisés.", "pool", systemActor());
     startupActivityPending_ = false;
 }
 
@@ -1378,14 +1282,8 @@ void PoolLogicModule::loop()
 {
     const uint32_t nowMs = millis();
     emitStartupActivityIfReady_(nowMs);
-    if (!enabled_) {
-        resetOverridePolicies_();
-        if (!bootControlReady_) {
-            if (setPoolDeviceWritesEnabled_(true)) {
-                bootControlReady_ = true;
-                LOGI("PoolLogic disabled: pool device writes enabled after adoption");
-            }
-        }
+    if (!modesReady_) {
+        modesReady_ = migrateModes_();
         delayNextCycle(pdMS_TO_TICKS(500));
         return;
     }
@@ -1412,6 +1310,10 @@ void PoolLogicModule::loop()
 
     if (!bootControlReady_) {
         adoptBootDeviceState_(nowMs);
+        {
+            OverrideLock lock(overrideMutex_);
+            runControlLoop_(nowMs);
+        }
         if (setPoolDeviceWritesEnabled_(true)) {
             bootControlReady_ = true;
             LOGI("PoolLogic boot adoption complete; pool device writes enabled");
@@ -1435,7 +1337,7 @@ void PoolLogicModule::onEventStatic_(const Event& e, void* user)
 
 void PoolLogicModule::onEvent_(const Event& e)
 {
-    if (!enabled_) return;
+
 
     if (e.id == EventId::ConfigChanged) {
         if (!e.payload || e.len < sizeof(ConfigChangedPayload)) return;
@@ -1453,50 +1355,10 @@ void PoolLogicModule::onEvent_(const Event& e)
             return;
         }
         if (p->moduleId == (uint8_t)ConfigModuleId::PoolLogic &&
-            p->localBranchId == kCfgBranchModes &&
-            p->nvsKey) {
-            if (strcmp(p->nvsKey, NvsKeys::PoolLogic::AutoMode) == 0 && autoMode_) {
-                portENTER_CRITICAL(&pendingMux_);
-                pendingFiltrationReconcile_ = true;
-                portEXIT_CRITICAL(&pendingMux_);
-            } else if (strcmp(p->nvsKey, NvsKeys::PoolLogic::DisinfectionType) == 0) {
-                if (disinfectionType_ > DisinfectionDisabled) disinfectionType_ = DisinfectionChlorineBromine;
-                (void)writeDeviceDesired_(orpPumpDeviceSlot_, false);
-                (void)writeDeviceDesired_(swgDeviceSlot_, false);
-                if (disinfectionType_ == DisinfectionChlorineBromine && !orpAutoMode_ && cfgStore_) {
-                    (void)cfgStore_->set(orpAutoModeVar_, true);
-                    orpAutoMode_ = true;
-                }
-                resetTemporalPidState_(orpPidState_, millis());
-                orpPidEnabled_ = false;
-                LOGI("PoolLogic disinfection changed: %s", disinfectionTypeStr_(disinfectionType_));
-            }
-            return;
-        }
-        if (p->moduleId == (uint8_t)ConfigModuleId::PoolLogic &&
-            p->localBranchId == kCfgBranchPh &&
-            p->nvsKey) {
-            if (strcmp(p->nvsKey, NvsKeys::PoolLogic::PhAutoMode) == 0 && phAutoMode_) {
-                // Global business rule: entering pH auto starts from a safe stopped pump.
-                if (!writeDeviceDesired_(phPumpDeviceSlot_, false)) {
-                    LOGW("PoolLogic failed to stop pH pump on ph_auto_mode enable (slot=%u)",
-                         (unsigned)phPumpDeviceSlot_);
-                }
-                resetTemporalPidState_(phPidState_, millis());
-            }
-            return;
-        }
-        if (p->moduleId == (uint8_t)ConfigModuleId::PoolLogic &&
-            p->localBranchId == kCfgBranchChlorine &&
-            p->nvsKey) {
-            if (strcmp(p->nvsKey, NvsKeys::PoolLogic::OrpAutoMode) == 0 && orpAutoMode_) {
-                // Global business rule: entering disinfection auto starts from a safe stopped pump.
-                if (!writeDeviceDesired_(orpPumpDeviceSlot_, false)) {
-                    LOGW("PoolLogic failed to stop disinfection pump on dis_auto_mode enable (slot=%u)",
-                         (unsigned)orpPumpDeviceSlot_);
-                }
-                resetTemporalPidState_(orpPidState_, millis());
-            }
+            p->localBranchId == kCfgBranchModes) {
+            portENTER_CRITICAL(&pendingMux_);
+            pendingFiltrationReconcile_ = true;
+            portEXIT_CRITICAL(&pendingMux_);
             return;
         }
         if (p->moduleId == (uint8_t)ConfigModuleId::PoolLogic &&

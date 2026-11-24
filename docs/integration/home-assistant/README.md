@@ -1,5 +1,7 @@
 # Dashboard piscine Flow.io — configuration YAML
 
+Voir [Modes PoolLogic et nouveaux sélecteurs Home Assistant](../poollogic-operating-modes.md).
+
 Cette version utilise huit vues Home Assistant natives et les cartes HACS déjà
 utilisées initialement : **Mushroom 5+**, **card-mod**, **mini-graph-card** et
 **Modern Circular Gauge**. Aucun fichier JavaScript Flow.io, aucun template
@@ -34,7 +36,10 @@ Les anciens liens `#flowio=ph` deviennent les onglets natifs (`…/ph`).
   Aucun script ne déplace ou ne masque les éléments de l'application.
 
 Les mesures et graphiques utilisent les données réelles de Home Assistant.
-Les 115 identifiants d'entités de la version précédente sont conservés.
+Les sélecteurs `select.fio_pl_operating_mode` et `select.fio_pl_ph_correction`
+remplacent les cinq anciens interrupteurs Auto, Hiver, pH auto, dosage pH+ et
+traitement auto. Le dashboard référence 112 entités. Aucun effacement d'entités
+n'est exécuté dans Home Assistant ; adapter manuellement les automatisations.
 
 ## Thème clair facultatif
 

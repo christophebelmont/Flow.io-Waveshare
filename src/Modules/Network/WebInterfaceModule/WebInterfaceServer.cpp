@@ -1775,89 +1775,6 @@ void printRuntimeBoolWithSince_(Print& out,
     out.print('}');
 }
 
-bool waveshareReadPoolModeSince_(const PoolConfigurationService* poolCfgSvc,
-                                 RuntimeUiId id,
-                                 uint32_t& outSinceMs)
-{
-    outSinceMs = 0U;
-    if (!poolCfgSvc || !poolCfgSvc->getOperatingConfiguration) return false;
-    PoolOperatingConfiguration op{};
-    if (!poolCfgSvc->getOperatingConfiguration(poolCfgSvc->ctx, &op)) return false;
-
-    switch (id) {
-        case 2401:
-            if (!op.filtrationAutoModeSinceValid) return false;
-            outSinceMs = op.filtrationAutoModeSinceMs;
-            return true;
-        case 2402:
-            if (!op.winterModeSinceValid) return false;
-            outSinceMs = op.winterModeSinceMs;
-            return true;
-        case 2403:
-            if (!op.phAutoModeSinceValid) return false;
-            outSinceMs = op.phAutoModeSinceMs;
-            return true;
-        case 2404:
-            if (!op.orpAutoModeSinceValid) return false;
-            outSinceMs = op.orpAutoModeSinceMs;
-            return true;
-        default:
-            return false;
-    }
-}
-
-
-bool waveshareLoadPoolModeFlags_(ConfigStore* cfgStore,
-                                bool& hasMode,
-                                bool& autoMode,
-                                bool& winterMode,
-                                bool& phAutoMode,
-                                bool& orpAutoMode)
-{
-    hasMode = false;
-    autoMode = false;
-    winterMode = false;
-    phAutoMode = false;
-    orpAutoMode = false;
-    if (!cfgStore) return false;
-
-    char moduleJson[320] = {0};
-    bool truncated = false;
-    if (!cfgStore->toJsonModule("poollogic/modes", moduleJson, sizeof(moduleJson), &truncated, true)) {
-        return false;
-    }
-
-    StaticJsonDocument<384> doc;
-    if (deserializeJson(doc, moduleJson)) return false;
-    JsonObjectConst root = doc.as<JsonObjectConst>();
-    if (root.isNull()) return false;
-
-    hasMode = true;
-    autoMode = root["auto_mode"] | false;
-    winterMode = root["winter_mode"] | false;
-
-    memset(moduleJson, 0, sizeof(moduleJson));
-    truncated = false;
-    if (cfgStore->toJsonModule("poollogic/ph", moduleJson, sizeof(moduleJson), &truncated, true)) {
-        StaticJsonDocument<128> phDoc;
-        if (!deserializeJson(phDoc, moduleJson)) {
-            JsonObjectConst phRoot = phDoc.as<JsonObjectConst>();
-            if (!phRoot.isNull()) phAutoMode = phRoot["ph_auto_mode"] | false;
-        }
-    }
-
-    memset(moduleJson, 0, sizeof(moduleJson));
-    truncated = false;
-    if (cfgStore->toJsonModule("poollogic/chlorine", moduleJson, sizeof(moduleJson), &truncated, true)) {
-        StaticJsonDocument<128> disDoc;
-        if (!deserializeJson(disDoc, moduleJson)) {
-            JsonObjectConst disRoot = disDoc.as<JsonObjectConst>();
-            if (!disRoot.isNull()) orpAutoMode = disRoot["dis_auto_mode"] | false;
-        }
-    }
-    return true;
-}
-
 void waveshareLoadMqttServer_(ConfigStore* cfgStore, char* out, size_t outLen)
 {
     if (!out || outLen == 0U) return;
@@ -1917,10 +1834,7 @@ void waveshareLoadAlarmMasks_(const AlarmService* alarmSvc,
 struct WaveshareRuntimeContext {
     bool poolModeLoaded = false;
     bool poolModeAvailable = false;
-    bool poolAutoMode = false;
-    bool poolWinterMode = false;
-    bool poolPhAutoMode = false;
-    bool poolOrpAutoMode = false;
+    PoolOperatingConfiguration poolConfiguration{};
     bool mqttServerLoaded = false;
     char mqttServer[96] = {0};
     bool alarmMasksLoaded = false;
@@ -1931,16 +1845,12 @@ struct WaveshareRuntimeContext {
     SystemStatsSnapshot systemStats{};
 };
 
-void waveshareEnsurePoolMode_(WaveshareRuntimeContext& ctx, ConfigStore* cfgStore)
+void waveshareEnsurePoolMode_(WaveshareRuntimeContext& ctx, const PoolConfigurationService* service)
 {
     if (ctx.poolModeLoaded) return;
     ctx.poolModeLoaded = true;
-    ctx.poolModeAvailable = waveshareLoadPoolModeFlags_(cfgStore,
-                                                       ctx.poolModeAvailable,
-                                                       ctx.poolAutoMode,
-                                                       ctx.poolWinterMode,
-                                                       ctx.poolPhAutoMode,
-                                                       ctx.poolOrpAutoMode);
+    ctx.poolModeAvailable = service && service->getOperatingConfiguration &&
+        service->getOperatingConfiguration(service->ctx, &ctx.poolConfiguration);
 }
 
 void waveshareEnsureMqttServer_(WaveshareRuntimeContext& ctx, ConfigStore* cfgStore)
@@ -2017,46 +1927,18 @@ bool appendWaveshareLocalRuntimeValue_(Print& out,
             printRuntimeU32_(out, firstValue, id, "alarms.condition_mask", ctx.alarmConditionMask);
             return true;
         case 2401: {
-            waveshareEnsurePoolMode_(ctx, cfgStore);
+            waveshareEnsurePoolMode_(ctx, poolCfgSvc);
             if (!ctx.poolModeAvailable) {
                 wavesharePrintUnavailableByManifestType_(out, firstValue, id);
             } else {
-                uint32_t sinceMs = 0U;
-                const bool hasSince = waveshareReadPoolModeSince_(poolCfgSvc, id, sinceMs);
-                printRuntimeBoolWithSince_(out, firstValue, id, "pool.auto_mode", ctx.poolAutoMode, hasSince, sinceMs);
-            }
-            return true;
-        }
-        case 2402: {
-            waveshareEnsurePoolMode_(ctx, cfgStore);
-            if (!ctx.poolModeAvailable) {
-                wavesharePrintUnavailableByManifestType_(out, firstValue, id);
-            } else {
-                uint32_t sinceMs = 0U;
-                const bool hasSince = waveshareReadPoolModeSince_(poolCfgSvc, id, sinceMs);
-                printRuntimeBoolWithSince_(out, firstValue, id, "pool.winter_mode", ctx.poolWinterMode, hasSince, sinceMs);
-            }
-            return true;
-        }
-        case 2403: {
-            waveshareEnsurePoolMode_(ctx, cfgStore);
-            if (!ctx.poolModeAvailable) {
-                wavesharePrintUnavailableByManifestType_(out, firstValue, id);
-            } else {
-                uint32_t sinceMs = 0U;
-                const bool hasSince = waveshareReadPoolModeSince_(poolCfgSvc, id, sinceMs);
-                printRuntimeBoolWithSince_(out, firstValue, id, "pool.ph_auto_mode", ctx.poolPhAutoMode, hasSince, sinceMs);
-            }
-            return true;
-        }
-        case 2404: {
-            waveshareEnsurePoolMode_(ctx, cfgStore);
-            if (!ctx.poolModeAvailable) {
-                wavesharePrintUnavailableByManifestType_(out, firstValue, id);
-            } else {
-                uint32_t sinceMs = 0U;
-                const bool hasSince = waveshareReadPoolModeSince_(poolCfgSvc, id, sinceMs);
-                printRuntimeBoolWithSince_(out, firstValue, id, "pool.dis_auto_mode", ctx.poolOrpAutoMode, hasSince, sinceMs);
+                printRuntimeValuePrefix_(out, firstValue, id, "pool.operating_mode", "enum", nullptr);
+                out.print(",\"value\":");
+                out.print(unsigned(ctx.poolConfiguration.operatingMode));
+                if (ctx.poolConfiguration.modeSinceValid) {
+                    out.print(",\"since_ms\":");
+                    out.print((unsigned long)ctx.poolConfiguration.modeSinceMs);
+                }
+                out.print('}');
             }
             return true;
         }
@@ -2273,6 +2155,7 @@ bool waveshareBuildStatusDomainJson_(FlowStatusDomain domain,
                                     DataStore* dataStore,
                                     ConfigStore* cfgStore,
                                     const AlarmService* alarmSvc,
+                                    const PoolConfigurationService* poolCfgSvc,
                                     char* out,
                                     size_t outLen)
 {
@@ -2356,17 +2239,15 @@ bool waveshareBuildStatusDomainJson_(FlowStatusDomain domain,
 
     if (domain == FlowStatusDomain::Pool) {
         JsonObject pool = doc.createNestedObject("pool");
-        bool hasMode = false;
-        bool autoMode = false;
-        bool winterMode = false;
-        bool phAutoMode = false;
-        bool orpAutoMode = false;
-        (void)waveshareLoadPoolModeFlags_(cfgStore, hasMode, autoMode, winterMode, phAutoMode, orpAutoMode);
-        pool["has"] = hasMode;
-        pool["auto"] = autoMode;
-        pool["wint"] = winterMode;
-        pool["pha"] = phAutoMode;
-        pool["ora"] = orpAutoMode;
+        waveshareEnsurePoolMode_(ctx, poolCfgSvc);
+        const auto& config = ctx.poolConfiguration;
+        pool["has"] = ctx.poolModeAvailable;
+        pool["mode"] = uint8_t(config.operatingMode);
+        // Legacy display status bits are derived, read-only projections.
+        pool["auto"] = config.filtrationAutoMode;
+        pool["wint"] = poolFrostProtection(config.operatingMode);
+        pool["pha"] = config.phAutoMode;
+        pool["ora"] = config.orpAutoMode;
 
         auto setFloat = [&](const char* key, uint8_t runtimeIndex, uint8_t decimals) {
             float value = 0.0f;
@@ -2439,7 +2320,8 @@ bool waveshareBuildStatusDomainJson_(FlowStatusDomain domain,
 bool sendWaveshareStatusCompactResponse_(AsyncWebServerRequest* request,
                                         DataStore* dataStore,
                                         ConfigStore* cfgStore,
-                                        const AlarmService* alarmSvc)
+                                        const AlarmService* alarmSvc,
+                                        const PoolConfigurationService* poolCfgSvc)
 {
     if (!request) return false;
     struct StatusBuffers {
@@ -2456,11 +2338,11 @@ bool sendWaveshareStatusCompactResponse_(AsyncWebServerRequest* request,
     auto& mqttJson = buffers->mqttJson;
     auto& poolJson = buffers->poolJson;
     auto& i2cJson = buffers->i2cJson;
-    if (!waveshareBuildStatusDomainJson_(FlowStatusDomain::System, dataStore, cfgStore, alarmSvc, systemJson, sizeof(systemJson))) return false;
-    if (!waveshareBuildStatusDomainJson_(FlowStatusDomain::Wifi, dataStore, cfgStore, alarmSvc, wifiJson, sizeof(wifiJson))) return false;
-    if (!waveshareBuildStatusDomainJson_(FlowStatusDomain::Mqtt, dataStore, cfgStore, alarmSvc, mqttJson, sizeof(mqttJson))) return false;
-    if (!waveshareBuildStatusDomainJson_(FlowStatusDomain::Pool, dataStore, cfgStore, alarmSvc, poolJson, sizeof(poolJson))) return false;
-    if (!waveshareBuildStatusDomainJson_(FlowStatusDomain::I2c, dataStore, cfgStore, alarmSvc, i2cJson, sizeof(i2cJson))) return false;
+    if (!waveshareBuildStatusDomainJson_(FlowStatusDomain::System, dataStore, cfgStore, alarmSvc, poolCfgSvc, systemJson, sizeof(systemJson))) return false;
+    if (!waveshareBuildStatusDomainJson_(FlowStatusDomain::Wifi, dataStore, cfgStore, alarmSvc, poolCfgSvc, wifiJson, sizeof(wifiJson))) return false;
+    if (!waveshareBuildStatusDomainJson_(FlowStatusDomain::Mqtt, dataStore, cfgStore, alarmSvc, poolCfgSvc, mqttJson, sizeof(mqttJson))) return false;
+    if (!waveshareBuildStatusDomainJson_(FlowStatusDomain::Pool, dataStore, cfgStore, alarmSvc, poolCfgSvc, poolJson, sizeof(poolJson))) return false;
+    if (!waveshareBuildStatusDomainJson_(FlowStatusDomain::I2c, dataStore, cfgStore, alarmSvc, poolCfgSvc, i2cJson, sizeof(i2cJson))) return false;
 
     SpiRamJsonDocument systemDoc(768);
     SpiRamJsonDocument wifiDoc(512);
@@ -2833,6 +2715,7 @@ bool waveshareReadDashboardRuntimeValue_(DataStore* dataStore,
                                         ConfigStore* cfgStore,
                                         const AlarmService* alarmSvc,
                                         const IOServiceV2* ioSvc,
+                                        const PoolConfigurationService* poolCfgSvc,
                                         RuntimeUiId id,
                                         WaveshareDashboardRuntimeValue& out,
                                         WaveshareRuntimeContext& ctx)
@@ -2860,15 +2743,11 @@ bool waveshareReadDashboardRuntimeValue_(DataStore* dataStore,
             return true;
 
         case ModuleId::PoolLogic:
-            waveshareEnsurePoolMode_(ctx, cfgStore);
-            if (!ctx.poolModeAvailable) return false;
+            waveshareEnsurePoolMode_(ctx, poolCfgSvc);
+            if (!ctx.poolModeAvailable || valueId != 1U) return false;
             out.available = true;
-            out.wireType = RuntimeUiWireType::Bool;
-            if (valueId == 1U) out.boolValue = ctx.poolAutoMode;
-            else if (valueId == 2U) out.boolValue = ctx.poolWinterMode;
-            else if (valueId == 3U) out.boolValue = ctx.poolPhAutoMode;
-            else if (valueId == 4U) out.boolValue = ctx.poolOrpAutoMode;
-            else return false;
+            out.wireType = RuntimeUiWireType::Enum;
+            out.u32Value = uint8_t(ctx.poolConfiguration.operatingMode);
             return true;
 
         case ModuleId::PoolDevice: {
@@ -3028,6 +2907,11 @@ void waveshareFormatDashboardRuntimeValue_(RuntimeUiId id,
     if (unitOut && unitOutLen > 0U) unitOut[0] = '\0';
     if (!valueOut || valueOutLen == 0U || !unitOut || unitOutLen == 0U || !value.available) {
         if (valueOut && valueOutLen > 0U) snprintf(valueOut, valueOutLen, "Indisponible");
+        return;
+    }
+
+    if (id == 2401 && value.wireType == RuntimeUiWireType::Enum && poolModeValid(value.u32Value)) {
+        snprintf(valueOut, valueOutLen, "%s", poolOperatingModeName(static_cast<PoolOperatingMode>(value.u32Value)));
         return;
     }
 
@@ -3829,7 +3713,8 @@ void sendWaveshareDashboardSlotsResponse_(AsyncResponseStream& response,
                                          DataStore* dataStore,
                                          ConfigStore* cfgStore,
                                          const AlarmService* alarmSvc,
-                                         const IOServiceV2* ioSvc)
+                                         const IOServiceV2* ioSvc,
+                                        const PoolConfigurationService* poolCfgSvc)
 {
     WaveshareRuntimeContext ctx{};
     for (uint8_t i = 0U; i < kWaveshareDashboardSensorSlotCount; ++i) {
@@ -3862,6 +3747,7 @@ void sendWaveshareDashboardSlotsResponse_(AsyncResponseStream& response,
                                                                   cfgStore,
                                                                   alarmSvc,
                                                                   ioSvc,
+                                                                  poolCfgSvc,
                                                                   slot.runtimeUiId,
                                                                   runtimeValue,
                                                                   ctx);
@@ -7117,7 +7003,7 @@ void WebInterfaceModule::startServer_()
         copyRequestParamValue_(request, "src", false, srcStr, sizeof(srcStr), "");
         LOGD("runtime.call route=/api/flow/status src=%s", srcStr[0] ? srcStr : "-");
         const AlarmService* alarmSvc = services_ ? services_->get<AlarmService>(ServiceId::Alarm) : nullptr;
-        if (!sendWaveshareStatusCompactResponse_(request, dataStore_, cfgStore_, alarmSvc)) {
+        if (!sendWaveshareStatusCompactResponse_(request, dataStore_, cfgStore_, alarmSvc, services_ ? services_->get<PoolConfigurationService>(ServiceId::PoolConfiguration) : nullptr)) {
             request->send(500, "application/json",
                           "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"flow.status.local\"}}");
         }
@@ -7151,7 +7037,7 @@ void WebInterfaceModule::startServer_()
 
         char domainBuf[768] = {0};
         const AlarmService* alarmSvc = services_ ? services_->get<AlarmService>(ServiceId::Alarm) : nullptr;
-        if (!waveshareBuildStatusDomainJson_(domain, dataStore_, cfgStore_, alarmSvc, domainBuf, sizeof(domainBuf))) {
+        if (!waveshareBuildStatusDomainJson_(domain, dataStore_, cfgStore_, alarmSvc, services_ ? services_->get<PoolConfigurationService>(ServiceId::PoolConfiguration) : nullptr, domainBuf, sizeof(domainBuf))) {
             request->send(200, "application/json",
                           "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"flow.status.domain.local\"}}");
             return;
@@ -7800,7 +7686,7 @@ void WebInterfaceModule::startServer_()
         }
         {
             const AlarmService* alarmSvc = services_ ? services_->get<AlarmService>(ServiceId::Alarm) : nullptr;
-            sendWaveshareDashboardSlotsResponse_(*response, first, dataStore_, cfgStore_, alarmSvc, ioSvc_);
+            sendWaveshareDashboardSlotsResponse_(*response, first, dataStore_, cfgStore_, alarmSvc, ioSvc_, services_ ? services_->get<PoolConfigurationService>(ServiceId::PoolConfiguration) : nullptr);
         }
         response->print("],\"alarm_slots\":[");
         bool firstAlarmSlot = true;
