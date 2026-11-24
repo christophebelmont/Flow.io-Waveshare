@@ -300,6 +300,35 @@ Paramètres principaux:
 - binding, `activeHigh`, `momentary`, `pulseMs` des sorties digitales
 - binding, `pullMode`, `edgeMode`, debounce des entrées digitales
 
+### Compteur d'impulsions ou débit instantané : quel mode choisir ?
+
+Une entrée numérique `iXX` peut fonctionner en **mode 0 (État)**, **mode 1 (Compteur d'impulsions)** ou **mode 2 (Débit instantané)**. Les modes 1 et 2 comptent tous deux les fronts de l'entrée, mais ils n'exposent pas les mêmes grandeurs et n'interprètent pas le coefficient `C0` de la même façon.
+
+| Fonction | Mode 1 — Compteur d'impulsions | Mode 2 — Débit instantané |
+|---|---|---|
+| Usage | Quantité totale, consommation, cycles | Débit de circulation ou de filtration |
+| Nombre d'impulsions cumulé | Oui, `iXX.count` | Non : les impulsions servent seulement à la mesure de fréquence |
+| Total converti | Oui, `iXX.total` = cumul × C0 | Non |
+| Fréquence brute | `iXX.rate`, en imp/min | `iXX.rate`, en imp/min |
+| Valeur convertie | `iXX.flow` = fréquence × C0 | `iXX.flow` = fréquence ÷ C0, puis conversion d'unité |
+| Convention `C0` | Coefficient multiplicateur ; **L/impulsion** pour un volume en litres | **Impulsions/litre (imp/L)**, facteur K du débitmètre, strictement positif |
+| Unités configurables de débit | Pas de sélection d'unité dédiée au mode 1 : le résultat dépend de C0 | `l/min`, `l/h`, `m3/min`, `m3/h` |
+| Sauvegarde du cumul (NVS) | Oui, par checkpoints | Non |
+| Remise à zéro / correction manuelle du cumul | Oui | Non |
+
+**Exemple :** un compteur d'eau émet **10 impulsions pour 1 litre**.
+
+- **Mode 1 — volume total :** régler `C0 = 0,1` **L/impulsion**. Après **250 impulsions**, le total converti est **25 L**. À **120 imp/min**, la valeur de débit convertie correspond à **12 L/min** si C0 a été choisi en L/impulsion.
+- **Mode 2 — débit actuel :** régler `C0 = 10` **imp/L**. Si **2 impulsions sont reçues en 1 seconde**, Flow.io calcule environ **120 imp/min**, donc **12 l/min**, soit **720 l/h**, **0,012 m3/min** ou **0,72 m3/h**.
+
+**Attention :** le facteur est **inversé** entre les deux modes lorsqu'il s'agit d'un volume en litres. Ne pas recopier automatiquement la même valeur de C0 lors d'un changement de mode. En mode 2, `C0 = 0` ou une valeur négative rend la mesure de débit invalide.
+
+**Persistance et remise à zéro :** le mode 1 conserve son total en RAM et le sauvegarde périodiquement en NVS (généralement toutes les heures si modifié), avec une sauvegarde contrôlée avant les redémarrages et mises à jour prévus. Une coupure brutale peut faire perdre les impulsions depuis le dernier checkpoint. Le mode 2 ne stocke aucun cumul et ne réalise pas de checkpoint NVS ; il recalcule un débit à partir d'une fenêtre d'environ une seconde. À l'arrêt des impulsions, il revient à zéro après la fenêtre suivante.
+
+**Configuration commune :** les deux modes partagent le port d'entrée, le niveau actif, le pull-up/pull-down, le choix du front et le filtre de rebonds. La précision règle l'affichage. Les changements de mode ou d'unité de débit prennent effet au redémarrage.
+
+Pour le détail du calcul, de l'exposition TFT/Web/MQTT et des tests du mode 2, consulter [Débit instantané — implémentation](../core/flow-mode-2-instantaneous-rate-2026-11-23.md).
+
 ### Sémantique `activeHigh` / `edgeMode` pour les compteurs GPIO
 
 Pour les entrées digitales en mode compteur, le driver ne raisonne pas directement en "front physique brut sur le pin".
