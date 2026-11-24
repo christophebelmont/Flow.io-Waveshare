@@ -79,6 +79,22 @@ class OneShotDiscoveryTests(unittest.TestCase):
         self.assertIn("haAutoconfigPublished()", self.cpp)
         self.assertIn("memset(deferredBits_, 0, sizeof(uint32_t) * HA_PENDING_WORDS)", self.cpp)
 
+    def test_refresh_status_uses_full_width_below_button(self):
+        ui = source("data/webinterface/app.js")
+        css = source("data/webinterface/app-core.css")
+        action = ui.split("function buildHaDiscoveryRefreshField(config)", 1)[1].split(
+            "function renderFlowCfgFieldsWithExtensions", 1
+        )[0]
+        self.assertIn("ha-discovery-refresh-row", action)
+        self.assertIn("ha-discovery-refresh-controls", action)
+        self.assertIn("ha-discovery-refresh-status", action)
+        self.assertNotIn("wrap.appendChild(status)", action)
+        self.assertIn("row.appendChild(status)", action)
+        self.assertLess(action.index("row.appendChild(wrap)"), action.index("row.appendChild(status)"))
+        self.assertIn(".ha-discovery-refresh-row{flex-wrap:wrap;}", css)
+        self.assertIn(".ha-discovery-refresh-status{width:100%;flex:0 0 100%;", css)
+        self.assertIn(".ha-discovery-refresh-status:empty{display:none;}", css)
+
     def test_action_localized_but_not_config_variable(self):
         ui = source("data/webinterface/app.js")
         action = ui.split("function buildHaDiscoveryRefreshField(config)", 1)[1].split(
