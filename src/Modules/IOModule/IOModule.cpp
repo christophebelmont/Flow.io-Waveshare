@@ -695,6 +695,9 @@ bool IOModule::defineDigitalInput(const IODigitalInputDefinition& def)
             digitalInCfg_[logicalIdx].mode = def.mode;
             digitalInCfg_[logicalIdx].edgeMode = def.edgeMode;
             digitalInCfg_[logicalIdx].counterDebounceUs = counterDebounceConfigFromUsLocal(def.counterDebounceUs);
+            digitalInCfg_[logicalIdx].flowUnit = def.flowUnit;
+            digitalInCfg_[logicalIdx].c0 = def.c0;
+            digitalInCfg_[logicalIdx].precision = def.precision;
         }
         return true;
     }

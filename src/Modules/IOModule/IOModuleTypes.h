@@ -223,6 +223,10 @@ struct IODigitalInputDefinition {
     uint8_t mode = IO_DIGITAL_INPUT_STATE;
     uint8_t edgeMode = IO_EDGE_RISING;
     uint32_t counterDebounceUs = 0;
+    // Initial profile defaults, overridable by persistent ConfigStore/NVS.
+    uint8_t flowUnit = IO_FLOW_LITERS_PER_MINUTE;
+    float c0 = 1.0f;
+    int32_t precision = 0;
     IODigitalValueCallback onValueChanged = nullptr;
     void* onValueCtx = nullptr;
     IODigitalCounterValueCallback onCounterChanged = nullptr;
