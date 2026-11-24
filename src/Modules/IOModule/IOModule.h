@@ -387,6 +387,7 @@ private:
         PulseRuntime pulse{}; // Cumulative mode 1 only.
         PulseRateOnly pulseRateOnly{}; // Volatile rate mode 2 only.
         uint8_t appliedFlowUnit = IO_FLOW_LITERS_PER_MINUTE; // Runtime metadata unit.
+        int8_t appliedFlowPrecision = -1; // Display precision of iXX.flow; -1 until defined.
         uint16_t counterResetSeen = 0;
     };
 
