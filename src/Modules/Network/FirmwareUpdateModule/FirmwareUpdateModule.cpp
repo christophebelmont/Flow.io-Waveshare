@@ -3035,6 +3035,19 @@ bool FirmwareUpdateModule::abortLocalRelease_(uint32_t transactionId,
     if (!transactionGuard.acquired()) {
         return writeSimpleError_(errOut, errOutLen, "upgrade synchronization unavailable");
     }
+    // An old failed local release can retain its transaction ID for diagnostics.
+    // Do not let a late 'abort' request reset the status/progress/LED of an
+    // unrelated Nextion (or newer paired) update already queued or running.
+    portENTER_CRITICAL(&lock_);
+    const bool internalRemoteWorker = remoteReleaseWorker_ != nullptr &&
+                                      remoteReleaseWorker_ == xTaskGetCurrentTaskHandle();
+    const bool foreignUpdaterBusy = (busy_ && !internalRemoteWorker) ||
+        queuedJob_.pending || updateStartPending_ || nextionRebootQueued_ ||
+        manifestCheckJob_.pending ||
+        (manifestMetadata_ && manifestCheckIsActive_(manifestMetadata_->check.state));
+    portEXIT_CRITICAL(&lock_);
+    if (foreignUpdaterBusy)
+        return writeSimpleError_(errOut, errOutLen, "updater busy");
     if (!localTransactionMatches_(transactionId)) {
         return writeSimpleError_(errOut, errOutLen, "unknown release transaction");
     }
