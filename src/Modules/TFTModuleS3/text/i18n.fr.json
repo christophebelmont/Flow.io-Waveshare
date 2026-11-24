@@ -200,6 +200,22 @@
     "cfgmods_meta.tftmodules3.enum_sets.tft_s3_alarm_id.3.label": "Bidon chlore bas [1003]",
     "cfgmods_meta.tftmodules3.enum_sets.tft_s3_alarm_id.4.label": "Pompe pH duree max [1004]",
     "cfgmods_meta.tftmodules3.enum_sets.tft_s3_alarm_id.5.label": "Pompe ORP duree max [1005]",
-    "cfgmods_meta.tftmodules3.enum_sets.tft_s3_alarm_id.6.label": "Niveau d'eau bas [1006]"
+    "cfgmods_meta.tftmodules3.enum_sets.tft_s3_alarm_id.6.label": "Niveau d'eau bas [1006]",
+    "cfgdocs.tft.s3.sensors.slot08.color_id.help": "Palette pastel utilisee comme fond de carte sur le TFT local.",
+    "cfgdocs.tft.s3.sensors.slot08.color_id.label": "Couleur de fond",
+    "cfgdocs.tft.s3.sensors.slot08.enabled.help": "Active ou masque cette mesure sur le TFT local et sur la carte web Sondes.",
+    "cfgdocs.tft.s3.sensors.slot08.enabled.label": "Mesure active",
+    "cfgdocs.tft.s3.sensors.slot08.label.help": "Libelle affiche sur le TFT. Laisser vide pour utiliser le libelle runtime.",
+    "cfgdocs.tft.s3.sensors.slot08.label.label": "Nom affiche",
+    "cfgdocs.tft.s3.sensors.slot08.runtime_ui_id.help": "Choix de la valeur runtime locale flow.io a afficher dans cette mesure.",
+    "cfgdocs.tft.s3.sensors.slot08.runtime_ui_id.label": "Valeur locale",
+    "cfgdocs.tft.s3.sensors.slot09.color_id.help": "Palette pastel utilisee comme fond de carte sur le TFT local.",
+    "cfgdocs.tft.s3.sensors.slot09.color_id.label": "Couleur de fond",
+    "cfgdocs.tft.s3.sensors.slot09.enabled.help": "Active ou masque cette mesure sur le TFT local et sur la carte web Sondes.",
+    "cfgdocs.tft.s3.sensors.slot09.enabled.label": "Mesure active",
+    "cfgdocs.tft.s3.sensors.slot09.label.help": "Libelle affiche sur le TFT. Laisser vide pour utiliser le libelle runtime.",
+    "cfgdocs.tft.s3.sensors.slot09.label.label": "Nom affiche",
+    "cfgdocs.tft.s3.sensors.slot09.runtime_ui_id.help": "Choix de la valeur runtime locale flow.io a afficher dans cette mesure.",
+    "cfgdocs.tft.s3.sensors.slot09.runtime_ui_id.label": "Valeur locale"
   }
 }
