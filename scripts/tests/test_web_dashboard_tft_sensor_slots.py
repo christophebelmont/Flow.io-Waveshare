@@ -17,7 +17,7 @@ TFT_CPP = (ROOT / "src/Modules/TFTModuleS3/TFTModuleS3.cpp").read_text(encoding=
 
 class DashboardSensorSlotsTest(unittest.TestCase):
     def test_web_and_tft_both_support_ten_sensor_slots(self):
-        self.assertRegex(TFT_H, r"DashboardSlotCount\\s*=\\s*10\\s*;")
+        self.assertRegex(TFT_H, r"DashboardSlotCount\s*=\s*10\s*;")
         self.assertIn("kWaveshareDashboardSensorSlotCount = 10U;", WEB)
         self.assertIn("kWaveshareDashboardDefaultEnabledSlots = 8U;", WEB)
         self.assertIn("slotCfg.enabled = (i < 8U)", TFT_CPP)
