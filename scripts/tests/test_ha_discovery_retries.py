@@ -62,6 +62,23 @@ class OneShotDiscoveryTests(unittest.TestCase):
         self.assertIn("cfgdocs.ha.refresh.rebootConfirm", ui)
         self.assertIn("'/api/system/reboot'", ui)
 
+    def test_empty_catalogue_releases_only_after_startup_and_mqtt_ready(self):
+        # Zero entities is a successful empty catalogue, but never free
+        # registration tables during the earlier init()/config phase.
+        self.assertIn("HA discovery empty catalogue: no entities registered", self.cpp)
+        self.assertIn("startupReady_.load() && discoveryReady_() && entityCount_() == 0U", self.cpp)
+        self.assertIn("setHaAutoconfigPublished(*dsSvc_->store, true);", self.cpp)
+        self.assertIn("releaseOneShotResources_();", self.cpp)
+
+    def test_retry_exhaustion_is_logged_as_incomplete_and_releases_psram(self):
+        # The published marker also triggers release of the separate
+        # Waveshare discovery heap: it must be set after terminal exhaustion.
+        self.assertIn("HA discovery INCOMPLETE after retries", self.cpp)
+        self.assertIn("__builtin_popcount", self.cpp)
+        self.assertIn("reboot/refresh to retry", self.cpp)
+        self.assertIn("haAutoconfigPublished()", self.cpp)
+        self.assertIn("memset(deferredBits_, 0, sizeof(uint32_t) * HA_PENDING_WORDS)", self.cpp)
+
     def test_action_localized_but_not_config_variable(self):
         ui = source("data/webinterface/app.js")
         action = ui.split("function buildHaDiscoveryRefreshField(config)", 1)[1].split(
