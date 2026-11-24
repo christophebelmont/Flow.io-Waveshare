@@ -2,7 +2,7 @@
 
 **Date :** 24 novembre 2026  
 **Branche :** `stephdust/Flow.io-Waveshare:fix/family5-ha-discovery-psram-20261124`  
-**État :** simulations déterministes exécutées ; compilation et validation MQTT/HA sur matériel **à confirmer**.
+**État (mis à jour le 24/11/2026) :** simulations déterministes validées ; **l'utilisateur confirme que la compilation et les essais de famille 5 fonctionnent sur son matériel**, y compris la correction cosmétique du bouton. Revue indépendante et cas de panne complémentaires recommandés à Christophe.
 
 ## Résultats
 
@@ -54,4 +54,4 @@ Le script Node.js modélise les états et leurs transitions. Le test Python cont
 
 Le modèle n'exécute ni `HAModule.cpp`, ni le broker MQTT, ni Home Assistant, ni FreeRTOS. Il ne mesure donc pas les temps réels, la fragmentation effective de la PSRAM, les effets des pertes de packets MQTT QoS 0, ni les boucles watchdog. Les cas dégradés et l'intégration doivent rester sous revue matérielle.
 
-**Pas de PR ni de fusion avant validation de la compilation et des essais demandés.**
+**Préparé pour la revue de Christophe :** l'utilisateur a confirmé le bon fonctionnement. Ne pas assimiler ce retour à l'exécution exhaustive des scénarios de défaillance sur matériel.
