@@ -3697,7 +3697,10 @@
       const phase = String(session && session.phase ? session.phase : 'idle');
       const progress = Math.max(0, Math.min(100, Number(session && session.backendProgress) || 0));
       const reconnectProgress = Math.max(0, Math.min(100, Number(session && session.reconnectProgress) || 0));
-      if (phase === 'target') return 1;
+      if (phase === 'target') {
+        // Nextion has not yet downloaded any bytes.
+        return String(session && session.target || '').toLowerCase() === 'nextion' ? 0 : 1;
+      }
       // Nextion progress is derived from real PSRAM/UART byte counts.
       // Never synthesize the old 5% "flashing" minimum.
       if (String(session && session.target || '').toLowerCase() === 'nextion' &&
@@ -3725,7 +3728,14 @@
       if (phase === 'reboot') return 97;
       if (phase === 'reconnect') return 97 + Math.round(reconnectProgress * 0.03);
       if (phase === 'done') return 100;
-      if (phase === 'error') return Math.max(6, Math.min(96, Number(session && session.lastPercent) || 12));
+      if (phase === 'error') {
+        // Do not invent a 6%-or-12% minimum when Nextion failed before data
+        // transfer. Preserve the last real reported progress instead.
+        if (String(session && session.target || '').toLowerCase() === 'nextion') {
+          return Math.max(0, Math.min(100, Number(session && session.lastPercent) || 0));
+        }
+        return Math.max(6, Math.min(96, Number(session && session.lastPercent) || 12));
+      }
       return 0;
     }
 
