@@ -2085,179 +2085,304 @@ bool FirmwareUpdateModule::runWaveshareUpdate_(const UpdateJob& job, char* errOu
 
 bool FirmwareUpdateModule::runNextionUpdate_(const UpdateJob& job, char* errOut, size_t errOutLen)
 {
-    if (nextionRxPin_ < 0 || nextionTxPin_ < 0) {
-        writeSimpleError_(errOut, errOutLen, "nextion board pins not configured");
-        return false;
-    }
+    if (nextionRxPin_ < 0 || nextionTxPin_ < 0)
+        return writeSimpleError_(errOut, errOutLen, "nextion board pins not configured");
+    if (job.expectedSize == 0U)
+        return writeSimpleError_(errOut, errOutLen, "invalid nextion artifact size");
 
-    if (!hmiSvc_ && services_) {
-        hmiSvc_ = services_->get<HmiService>(ServiceId::Hmi);
-    }
+    if (!hmiSvc_ && services_) hmiSvc_ = services_->get<HmiService>(ServiceId::Hmi);
+    if (!hmiSvc_ || !hmiSvc_->setLocalDisplayUpdateMode)
+        return writeSimpleError_(errOut, errOutLen, "local Nextion HMI service unavailable");
+
     HmiDisplayIdentity identity{};
-    // A display in bootloader or recovery mode may not answer the identity
-    // query. The artifact was already selected from the validated manifest;
-    // when an identity is available, it must still match that selection.
-    const bool displayDetected =
-        hmiSvc_ && hmiSvc_->getLocalDisplayIdentity &&
+    const bool displayDetected = hmiSvc_->getLocalDisplayIdentity &&
         hmiSvc_->getLocalDisplayIdentity(hmiSvc_->ctx, &identity);
-    if (displayDetected && !isNextionDisplayCompatible(identity, job.nextionCompatibility)) {
-        writeSimpleError_(errOut, errOutLen, "nextion display identity validation failed");
-        return false;
+    if (displayDetected && !isNextionDisplayCompatible(identity, job.nextionCompatibility))
+        return writeSimpleError_(errOut, errOutLen, "nextion display identity validation failed");
+
+    // Stage the COMPLETE TFT in PSRAM first. No direct HTTP-to-UART fallback:
+    // interrupting network delivery after whmi-wri would leave the panel in
+    // firmware-download mode, potentially requiring external recovery.
+    const size_t expected = (size_t)job.expectedSize;
+    const size_t freePsram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    const size_t largestPsram = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    LOGI("[NEXTION-OTA] op=%lu stage=psram_admission bytes=%lu free=%lu largest=%lu reserve=%lu",
+         (unsigned long)job.operationId, (unsigned long)expected,
+         (unsigned long)freePsram, (unsigned long)largestPsram,
+         (unsigned long)OtaPsramPolicy::kReserveBytes);
+    if (!OtaPsramPolicy::canStageImage(expected, freePsram, largestPsram))
+        return writeSimpleError_(errOut, errOutLen, "Nextion PSRAM insufficient (2 MiB reserve)");
+    std::unique_ptr<uint8_t, decltype(&heap_caps_free)> staged(
+        static_cast<uint8_t*>(heap_caps_malloc(expected, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)),
+        &heap_caps_free);
+    if (!staged)
+        return writeSimpleError_(errOut, errOutLen, "Nextion PSRAM image allocation failed");
+
+    setStatus_(UpdateState::Downloading, FirmwareUpdateTarget::Nextion, 0,
+               "downloading Nextion TFT to PSRAM", job.operationId);
+    setOtaStage_("nextion_download", 0U);
+
+    // Exactly three HTTP attempts. Resume only with a validated 206 Range;
+    // if the server answers 200, restart the download into the same buffer.
+    // No Nextion UART is touched until this phase completes.
+    size_t received = 0U;
+    size_t lastLogged = 0U;
+    uint8_t lastPercent = 0U;
+    for (unsigned attempt = 1U;
+         attempt <= OtaHttpRetryPolicy::kMaxAttempts && received < expected;
+         ++attempt) {
+        const size_t requestedOffset = received;
+        bool retryable = false;
+        bool fatal = false;
+        int code = 0;
+        LOGI("[NEXTION-OTA] op=%lu stage=http_attempt attempt=%u/%u offset=%lu",
+             (unsigned long)job.operationId, attempt, OtaHttpRetryPolicy::kMaxAttempts,
+             (unsigned long)requestedOffset);
+        HTTPClient http;
+        configureDownloadHttp_(http);
+        if (!http.begin(job.url)) {
+            retryable = true;
+        } else {
+            const char* responseHeaders[] = {"Content-Range"};
+            http.collectHeaders(responseHeaders, 1U);
+            if (requestedOffset > 0U) {
+                http.addHeader("Range", String("bytes=") +
+                               String((unsigned long)requestedOffset) + "-");
+            }
+            code = http.GET();
+            const int announced = http.getSize();
+            const String contentRange = http.header("Content-Range");
+            const auto mode = OtaHttpRetryPolicy::responseMode(
+                code, requestedOffset, announced > 0 ? (size_t)announced : 0U,
+                expected, contentRange.c_str());
+            if (mode == OtaHttpRetryPolicy::ResponseMode::Invalid) {
+                retryable = OtaHttpRetryPolicy::isRetryableStatus(code);
+                fatal = !retryable;
+                LOGW("[NEXTION-OTA] op=%lu stage=http_invalid code=%d length=%d retry=%u",
+                     (unsigned long)job.operationId, code, announced, retryable ? 1U : 0U);
+            } else {
+                if (mode == OtaHttpRetryPolicy::ResponseMode::Full && requestedOffset > 0U) {
+                    LOGW("[NEXTION-OTA] op=%lu stage=http_restart_full range_ignored=1",
+                         (unsigned long)job.operationId);
+                    received = 0U;
+                    lastLogged = 0U;
+                    lastPercent = 0U;
+                    setOtaStage_("nextion_download", 0U);
+                }
+                Stream* stream = http.getStreamPtr();
+                uint32_t lastReadMs = millis();
+                uint32_t lastWaitLogMs = lastReadMs;
+                while (received < expected) {
+                    const size_t available = stream ? stream->available() : 0U;
+                    if (available == 0U) {
+                        const uint32_t idleMs = millis() - lastReadMs;
+                        if (!http.connected() ||
+                            idleMs > Limits::FirmwareUpdate::Http::StreamReadTimeoutMs) {
+                            retryable = true;
+                            LOGW("[NEXTION-OTA] op=%lu stage=http_interrupted received=%lu/%lu idle_ms=%lu",
+                                 (unsigned long)job.operationId, (unsigned long)received,
+                                 (unsigned long)expected, (unsigned long)idleMs);
+                            break;
+                        }
+                        if (millis() - lastWaitLogMs >= 5000U) {
+                            LOGI("[NEXTION-OTA] op=%lu stage=http_wait received=%lu/%lu",
+                                 (unsigned long)job.operationId,
+                                 (unsigned long)received, (unsigned long)expected);
+                            lastWaitLogMs = millis();
+                        }
+                        vTaskDelay(1);
+                        continue;
+                    }
+                    size_t amount = available > 1024U ? 1024U : available;
+                    if (amount > expected - received) amount = expected - received;
+                    const int got = stream->readBytes(
+                        reinterpret_cast<char*>(staged.get() + received), amount);
+                    if (got <= 0) {
+                        if (!http.connected() ||
+                            (millis() - lastReadMs) > Limits::FirmwareUpdate::Http::StreamReadTimeoutMs) {
+                            retryable = true;
+                            break;
+                        }
+                        vTaskDelay(1);
+                        continue;
+                    }
+                    received += (size_t)got;
+                    lastReadMs = millis();
+                    const uint8_t pct = (uint8_t)(((uint64_t)received * 100U) / expected);
+                    if (pct != lastPercent) {
+                        lastPercent = pct;
+                        setStatus_(UpdateState::Downloading, FirmwareUpdateTarget::Nextion,
+                                   (uint8_t)((pct * 25U) / 100U),
+                                   "downloading Nextion TFT to PSRAM", job.operationId);
+                        setOtaStage_("nextion_download", pct);
+                    }
+                    if (received - lastLogged >= 256U * 1024U || received == expected) {
+                        LOGI("[NEXTION-OTA] op=%lu stage=http_progress bytes=%lu/%lu pct=%u",
+                             (unsigned long)job.operationId, (unsigned long)received,
+                             (unsigned long)expected, (unsigned)pct);
+                        lastLogged = received;
+                    }
+                    vTaskDelay(1);
+                }
+            }
+            http.end();
+        }
+        if (received == expected && !retryable && !fatal) break;
+        if (fatal)
+            return writeSimpleError_(errOut, errOutLen, "Nextion artifact HTTP response invalid");
+        if (!retryable)
+            return writeSimpleError_(errOut, errOutLen, "Nextion PSRAM download incomplete");
+        if (attempt == OtaHttpRetryPolicy::kMaxAttempts)
+            return writeSimpleError_(errOut, errOutLen, "Nextion PSRAM download failed after 3 attempts");
+        LOGW("[NEXTION-OTA] op=%lu stage=http_retry next_attempt=%u offset=%lu",
+             (unsigned long)job.operationId, attempt + 1U, (unsigned long)received);
+        vTaskDelay(pdMS_TO_TICKS(OtaHttpRetryPolicy::kRetryDelayMs));
     }
+    if (received != expected)
+        return writeSimpleError_(errOut, errOutLen, "Nextion PSRAM download size mismatch");
 
-    setStatus_(UpdateState::Downloading,
-               FirmwareUpdateTarget::Nextion,
-               0,
-               "downloading",
-               job.operationId);
+    LOGI("[NEXTION-OTA] op=%lu stage=psram_download_complete bytes=%lu",
+         (unsigned long)job.operationId, (unsigned long)received);
+    setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Nextion, 25U,
+               "verifying Nextion TFT in PSRAM", job.operationId);
+    setOtaStage_("nextion_verify", 0U);
+    // Always hash the staged file; authenticate against manifest SHA-256 when
+    // provided, retaining backward compatibility with size-only manifests.
+    mbedtls_sha256_context hash{};
+    mbedtls_sha256_init(&hash);
+    bool hashOk = mbedtls_sha256_starts(&hash, 0) == 0;
+    for (size_t offset = 0U; hashOk && offset < expected;) {
+        const size_t count = expected - offset > 16U * 1024U
+            ? 16U * 1024U : expected - offset;
+        hashOk = mbedtls_sha256_update(&hash, staged.get() + offset, count) == 0;
+        offset += count;
+        setOtaStage_("nextion_verify",
+                     (uint8_t)(((uint64_t)offset * 100U) / expected));
+        vTaskDelay(1);
+    }
+    uint8_t digest[32]{};
+    if (hashOk) hashOk = mbedtls_sha256_finish(&hash, digest) == 0;
+    mbedtls_sha256_free(&hash);
+    if (!hashOk)
+        return writeSimpleError_(errOut, errOutLen, "Nextion PSRAM SHA-256 computation failed");
+    if (job.nextionHasSha256 && !sha256Matches_(digest, job.nextionSha256))
+        return writeSimpleError_(errOut, errOutLen, "Nextion PSRAM SHA-256 mismatch");
+    LOGI("[NEXTION-OTA] op=%lu stage=psram_verified bytes=%lu sha256_manifest=%s",
+         (unsigned long)job.operationId, (unsigned long)expected,
+         job.nextionHasSha256 ? "MATCH" : "NOT_PROVIDED_SIZE_ONLY");
+    setOtaStage_("nextion_verify", 100U);
 
+    // All networking is now finished and all HTTP sockets are closed.
+    // Modbus TCP already quiesces on FirmwareUpdateService::isBusy().
+    setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Nextion, 30U,
+               "initializing Nextion UART", job.operationId);
+    setOtaStage_("nextion_uart", 0U);
     if (flowIoEnablePin_ >= 0) {
         pinMode(flowIoEnablePin_, OUTPUT);
         digitalWrite(flowIoEnablePin_, LOW);
     }
-
     if (nextionRebootPin_ >= 0) {
         pinMode(nextionRebootPin_, OUTPUT);
         digitalWrite(nextionRebootPin_, HIGH);
     }
-
-    HTTPClient http;
-    configureDownloadHttp_(http);
-    if (!http.begin(job.url)) {
-        writeHttpBeginFailedError_("fichier de mise a jour", job.url, errOut, errOutLen);
+    auto releaseFlowIo = [this]() {
         if (flowIoEnablePin_ >= 0) {
             digitalWrite(flowIoEnablePin_, HIGH);
             pinMode(flowIoEnablePin_, INPUT);
         }
-        return false;
+    };
+    if (!hmiSvc_->setLocalDisplayUpdateMode(hmiSvc_->ctx, true, 1000U)) {
+        releaseFlowIo();
+        return writeSimpleError_(errOut, errOutLen, "failed to suspend Nextion HMI driver");
     }
 
-    const int code = http.GET();
-    const int32_t contentLength = http.getSize();
-    if (code != HTTP_CODE_OK) {
-        writeHttpCodeFailedError_("fichier de mise a jour", job.url, http, code, errOut, errOutLen);
-        http.end();
-        if (flowIoEnablePin_ >= 0) {
-            digitalWrite(flowIoEnablePin_, HIGH);
-            pinMode(flowIoEnablePin_, INPUT);
-        }
-        return false;
-    }
-    if (contentLength <= 0) {
-        writeSimpleError_(errOut, errOutLen, "invalid content-length");
-        http.end();
-        if (flowIoEnablePin_ >= 0) {
-            digitalWrite(flowIoEnablePin_, HIGH);
-            pinMode(flowIoEnablePin_, INPUT);
-        }
-        return false;
-    }
-    if (job.expectedSize == 0U || (uint32_t)contentLength != job.expectedSize) {
-        writeSimpleError_(errOut, errOutLen, "nextion artifact size differs from manifest");
-        http.end();
-        if (flowIoEnablePin_ >= 0) {
-            digitalWrite(flowIoEnablePin_, HIGH);
-            pinMode(flowIoEnablePin_, INPUT);
-        }
-        return false;
-    }
-
-    setStatus_(UpdateState::Flashing,
-               FirmwareUpdateTarget::Nextion,
-               0,
-               "flashing",
-               job.operationId);
-    if (!hmiSvc_->setLocalDisplayUpdateMode ||
-        !hmiSvc_->setLocalDisplayUpdateMode(hmiSvc_->ctx, true, 1000U)) {
-        writeSimpleError_(errOut, errOutLen, "failed to suspend nextion hmi driver");
-        http.end();
-        if (flowIoEnablePin_ >= 0) {
-            digitalWrite(flowIoEnablePin_, HIGH);
-            pinMode(flowIoEnablePin_, INPUT);
-        }
-        return false;
-    }
     portENTER_CRITICAL(&lock_);
-    activeTotalBytes_ = (uint32_t)contentLength;
-    activeSentBytes_ = 0;
+    activeTotalBytes_ = (uint32_t)expected;
+    activeSentBytes_ = 0U;
     portEXIT_CRITICAL(&lock_);
 
-    bool ok = false;
+    // ESPNexUpload uses Serial2 (the HMI UART), never Serial1 (Modbus RS485).
     ESPNexUpload nextion(nextionUploadBaud_, nextionRxPin_, nextionTxPin_);
-    if (!nextion.prepareUpload((uint32_t)contentLength)) {
+    bool ok = nextion.prepareUpload((uint32_t)expected);
+    if (!ok) {
+        LOGE("[NEXTION-OTA] op=%lu stage=uart_connect_failed reason=%s",
+             (unsigned long)job.operationId, nextion.statusMessage.c_str());
         writeSimpleError_(errOut, errOutLen, nextion.statusMessage.c_str());
     } else {
-        auto* stream = http.getStreamPtr();
-        uint8_t buffer[2048] = {0};
-        uint32_t remaining = (uint32_t)contentLength;
-        uint32_t lastReadMs = millis();
-        ok = true;
-
-        while (remaining > 0U) {
-            const size_t available = stream ? stream->available() : 0U;
-            if (available == 0U) {
-                if (!http.connected()) {
-                    writeSimpleError_(errOut, errOutLen, "nextion download interrupted");
-                    ok = false;
-                    break;
-                }
-                if ((millis() - lastReadMs) > Limits::FirmwareUpdate::Http::StreamReadTimeoutMs) {
-                    writeSimpleError_(errOut, errOutLen, "nextion stream timeout");
-                    ok = false;
-                    break;
-                }
-                delay(1);
-                continue;
-            }
-
-            size_t toRead = available > sizeof(buffer) ? sizeof(buffer) : available;
-            if (toRead > remaining) toRead = remaining;
-            const int read = stream->readBytes(reinterpret_cast<char*>(buffer), toRead);
-            if (read <= 0) {
-                delay(1);
-                continue;
-            }
-            lastReadMs = millis();
-
-            if (!nextion.upload(buffer, (size_t)read)) {
+        setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Nextion, 30U,
+                   "sending Nextion TFT via UART", job.operationId);
+        setOtaStage_("nextion_upload", 0U);
+        size_t sent = 0U;
+        uint8_t lastSentPct = 0U;
+        size_t lastSentLog = 0U;
+        while (sent < expected) {
+            const size_t count = expected - sent > 1024U ? 1024U : expected - sent;
+            if (!nextion.upload(staged.get() + sent, count)) {
+                LOGE("[NEXTION-OTA] op=%lu stage=uart_send_failed bytes=%lu/%lu reason=%s",
+                     (unsigned long)job.operationId, (unsigned long)sent,
+                     (unsigned long)expected, nextion.statusMessage.c_str());
                 writeSimpleError_(errOut, errOutLen, nextion.statusMessage.c_str());
                 ok = false;
                 break;
             }
-            remaining -= (uint32_t)read;
-            onProgressChunk_((uint32_t)read);
+            sent += count;
+            portENTER_CRITICAL(&lock_);
+            activeSentBytes_ = (uint32_t)sent;
+            portEXIT_CRITICAL(&lock_);
+            const uint8_t pct = (uint8_t)(((uint64_t)sent * 100U) / expected);
+            if (pct != lastSentPct) {
+                lastSentPct = pct;
+                setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Nextion,
+                           (uint8_t)(30U + (pct * 65U) / 100U),
+                           "sending Nextion TFT via UART", job.operationId);
+                setOtaStage_("nextion_upload", pct);
+            }
+            if (sent - lastSentLog >= 256U * 1024U || sent == expected) {
+                LOGI("[NEXTION-OTA] op=%lu stage=uart_progress bytes=%lu/%lu pct=%u",
+                     (unsigned long)job.operationId, (unsigned long)sent,
+                     (unsigned long)expected, (unsigned)pct);
+                lastSentLog = sent;
+            }
+            vTaskDelay(1);
+        }
+        if (ok) {
+            setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Nextion, 95U,
+                       "waiting for Nextion final ACK", job.operationId);
+            setOtaStage_("nextion_ack", 0U);
+            ok = nextion.finishUpload();
+            if (!ok) {
+                LOGE("[NEXTION-OTA] op=%lu stage=final_ack_failed reason=%s",
+                     (unsigned long)job.operationId, nextion.statusMessage.c_str());
+                writeSimpleError_(errOut, errOutLen, nextion.statusMessage.c_str());
+            } else {
+                setOtaStage_("nextion_ack", 100U);
+                LOGI("[NEXTION-OTA] op=%lu stage=final_ack_ok bytes=%lu",
+                     (unsigned long)job.operationId, (unsigned long)sent);
+            }
         }
     }
-    nextion.end();
-
+    // On failure: release UART only. Do not send 'rest' into a partial image.
+    nextion.end(ok);
     pinMode(nextionRxPin_, INPUT);
     pinMode(nextionTxPin_, INPUT);
-
-    http.end();
-    if (flowIoEnablePin_ >= 0) {
-        digitalWrite(flowIoEnablePin_, HIGH);
-        pinMode(flowIoEnablePin_, INPUT);
-    }
+    releaseFlowIo();
 
     if (!ok) {
         (void)hmiSvc_->setLocalDisplayUpdateMode(hmiSvc_->ctx, false, 1000U);
         return false;
     }
 
-    if (!persistReceipt_(job.target,
-                         job.operationId,
+    if (!persistReceipt_(job.target, job.operationId,
                          FirmwareUpdateReceiptState::RebootPending)) {
         (void)hmiSvc_->setLocalDisplayUpdateMode(hmiSvc_->ctx, false, 1000U);
-        writeSimpleError_(errOut, errOutLen, "failed to persist update completion");
+        return writeSimpleError_(errOut, errOutLen, "failed to persist Nextion update completion");
+    }
+    setStatus_(UpdateState::Rebooting, FirmwareUpdateTarget::Nextion, 100U,
+               "rebooting after Nextion update", job.operationId);
+    if (!saveCountersBeforeUpdate_(errOut, errOutLen)) {
+        (void)hmiSvc_->setLocalDisplayUpdateMode(hmiSvc_->ctx, false, 1000U);
         return false;
     }
-    setStatus_(UpdateState::Rebooting,
-               FirmwareUpdateTarget::Nextion,
-               100,
-               "rebooting after nextion update",
-               job.operationId);
-    delay(1800);
-    if (!saveCountersBeforeUpdate_(errOut, errOutLen)) return false;
     RebootDiagnostics::markPlanned(RebootDiagnostics::Origin::OtaNextion, job.operationId);
     ESP.restart();
     return true;
