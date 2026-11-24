@@ -120,6 +120,10 @@ public: /* methods */
      */
     bool upload(const uint8_t *file_buf, size_t buf_size);
 
+    // The Nextion protocol requires an 0x05 acknowledgement after the FINAL
+    // (possibly partial) 4096-byte upload block, too.
+    bool finishUpload();
+
     /**
      * start update tft file to nextion. 
      * 
@@ -140,7 +144,7 @@ public: /* methods */
      *
      * @return none.
      */
-	void end(void);
+	void end(bool successful = true);
 	
 	
 	
@@ -156,7 +160,7 @@ private: /* methods */
      * @return communicate baudrate.
      *
      */
-    uint16_t _getBaudrate(void);
+    uint32_t _getBaudrate(void);
 
     /*
      * search communicate baudrate.

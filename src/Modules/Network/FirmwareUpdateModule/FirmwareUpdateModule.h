@@ -107,6 +107,8 @@ private:
         char url[kUrlLen] = {0};
         char nextionCompatibility[HMI_DISPLAY_MODEL_TEXT_MAX] = {0};
         uint32_t expectedSize = 0U;
+        uint8_t nextionSha256[32]{};
+        bool nextionHasSha256 = false;
     };
 
     struct UpdateStatus {
@@ -136,6 +138,8 @@ private:
         char version[HMI_DISPLAY_VERSION_TEXT_MAX] = {0};
         char url[kUrlLen] = {0};
         uint32_t size = 0U;
+        uint8_t sha256[32]{};
+        bool hasSha256 = false;
     };
 
     struct ConfigData {
@@ -223,6 +227,9 @@ private:
     bool queueNextionReboot_(char* errOut, size_t errOutLen);
     bool statusJson_(char* out, size_t outLen);
     bool isBusy_();
+    // Must be called while lock_ is held. Shares the one admission barrier
+    // between Nextion, paired firmware+SPIFFS OTA and local release upload.
+    bool updateAdmissionBusyLocked_(bool allowCurrentRemoteWorker = false) const;
     bool configJson_(char* out, size_t outLen) const;
     bool startManifestCheck_(uint32_t* requestIdOut, char* errOut, size_t errOutLen);
     bool manifestCheckStatus_(uint32_t requestId, FirmwareManifestCheckSnapshot* out);

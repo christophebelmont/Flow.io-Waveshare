@@ -3674,11 +3674,39 @@
       return targetLabel ? counter + ' · ' + targetLabel : counter;
     }
 
+    function nextionOtaPhaseDetail(stage, progress, fallback) {
+      const pct = Math.max(0, Math.min(100, Number(progress) || 0));
+      const suffix = ' (' + pct + '%)';
+      switch (String(stage || '').toLowerCase()) {
+        case 'nextion_download':
+          return tr('updates.nextion.phase.download', 'Téléchargement du fichier Nextion en PSRAM') + suffix;
+        case 'nextion_verify':
+          return tr('updates.nextion.phase.verify', 'Vérification du firmware en PSRAM') + suffix;
+        case 'nextion_uart':
+          return tr('updates.nextion.phase.uart', 'Initialisation de la liaison série Nextion');
+        case 'nextion_upload':
+          return tr('updates.nextion.phase.upload', 'Transfert UART vers le Nextion') + suffix;
+        case 'nextion_ack':
+          return tr('updates.nextion.phase.ack', 'Attente de confirmation du Nextion');
+        default:
+          return fallback;
+      }
+    }
+
     function upgradePhasePercent(session) {
       const phase = String(session && session.phase ? session.phase : 'idle');
       const progress = Math.max(0, Math.min(100, Number(session && session.backendProgress) || 0));
       const reconnectProgress = Math.max(0, Math.min(100, Number(session && session.reconnectProgress) || 0));
-      if (phase === 'target') return 1;
+      if (phase === 'target') {
+        // Nextion has not yet downloaded any bytes.
+        return String(session && session.target || '').toLowerCase() === 'nextion' ? 0 : 1;
+      }
+      // Nextion progress is derived from real PSRAM/UART byte counts.
+      // Never synthesize the old 5% "flashing" minimum.
+      if (String(session && session.target || '').toLowerCase() === 'nextion' &&
+          (phase === 'download' || phase === 'flash')) {
+        return Math.max(0, Math.min(96, progress));
+      }
       if (upgradeIsPairedTarget(session && session.target) &&
           (phase === 'download' || phase === 'flash')) {
         const index = upgradePairedOtaStageIndex(session);
@@ -3700,7 +3728,14 @@
       if (phase === 'reboot') return 97;
       if (phase === 'reconnect') return 97 + Math.round(reconnectProgress * 0.03);
       if (phase === 'done') return 100;
-      if (phase === 'error') return Math.max(6, Math.min(96, Number(session && session.lastPercent) || 12));
+      if (phase === 'error') {
+        // Do not invent a 6%-or-12% minimum when Nextion failed before data
+        // transfer. Preserve the last real reported progress instead.
+        if (String(session && session.target || '').toLowerCase() === 'nextion') {
+          return Math.max(0, Math.min(100, Number(session && session.lastPercent) || 0));
+        }
+        return Math.max(6, Math.min(96, Number(session && session.lastPercent) || 12));
+      }
       return 0;
     }
 
@@ -3718,6 +3753,10 @@
       }
       if (state !== 'active') return null;
       const phase = String(session && session.phase ? session.phase : '');
+      if (String(session && session.target || '').toLowerCase() === 'nextion' &&
+          (phase === 'download' || phase === 'flash')) {
+        return Math.max(0, Math.min(100, Number(session && session.otaBackendStepProgress) || 0));
+      }
       if (stepId !== phase) return null;
       if (phase === 'target') return 100;
       if (phase === 'download' || phase === 'flash') {
@@ -4216,10 +4255,13 @@
           backendMessage: msg,
           otaBackendStage: otaBackendStage,
           otaBackendStepProgress: otaBackendStepProgress,
-          detail: upgradeIsPairedTarget(target)
-            ? upgradePairedPhaseDetail(target, 'download', otaBackendStage,
-                                       otaBackendStepProgress, msg)
-            : 'Connexion au serveur.',
+          detail: target === 'nextion'
+            ? nextionOtaPhaseDetail(otaBackendStage, otaBackendStepProgress,
+                                   tr('updates.title.download', 'Téléchargement de la mise à jour'))
+            : upgradeIsPairedTarget(target)
+              ? upgradePairedPhaseDetail(target, 'download', otaBackendStage,
+                                         otaBackendStepProgress, msg)
+              : 'Connexion au serveur.',
           backendProgress: progress,
           awaitingReconnect: false,
           reconnectShown: false,
@@ -4239,10 +4281,13 @@
           backendMessage: msg,
           otaBackendStage: otaBackendStage,
           otaBackendStepProgress: otaBackendStepProgress,
-          detail: upgradeIsPairedTarget(target)
-            ? upgradePairedPhaseDetail(target, 'flash', otaBackendStage,
-                                       otaBackendStepProgress, msg)
-            : 'Mise à jour en cours.',
+          detail: target === 'nextion'
+            ? nextionOtaPhaseDetail(otaBackendStage, otaBackendStepProgress,
+                                   tr('updates.title.flash', 'Mise à jour du firmware'))
+            : upgradeIsPairedTarget(target)
+              ? upgradePairedPhaseDetail(target, 'flash', otaBackendStage,
+                                         otaBackendStepProgress, msg)
+              : 'Mise à jour en cours.',
           backendProgress: progress,
           awaitingReconnect: false,
           reconnectShown: false,

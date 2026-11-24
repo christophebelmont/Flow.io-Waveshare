@@ -13,6 +13,7 @@
 #include "Core/RuntimeSnapshotProvider.h"
 #include "Core/ServiceBinding.h"
 #include "Core/Services/Services.h"
+#include "Core/Services/IFirmwareUpdate.h"
 #include "Core/SystemLimits.h"
 #include "Modules/Network/MQTTModule/MqttConfigRouteProducer.h"
 #include "Modules/IOModule/IODrivers/Ads1115Driver.h"
@@ -412,6 +413,10 @@ private:
     uint8_t expanderCount_ = 0;
 
     ConfigStore* cfgStore_ = nullptr;
+    // Shared OTA service is discovered lazily in the RS485 task so the IO
+    // module never depends on FirmwareUpdate's module start order.
+    ServiceRegistry* serviceRegistry_ = nullptr;
+    const FirmwareUpdateService* fwUpdateSvc_ = nullptr;
     const ConfigStoreService* cfgSvc_ = nullptr;
     const LogHubService* logHub_ = nullptr;
     DataStore* dataStore_ = nullptr;

@@ -43,7 +43,7 @@
 
 #elif defined ESP32
 	#ifndef nexSerial
-		#define nexSerial Serial1
+		#define nexSerial Serial2 // Same physical HMI UART as NextionDriver; Serial1 is RS485.
 	#endif
 
 #endif
@@ -130,7 +130,7 @@ bool ESPNexUpload::prepareUpload(uint32_t file_size){
 
 
 
-uint16_t ESPNexUpload::_getBaudrate(void){
+uint32_t ESPNexUpload::_getBaudrate(void){
 
     _baudrate = 0;
     uint32_t baudrate_array[7] = {115200,19200,9600,57600,38400,4800,2400};
@@ -168,7 +168,7 @@ bool ESPNexUpload::_searchBaudrate(uint32_t baudrate){
 	this->sendCommand("",true,true); // 0x00 0xFF 0xFF 0xFF
 
 	this->recvRetString(response);
-	if(response[0] != 0x1A){
+	if(response.length() == 0 || response[0] != 0x1A){
 		_printInfoLine(F("first indication that baudrate is wrong"));
 	}else {
 		_printInfoLine(F("first respone from display, first indication that baudrate is correct"));
@@ -189,7 +189,7 @@ bool ESPNexUpload::_searchBaudrate(uint32_t baudrate){
 
 	this->sendCommand("connect"); // second attempt
 	this->recvRetString(response);
-	if(response.indexOf(F("comok")) == -1 && response[0] != 0x1A){
+	if(response.indexOf(F("comok")) == -1 && (response.length() == 0 || response[0] != 0x1A)) {
 		_printInfoLine(F("display doesn't accept the second connect request"));
 		_printInfoLine(F("conclusion, wrong baudrate"));
 		return 0;
@@ -275,6 +275,8 @@ uint16_t ESPNexUpload::recvRetString(String &response, uint32_t timeout,bool rec
         if(exit_flag || ff_flag){
             break;
         }
+        // Avoid busy-spinning through serial timeouts on the OTA worker.
+        delay(1);
     }
 	_printSerialData(false,response);
 
@@ -386,17 +388,36 @@ bool ESPNexUpload::upload(const uint8_t *file_buf, size_t buf_size){
 			c = file_buf[i];
 
 			// write byte to nextion over serial
-			nexSerial.write(c);
+			if (nexSerial.write(c) != 1U) {
+				statusMessage = F("nextion UART write failed");
+				return false;
+			}
+			// Yield while transferring large firmware images to avoid OTA task WDT.
+			if ((i & 0xFFU) == 0xFFU) delay(1);
 
 			// update sent packets counter
 			_sent_packets++;
 		}
     }
 
-    return true;  
+    return true;
 }
 
-
+// Protocol v1.1: every packet, including the final partial packet, needs 0x05.
+bool ESPNexUpload::finishUpload() {
+    if (_sent_packets == 0U) {
+        statusMessage = F("nextion final block missing");
+        return false;
+    }
+    nexSerial.flush();
+    String response = String("");
+    this->recvRetString(response, 5000U, true);
+    if (response.indexOf((char)0x05) == -1) {
+        statusMessage = F("nextion final block acknowledgement timeout");
+        return false;
+    }
+    return true;
+}
 
 bool ESPNexUpload::upload(Stream &myFile){
     #if defined ESP8266
@@ -444,22 +465,19 @@ void ESPNexUpload::softReset(void){
 
 
 
-void ESPNexUpload::end(){
-
-    // wait for the nextion to finish internal processes
-    delay(1600);
-
-	// soft reset the nextion
-	this->softReset();
-
-    // end Serial connection
+void ESPNexUpload::end(bool successful){
+    // Never reset an incompletely flashed panel or erase the failure reason.
+    if (successful) {
+        delay(1600);
+        this->softReset();
+        nexSerial.flush();
+    }
     nexSerial.end();
-
-	// reset sent packets counter
-	_sent_packets = 0;
-
-    statusMessage = F("upload ok");
-    _printInfoLine(statusMessage + F("\r\n"));
+    _sent_packets = 0;
+    if (successful) {
+        statusMessage = F("upload ok");
+        _printInfoLine(statusMessage + F("\r\n"));
+    }
 }
 
 
