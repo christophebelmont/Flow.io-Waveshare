@@ -170,6 +170,33 @@ const report = (function runNextionFailureMatrix() {
         if(releaseAtEnd){state.busy=false;state.local=false;check(!admission(state),"failed to release after completed/failed OTA");}
         stats.admission++;
       }
+  // A stale abort of a failed local upload is never allowed to mutate the
+  // live Nextion/release updater, but must work when the updater is idle.
+  const canAbortLocal = (state, remoteWorker = false) =>
+    !(state.busy && !remoteWorker) && !state.queued && !state.nextionReboot &&
+    !state.startPending && !state.manifestPending && !state.manifestActive;
+  for (let mask=0;mask<64;mask++) {
+    const current={
+      busy:!!(mask&1),queued:!!(mask&2),nextionReboot:!!(mask&4),
+      startPending:!!(mask&8),manifestPending:!!(mask&16),manifestActive:!!(mask&32)
+    };
+    check(canAbortLocal(current) === (mask===0),
+          "stale abort allowed to disrupt current update");
+    check(canAbortLocal(current,true) === ((mask & ~1)===0),
+          "nested remote abort cannot interfere with another updater");
+    stats.admission+=2;
+  }
+  // RS485 quiescence rejects queued new work while allowing the in-flight
+  // frame to finish; it must not freeze the UART bus or keep retries alive.
+  for (const inFlight of [false,true])
+    for (const queuedCount of [0,1,2,7]) {
+      const enabled=false;
+      const rejected=enabled?0:queuedCount;
+      const activeContinues=!!inFlight;
+      check(rejected===queuedCount && activeContinues===inFlight,
+            "RS485 quiesce lost in-flight completion or admitted new work");
+      stats.modbus++;
+    }
   const phases=[
     ...[0,1,5,30,50,80,99,100].map(v=>({name:"download",overall:Math.floor(v*25/100),local:v})),
     {name:"verify",overall:25,local:0},{name:"verify",overall:25,local:100},
