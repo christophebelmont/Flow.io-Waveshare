@@ -227,6 +227,9 @@ private:
     bool queueNextionReboot_(char* errOut, size_t errOutLen);
     bool statusJson_(char* out, size_t outLen);
     bool isBusy_();
+    // Must be called while lock_ is held. Shares the one admission barrier
+    // between Nextion, paired firmware+SPIFFS OTA and local release upload.
+    bool updateAdmissionBusyLocked_(bool allowCurrentRemoteWorker = false) const;
     bool configJson_(char* out, size_t outLen) const;
     bool startManifestCheck_(uint32_t* requestIdOut, char* errOut, size_t errOutLen);
     bool manifestCheckStatus_(uint32_t requestId, FirmwareManifestCheckSnapshot* out);
