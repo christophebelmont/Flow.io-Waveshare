@@ -15326,7 +15326,7 @@
     // reboot is then required to rebuild and republish every HA entity.
     function buildHaDiscoveryRefreshField(config) {
       const row = document.createElement('div');
-      row.className = 'control-row';
+      row.className = 'control-row ha-discovery-refresh-row';
       const labelWrap = document.createElement('div');
       labelWrap.className = 'control-label-wrap';
       const title = document.createElement('span');
@@ -15342,13 +15342,13 @@
       row.appendChild(labelWrap);
 
       const wrap = document.createElement('div');
-      wrap.className = 'control-value-wrap';
+      wrap.className = 'control-value-wrap ha-discovery-refresh-controls';
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'secondary ha-discovery-refresh';
       button.textContent = cfgDocTr('cfgdocs.ha.refresh.button', 'Rafraîchir les entités HA');
       const status = document.createElement('span');
-      status.className = 'control-help';
+      status.className = 'control-help ha-discovery-refresh-status';
       status.setAttribute('role', 'status');
       const enabled = config && config.enabled !== false;
       if (!enabled) {
@@ -15393,8 +15393,10 @@
         }
       });
       wrap.appendChild(button);
-      wrap.appendChild(status);
       row.appendChild(wrap);
+      // Keep the response on a full-width line below the action button;
+      // the previous inline-flex layout squeezed it to a vertical column.
+      row.appendChild(status);
       return row;
     }
 
