@@ -1146,6 +1146,8 @@ bool FirmwareUpdateModule::startUpdate_(FirmwareUpdateTarget target,
                  "%s",
                  selection.compatibility);
         job.expectedSize = selection.size;
+        job.nextionHasSha256 = selection.hasSha256;
+        if (selection.hasSha256) memcpy(job.nextionSha256, selection.sha256, sizeof(job.nextionSha256));
     } else if (target == FirmwareUpdateTarget::Spiffs ||
                target == FirmwareUpdateTarget::Waveshare) {
         // The old browser sends .../flowios3-spiffs-VERSION.bin, and the
@@ -3112,6 +3114,16 @@ bool FirmwareUpdateModule::runManifestCheck_(const ManifestCheckJob& job,
             snprintf(artifactSelection.version, sizeof(artifactSelection.version), "%s", version);
             snprintf(artifactSelection.url, sizeof(artifactSelection.url), "%s", artifactUrl);
             artifactSelection.size = size;
+            // Optional for compatibility with older manifests. When supplied,
+            // preverify the entire staged image before touching the display.
+            const char* artifactShaText = artifact["sha256"] | "";
+            if (artifactShaText[0] != '\0') {
+                if (!parseSha256_(artifactShaText, artifactSelection.sha256)) {
+                    writeSimpleError_(errOut, errOutLen, "invalid Nextion manifest SHA-256");
+                    return false;
+                }
+                artifactSelection.hasSha256 = true;
+            }
             if (!rememberNextionRecoveryArtifact_(artifactSelection, errOut, errOutLen)) return false;
 
             if (!displayDetected || strcmp(identity.compatibility, compatibility) != 0) continue;
