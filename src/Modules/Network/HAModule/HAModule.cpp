@@ -182,6 +182,9 @@ bool HAModule::addButtonSvc_(const HAButtonEntry* entry)
 
 bool HAModule::requestRefreshSvc_()
 {
+    // One-shot resources have already been freed: the Web handler can offer
+    // a controlled reboot to rebuild and republish the complete catalogue.
+    if (oneShotCompleted_.load() || !cfgData_.enabled || !producerRegistered_) return false;
     requestAutoconfigRefresh();
     return true;
 }
@@ -232,8 +235,14 @@ bool reserveDiscoveryEntries(T*& entries, uint16_t& capacity, uint16_t required,
 bool HAModule::ensureStorage_()
 {
     if (oneShotResourcesReleased_) return false;
-    if (!pendingBits_) pendingBits_ = static_cast<uint32_t*>(heap_caps_calloc(HA_PENDING_WORDS, sizeof(uint32_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    return pendingBits_ != nullptr;
+    if (!pendingBits_) {
+        // Two small bitmaps: ready for this pass, deferred for the next.
+        // Both live in temporary PSRAM and are released together.
+        pendingBits_ = static_cast<uint32_t*>(heap_caps_calloc(
+            HA_PENDING_WORDS * 2U, sizeof(uint32_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (pendingBits_) deferredBits_ = pendingBits_ + HA_PENDING_WORDS;
+    }
+    return pendingBits_ != nullptr && deferredBits_ != nullptr;
 }
 
 size_t HAModule::entityTableUsedBytes_() const
@@ -262,7 +271,7 @@ void HAModule::releaseOneShotResources_()
     const uint16_t releasedEntityCount = entityCount_();
     const size_t releasedEntityUsedBytes = entityTableUsedBytes_();
     const size_t releasedEntityCapBytes = entityTableCapacityBytes_();
-    const size_t releasedPendingBytes = sizeof(uint32_t) * HA_PENDING_WORDS;
+    const size_t releasedPendingBytes = sizeof(uint32_t) * HA_PENDING_WORDS * 2U;
     heap_caps_free(sensors_);
     heap_caps_free(binarySensors_);
     heap_caps_free(switches_);
@@ -277,6 +286,7 @@ void HAModule::releaseOneShotResources_()
     buttons_ = nullptr;
     selects_ = nullptr;
     pendingBits_ = nullptr;
+    deferredBits_ = nullptr;
     sensorCount_ = 0;
     binarySensorCount_ = 0;
     switchCount_ = 0;
@@ -287,6 +297,10 @@ void HAModule::releaseOneShotResources_()
     published_ = true;
     oneShotCompleted_ = true;
     oneShotResourcesReleased_ = true;
+    LOGI("HA PSRAM released: entities=%u table=%u bits=%u free=%lu",
+         (unsigned)releasedEntityCount, (unsigned)releasedEntityCapBytes,
+         (unsigned)releasedPendingBytes,
+         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     HA_BOOT_TRACE_I("ha boot trace: oneshot release entities=%u used=%u cap=%u pending_bytes=%u",
                     (unsigned)releasedEntityCount,
                     (unsigned)releasedEntityUsedBytes,
@@ -846,18 +860,24 @@ void HAModule::refreshDeviceNameFromMqttConfig_()
     snprintf(deviceName_, sizeof(deviceName_), "%s", originName_);
     if (!cfgSvc_ || !cfgSvc_->toJsonModule) return;
 
-    char mqttJson[Limits::Mqtt::Buffers::StateCfg] = {0};
+    // Keep the HA producer stack small. Both the temporary MQTT config
+    // string and the JSON pool are allocated in PSRAM, never on the task stack.
+    char* mqttJson = static_cast<char*>(heap_caps_calloc(
+        Limits::Mqtt::Buffers::StateCfg, sizeof(char), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!mqttJson) return;
     bool truncated = false;
-    if (!cfgSvc_->toJsonModule(cfgSvc_->ctx, "mqtt", mqttJson, sizeof(mqttJson), &truncated)) return;
-
-    StaticJsonDocument<512> doc;
-    const DeserializationError err = deserializeJson(doc, mqttJson);
-    if (err || !doc.is<JsonObjectConst>()) return;
-
-    const char* configuredName = doc["deviceName"] | "";
-    if (configuredName && configuredName[0] != '\0') {
-        snprintf(deviceName_, sizeof(deviceName_), "%s", configuredName);
+    if (cfgSvc_->toJsonModule(cfgSvc_->ctx, "mqtt", mqttJson,
+                              Limits::Mqtt::Buffers::StateCfg, &truncated) && !truncated) {
+        SpiRamJsonDocument doc(512);
+        const DeserializationError err = deserializeJson(doc, mqttJson);
+        if (!err && doc.is<JsonObjectConst>()) {
+            const char* configuredName = doc["deviceName"] | "";
+            if (configuredName && configuredName[0] != '\0') {
+                snprintf(deviceName_, sizeof(deviceName_), "%s", configuredName);
+            }
+        }
     }
+    heap_caps_free(mqttJson);
 }
 
 bool HAModule::resolveMqttTopicDeviceId_(char* out, size_t outLen) const
@@ -915,7 +935,12 @@ void HAModule::setPending_(uint16_t messageId, bool pending)
 void HAModule::markAllPending_()
 {
     if (oneShotCompleted_ || !ensureStorage_()) return;
-    memset(pendingBits_, 0, sizeof(uint32_t) * HA_PENDING_WORDS);
+    memset(pendingBits_, 0, sizeof(uint32_t) * HA_PENDING_WORDS * 2U);
+    deferredBuildId_ = UINT16_MAX;
+    deferredRetryNotBeforeMs_ = 0U;
+    retryPass_ = 0U;
+    discoveredCount_ = 0U;
+    retrySkippedCount_ = 0U;
     const uint16_t count = entityCount_();
     for (uint16_t i = 0; i < count; ++i) {
         setPending_(i, true);
@@ -923,7 +948,7 @@ void HAModule::markAllPending_()
     HA_BOOT_TRACE_D("ha boot trace: mark all pending entities=%u", (unsigned)count);
 }
 
-bool HAModule::anyPending_() const
+bool HAModule::anyReadyPending_() const
 {
     if (!pendingBits_) return false;
     for (uint16_t i = 0; i < HA_PENDING_WORDS; ++i) {
@@ -932,11 +957,63 @@ bool HAModule::anyPending_() const
     return false;
 }
 
+bool HAModule::anyPending_() const
+{
+    if (!pendingBits_ || !deferredBits_) return false;
+    for (uint16_t i = 0; i < HA_PENDING_WORDS; ++i) {
+        if ((pendingBits_[i] | deferredBits_[i]) != 0U) return true;
+    }
+    return false;
+}
+
+MqttBuildResult HAModule::deferEntityBuild_(uint16_t messageId)
+{
+    // The MQTT job can be released immediately. Its drop callback moves
+    // this entity to a temporary bitmap for a later bounded retry pass.
+    deferredBuildId_ = messageId;
+    return MqttBuildResult::NoLongerNeeded;
+}
+
 bool HAModule::enqueuePending_(MqttPublishPriority prio)
 {
     if (oneShotCompleted_) return false;
     if (!mqttSvc_ || !mqttSvc_->tryEnqueueBackground) return false;
     if (!discoveryReady_() || admittedMessageId_ != UINT16_MAX) return false;
+
+    if (!anyReadyPending_() && anyPending_()) {
+        const uint32_t nowMs = millis();
+        if (deferredRetryNotBeforeMs_ == 0U) {
+            deferredRetryNotBeforeMs_ = nowMs + DiscoveryRetryDelayMs;
+            LOGI("HA deferred retry pending pass=%u delay_ms=%lu",
+                 (unsigned)(retryPass_ + 1U), (unsigned long)DiscoveryRetryDelayMs);
+        }
+        if ((int32_t)(nowMs - deferredRetryNotBeforeMs_) < 0) return false;
+        deferredRetryNotBeforeMs_ = 0U;
+        if (retryPass_ >= DiscoveryRetryPasses) {
+            uint16_t unfinished = 0U;
+            for (uint16_t word = 0U; word < HA_PENDING_WORDS; ++word) {
+                unfinished += (uint16_t)__builtin_popcount((unsigned)deferredBits_[word]);
+            }
+            LOGW("HA discovery INCOMPLETE after retries: published=%u missing=%u deferred_attempts=%u passes=%u; reboot/refresh to retry",
+                 (unsigned)discoveredCount_, (unsigned)unfinished,
+                 (unsigned)retrySkippedCount_, (unsigned)retryPass_);
+            memset(deferredBits_, 0, sizeof(uint32_t) * HA_PENDING_WORDS);
+            // Mark the one-shot attempt terminal even when some entities
+            // could not be built. The Waveshare discovery heap is released
+            // via haAutoconfigPublished(); leaving it false would leak PSRAM.
+            published_ = true;
+            if (dsSvc_ && dsSvc_->store) setHaAutoconfigPublished(*dsSvc_->store, true);
+            return false;
+        }
+        ++retryPass_;
+        for (uint16_t word = 0; word < HA_PENDING_WORDS; ++word) {
+            pendingBits_[word] = deferredBits_[word];
+            deferredBits_[word] = 0U;
+        }
+        LOGI("HA discovery retry pass=%u/%u published=%u",
+             (unsigned)retryPass_, (unsigned)DiscoveryRetryPasses,
+             (unsigned)discoveredCount_);
+    }
 
     const uint16_t count = entityCount_();
     for (uint16_t i = 0; i < count; ++i) {
@@ -1089,17 +1166,34 @@ MqttBuildResult HAModule::buildMessage_(uint16_t messageId, MqttBuildContext& bu
         messageId < sensorCount_ + binarySensorCount_ ? binarySensors_[messageId - sensorCount_].dataValueId : VALUE_INVALID;
     if (id != VALUE_INVALID) {
         ValueSnapshot value{}; ValueMetadata metadata{};
-        if (!dsSvc_->store->publishHa(id) ||
-            !readAvailableDataValue(dsSvc_->store->values, id, value, metadata))
-            return MqttBuildResult::NoLongerNeeded;
+        if (!dsSvc_->store->publishHa(id)) return MqttBuildResult::NoLongerNeeded;
+        if (!readAvailableDataValue(dsSvc_->store->values, id, value, metadata)) {
+            if (retryPass_ < DiscoveryRetryPasses)
+                return deferEntityBuild_(messageId);
+            // After bounded retries, allow a defined but not-yet-valid sensor
+            // to appear as unavailable in HA. Existing availability templates
+            // already convey offline quality; do not announce undefined slots.
+            const auto* descriptor = dataValueDescriptor(id);
+            if (!descriptor ||
+                !dsSvc_->store->values.read(id, value, &metadata) ||
+                !dataValueCompatible(*descriptor, metadata))
+                return deferEntityBuild_(messageId);
+            LOGI("HA publishing registered but unavailable value id=%u after %u retries",
+                 (unsigned)id, (unsigned)retryPass_);
+        }
     }
-    if (!buildEntityMessage_(messageId, buildCtx)) return MqttBuildResult::PermanentError;
+    if (!buildEntityMessage_(messageId, buildCtx)) {
+        // Short-lived PSRAM or formatting pressure should not erase an entity.
+        return deferEntityBuild_(messageId);
+    }
     return MqttBuildResult::Ready;
 }
 
 void HAModule::onMessagePublished_(uint16_t messageId)
 {
     admittedMessageId_ = UINT16_MAX;
+    deferredBuildId_ = UINT16_MAX;
+    ++discoveredCount_;
     setPending_(messageId, false);
     const bool done = !anyPending_();
     if (dsSvc_ && dsSvc_->store) {
@@ -1117,7 +1211,13 @@ void HAModule::onMessagePublished_(uint16_t messageId)
 void HAModule::onMessageDropped_(uint16_t messageId)
 {
     admittedMessageId_ = UINT16_MAX;
+    const bool deferred = deferredBuildId_ == messageId;
+    deferredBuildId_ = UINT16_MAX;
     setPending_(messageId, false);
+    if (deferred && deferredBits_ && messageId < MAX_HA_ENTITIES) {
+        deferredBits_[messageId / 32U] |= (1UL << (messageId % 32U));
+        ++retrySkippedCount_;
+    }
     const bool done = !anyPending_();
     if (dsSvc_ && dsSvc_->store) {
         setHaAutoconfigPublished(*dsSvc_->store, done);
@@ -1162,6 +1262,17 @@ void HAModule::prepareDiscovery_()
         if (dsSvc_ && dsSvc_->store) setHaAutoconfigPublished(*dsSvc_->store, false);
     }
 #if FLOW_HA_ONESHOT_DISCOVERY
+    // Nothing to publish is also a completed catalogue. Do this only after
+    // startup registration is finished and MQTT is ready, otherwise the
+    // earlier init() call (which starts with zero entries) could prematurely
+    // free the tables before the other modules register their HA entities.
+    if (startupReady_.load() && discoveryReady_() && entityCount_() == 0U &&
+        admittedMessageId_ == UINT16_MAX && !anyPending_()) {
+        published_ = true;
+        if (dsSvc_ && dsSvc_->store)
+            setHaAutoconfigPublished(*dsSvc_->store, true);
+        LOGI("HA discovery empty catalogue: no entities registered");
+    }
     if (published_ && admittedMessageId_ == UINT16_MAX && !anyPending_()) {
         LOGI("HA one-shot discovery complete, releasing resources");
         markBootLogCaptureCompleteAfterDiscovery_();

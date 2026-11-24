@@ -14639,7 +14639,7 @@
       if (locked) {
         closeAnchoredPopover();
       }
-      const nodes = page.querySelectorAll('.cfg-tree button,.control-fields input,.control-fields select,.control-fields textarea,.dependency-mask-trigger,.control-field-apply,#flowCfgApply,#flowCfgRefresh');
+      const nodes = page.querySelectorAll('.cfg-tree button,.control-fields input,.control-fields select,.control-fields textarea,.dependency-mask-trigger,.control-field-apply,.ha-discovery-refresh,#flowCfgApply,#flowCfgRefresh');
       nodes.forEach((node) => {
         if (!node) return;
         if (locked) {
@@ -15372,8 +15372,90 @@
       });
     }
 
+    // Runtime action, separate from ConfigStore's persisted configuration values.
+    // In one-shot mode the catalogue is deliberately released: a confirmed
+    // reboot is then required to rebuild and republish every HA entity.
+    function buildHaDiscoveryRefreshField(config) {
+      const row = document.createElement('div');
+      row.className = 'control-row ha-discovery-refresh-row';
+      const labelWrap = document.createElement('div');
+      labelWrap.className = 'control-label-wrap';
+      const title = document.createElement('span');
+      title.className = 'control-label';
+      title.textContent = cfgDocTr('cfgdocs.ha.refresh.label',
+        'Rafraîchir la découverte Home Assistant');
+      const help = document.createElement('span');
+      help.className = 'control-help';
+      help.textContent = cfgDocTr('cfgdocs.ha.refresh.help',
+        'Republie les entités MQTT Discovery. Après la libération du catalogue, un redémarrage est nécessaire.');
+      labelWrap.appendChild(title);
+      labelWrap.appendChild(help);
+      row.appendChild(labelWrap);
+
+      const wrap = document.createElement('div');
+      wrap.className = 'control-value-wrap ha-discovery-refresh-controls';
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'secondary ha-discovery-refresh';
+      button.textContent = cfgDocTr('cfgdocs.ha.refresh.button', 'Rafraîchir les entités HA');
+      const status = document.createElement('span');
+      status.className = 'control-help ha-discovery-refresh-status';
+      status.setAttribute('role', 'status');
+      const enabled = config && config.enabled !== false;
+      if (!enabled) {
+        button.disabled = true;
+        status.textContent = cfgDocTr('cfgdocs.ha.refresh.disabled',
+          'Activez Home Assistant avant de lancer la découverte.');
+      }
+      button.addEventListener('click', async () => {
+        if (button.disabled || flowCfgLocalApplyBusyDepth > 0) return;
+        if (!window.confirm(cfgDocTr('cfgdocs.ha.refresh.confirm',
+            'Republier toutes les entités Home Assistant ?'))) return;
+        button.disabled = true;
+        status.textContent = cfgDocTr('cfgdocs.ha.refresh.pending', 'Demande de découverte en cours…');
+        try {
+          // Do not retry this POST automatically: one refresh is one action.
+          const response = await fetch('/api/ha/discovery/refresh',
+            { method: 'POST', cache: 'no-store' });
+          const result = await response.json().catch(() => null);
+          if (response.status === 409 && result && result.restart_required) {
+            status.textContent = cfgDocTr('cfgdocs.ha.refresh.requiresReboot',
+              'Le catalogue a été libéré. Un redémarrage est nécessaire.');
+            if (!window.confirm(cfgDocTr('cfgdocs.ha.refresh.rebootConfirm',
+                'Redémarrer Flow.io pour reconstruire et republier toutes les entités HA ? Les changements non enregistrés seront perdus.'))) return;
+            const reboot = await fetch('/api/system/reboot',
+              { method: 'POST', cache: 'no-store' });
+            const rebootResult = await reboot.json().catch(() => null);
+            if (!reboot.ok || !rebootResult || rebootResult.ok !== true) {
+              throw new Error('Reboot rejected');
+            }
+            status.textContent = cfgDocTr('cfgdocs.ha.refresh.restarting',
+              'Redémarrage demandé. La découverte sera relancée au démarrage.');
+            return;
+          }
+          if (!response.ok || !result || result.ok !== true) throw new Error('Refresh rejected');
+          status.textContent = cfgDocTr('cfgdocs.ha.refresh.accepted',
+            'Découverte relancée. Les publications se poursuivent en arrière-plan.');
+        } catch (_) {
+          status.textContent = cfgDocTr('cfgdocs.ha.refresh.failed',
+            'Demande non confirmée. Vérifiez la connexion MQTT et les logs.');
+        } finally {
+          if (row.isConnected && enabled && flowCfgLocalApplyBusyDepth === 0) button.disabled = false;
+        }
+      });
+      wrap.appendChild(button);
+      row.appendChild(wrap);
+      // Keep the response on a full-width line below the action button;
+      // the previous inline-flex layout squeezed it to a vertical column.
+      row.appendChild(status);
+      return row;
+    }
+
     function renderFlowCfgFieldsWithExtensions(dataObj) {
       renderFlowCfgFields(dataObj);
+      if (flowCfgCurrentModule === 'ha') {
+        flowCfgFields.appendChild(buildHaDiscoveryRefreshField(dataObj));
+      }
       if (flowCfgCurrentPdmExtension &&
           flowCfgCurrentPdmExtension.data &&
           Object.keys(flowCfgCurrentPdmExtension.data).length > 0) {

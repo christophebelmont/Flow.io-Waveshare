@@ -711,6 +711,14 @@ body.menu-icons-remote .refresh-icon-glyph::before{content:"refresh";}
 .control-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--panel-frame-border);border-radius:var(--radius);background:var(--panel-frame-bg);}
 /* The author display:flex rule must not override conditional Config Store visibility. */
 .control-row[hidden]{display:none!important;}
+/* Home Assistant discovery is a standalone action, not a two-field input.
+   Keep its button at the right and render feedback across the row below it. */
+.ha-discovery-refresh-row{flex-wrap:wrap;}
+.ha-discovery-refresh-row .control-label-wrap{flex:1 1 220px;}
+.ha-discovery-refresh-row .ha-discovery-refresh-controls{width:auto;max-width:100%;flex:0 0 auto;}
+.ha-discovery-refresh-row .ha-discovery-refresh-status{width:100%;flex:0 0 100%;text-align:right;white-space:normal;overflow-wrap:break-word;}
+.ha-discovery-refresh-row .ha-discovery-refresh-status:empty{display:none;}
+
 .control-row.is-dirty{border-color:rgba(0,194,209,0.45);box-shadow:inset 0 0 0 1px rgba(0,194,209,0.08);}
 .control-row.is-invalid{border-color:rgba(209,76,102,0.52);box-shadow:inset 0 0 0 1px rgba(209,76,102,0.10);}
 .control-row-skeleton{pointer-events:none;}

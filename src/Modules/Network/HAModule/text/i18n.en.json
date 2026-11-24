@@ -12,6 +12,17 @@
     "cfgdocs.ha.model.help": "Nom of modèle exposé dans Home Assistant.",
     "cfgdocs.ha.model.label": "Modèle",
     "cfgdocs.ha.vendor.help": "Nom of constructeur exposé dans Home Assistant.",
-    "cfgdocs.ha.vendor.label": "Manufacturer"
+    "cfgdocs.ha.vendor.label": "Manufacturer",
+    "cfgdocs.ha.refresh.label": "Refresh Home Assistant discovery",
+    "cfgdocs.ha.refresh.help": "Republish all MQTT Discovery entities. After the temporary catalogue has been released, Flow.io must reboot to rebuild the full catalogue.",
+    "cfgdocs.ha.refresh.button": "Refresh HA entities",
+    "cfgdocs.ha.refresh.disabled": "Enable Home Assistant before starting discovery.",
+    "cfgdocs.ha.refresh.confirm": "Republish all Home Assistant entities?",
+    "cfgdocs.ha.refresh.pending": "Requesting a discovery refresh…",
+    "cfgdocs.ha.refresh.requiresReboot": "The HA catalogue has been released. A reboot is required.",
+    "cfgdocs.ha.refresh.rebootConfirm": "Reboot Flow.io to rebuild and republish all Home Assistant entities? Unsaved changes will be lost.",
+    "cfgdocs.ha.refresh.restarting": "Reboot requested. Discovery will run again after startup.",
+    "cfgdocs.ha.refresh.accepted": "Discovery restarted. MQTT publications continue in the background.",
+    "cfgdocs.ha.refresh.failed": "Request not confirmed. Check the MQTT connection and logs."
   }
 }
