@@ -18,7 +18,8 @@ bool MQTTModule::addRuntimePublisher(const char* topic,
                                      int qos,
                                      bool retain,
                                      bool (*build)(MQTTModule* self, char* out, size_t outLen),
-                                     bool allowNoPayload)
+                                     bool allowNoPayload,
+                                     bool topicIsSuffix)
 {
     if (!topic || !build) return false;
     if (runtimePublisherCount_ >= Limits::Mqtt::Capacity::MaxPublishers) return false;
@@ -27,6 +28,7 @@ bool MQTTModule::addRuntimePublisher(const char* topic,
     p.used = true;
     p.messageId = (uint16_t)(StatusMsgRuntimeBase + runtimePublisherCount_);
     p.topic = topic;
+    p.topicIsSuffix = topicIsSuffix;
     p.periodMs = periodMs;
     p.nextDueMs = 0;
     p.qos = (qos < 0) ? 0U : (uint8_t)qos;
@@ -227,8 +229,12 @@ MqttBuildResult MQTTModule::buildStatus_(uint16_t messageId, MqttBuildContext& c
         RuntimePublisher& p = runtimePublishers_[idx];
         if (!p.used || !p.topic || !p.build) return MqttBuildResult::NoLongerNeeded;
 
-        const int tw = snprintf(ctx.topic, ctx.topicCapacity, "%s", p.topic);
-        if (!(tw > 0 && (uint16_t)tw < ctx.topicCapacity)) return MqttBuildResult::PermanentError;
+        // Resolve the runtime suffix using the same effective MQTT base/device
+        // identifiers as Home Assistant discovery. Never cache a boot-time topic.
+        if (p.topicIsSuffix) formatTopic(ctx.topic, ctx.topicCapacity, p.topic);
+        else snprintf(ctx.topic, ctx.topicCapacity, "%s", p.topic);
+        const size_t tw = strnlen(ctx.topic, ctx.topicCapacity);
+        if (!tw || tw >= ctx.topicCapacity) return MqttBuildResult::PermanentError;
 
         const bool ok = p.build(this, ctx.payload, ctx.payloadCapacity);
         if (!ok) {
