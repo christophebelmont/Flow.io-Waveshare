@@ -3801,6 +3801,7 @@ bool IOModule::writeDigitalOut_(void* ctx, bool on)
 
 void IOModule::init(ConfigStore& cfg, ServiceRegistry& services)
 {
+    serviceRegistry_ = &services;
     constexpr uint8_t kCfgModuleId = (uint8_t)ConfigModuleId::Io;
     if (!ensureScalableStorage_() || !ensureConfigDescriptorStorage_()) return;
 
@@ -4085,7 +4086,17 @@ void IOModule::serialTask_(void* context, TaskHealth& health)
     auto& self = *static_cast<IOModule*>(context);
     for (;;) {
         health.beginCycle();
-        if (self.rs485Ready_) self.modbusMaster_.tick(millis(), micros(), self.cfgData_.enabled);
+        if (!self.fwUpdateSvc_ && self.serviceRegistry_) {
+            self.fwUpdateSvc_ =
+                self.serviceRegistry_->get<FirmwareUpdateService>(ServiceId::FirmwareUpdate);
+        }
+        const bool otaBusy = self.fwUpdateSvc_ && self.fwUpdateSvc_->isBusy &&
+            self.fwUpdateSvc_->isBusy(self.fwUpdateSvc_->ctx);
+        // Stop admitting new RS485 requests during ANY updater operation;
+        // tick(enabled=false) rejects queued work but safely drains an active
+        // transaction before returning the bus to normal service.
+        if (self.rs485Ready_)
+            self.modbusMaster_.tick(millis(), micros(), self.cfgData_.enabled && !otaBusy);
         health.endCycle(1);
         vTaskDelay(1);
     }
