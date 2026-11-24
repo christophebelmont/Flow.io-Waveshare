@@ -41,4 +41,8 @@ These are source/host guards, **not** a firmware-build or hardware validation. B
 
 ## Status
 
-Source wiring verified against the `famille5` branch on 2026-11-24. Automated tests, ESP32-S3 firmware compilation, and on-device MQTT/HA validation remain **unverified** in this review; do not mark family 5 as production-ready without those checks.
+**Branch for lab testing:** `stephdust/Flow.io-Waveshare:fix/family5-ha-discovery-psram-20261124`, created directly from `christophebelmont/Flow.io-Waveshare:dev` at `b6df88da` (2026-11-24). This isolates the eight Family 5 files and includes Christophe's latest unrelated `app-core.js` change without merging other pending PRs.
+
+**Source review:** 19 targeted static consistency checks passed, covering production one-shot mode, PSRAM allocations and release, four deferred retries at five-second intervals, MQTT drop callbacks, registered unavailable-value fallback, refresh action and reboot confirmation. These checks inspect source contracts; they **do not execute the ESP32 firmware or constitute the Python test suite**.
+
+**Still required:** run the Python test commands above, compile with PlatformIO, and verify on an ESP32-S3 with real MQTT/Home Assistant including broker disconnections, missing initial sensor measurements, discovery refresh and PSRAM recovery. Do not mark Family 5 as production-ready until those checks are recorded.
