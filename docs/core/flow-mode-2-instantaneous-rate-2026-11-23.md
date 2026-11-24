@@ -1,7 +1,7 @@
 # Mode numérique 2 — Débit instantané (Flow.io Waveshare ESP32-S3)
 
-**Branche de travail :** `experiment/modbus-tcp-psram-buffers-20261122`  
-**Statut :** implémenté pour tests ; compilation complète ESP32-S3 et validation sur les équipements réels requises.
+**Référence :** implémentation présente dans `dev` au 24 novembre 2026.  
+**Statut :** documentation technique du comportement implémenté ; la compatibilité avec chaque débitmètre et son étalonnage doit être vérifiée sur installation.
 
 ## Expérience de configuration
 
@@ -10,13 +10,13 @@
 - `1 | Compteur d'impulsions` : cumul NVS, remise à zéro et modification manuelle, non modifié ;
 - `2 | Débit instantané` : mesure de fréquence et débit calculé, **sans compteur cumulatif exposé ni checkpoint NVS**.
 
-En mode 2, l'utilisateur conserve la configuration GPIO, `Actif à 1`, le pull, la sélection de front, le filtre de rebonds, `Coef C0` et `Précision`. Le menu `Unité` propose `l/min`, `l/h`, `m3/min`, `m3/h`. Les commandes `Remettre le compteur à zéro` et `Valeur du Compteur` ne s'affichent pas : elles n'ont aucune fonction dans ce mode.
+En mode 2, l'utilisateur conserve la configuration GPIO, `Actif à 1`, le pull, la sélection de front, le filtre de rebonds, `Coef C0` (en imp/L) et `Précision`. Le menu `Unité` propose `l/min`, `l/h`, `m3/min`, `m3/h`. Les commandes `Remettre le compteur à zéro` et `Valeur du Compteur` ne s'affichent pas : elles n'ont aucune fonction dans ce mode.
 
 Le changement de mode ou d'unité s'applique au prochain redémarrage, comme les autres changements d'affectation du driver.
 
 ## Calcul physique et convention K
 
-**K / C0 = litres par impulsion**, valeur non négative et finie. Cette convention évite d'avoir un K ambigu quand on change l'unité choisie.
+**K / C0 = impulsions par litre (imp/L)** en mode 2, valeur **strictement positive et finie**. Le firmware divise la fréquence d'impulsions par C0 pour obtenir les litres par minute. Ce n'est **pas** la convention du mode 1, où C0 multiplie le cumul ou la fréquence (par exemple en L/impulsion). Ne pas réutiliser la même valeur en changeant de mode.
 
 ```
                   GPIO d'entrée
@@ -27,7 +27,7 @@ Le changement de mode ou d'unité s'applique au prochain redémarrage, comme les
                         │
              impulsions / minute
                         │
-                  × C0 (L/pulse)
+                  ÷ C0 (imp/L)
                         │
                 litres / minute
                         │ sélection d'unité
@@ -36,9 +36,9 @@ Le changement de mode ou d'unité s'applique au prochain redémarrage, comme les
       × 1               × 60             ÷ 1000          × 0,06
 ```
 
-Exemple : 10 impulsions en 1 seconde et C0 = 0,5 litre/impulsion ⇒ fréquence 600 impulsions/min ⇒ 300 l/min, 18 000 l/h, 0,300 m3/min ou 18 m3/h.
+Exemple : 10 impulsions en 1 seconde et C0 = 2 impulsions/litre ⇒ fréquence 600 impulsions/min ⇒ 300 l/min, 18 000 l/h, 0,300 m3/min ou 18 m3/h. Le même débitmètre configuré en mode 1 avec une valeur exprimée en litres utiliserait C0 = 0,5 L/impulsion.
 
-L'échantillonnage tient compte de la durée réelle de la fenêtre, pas d'un délai nominal fixe : `rate = ΔP × 60 000 / Δt_ms`. Une fréquence nulle pendant une seconde donne un débit nul. Les changements de valeur sont quantifiés à la précision configurée pour les affichages.
+L'échantillonnage tient compte de la durée réelle de la fenêtre, pas d'un délai nominal fixe : `rate = ΔP × 60 000 / Δt_ms`. Une fenêtre de mesure sans impulsion donne un débit nul lors de son actualisation suivante. Les changements de valeur sont quantifiés à la précision configurée pour les affichages.
 
 Le compteur matériel a besoin d'une base temporaire pour calculer `ΔP` : elle existe **uniquement en RAM**, n'est ni exposée comme cumul au système, ni sauvegardée en NVS. Une éventuelle ancienne valeur de checkpoint issue d'un précédent mode 1 n'est pas incrémentée en mode 2.
 
