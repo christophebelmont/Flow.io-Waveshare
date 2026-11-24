@@ -103,4 +103,42 @@ static void presentationTests() {
     assert(!formatValueNumber(out, 2, 123.456, 6) && !out[0]);
     assert(roundToPrecision(12.3456, 2) == 12.35);
 }
-int main() { candidateTests(); presentationTests(); puts("candidate graph and Value -> JSON/display/Float64 pipeline OK"); }
+// Regression: pulse-rate and converted-flow decimals only change presentation,
+// never the raw ValueRegistry source or the derived floating point value.
+static void pulsePresentationTests() {
+    ValueRegistry registry;
+    assert(registry.begin());
+    const ValueId rateId = ValueIds::PulseRate + 1U;
+    const ValueId flowId = ValueIds::ConvertedRate + 1U;
+    ValueMetadata rateMeta{ValueType::Float, AggregationMode::Rate, ValueUnit::PulsePerMinute};
+    setValueUnit(rateMeta.displayUnit, "imp/min");
+    rateMeta.precision = 2;
+    assert(registry.define(rateId, rateMeta));
+    assert(registry.defineAffine(flowId, rateId, 1.0, 0.0, AggregationMode::Rate));
+    registry.setPrecision(flowId, 2);
+
+    ValueNumber sample{};
+    sample.f = 2.716776132583618f;
+    assert(registry.write(rateId, sample, 1000));
+    ValueSnapshot rate{}, flow{};
+    ValueMetadata rateMetadata{}, flowMetadata{};
+    assert(registry.read(rateId, rate, &rateMetadata));
+    assert(registry.read(flowId, flow, &flowMetadata));
+    assert(rate.value.f == sample.f);
+    assert(flow.value.d == (double)sample.f);
+    assert(rateMetadata.precision == 2 && flowMetadata.precision == 2);
+    char json[160]{};
+    assert(formatValueSnapshot(json, sizeof(json), rateId, rate, rateMetadata));
+    assert(strstr(json, "\"value\":2.72"));
+    assert(formatValueSnapshot(json, sizeof(json), flowId, flow, flowMetadata));
+    assert(strstr(json, "\"value\":2.72"));
+
+    // The configured flow precision may change without changing the raw value.
+    registry.setPrecision(flowId, 0);
+    assert(registry.read(flowId, flow, &flowMetadata));
+    assert(flow.value.d == (double)sample.f && flowMetadata.precision == 0);
+    assert(formatValueSnapshot(json, sizeof(json), flowId, flow, flowMetadata));
+    assert(strstr(json, "\"value\":3"));
+}
+
+int main() { candidateTests(); presentationTests(); pulsePresentationTests(); puts("candidate graph and Value -> JSON/display/Float64 pipeline OK"); }
