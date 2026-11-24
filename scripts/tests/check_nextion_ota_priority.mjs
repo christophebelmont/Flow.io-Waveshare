@@ -133,5 +133,6 @@ assert.match(io, /self\.fwUpdateSvc_->isBusy\(self\.fwUpdateSvc_->ctx\)/);
 assert.match(io, /self\.cfgData_\.enabled && !otaBusy/);
 assert.match(rs485Scheduler, /if \(!enabled\) \{[\s\S]*?SlotState::Queued[\s\S]*?MODBUS_RESULT_NOT_READY/);
 assert.match(rs485Scheduler, /bus_\.tick\(nowUs\)/);
-assert.match(rs485Scheduler, /const bool/); // Transport state stays responsive while quiesced.
+assert.match(rs485Scheduler, /if \(activeIndex_ < 0\)/);
+assert.match(rs485Scheduler, /retryOrFinish_\(slot/); // Drain in-flight transaction after quiesce.
 console.log('PASS: exclusive Nextion/paired OTA, PSRAM before UART, RS485/Modbus pause, real phase progress');
