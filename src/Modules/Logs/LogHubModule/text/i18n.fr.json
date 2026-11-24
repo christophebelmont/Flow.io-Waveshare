@@ -34,6 +34,8 @@
     "cfgmods.log.levels.m25_lvl.label": "poollogic",
     "cfgmods.log.levels.m26_lvl.help": "Niveau minimal de logs pour l'IHM.",
     "cfgmods.log.levels.m26_lvl.label": "hmi",
+    "cfgmods.log.levels.m35_lvl.help": "Niveau minimal de logs pour le serveur Modbus TCP (ports 502, 503 et 504).",
+    "cfgmods.log.levels.m35_lvl.label": "Modbus TCP",
     "cfgmods.log.levels.m2_lvl.help": "Niveau minimal de logs pour le hub de logs.",
     "cfgmods.log.levels.m2_lvl.label": "loghub",
     "cfgmods.log.levels.m3_lvl.help": "Niveau minimal de logs pour le dispatcher asynchrone.",

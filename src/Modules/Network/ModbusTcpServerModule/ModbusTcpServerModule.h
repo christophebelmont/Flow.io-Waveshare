@@ -202,8 +202,10 @@ public:
         const uint32_t largestPsram = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
         const uint32_t stackWatermark = uxTaskGetStackHighWaterMark(nullptr);
 #if FLOW_PERFORMANCE_DIAGNOSTICS
-        Serial.printf("[MODBUS-TCP] tick_max_us=%lu tick_slow_5ms=%lu\n",
-            (unsigned long)tickMaxUs_, (unsigned long)slowTicks_);
+        // Keep optional CPU instrumentation accessible from /wslog, not UART
+        // only. One bounded line per minute; no extra per-request tracing.
+        Log::info(kLogModule_, "[MODBUS-TICK] max_us=%lu slow_5ms=%lu",
+                  (unsigned long)tickMaxUs_, (unsigned long)slowTicks_);
         tickMaxUs_ = 0U;
         slowTicks_ = 0U;
 #endif

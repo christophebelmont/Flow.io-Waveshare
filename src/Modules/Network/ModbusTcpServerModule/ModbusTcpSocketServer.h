@@ -12,6 +12,8 @@
 #include <lwip/sockets.h>
 #include <errno.h>
 #include <esp_heap_caps.h>
+#include "Core/Log.h"
+#include "Core/LogModuleIds.h"
 #include "ModbusTcpBridge.h"
 #include "ModbusTcpSocketHealth.h"
 #include "ModbusTcpSessions.h"
@@ -85,21 +87,27 @@ public:
     /** Nonblocking best-effort network servicing, with bounded read work.
      * A partial TCP write is resumed on a subsequent tick.
      */
-    // Trace only slow/failed requests by default to avoid adding Serial I/O
-    // to every normal Modbus transaction on the network task.
+    // Slow/failed requests only. Limit Web logs per port so a faulty client
+    // cannot flood the asynchronous LogHub or delay the shared RS485 scheduler.
     static constexpr uint32_t kTraceSlowMs = 1000U;
+    static constexpr uint32_t kTraceLogIntervalMs = 1000U;
     void trace_(uint8_t slot, const char* stage, uint32_t nowMs, int result = 0) {
         if (!traceActive_[slot]) return;
         const uint8_t port = slot / kClientsPerPort;
-        Serial.printf("[MODBUS-TCP-TRACE] ms=%lu port=%u slot=%u tid=%u unit=%u fc=%u addr=%u qty=%u stage=%s age_ms=%lu queue_ms=%lu rtu_ms=%lu result=%d tx_bytes=%u\n",
-            (unsigned long)nowMs, (unsigned)kPorts[port], (unsigned)slot,
-            (unsigned)traceTid_[slot], (unsigned)traceUnit_[slot],
-            (unsigned)traceFc_[slot], (unsigned)traceAddr_[slot],
-            (unsigned)traceQty_[slot], stage,
+        if (lastTraceLogMs_[port] != 0U &&
+            uint32_t(nowMs - lastTraceLogMs_[port]) < kTraceLogIntervalMs) {
+            ++traceSuppressed_[port];
+            return;
+        }
+        lastTraceLogMs_[port] = nowMs ? nowMs : 1U;
+        ::Log::warn((LogModuleId)LogModuleIdValue::ModbusTcpServerModule,
+            "[MODBUS-TRACE] port=%u tid=%u unit=%u fc=%u addr=%u qty=%u stage=%s age=%lu q=%lu rtu=%lu rc=%d",
+            (unsigned)kPorts[port], (unsigned)traceTid_[slot],
+            (unsigned)traceUnit_[slot], (unsigned)traceFc_[slot],
+            (unsigned)traceAddr_[slot], (unsigned)traceQty_[slot], stage,
             (unsigned long)(nowMs - traceStarted_[slot]),
             (unsigned long)bridges_[slot].queueWaitMs(),
-            (unsigned long)bridges_[slot].rtuResponseMs(),
-            result, (unsigned)sent_[slot]);
+            (unsigned long)bridges_[slot].rtuResponseMs(), result);
     }
 
     void tick(uint32_t nowMs) {
@@ -308,6 +316,9 @@ public:
     }
 
     const PortStats& stats(uint8_t port) const { return stats_[port < kPortCount ? port : 0U]; }
+    uint32_t suppressedTraceCount(uint8_t port) const {
+        return port < kPortCount ? traceSuppressed_[port] : 0U;
+    }
     size_t psramFrameBytes() const { return frameStorage_ ? sizeof(FrameStorage) : 0U; }
     bool frameStorageReady() const { return frameStorage_ != nullptr; }
 private:
@@ -445,6 +456,8 @@ private:
     BridgeSlot bridges_[kMaxClients];
     PortConfig configs_[kPortCount]{};
     PortStats stats_[kPortCount]{};
+    uint32_t lastTraceLogMs_[kPortCount]{};
+    uint32_t traceSuppressed_[kPortCount]{};
     size_t sent_[kMaxClients]{};
     uint32_t lastWriteProgressMs_[kMaxClients]{};
     uint32_t lastReadProgressMs_[kMaxClients]{};
