@@ -141,9 +141,12 @@ const report = (function runNextionFailureMatrix() {
     stats.uart++;
   }
   function admission(state,remoteWorker=false){
-    return !!((state.busy&&!remoteWorker)||state.local||state.queued||state.manifestPending||
+    return !!((state.busy&&!remoteWorker)||(state.local&&!state.terminalError)||state.queued||state.manifestPending||
        state.nextionReboot||state.startPending||state.manifestActive||state.copyReaders);
   }
+  check(!admission({local:true,terminalError:true}), "failed local release blocks Nextion retry");
+  check(admission({busy:true,local:true,terminalError:true}), "still-running worker allowed duplicate update");
+  stats.admission += 2;
   const fields=["busy","local","queued","manifestPending","nextionReboot","startPending","manifestActive","copyReaders"];
   for(let bits=0;bits<(1<<fields.length);bits++){
     const state={};for(let j=0;j<fields.length;j++)state[fields[j]]=!!(bits&(1<<j));
