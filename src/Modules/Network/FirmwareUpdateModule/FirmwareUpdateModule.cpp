@@ -824,8 +824,13 @@ bool FirmwareUpdateModule::statusJson_(char* out, size_t outLen)
     OtaFailure::Record lastFailure{};
     portENTER_CRITICAL(&lock_);
     snap = status_;
-    busy = busy_ || (localReleaseActive_ && status_.state != UpdateState::Error);
-    pending = queuedJob_.pending;
+    // Match the admission barrier: report busy as soon as an operation is
+    // queued or reserving the updater, not only once the worker is flashing.
+    busy = busy_ || queuedJob_.pending || nextionRebootQueued_ ||
+           updateStartPending_ || manifestCheckJob_.pending ||
+           (manifestMetadata_ && manifestCheckIsActive_(manifestMetadata_->check.state)) ||
+           (localReleaseActive_ && status_.state != UpdateState::Error);
+    pending = queuedJob_.pending || manifestCheckJob_.pending || updateStartPending_;
     hasLastReceipt = hasLastReceipt_;
     lastReceipt = lastReceipt_;
     hasLastFailure = hasLastFailure_;
@@ -896,6 +901,23 @@ bool FirmwareUpdateModule::statusJson_(char* out, size_t outLen)
     return written > 0U && written < outLen;
 }
 
+bool FirmwareUpdateModule::updateAdmissionBusyLocked_(bool allowCurrentRemoteWorker) const
+{
+    // Shared admission barrier: a Nextion update and a paired ESP32+SPIFFS
+    // release must NEVER overlap, regardless of the entry point (web command,
+    // paired release local uploader, manifest check or queued worker).
+    // Only the currently running paired OTA worker may open its own internal
+    // local-release transaction while it already owns busy_.
+    return (busy_ && !allowCurrentRemoteWorker) ||
+           localReleaseActive_ ||
+           queuedJob_.pending ||
+           manifestCheckJob_.pending ||
+           nextionRebootQueued_ ||
+           updateStartPending_ ||
+           (manifestMetadata_ && manifestCheckIsActive_(manifestMetadata_->check.state)) ||
+           manifestCopyReaders_ > 0U;
+}
+
 bool FirmwareUpdateModule::isBusy_()
 {
     if (!manifestMetadata_) return false;
@@ -953,8 +975,7 @@ bool FirmwareUpdateModule::startManifestCheck_(uint32_t* requestIdOut,
     }
 
     portENTER_CRITICAL(&lock_);
-    if (busy_ || localReleaseActive_ || queuedJob_.pending || nextionRebootQueued_ || updateStartPending_ ||
-        manifestCheckIsActive_(manifestMetadata_->check.state) || manifestCopyReaders_ > 0U) {
+    if (updateAdmissionBusyLocked_()) {
         portEXIT_CRITICAL(&lock_);
         writeSimpleError_(errOut, errOutLen, "updater busy");
         return false;
@@ -1219,8 +1240,7 @@ bool FirmwareUpdateModule::startUpdate_(FirmwareUpdateTarget target,
     }
 
     portENTER_CRITICAL(&lock_);
-    if (busy_ || localReleaseActive_ || queuedJob_.pending || nextionRebootQueued_ || updateStartPending_ ||
-        manifestCheckIsActive_(manifestMetadata_->check.state) || manifestCopyReaders_ > 0U) {
+    if (updateAdmissionBusyLocked_()) {
         portEXIT_CRITICAL(&lock_);
         writeSimpleError_(errOut, errOutLen, "updater busy");
         return false;
@@ -1272,8 +1292,7 @@ bool FirmwareUpdateModule::queueNextionReboot_(char* errOut, size_t errOutLen)
     }
 
     portENTER_CRITICAL(&lock_);
-    if (busy_ || localReleaseActive_ || queuedJob_.pending || nextionRebootQueued_ || updateStartPending_ ||
-        manifestCheckIsActive_(manifestMetadata_->check.state) || manifestCopyReaders_ > 0U) {
+    if (updateAdmissionBusyLocked_()) {
         portEXIT_CRITICAL(&lock_);
         writeSimpleError_(errOut, errOutLen, "updater busy");
         return false;
@@ -2559,9 +2578,7 @@ bool FirmwareUpdateModule::beginLocalRelease_(const char* manifestJson,
     // callers cannot bypass the busy gate because their FreeRTOS task differs.
     const bool internalRemoteWorker = remoteReleaseWorker_ != nullptr &&
                                       remoteReleaseWorker_ == xTaskGetCurrentTaskHandle();
-    if ((busy_ && !internalRemoteWorker) || localReleaseActive_ || queuedJob_.pending ||
-        nextionRebootQueued_ || updateStartPending_ || !manifestMetadata_ ||
-        manifestCheckIsActive_(manifestMetadata_->check.state) || manifestCopyReaders_ > 0U) {
+    if (!manifestMetadata_ || updateAdmissionBusyLocked_(internalRemoteWorker)) {
         portEXIT_CRITICAL(&lock_);
         return writeSimpleError_(errOut, errOutLen, "updater busy");
     }
