@@ -23,6 +23,12 @@ class PulseFlowRateTests(unittest.TestCase):
         assert 'IO_DIGITAL_INPUT_PULSES_PER_MINUTE' in module
         assert 'pulseFlowConvert(' in module
         assert 'pulseFlowUnitText(' in module
+        assert 'slot.appliedFlowUnit' in module
+        driver = (ROOT / 'src/Modules/IOModule/IODrivers/PcntCounterDriver.cpp').read_text()
+        assert 'const uint32_t debounceMs = hardwareFilterOnly_ ? 0U : debounceWindowMs_();' in driver
+        assert '(s.inDef.mode == IO_DIGITAL_INPUT_COUNTER && s.logicalIdx == 1U)' in module
+        assert 's.inDef.mode == IO_DIGITAL_INPUT_PULSES_PER_MINUTE\n                );' in module
+        assert 'const bool isFlowMeter = slot.inDef.mode == IO_DIGITAL_INPUT_PULSES_PER_MINUTE;' in module
         assert 'if (!measurement.refreshed) return validRate;' in module
         assert 'ValueIds::ConvertedRate + slot.logicalIdx' in module
         assert "modeValue === 2 && isCountControl" in ui
