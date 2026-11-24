@@ -2114,6 +2114,8 @@ bool FirmwareUpdateModule::runNextionUpdate_(const UpdateJob& job, char* errOut,
         return writeSimpleError_(errOut, errOutLen, "nextion board pins not configured");
     if (job.expectedSize == 0U)
         return writeSimpleError_(errOut, errOutLen, "invalid nextion artifact size");
+    if (!job.nextionHasSha256)
+        return writeSimpleError_(errOut, errOutLen, "Nextion update requires manifest SHA-256");
 
     if (!hmiSvc_ && services_) hmiSvc_ = services_->get<HmiService>(ServiceId::Hmi);
     if (!hmiSvc_ || !hmiSvc_->setLocalDisplayUpdateMode)
@@ -2271,8 +2273,8 @@ bool FirmwareUpdateModule::runNextionUpdate_(const UpdateJob& job, char* errOut,
     setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Nextion, 25U,
                "verifying Nextion TFT in PSRAM", job.operationId);
     setOtaStage_("nextion_verify", 0U);
-    // Always hash the staged file; authenticate against manifest SHA-256 when
-    // provided, retaining backward compatibility with size-only manifests.
+    // Hash every byte before switching the panel to its bootloader. SHA-256
+    // is mandatory: the generated manifest already supplies it for each TFT.
     mbedtls_sha256_context hash{};
     mbedtls_sha256_init(&hash);
     bool hashOk = mbedtls_sha256_starts(&hash, 0) == 0;
@@ -2290,11 +2292,10 @@ bool FirmwareUpdateModule::runNextionUpdate_(const UpdateJob& job, char* errOut,
     mbedtls_sha256_free(&hash);
     if (!hashOk)
         return writeSimpleError_(errOut, errOutLen, "Nextion PSRAM SHA-256 computation failed");
-    if (job.nextionHasSha256 && !sha256Matches_(digest, job.nextionSha256))
+    if (!sha256Matches_(digest, job.nextionSha256))
         return writeSimpleError_(errOut, errOutLen, "Nextion PSRAM SHA-256 mismatch");
-    LOGI("[NEXTION-OTA] op=%lu stage=psram_verified bytes=%lu sha256_manifest=%s",
-         (unsigned long)job.operationId, (unsigned long)expected,
-         job.nextionHasSha256 ? "MATCH" : "NOT_PROVIDED_SIZE_ONLY");
+    LOGI("[NEXTION-OTA] op=%lu stage=psram_verified bytes=%lu sha256_manifest=MATCH",
+         (unsigned long)job.operationId, (unsigned long)expected);
     setOtaStage_("nextion_verify", 100U);
 
     // All networking is now finished and all HTTP sockets are closed.
@@ -3273,16 +3274,14 @@ bool FirmwareUpdateModule::runManifestCheck_(const ManifestCheckJob& job,
             snprintf(artifactSelection.version, sizeof(artifactSelection.version), "%s", version);
             snprintf(artifactSelection.url, sizeof(artifactSelection.url), "%s", artifactUrl);
             artifactSelection.size = size;
-            // Optional for compatibility with older manifests. When supplied,
-            // preverify the entire staged image before touching the display.
+            // Official firmware manifests contain a SHA-256 for every TFT.
+            // Fail closed rather than flash an unauthenticated size-only file.
             const char* artifactShaText = artifact["sha256"] | "";
-            if (artifactShaText[0] != '\0') {
-                if (!parseSha256_(artifactShaText, artifactSelection.sha256)) {
-                    writeSimpleError_(errOut, errOutLen, "invalid Nextion manifest SHA-256");
-                    return false;
-                }
-                artifactSelection.hasSha256 = true;
+            if (!parseSha256_(artifactShaText, artifactSelection.sha256)) {
+                writeSimpleError_(errOut, errOutLen, "Nextion manifest SHA-256 missing or invalid");
+                return false;
             }
+            artifactSelection.hasSha256 = true;
             if (!rememberNextionRecoveryArtifact_(artifactSelection, errOut, errOutLen)) return false;
 
             if (!displayDetected || strcmp(identity.compatibility, compatibility) != 0) continue;
