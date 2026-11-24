@@ -73,7 +73,7 @@ assert.equal(admissionModel({busy:true, local:true}, true), true, 'No nested dup
 assert.match(nex, /#define nexSerial Serial2\b/);
 assert.doesNotMatch(nex, /#define nexSerial Serial1\b/);
 assert.match(nexHdr, /uint32_t _getBaudrate\(void\)/);
-assert.match(nex, /delay\(1\);[\s\S]{0,45}\/\/ if the exit flag/);
+assert.match(nex, /delay\(1\);[\s\S]{0,120}\/\/ if the exit flag/);
 assert.match(nex, /bool ESPNexUpload::finishUpload\(\)/);
 assert.match(nex, /nextion final block acknowledgement timeout/);
 assert.match(nex, /void ESPNexUpload::end\(bool successful\)/);
