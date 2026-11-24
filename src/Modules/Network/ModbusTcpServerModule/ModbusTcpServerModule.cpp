@@ -148,14 +148,36 @@ void ModbusTcpServerModule::logWebSnapshot_(
     ModbusMasterStats queue{};
     if (master_ && master_->stats) (void)master_->stats(master_->ctx, &queue);
 
+    const bool verbose = FLOW_MODBUS_VERBOSE_DIAGNOSTICS != 0;
+    // Normal mode is event-driven: no repetitive Modbus traffic, memory,
+    // PSRAM or latency statistics. All remain available in verbose builds.
+    const bool summaryDue = verbose && (lastWebSummaryMs_ == 0U ||
+        uint32_t(now - lastWebSummaryMs_) >= 300000U);
+    const bool memoryDue = verbose && (lastWebMemoryMs_ == 0U ||
+        uint32_t(now - lastWebMemoryMs_) >= 600000U);
+    const bool otaChanged = !otaStateReported_ ||
+        otaBusy != lastReportedOtaBusy_ ||
+        otaSuspensions_ != lastReportedOtaSuspensions_ ||
+        otaResumptions_ != lastReportedOtaResumptions_ ||
+        otaResumePending_ != lastReportedOtaPending_;
+    if (summaryDue && !otaBusy) lastWebSummaryMs_ = now ? now : 1U;
+    if (memoryDue && !otaBusy) lastWebMemoryMs_ = now ? now : 1U;
+    if (otaChanged || verbose) {
+        otaStateReported_ = true;
+        lastReportedOtaBusy_ = otaBusy;
+        lastReportedOtaSuspensions_ = otaSuspensions_;
+        lastReportedOtaResumptions_ = otaResumptions_;
+        lastReportedOtaPending_ = otaResumePending_;
+    }
+
     // Boot-local counters: actual listener stops/reopens only, not TCP SYN
     // attempts (invisible to the application after listeners close).
-    Log::info(kLogModule_,
+    if (otaChanged || verbose) Log::info(kLogModule_,
               "[MODBUS-OTA] paused=%lu resumed=%lu pending=%u busy=%u listen=%u",
               (unsigned long)otaSuspensions_, (unsigned long)otaResumptions_,
               otaResumePending_ ? 1U : 0U, otaBusy ? 1U : 0U,
               running_ ? 1U : 0U);
-    if (otaBusy) {
+    if (otaBusy && (otaChanged || verbose)) {
         Log::info(kLogModule_,
                   "[OTA-NET] ms=%lu en=%u%u%u sta=%u listen=%u clients=%u,%u,%u psram=%u",
                   (unsigned long)now,
@@ -170,8 +192,8 @@ void ModbusTcpServerModule::logWebSnapshot_(
                   (unsigned)queue.queued, (unsigned long)queue.queueRejected,
                   (unsigned long)otaTickMaxUs_, (unsigned long)otaSlowTicks_,
                   (unsigned long)internal, (unsigned long)largest);
-    } else {
-        Log::info(kLogModule_,
+    } else if (!otaBusy) {
+        if (summaryDue) Log::info(kLogModule_,
                   "[MODBUS-PSRAM] bytes=%u ready=%u en=%u%u%u sta=%u listen=%u",
                   (unsigned)server_.psramFrameBytes(),
                   server_.frameStorageReady() ? 1U : 0U,
@@ -179,47 +201,61 @@ void ModbusTcpServerModule::logWebSnapshot_(
                   configs_[1].enabled ? 1U : 0U,
                   configs_[2].enabled ? 1U : 0U,
                   stationConnected ? 1U : 0U, running_ ? 1U : 0U);
-        Log::info(kLogModule_,
+        if (memoryDue) Log::info(kLogModule_,
                   "[MODBUS-MEM] int=%lu largest=%lu min=%lu psram=%lu stack=%lu rtu_q=%u reject=%lu",
                   (unsigned long)internal, (unsigned long)largest,
                   (unsigned long)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
                   (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
                   (unsigned long)uxTaskGetStackHighWaterMark(nullptr),
                   (unsigned)queue.queued, (unsigned long)queue.queueRejected);
-        const uint32_t fragment = internal ? 100U - (largest * 100U / internal) : 0U;
-        Log::info(kLogModule_,
-                  "[MODBUS-RTU] peak=%u rejected=%lu crc=%lu timeout=%lu frag_pct=%lu psram_largest=%lu",
-                  (unsigned)queue.queuedPeak, (unsigned long)queue.queueRejected,
-                  (unsigned long)queue.crcErrors, (unsigned long)queue.timeouts,
-                  (unsigned long)fragment,
-                  (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (summaryDue) {
+            const uint32_t fragment = internal ? 100U - (largest * 100U / internal) : 0U;
+            Log::info(kLogModule_,
+                      "[MODBUS-RTU] peak=%u rejected=%lu crc=%lu timeout=%lu frag_pct=%lu psram_largest=%lu",
+                      (unsigned)queue.queuedPeak, (unsigned long)queue.queueRejected,
+                      (unsigned long)queue.crcErrors, (unsigned long)queue.timeouts,
+                      (unsigned long)fragment,
+                      (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        }
     }
     for (uint8_t i = 0U; i < ModbusTcpServer::kPortCount; ++i) {
         const auto& p = server_.stats(i);
         const unsigned port = (unsigned)ModbusTcpServer::kPorts[i];
         if (otaBusy) {
-            Log::info(kLogModule_,
+            if (otaChanged || verbose) Log::info(kLogModule_,
                       "[OTA-TCP] port=%u clients=%u req=%lu reply=%lu exc=%lu tmo=%lu rxerr=%lu txerr=%lu",
                       port, (unsigned)p.activeClients,
                       (unsigned long)p.received, (unsigned long)p.completed,
                       (unsigned long)p.exceptionsSent, (unsigned long)p.timeouts,
                       (unsigned long)p.rxErrors, (unsigned long)p.txErrors);
         } else {
-            Log::info(kLogModule_,
+            if (summaryDue) Log::info(kLogModule_,
                       "[MODBUS-TCP] port=%u clients=%u peak=%u req=%lu reply=%lu exc=%lu tmo=%lu rej=%lu",
                       port, (unsigned)p.activeClients, (unsigned)p.maxActiveClients,
                       (unsigned long)p.received, (unsigned long)p.completed,
                       (unsigned long)p.exceptionsSent, (unsigned long)p.timeouts,
                       (unsigned long)p.queueRejected);
-            Log::info(kLogModule_,
+            if (summaryDue) Log::info(kLogModule_,
                       "[MODBUS-IO] port=%u rx_bytes=%lu tx_bytes=%lu blocked=%lu closed=%lu reclaimed=%lu traces_skipped=%lu",
                       port, (unsigned long)p.tcpBytesReceived,
                       (unsigned long)p.tcpBytesSent, (unsigned long)p.txWouldBlock,
                       (unsigned long)p.peerClosed, (unsigned long)p.idleReclaimed,
                       (unsigned long)server_.suppressedTraceCount(i));
-            if (p.rxErrors || p.txErrors || p.invalidTcpAdus ||
-                p.resolverFailures || p.silentFailures ||
-                p.connectionsRejected || p.keepaliveSetupFailures) {
+            // Counters are cumulative; emit warnings only when NEW errors
+            // appear. Otherwise a single historical error is re-logged every
+            // 60 seconds forever. Keep the actual statistics untouched.
+            auto& reported = lastReportedErrors_[i];
+            const bool newErrors =
+                p.rxErrors != reported.rxErrors ||
+                p.txErrors != reported.txErrors ||
+                p.invalidTcpAdus != reported.invalidTcpAdus ||
+                p.resolverFailures != reported.resolverFailures ||
+                p.silentFailures != reported.silentFailures ||
+                p.connectionsRejected != reported.connectionsRejected ||
+                p.keepaliveSetupFailures != reported.keepaliveSetupFailures;
+            const bool newResolverFailure =
+                p.resolverFailures != reported.resolverFailures;
+            if (newErrors) {
                 Log::warn(kLogModule_,
                           "[MODBUS-ERR] port=%u rxerr=%lu txerr=%lu invalid=%lu resolver=%lu silent=%lu connrej=%lu kaerr=%lu",
                           port, (unsigned long)p.rxErrors, (unsigned long)p.txErrors,
@@ -229,7 +265,7 @@ void ModbusTcpServerModule::logWebSnapshot_(
                           (unsigned long)p.connectionsRejected,
                           (unsigned long)p.keepaliveSetupFailures);
             }
-            if (p.resolverFailures) {
+            if (newResolverFailure) {
                 Log::warn(kLogModule_,
                           "[MODBUS-RESOLVE] port=%u mode=%u device=%u unit=%u fc=%u addr=%u fails=%lu age_ms=%lu",
                           port,
@@ -241,7 +277,16 @@ void ModbusTcpServerModule::logWebSnapshot_(
                           (unsigned long)p.resolverFailures,
                           (unsigned long)(now - p.lastResolverAtMs));
             }
-            if (p.received || p.completed) {
+            // Snapshot all error counters, including those with zero values.
+            // A later increase produces exactly one new warning.
+            reported.rxErrors = p.rxErrors;
+            reported.txErrors = p.txErrors;
+            reported.invalidTcpAdus = p.invalidTcpAdus;
+            reported.resolverFailures = p.resolverFailures;
+            reported.silentFailures = p.silentFailures;
+            reported.connectionsRejected = p.connectionsRejected;
+            reported.keepaliveSetupFailures = p.keepaliveSetupFailures;
+            if (summaryDue && (p.received || p.completed)) {
                 Log::info(kLogModule_,
                           "[MODBUS-LAT] port=%u tcpmax_ms=%lu queue_ms=%lu rtu_ms=%lu",
                           port, (unsigned long)p.responseTimeMaxMs,
