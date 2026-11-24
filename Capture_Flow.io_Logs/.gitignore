@@ -1,0 +1,2 @@
+# Never commit locally collected logs, sessions or state.
+flowio-logs/
