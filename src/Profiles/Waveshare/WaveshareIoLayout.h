@@ -198,10 +198,10 @@ struct DigitalInputRoleDefault {
 inline constexpr DigitalInputRoleDefault kDigitalInputRoleDefaults[] = {
     // {role, bindingPort, activeHigh, pullMode, mode, edgeMode, debounceUs}
     {PoolIds::SensorPir, PortGpio11Input, true, IO_PULL_UP, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
-    {PoolIds::SensorPhLevel, PortGpio8Input, false, IO_PULL_NONE, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
-    {PoolIds::SensorChlorineLevel, PortGpio7Input, false, IO_PULL_NONE, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
-    {PoolIds::SensorPoolLevel, PortGpio6Input, false, IO_PULL_NONE, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
-    {PoolIds::SensorWaterMeter, PortGpio5Input, false, IO_PULL_NONE, IO_DIGITAL_INPUT_COUNTER, IO_EDGE_RISING, 100000U},
+    {PoolIds::SensorPhLevel, PortGpio8Input, true, IO_PULL_NONE, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
+    {PoolIds::SensorChlorineLevel, PortGpio7Input, true, IO_PULL_NONE, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
+    {PoolIds::SensorPoolLevel, PortGpio6Input, true, IO_PULL_NONE, IO_DIGITAL_INPUT_STATE, IO_EDGE_RISING, 0U},
+    {PoolIds::SensorWaterMeter, PortGpio5Input, false, IO_PULL_NONE, IO_DIGITAL_INPUT_COUNTER, IO_EDGE_RISING, 1000U},
 };
 
 struct DigitalOutputRoleDefault {
