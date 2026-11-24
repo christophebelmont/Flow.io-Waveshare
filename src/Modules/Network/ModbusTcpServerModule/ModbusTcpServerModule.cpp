@@ -186,6 +186,13 @@ void ModbusTcpServerModule::logWebSnapshot_(
                   (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
                   (unsigned long)uxTaskGetStackHighWaterMark(nullptr),
                   (unsigned)queue.queued, (unsigned long)queue.queueRejected);
+        const uint32_t fragment = internal ? 100U - (largest * 100U / internal) : 0U;
+        Log::info(kLogModule_,
+                  "[MODBUS-RTU] peak=%u rejected=%lu crc=%lu timeout=%lu frag_pct=%lu psram_largest=%lu",
+                  (unsigned)queue.queuedPeak, (unsigned long)queue.queueRejected,
+                  (unsigned long)queue.crcErrors, (unsigned long)queue.timeouts,
+                  (unsigned long)fragment,
+                  (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     }
     for (uint8_t i = 0U; i < ModbusTcpServer::kPortCount; ++i) {
         const auto& p = server_.stats(i);
@@ -204,6 +211,12 @@ void ModbusTcpServerModule::logWebSnapshot_(
                       (unsigned long)p.received, (unsigned long)p.completed,
                       (unsigned long)p.exceptionsSent, (unsigned long)p.timeouts,
                       (unsigned long)p.queueRejected);
+            Log::info(kLogModule_,
+                      "[MODBUS-IO] port=%u rx_bytes=%lu tx_bytes=%lu blocked=%lu closed=%lu reclaimed=%lu traces_skipped=%lu",
+                      port, (unsigned long)p.tcpBytesReceived,
+                      (unsigned long)p.tcpBytesSent, (unsigned long)p.txWouldBlock,
+                      (unsigned long)p.peerClosed, (unsigned long)p.idleReclaimed,
+                      (unsigned long)server_.suppressedTraceCount(i));
             if (p.rxErrors || p.txErrors || p.invalidTcpAdus ||
                 p.resolverFailures || p.silentFailures ||
                 p.connectionsRejected || p.keepaliveSetupFailures) {
@@ -234,6 +247,13 @@ void ModbusTcpServerModule::logWebSnapshot_(
                           port, (unsigned long)p.responseTimeMaxMs,
                           (unsigned long)p.queueWaitMaxMs,
                           (unsigned long)p.rtuResponseMaxMs);
+                Log::info(kLogModule_,
+                          "[MODBUS-AVG] port=%u tcp_ms=%lu q_ms=%lu rtu_ms=%lu samples=%lu",
+                          port,
+                          (unsigned long)(p.completed ? p.responseTimeTotalMs / p.completed : 0U),
+                          (unsigned long)(p.rtuSamples ? p.queueWaitTotalMs / p.rtuSamples : 0U),
+                          (unsigned long)(p.rtuSamples ? p.rtuResponseTotalMs / p.rtuSamples : 0U),
+                          (unsigned long)p.rtuSamples);
             }
         }
     }
