@@ -5,6 +5,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <ETH.h>
 #include <Preferences.h>
 #include <esp_heap_caps.h>
 #include <esp_mac.h>
@@ -82,6 +83,8 @@ bool buildNetworkSnapshot(MQTTModule* mqtt, char* out, size_t len)
     const bool netReady = networkReady(*ds);
     const bool mqttOk = mqttReady(*ds);
     const int rssi = WiFi.isConnected() ? WiFi.RSSI() : -127;
+    // Report the MAC belonging to the currently published network IP.
+    // The device's MQTT identifier remains independent of this address.
     uint8_t mac[6] = {0};
     char macText[18] = {0};
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
@@ -94,6 +97,15 @@ bool buildNetworkSnapshot(MQTTModule* mqtt, char* out, size_t len)
              (unsigned)mac[3],
              (unsigned)mac[4],
              (unsigned)mac[5]);
+    const IPAddress ethIp = ETH.localIP();
+    if (ETH.linkUp() &&
+        ethIp[0] == ip4.b[0] && ethIp[1] == ip4.b[1] &&
+        ethIp[2] == ip4.b[2] && ethIp[3] == ip4.b[3]) {
+        const String ethMac = ETH.macAddress();
+        if (ethMac.length() == 17U) {
+            snprintf(macText, sizeof(macText), "%s", ethMac.c_str());
+        }
+    }
 
     const int wrote = snprintf(out, len,
                                "{\"ready\":%s,\"ip\":\"%s\",\"mac\":\"%s\",\"rssi\":%d,\"mqtt\":%s,\"ts\":%lu}",
@@ -237,10 +249,14 @@ void postInit(AppContext& ctx, ModuleInstances& modules)
         return;
     }
 
-    modules.mqttModule.formatTopic(modules.topicNetworkState, sizeof(modules.topicNetworkState), "rt/network/state");
-    modules.mqttModule.formatTopic(modules.topicSystemState, sizeof(modules.topicSystemState), "rt/system/state");
-    modules.mqttModule.addRuntimePublisher(modules.topicNetworkState, 60000, 0, false, buildNetworkSnapshot);
-    modules.mqttModule.addRuntimePublisher(modules.topicSystemState, 60000, 0, false, buildSystemSnapshot);
+    // Publish against the live MQTT prefix/device ID, not an absolute topic
+    // captured at boot. Retain network state for immediate HA restoration.
+    requireSetup(modules.mqttModule.addRuntimePublisher("rt/network/state", 60000, 0, true,
+                                                       buildNetworkSnapshot, false, true),
+                 "register network runtime publisher");
+    requireSetup(modules.mqttModule.addRuntimePublisher("rt/system/state", 60000, 0, false,
+                                                       buildSystemSnapshot, false, true),
+                 "register system runtime publisher");
     registerIoHomeAssistant(ctx, modules);
 }
 

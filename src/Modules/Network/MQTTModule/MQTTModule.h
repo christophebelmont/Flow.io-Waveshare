@@ -83,7 +83,8 @@ public:
                              int qos,
                              bool retain,
                              bool (*build)(MQTTModule* self, char* out, size_t outLen),
-                             bool allowNoPayload = false);
+                             bool allowNoPayload = false,
+                             bool topicIsSuffix = false);
 
     bool registerRuntimeProvider(const IRuntimeSnapshotProvider* provider);
     bool enqueue(uint8_t producerId, uint16_t messageId, MqttPublishPriority priority, uint8_t flags = 0);
@@ -115,6 +116,7 @@ private:
         bool used = false;
         uint16_t messageId = 0;
         const char* topic = nullptr;
+        bool topicIsSuffix = false;
         uint32_t periodMs = 0;
         uint32_t nextDueMs = 0;
         uint8_t qos = 0;

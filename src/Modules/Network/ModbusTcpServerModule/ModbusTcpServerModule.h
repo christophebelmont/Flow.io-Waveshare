@@ -1,4 +1,9 @@
 #pragma once
+// Optional verbose Modbus Web diagnostics:
+// PlatformIO build_flags = -DFLOW_MODBUS_VERBOSE_DIAGNOSTICS=1
+#ifndef FLOW_MODBUS_VERBOSE_DIAGNOSTICS
+#define FLOW_MODBUS_VERBOSE_DIAGNOSTICS 0
+#endif
 /**
  * @brief Flow.io lifecycle adapter for three Modbus TCP listeners.
  * Disabled by default until ports have valid explicit configuration.
@@ -59,7 +64,8 @@ public:
             if (otaBusy) {
                 otaResumePending_ = false;
                 otaBusySinceMs_ = now;
-                lastOtaTraceMs_ = now - 5000U;
+                lastOtaTraceMs_ = now -
+                    (FLOW_MODBUS_VERBOSE_DIAGNOSTICS ? 5000U : 60000U);
                 otaTickMaxUs_ = 0U;
                 otaSlowTicks_ = 0U;
             } else {
@@ -80,7 +86,8 @@ public:
             }
         }
         if (otaBusy) {
-            if (uint32_t(now - lastOtaTraceMs_) >= 5000U) {
+            if (uint32_t(now - lastOtaTraceMs_) >=
+                (FLOW_MODBUS_VERBOSE_DIAGNOSTICS ? 5000U : 60000U)) {
                 lastOtaTraceMs_ = now;
                 // The Web log already carries bounded [OTA-NET]/[OTA-TCP]
                 // diagnostics. Avoid the redundant 384-byte Serial formatting
@@ -202,10 +209,13 @@ public:
         const uint32_t largestPsram = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
         const uint32_t stackWatermark = uxTaskGetStackHighWaterMark(nullptr);
 #if FLOW_PERFORMANCE_DIAGNOSTICS
-        // Keep optional CPU instrumentation accessible from /wslog, not UART
-        // only. One bounded line per minute; no extra per-request tracing.
+        // Upstream /wslog tick instrumentation retained for verbose builds.
+#if FLOW_MODBUS_VERBOSE_DIAGNOSTICS
         Log::info(kLogModule_, "[MODBUS-TICK] max_us=%lu slow_5ms=%lu",
                   (unsigned long)tickMaxUs_, (unsigned long)slowTicks_);
+#endif
+        Serial.printf("[MODBUS-TCP] tick_max_us=%lu tick_slow_5ms=%lu\n",
+            (unsigned long)tickMaxUs_, (unsigned long)slowTicks_);
         tickMaxUs_ = 0U;
         slowTicks_ = 0U;
 #endif
@@ -325,11 +335,30 @@ private:
     ModbusTcpServer::LineResolver resolver_{};
     ModbusTcpServer::SocketServer server_{};
     ModbusTcpServer::PortConfig configs_[ModbusTcpServer::kPortCount]{};
+    // Last counters reported in periodic Web warnings (not reset on OTA).
+    struct ReportedErrors {
+        uint32_t rxErrors = 0U;
+        uint32_t txErrors = 0U;
+        uint32_t invalidTcpAdus = 0U;
+        uint32_t resolverFailures = 0U;
+        uint32_t silentFailures = 0U;
+        uint32_t connectionsRejected = 0U;
+        uint32_t keepaliveSetupFailures = 0U;
+    };
+    ReportedErrors lastReportedErrors_[ModbusTcpServer::kPortCount]{};
     bool running_ = false;
     bool eligible_ = false;
     uint32_t lastPsramStartFailureMs_ = 0U;
     uint32_t lastDiagnosticsMs_ = 0U;
     uint32_t lastWebDiagnosticsMs_ = 0U;
+    // Per-task diagnostic gating; counters remain cumulative.
+    uint32_t lastWebSummaryMs_ = 0U;
+    uint32_t lastWebMemoryMs_ = 0U;
+    bool otaStateReported_ = false;
+    bool lastReportedOtaBusy_ = false;
+    bool lastReportedOtaPending_ = false;
+    uint32_t lastReportedOtaSuspensions_ = 0U;
+    uint32_t lastReportedOtaResumptions_ = 0U;
     uint32_t lastPsramFailureWebMs_ = 0U;
     bool psramFailureReported_ = false;
     uint32_t tickMaxUs_ = 0U;
