@@ -2498,6 +2498,17 @@ bool FirmwareUpdateModule::beginLocalRelease_(const char* manifestJson,
         return writeSimpleError_(errOut, errOutLen, "upgrade synchronization unavailable");
     }
     if (transactionIdOut) *transactionIdOut = 0U;
+    // Reject a competing local paired release BEFORE allocating a JSON
+    // document in PSRAM while Nextion has reserved memory for its staged TFT.
+    // The remote paired OTA worker is the only exception: it owns busy_ and
+    // must be able to open its own nested local-release transaction.
+    portENTER_CRITICAL(&lock_);
+    const bool remoteWorkerOwnsUpdater = remoteReleaseWorker_ != nullptr &&
+        remoteReleaseWorker_ == xTaskGetCurrentTaskHandle();
+    const bool conflictingUpdater = updateAdmissionBusyLocked_(remoteWorkerOwnsUpdater);
+    portEXIT_CRITICAL(&lock_);
+    if (conflictingUpdater)
+        return writeSimpleError_(errOut, errOutLen, "updater busy");
     if (!manifestJson || manifestLen == 0U || manifestLen > 1024U) {
         return writeSimpleError_(errOut, errOutLen, "invalid release manifest");
     }
