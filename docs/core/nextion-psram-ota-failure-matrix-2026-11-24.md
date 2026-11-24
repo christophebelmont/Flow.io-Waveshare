@@ -2,13 +2,13 @@
 
 **Date:** 2026-11-24  
 **Branch:** `stephdust/Flow.io-Waveshare:fix/nextion-psram-uart-priority-20261124`  
-**Status:** regression simulation and source checks complete; **PlatformIO compilation and live Nextion/RS485 hardware validation still required**.
+**Status (updated November 24, 2026):** the user reports a **successful Nextion firmware update on their hardware** after compiling this branch. Regression simulations and source checks also passed. Christophe's independent review, multi-model testing, simultaneous-OTA exclusions and hardware failure-injection checks remain pending.
 
 ## Incident reproduced by captured status
 
 Two Nextion update attempts ended with `last_failure.stage=flashing` and `reason=get baudrate error`. The latter was followed by `reset_reason=7` (watchdog reset). Source review showed `ESPNexUpload` selecting `Serial1` while the normal HMI driver uses `Serial2` on Waveshare; Serial1 serves Modbus RS485. The older frontend also displayed an artificial **5%** in the flashing stage even with no bytes sent.
 
-The evidence strongly supports a UART ownership issue, but confirming this as the root cause requires the physical display test.
+The UART ownership issue is consistent with the recorded failures and the subsequently successful Nextion update on the patched branch. The isolated root cause cannot be proven without a controlled comparison with the former firmware.
 
 ## Corrective design
 
@@ -58,4 +58,4 @@ Model tests use the intended state-transition rules. They cannot faithfully simu
 8. Run Nextion OTA with two Modbus TCP ports open and heavy RS485 traffic; verify zero new RS485 submissions while busy and no watchdog reset.
 9. Check runtime logs and `/api/fwupdate/status` after normal completion, error and reboot, including the persisted `last_failure` and `last_operation`.
 
-**Do not deploy this branch to production or merge it as hardware-validated based only on these simulations.**
+**The user has now confirmed one successful live Nextion update.** This does not by itself validate every Nextion display model, watchdog stress condition or the concurrent firmware+SPIFFS OTA exclusion. Christophe's review and additional regression tests are recommended before merging.
