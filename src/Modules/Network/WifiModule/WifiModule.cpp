@@ -786,7 +786,7 @@ void WifiModule::registerHaEntities_(ServiceRegistry& services)
 {
     if (haEntitiesRegistered_) return;
     if (!haSvc_) haSvc_ = services.get<HAService>(ServiceId::Ha);
-    if (!haSvc_ || !haSvc_->addSensor) return;
+    if (!haSvc_ || !haSvc_->addSensor || !haSvc_->addBinarySensor) return;
 
     static constexpr const char* kWifiAvailabilityTpl =
         "{{ 'online' if value_json.ready else 'offline' }}";
@@ -827,13 +827,27 @@ void WifiModule::registerHaEntities_(ServiceRegistry& services)
         "mdi:wifi",
         "dBm",
         false,
-        kWifiAvailabilityTpl,
+        "{{ 'online' if value_json.ready and value_json.rssi | int(-127) > -127 else 'offline' }}",
         false
+    };
+    const HABinarySensorEntry mqttConnected{
+        "wifi",
+        "wifi_mqtt_connected",
+        "MQTT Status",
+        "rt/network/state",
+        "{{ value_json.mqtt | default(false) }}",
+        "connectivity",
+        "diagnostic",
+        "mdi:lan-connect",
+        nullptr,
+        true,
+        kWifiAvailabilityTpl
     };
     bool ok = true;
     ok = haSvc_->addSensor(haSvc_->ctx, &wifiIp) && ok;
     ok = haSvc_->addSensor(haSvc_->ctx, &wifiMac) && ok;
     ok = haSvc_->addSensor(haSvc_->ctx, &wifiRssi) && ok;
+    ok = haSvc_->addBinarySensor(haSvc_->ctx, &mqttConnected) && ok;
     if (ok) {
         haEntitiesRegistered_ = true;
     } else {
