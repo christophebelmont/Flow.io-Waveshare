@@ -42,13 +42,15 @@ PcntCounterDriver::PcntCounterDriver(const char* driverId,
                                      bool activeHigh,
                                      uint8_t inputPullMode,
                                      uint8_t edgeMode,
-                                     uint32_t counterDebounceUs)
+                                     uint32_t counterDebounceUs,
+                                     bool hardwareFilterOnly)
     : driverId_(driverId),
       pin_(pin),
       activeHigh_(activeHigh),
       inputPullMode_(inputPullMode),
       edgeMode_(edgeMode),
-      counterDebounceUs_(counterDebounceUs)
+      counterDebounceUs_(counterDebounceUs),
+      hardwareFilterOnly_(hardwareFilterOnly)
 {
 }
 
@@ -289,7 +291,11 @@ bool PcntCounterDriver::syncCounter_(uint32_t nowMs) const
     const int32_t delta = static_cast<int32_t>(hwCount) - static_cast<int32_t>(s.lastHardwareCount);
     s.sampleCount++;
     s.lastSampleMs = nowMs;
-    const uint32_t debounceMs = debounceWindowMs_();
+    // A sampled-level gate can reject valid pulse edges arriving between polls.
+    // Hardware-filter-only is selected for flow meters and for water counter I01.
+    // Other cumulative inputs retain their previous software debounce behavior.
+    // The ESP32-S3 PCNT glitch filter is limited to about 12.8 us at 80 MHz.
+    const uint32_t debounceMs = hardwareFilterOnly_ ? 0U : debounceWindowMs_();
     if (!logicalOn) {
         if (s.idleSinceMs == 0U) s.idleSinceMs = nowMs;
         if (!s.gateArmed && (debounceMs == 0U || (uint32_t)(nowMs - s.idleSinceMs) >= debounceMs)) {
