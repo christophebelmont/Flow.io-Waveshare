@@ -908,8 +908,14 @@ bool FirmwareUpdateModule::updateAdmissionBusyLocked_(bool allowCurrentRemoteWor
     // paired release local uploader, manifest check or queued worker).
     // Only the currently running paired OTA worker may open its own internal
     // local-release transaction while it already owns busy_.
+    // A terminal local-release error keeps its transaction record for
+    // diagnostics, but does not own the updater any more (same policy as
+    // isBusy_()). Otherwise an old failed ZIP upload could permanently
+    // prevent a subsequent Nextion or paired OTA until reboot.
+    const bool localReleaseBusy = localReleaseActive_ &&
+                                  status_.state != UpdateState::Error;
     return (busy_ && !allowCurrentRemoteWorker) ||
-           localReleaseActive_ ||
+           localReleaseBusy ||
            queuedJob_.pending ||
            manifestCheckJob_.pending ||
            nextionRebootQueued_ ||
