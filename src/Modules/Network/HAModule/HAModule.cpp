@@ -990,10 +990,17 @@ bool HAModule::enqueuePending_(MqttPublishPriority prio)
         if ((int32_t)(nowMs - deferredRetryNotBeforeMs_) < 0) return false;
         deferredRetryNotBeforeMs_ = 0U;
         if (retryPass_ >= DiscoveryRetryPasses) {
-            LOGW("HA discovery retries exhausted: published=%u deferred_attempts=%u passes=%u",
-                 (unsigned)discoveredCount_, (unsigned)retrySkippedCount_,
-                 (unsigned)retryPass_);
+            uint16_t unfinished = 0U;
+            for (uint16_t word = 0U; word < HA_PENDING_WORDS; ++word) {
+                unfinished += (uint16_t)__builtin_popcount((unsigned)deferredBits_[word]);
+            }
+            LOGW("HA discovery INCOMPLETE after retries: published=%u missing=%u deferred_attempts=%u passes=%u; reboot/refresh to retry",
+                 (unsigned)discoveredCount_, (unsigned)unfinished,
+                 (unsigned)retrySkippedCount_, (unsigned)retryPass_);
             memset(deferredBits_, 0, sizeof(uint32_t) * HA_PENDING_WORDS);
+            // Mark the one-shot attempt terminal even when some entities
+            // could not be built. The Waveshare discovery heap is released
+            // via haAutoconfigPublished(); leaving it false would leak PSRAM.
             published_ = true;
             if (dsSvc_ && dsSvc_->store) setHaAutoconfigPublished(*dsSvc_->store, true);
             return false;
@@ -1255,6 +1262,17 @@ void HAModule::prepareDiscovery_()
         if (dsSvc_ && dsSvc_->store) setHaAutoconfigPublished(*dsSvc_->store, false);
     }
 #if FLOW_HA_ONESHOT_DISCOVERY
+    // Nothing to publish is also a completed catalogue. Do this only after
+    // startup registration is finished and MQTT is ready, otherwise the
+    // earlier init() call (which starts with zero entries) could prematurely
+    // free the tables before the other modules register their HA entities.
+    if (startupReady_.load() && discoveryReady_() && entityCount_() == 0U &&
+        admittedMessageId_ == UINT16_MAX && !anyPending_()) {
+        published_ = true;
+        if (dsSvc_ && dsSvc_->store)
+            setHaAutoconfigPublished(*dsSvc_->store, true);
+        LOGI("HA discovery empty catalogue: no entities registered");
+    }
     if (published_ && admittedMessageId_ == UINT16_MAX && !anyPending_()) {
         LOGI("HA one-shot discovery complete, releasing resources");
         markBootLogCaptureCompleteAfterDiscovery_();
