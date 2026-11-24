@@ -107,6 +107,8 @@ void IOModule::logI2cConfigTrace_(const char* stage) const
 
 namespace {
 static constexpr uint8_t kIoCfgProducerId = 47;
+// Numeric presentation only: the raw frequency and flow stay unrounded in ValueRegistry.
+static constexpr int8_t kPulseRateDisplayPrecision = 2;
 static constexpr uint8_t kCfgBranchIo = 1;
 static constexpr uint8_t kCfgBranchIoDebug = 2;
 static constexpr uint8_t kCfgBranchIoA0 = 3;
@@ -1637,6 +1639,11 @@ bool IOModule::processDigitalInputDefinition_(uint8_t slotIdx, uint32_t nowMs)
         const ValueId countId = ValueIds::Digital + slot.logicalIdx;
         const uint64_t stamp = esp_timer_get_time() / 1000ULL;
         auto& values = dataStore_->values;
+        const int8_t flowPrecision = (int8_t)sanitizeAnalogPrecision_(cfg.precision);
+        if (slot.appliedFlowPrecision != flowPrecision) {
+            values.setPrecision(ValueIds::ConvertedRate + slot.logicalIdx, flowPrecision);
+            slot.appliedFlowPrecision = flowPrecision;
+        }
         const bool calibrationValid = isfinite(cfg.c0) && cfg.c0 >= 0;
         values.setAffine(ValueIds::Total + slot.logicalIdx, cfg.c0, 0);
         values.setAffine(ValueIds::ConvertedRate + slot.logicalIdx, cfg.c0, 0);
@@ -1684,6 +1691,11 @@ bool IOModule::processDigitalInputDefinition_(uint8_t slotIdx, uint32_t nowMs)
                            converted <= 3.402823466e38;
         const uint64_t stamp = esp_timer_get_time() / 1000ULL;
         auto& values = dataStore_->values;
+        const int8_t flowPrecision = (int8_t)sanitizeAnalogPrecision_(cfg.precision);
+        if (slot.appliedFlowPrecision != flowPrecision) {
+            values.setPrecision(ValueIds::ConvertedRate + slot.logicalIdx, flowPrecision);
+            slot.appliedFlowPrecision = flowPrecision;
+        }
         ValueNumber rate{};
         rate.f = measurement.pulsesPerMinute;
         values.write(ValueIds::PulseRate + slot.logicalIdx, rate, stamp,
@@ -3157,15 +3169,21 @@ bool IOModule::configureRuntime_()
                 const ValueMetadata countMeta{ValueType::UInt64, AggregationMode::Counter, ValueUnit::Pulse};
                 ValueMetadata rateMeta{ValueType::Float, AggregationMode::Rate, ValueUnit::PulsePerMinute};
                 setValueUnit(rateMeta.displayUnit, "imp/min");
+                rateMeta.precision = kPulseRateDisplayPrecision;
                 const double scale = digitalInCfg_[s.logicalIdx].c0;
                 if (!dataStore_->values.define(ValueIds::Digital + s.logicalIdx, countMeta) ||
                     !dataStore_->values.define(ValueIds::PulseRate + s.logicalIdx, rateMeta) ||
                     !dataStore_->values.defineAffine(ValueIds::Total + s.logicalIdx, ValueIds::Digital + s.logicalIdx, scale, 0, AggregationMode::Counter) ||
                     !dataStore_->values.defineAffine(ValueIds::ConvertedRate + s.logicalIdx, ValueIds::PulseRate + s.logicalIdx, scale, 0, AggregationMode::Rate)) return false;
+                // Mode 1 derived values have no precision by default. Apply the
+                // configured decimal count to iXX.flow without rounding its stored value.
+                s.appliedFlowPrecision = (int8_t)sanitizeAnalogPrecision_(digitalInCfg_[s.logicalIdx].precision);
+                dataStore_->values.setPrecision(ValueIds::ConvertedRate + s.logicalIdx, s.appliedFlowPrecision);
             } else if (s.inDef.mode == IO_DIGITAL_INPUT_PULSES_PER_MINUTE) {
                 // Rate-only path: not even a ValueIds::Digital count is defined.
                 ValueMetadata rateMeta{ValueType::Float, AggregationMode::Rate, ValueUnit::PulsePerMinute};
                 setValueUnit(rateMeta.displayUnit, "imp/min");
+                rateMeta.precision = kPulseRateDisplayPrecision;
                 rateMeta.maxAgeMs = 3000U;
                 ValueMetadata flowMeta{ValueType::Double, AggregationMode::Rate};
                 const auto& cfg = digitalInCfg_[s.logicalIdx];
@@ -3175,6 +3193,7 @@ bool IOModule::configureRuntime_()
                 if (!dataStore_->values.define(ValueIds::PulseRate + s.logicalIdx, rateMeta) ||
                     !dataStore_->values.define(ValueIds::ConvertedRate + s.logicalIdx, flowMeta))
                     return false;
+                s.appliedFlowPrecision = flowMeta.precision;
                 s.appliedFlowUnit = cfg.flowUnit;
                 // Reuse the physical input's configured name on its flow value.
                 // E.g. I05 "Flow Meter" remains selectable on TFT and Web when
