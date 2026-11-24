@@ -1,0 +1,281 @@
+%PDF-1.4
+%âãÏÓ
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R 9 0 R 11 0 R] /Count 4 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 3920 >>
+stream
+0.09 0.20 0.33 rg 0 755.89 595.28 86 re f
+0.07 0.48 0.51 rg 0 750.89 595.28 5 re f
+0.56 0.83 0.86 rg BT /F2 10 Tf 1 0 0 1 43 807.89 Tm (FLOW.IO / NOTE TECHNIQUE) Tj ET
+1 1 1 rg BT /F2 19 Tf 1 0 0 1 43 776.89 Tm (Pourquoi ce correctif ?) Tj ET
+0.82 0.86 0.89 RG 0.70 w 43 48 m 552.28 48 l S
+0.37 0.43 0.50 rg BT /F1 8.30 Tf 1 0 0 1 43 31 Tm (24 NOVEMBRE 2026  |  DOCUMENT DE REVUE POUR CHRISTOPHE) Tj ET
+0.37 0.43 0.50 rg BT /F2 8.50 Tf 1 0 0 1 509.28 31 Tm (01 / 04) Tj ET
+0.37 0.43 0.50 rg BT /F1 10.50 Tf 1 0 0 1 43 723.89 Tm (PR - Fiabilisation des mises à jour Nextion en PSRAM, priorité OTA et isolation Modbus.) Tj ET
+0.90 0.96 0.96 rg 43 625.89 509.28 65 re f
+0.16 0.46 0.34 rg 43 625.89 4 65 re f
+0.16 0.46 0.34 rg BT /F2 11 Tf 1 0 0 1 58 674.89 Tm (VALIDATION TERRAIN) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.50 Tf 1 0 0 1 58 656.89 Tm (L'utilisateur confirme : mise à jour du firmware Nextion réussie sur son installation après compilation de la) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.50 Tf 1 0 0 1 58 644.39 Tm (branche corrigée.) Tj ET
+0.09 0.20 0.33 rg BT /F2 14.60 Tf 1 0 0 1 43 540.89 Tm (1. Incident initial) Tj ET
+0.82 0.86 0.89 RG 0.80 w 43 531.89 m 552.28 531.89 l S
+0.07 0.15 0.25 rg BT /F1 10.50 Tf 1 0 0 1 43 503.89 Tm (Deux tentatives de mise à jour ont échoué pendant l'étape « flashing » avec l'erreur « get baudrate error ».) Tj ET
+0.07 0.15 0.25 rg BT /F1 10.50 Tf 1 0 0 1 43 487.89 Tm (Un redémarrage a ensuite été observé avec reset_reason = 7 \(watchdog\).) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.70 Tf 1 0 0 1 43 464.89 Tm (Le chargeur ESPNexUpload employait Serial1, le port destiné au RS485/Modbus, tandis que l'affichage Nextion) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.70 Tf 1 0 0 1 43 450.49 Tm (normal utilise Serial2. Cette incohérence est une cause plausible majeure des échecs. Le succès sur matériel après) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.70 Tf 1 0 0 1 43 436.09 Tm (correction la renforce, sans démonstration expérimentale isolée de causalité.) Tj ET
+0.09 0.20 0.33 rg BT /F2 14.60 Tf 1 0 0 1 43 408.69 Tm (2. Avant / après) Tj ET
+0.82 0.86 0.89 RG 0.80 w 43 399.69 m 552.28 399.69 l S
+0.98 0.95 0.94 rg 43 307.69 247.64 64 re f
+0.07 0.48 0.51 rg 43 307.69 3 64 re f
+0.09 0.20 0.33 rg BT /F2 11 Tf 1 0 0 1 56 352.69 Tm (AVANT) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.20 Tf 1 0 0 1 56 334.69 Tm (Téléchargement HTTP pendant le flash; UART1) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.20 Tf 1 0 0 1 56 322.69 Tm (partagé avec Modbus; progression web artificielle à 5) Tj ET
+0.90 0.96 0.96 rg 304.64 307.69 247.64 64 re f
+0.07 0.48 0.51 rg 304.64 307.69 3 64 re f
+0.09 0.20 0.33 rg BT /F2 11 Tf 1 0 0 1 317.64 352.69 Tm (APRÈS) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.20 Tf 1 0 0 1 317.64 334.69 Tm (Fichier complet et SHA-256 en PSRAM; Serial2 dédié;) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.20 Tf 1 0 0 1 317.64 322.69 Tm (transfert UART acquitté; pourcentages mesurés.) Tj ET
+0.09 0.20 0.33 rg BT /F2 14.60 Tf 1 0 0 1 43 283.69 Tm (3. Résultats attendus) Tj ET
+0.82 0.86 0.89 RG 0.80 w 43 274.69 m 552.28 274.69 l S
+0.07 0.48 0.51 rg BT /F2 12 Tf 1 0 0 1 43 246.69 Tm (•) Tj ET
+0.07 0.15 0.25 rg BT /F1 10 Tf 1 0 0 1 60 246.69 Tm (Préserver le Nextion : ne jamais commencer le flash si le téléchargement, la taille ou le SHA-256 sont) Tj ET
+0.07 0.15 0.25 rg BT /F1 10 Tf 1 0 0 1 60 232.19 Tm (incorrects.) Tj ET
+0.07 0.48 0.51 rg BT /F2 12 Tf 1 0 0 1 43 211.69 Tm (•) Tj ET
+0.07 0.15 0.25 rg BT /F1 10 Tf 1 0 0 1 60 211.69 Tm (Empêcher la concurrence : Nextion et OTA firmware + SPIFFS ne doivent pas se chevaucher.) Tj ET
+0.07 0.48 0.51 rg BT /F2 12 Tf 1 0 0 1 43 191.19 Tm (•) Tj ET
+0.07 0.15 0.25 rg BT /F1 10 Tf 1 0 0 1 60 191.19 Tm (Donner la priorité à la mise à jour, sans conflit UART ni nouvelle sollicitation Modbus.) Tj ET
+0.07 0.48 0.51 rg BT /F2 12 Tf 1 0 0 1 43 170.69 Tm (•) Tj ET
+0.07 0.15 0.25 rg BT /F1 10 Tf 1 0 0 1 60 170.69 Tm (Rendre les étapes observables grâce aux journaux et à /api/fwupdate/status.) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 8 0 R >>
+endobj
+8 0 obj
+<< /Length 3970 >>
+stream
+0.09 0.20 0.33 rg 0 755.89 595.28 86 re f
+0.07 0.48 0.51 rg 0 750.89 595.28 5 re f
+0.56 0.83 0.86 rg BT /F2 10 Tf 1 0 0 1 43 807.89 Tm (FLOW.IO / NOTE TECHNIQUE) Tj ET
+1 1 1 rg BT /F2 19 Tf 1 0 0 1 43 776.89 Tm (Chemin de mise à jour) Tj ET
+0.82 0.86 0.89 RG 0.70 w 43 48 m 552.28 48 l S
+0.37 0.43 0.50 rg BT /F1 8.30 Tf 1 0 0 1 43 31 Tm (24 NOVEMBRE 2026  |  DOCUMENT DE REVUE POUR CHRISTOPHE) Tj ET
+0.37 0.43 0.50 rg BT /F2 8.50 Tf 1 0 0 1 509.28 31 Tm (02 / 04) Tj ET
+0.07 0.15 0.25 rg BT /F1 10.40 Tf 1 0 0 1 43 723.89 Tm (Le programme passe d'un streaming HTTP ? UART à une séquence bornée, vérifiée et indépendante du réseau) Tj ET
+0.07 0.15 0.25 rg BT /F1 10.40 Tf 1 0 0 1 43 708.29 Tm (pendant le flash.) Tj ET
+0.94 0.97 0.98 rg 0.82 0.86 0.89 RG 43 591.69 509.28 86 re B
+0.09 0.20 0.33 rg 43 591.69 43 86 re f
+1 1 1 rg BT /F2 16 Tf 1 0 0 1 53 642.69 Tm (01) Tj ET
+0.09 0.20 0.33 rg BT /F2 11.20 Tf 1 0 0 1 100 658.69 Tm (Téléchargement HTTP en PSRAM) Tj ET
+0.07 0.48 0.51 rg BT /F2 9.20 Tf 1 0 0 1 461.28 658.69 Tm (0 à 25 %) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.30 Tf 1 0 0 1 100 635.69 Tm (Le fichier TFT est entièrement préchargé. Trois tentatives HTTP maximum; Range 206 validé.) Tj ET
+1 1 1 rg 0.82 0.86 0.89 RG 43 496.69 509.28 86 re B
+0.09 0.20 0.33 rg 43 496.69 43 86 re f
+1 1 1 rg BT /F2 16 Tf 1 0 0 1 53 547.69 Tm (02) Tj ET
+0.09 0.20 0.33 rg BT /F2 11.20 Tf 1 0 0 1 100 563.69 Tm (Vérification avant programmation) Tj ET
+0.07 0.48 0.51 rg BT /F2 9.20 Tf 1 0 0 1 461.28 563.69 Tm (25 à 30 %) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.30 Tf 1 0 0 1 100 540.69 Tm (Taille exacte et SHA-256 issu du manifeste, obligatoires avant accès au bootloader.) Tj ET
+0.94 0.97 0.98 rg 0.82 0.86 0.89 RG 43 401.69 509.28 86 re B
+0.09 0.20 0.33 rg 43 401.69 43 86 re f
+1 1 1 rg BT /F2 16 Tf 1 0 0 1 53 452.69 Tm (03) Tj ET
+0.09 0.20 0.33 rg BT /F2 11.20 Tf 1 0 0 1 100 468.69 Tm (Prise exclusive du port Nextion) Tj ET
+0.07 0.48 0.51 rg BT /F2 9.20 Tf 1 0 0 1 461.28 468.69 Tm (30 %) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.30 Tf 1 0 0 1 100 445.69 Tm (Suspension du pilote HMI; initialisation de Serial2; recherche du débit UART.) Tj ET
+1 1 1 rg 0.82 0.86 0.89 RG 43 306.69 509.28 86 re B
+0.09 0.20 0.33 rg 43 306.69 43 86 re f
+1 1 1 rg BT /F2 16 Tf 1 0 0 1 53 357.69 Tm (04) Tj ET
+0.09 0.20 0.33 rg BT /F2 11.20 Tf 1 0 0 1 100 373.69 Tm (Transfert série depuis la PSRAM) Tj ET
+0.07 0.48 0.51 rg BT /F2 9.20 Tf 1 0 0 1 461.28 373.69 Tm (30 à 95 %) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.30 Tf 1 0 0 1 100 350.69 Tm (Blocs de 4 Kio, écriture vérifiée et acquittements intermédiaires 0x05.) Tj ET
+0.94 0.97 0.98 rg 0.82 0.86 0.89 RG 43 211.69 509.28 86 re B
+0.09 0.20 0.33 rg 43 211.69 43 86 re f
+1 1 1 rg BT /F2 16 Tf 1 0 0 1 53 262.69 Tm (05) Tj ET
+0.09 0.20 0.33 rg BT /F2 11.20 Tf 1 0 0 1 100 278.69 Tm (Acquittement final et sortie) Tj ET
+0.07 0.48 0.51 rg BT /F2 9.20 Tf 1 0 0 1 461.28 278.69 Tm (95 à 100 %) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.30 Tf 1 0 0 1 100 255.69 Tm (Le dernier 0x05 est requis; succès seulement après confirmation puis redémarrage planifié.) Tj ET
+0.09 0.20 0.33 rg BT /F2 14.60 Tf 1 0 0 1 43 198.69 Tm (Garde-fous réseau et mémoire) Tj ET
+0.82 0.86 0.89 RG 0.80 w 43 189.69 m 552.28 189.69 l S
+0.07 0.48 0.51 rg BT /F2 12 Tf 1 0 0 1 43 169.69 Tm (•) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.30 Tf 1 0 0 1 60 169.69 Tm (Admission PSRAM : bloc contigu suffisant et réserve d'au moins 2 Mio; absence de repli en streaming.) Tj ET
+0.07 0.48 0.51 rg BT /F2 12 Tf 1 0 0 1 43 150.29 Tm (•) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.30 Tf 1 0 0 1 60 150.29 Tm (Reprise HTTP : Range uniquement si la réponse 206 et les octets annoncés sont cohérents. Un 200 redémarre le) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.30 Tf 1 0 0 1 60 136.89 Tm (fichier complet.) Tj ET
+0.07 0.48 0.51 rg BT /F2 12 Tf 1 0 0 1 43 117.49 Tm (•) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.30 Tf 1 0 0 1 60 117.49 Tm (Échec UART : libération de la liaison sans forcer un redémarrage logiciel d'un écran partiellement programmé.) Tj ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 10 0 R >>
+endobj
+10 0 obj
+<< /Length 4749 >>
+stream
+0.09 0.20 0.33 rg 0 755.89 595.28 86 re f
+0.07 0.48 0.51 rg 0 750.89 595.28 5 re f
+0.56 0.83 0.86 rg BT /F2 10 Tf 1 0 0 1 43 807.89 Tm (FLOW.IO / NOTE TECHNIQUE) Tj ET
+1 1 1 rg BT /F2 19 Tf 1 0 0 1 43 776.89 Tm (Exclusivité et Modbus) Tj ET
+0.82 0.86 0.89 RG 0.70 w 43 48 m 552.28 48 l S
+0.37 0.43 0.50 rg BT /F1 8.30 Tf 1 0 0 1 43 31 Tm (24 NOVEMBRE 2026  |  DOCUMENT DE REVUE POUR CHRISTOPHE) Tj ET
+0.37 0.43 0.50 rg BT /F2 8.50 Tf 1 0 0 1 509.28 31 Tm (03 / 04) Tj ET
+0.09 0.20 0.33 rg BT /F2 14.60 Tf 1 0 0 1 43 723.89 Tm (4. Un seul outil de mise à jour actif) Tj ET
+0.82 0.86 0.89 RG 0.80 w 43 714.89 m 552.28 714.89 l S
+0.07 0.15 0.25 rg BT /F1 10 Tf 1 0 0 1 43 692.89 Tm (Un verrou d'admission partagé protège Nextion, OTA firmware+SPIFFS distante, mise à jour locale et opérations) Tj ET
+0.07 0.15 0.25 rg BT /F1 10 Tf 1 0 0 1 43 677.89 Tm (déjà placées en file. Les requêtes concurrentes sont refusées, y compris dans la courte fenêtre entre la) Tj ET
+0.07 0.15 0.25 rg BT /F1 10 Tf 1 0 0 1 43 662.89 Tm (demande et le lancement du travail.) Tj ET
+0.09 0.20 0.33 rg 43 608.89 509.28 27 re f
+1 1 1 rg BT /F2 9.10 Tf 1 0 0 1 52 617.89 Tm (Opération en cours) Tj ET
+1 1 1 rg BT /F2 9.10 Tf 1 0 0 1 265.90 617.89 Tm (Demande concurrente) Tj ET
+1 1 1 rg BT /F2 9.10 Tf 1 0 0 1 469.61 617.89 Tm (Résultat) Tj ET
+0.94 0.97 0.98 rg 43 577.89 509.28 31 re f
+0.09 0.20 0.33 rg BT /F2 9 Tf 1 0 0 1 50 597.89 Tm (Nextion \(PSRAM / UART\)) Tj ET
+0.07 0.15 0.25 rg BT /F1 9 Tf 1 0 0 1 263.90 597.89 Tm (Firmware + SPIFFS) Tj ET
+0.07 0.15 0.25 rg BT /F1 9 Tf 1 0 0 1 467.61 597.89 Tm (Refus) Tj ET
+0.82 0.86 0.89 RG 0.30 w 43 577.89 m 552.28 577.89 l S
+1 1 1 rg 43 546.89 509.28 31 re f
+0.09 0.20 0.33 rg BT /F2 9 Tf 1 0 0 1 50 566.89 Tm (Firmware + SPIFFS) Tj ET
+0.07 0.15 0.25 rg BT /F1 9 Tf 1 0 0 1 263.90 566.89 Tm (Nextion) Tj ET
+0.07 0.15 0.25 rg BT /F1 9 Tf 1 0 0 1 467.61 566.89 Tm (Refus) Tj ET
+0.82 0.86 0.89 RG 0.30 w 43 546.89 m 552.28 546.89 l S
+0.94 0.97 0.98 rg 43 515.89 509.28 31 re f
+0.09 0.20 0.33 rg BT /F2 9 Tf 1 0 0 1 50 535.89 Tm (OTA locale ou distante) Tj ET
+0.07 0.15 0.25 rg BT /F1 9 Tf 1 0 0 1 263.90 535.89 Tm (Autre OTA / manifeste) Tj ET
+0.07 0.15 0.25 rg BT /F1 9 Tf 1 0 0 1 467.61 535.89 Tm (Refus) Tj ET
+0.82 0.86 0.89 RG 0.30 w 43 515.89 m 552.28 515.89 l S
+1 1 1 rg 43 484.89 509.28 31 re f
+0.09 0.20 0.33 rg BT /F2 9 Tf 1 0 0 1 50 504.89 Tm (Opération terminée / échouée) Tj ET
+0.07 0.15 0.25 rg BT /F1 9 Tf 1 0 0 1 263.90 504.89 Tm (Nouvel essai autorisé) Tj ET
+0.07 0.15 0.25 rg BT /F1 9 Tf 1 0 0 1 467.61 504.89 Tm (Possible) Tj ET
+0.82 0.86 0.89 RG 0.30 w 43 484.89 m 552.28 484.89 l S
+0.09 0.20 0.33 rg BT /F2 14.60 Tf 1 0 0 1 43 462.89 Tm (5. Comportement des communications Modbus) Tj ET
+0.82 0.86 0.89 RG 0.80 w 43 453.89 m 552.28 453.89 l S
+0.07 0.48 0.51 rg BT /F2 12 Tf 1 0 0 1 43 432.89 Tm (•) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.80 Tf 1 0 0 1 60 432.89 Tm (Modbus TCP : aucune nouvelle session/transaction pendant l'OTA; arrêt des serveurs/clients après la courte) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.80 Tf 1 0 0 1 60 418.39 Tm (période de désengagement déjà prévue.) Tj ET
+0.07 0.48 0.51 rg BT /F2 12 Tf 1 0 0 1 43 397.89 Tm (•) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.80 Tf 1 0 0 1 60 397.89 Tm (RS485 Modbus RTU : les transactions en attente sont refusées; un échange déjà actif est laissé finir pour ne) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.80 Tf 1 0 0 1 60 383.39 Tm (pas tronquer de trame.) Tj ET
+0.07 0.48 0.51 rg BT /F2 12 Tf 1 0 0 1 43 362.89 Tm (•) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.80 Tf 1 0 0 1 60 362.89 Tm (Retour à l'état normal : le verrou OTA est libéré et les services reprennent après une réussite ou un échec.) Tj ET
+0.09 0.20 0.33 rg BT /F2 14.60 Tf 1 0 0 1 43 335.39 Tm (6. Observabilité) Tj ET
+0.82 0.86 0.89 RG 0.80 w 43 326.39 m 552.28 326.39 l S
+0.07 0.15 0.25 rg BT /F1 9.90 Tf 1 0 0 1 43 305.39 Tm (Les marqueurs [NEXTION-OTA] distinguent l'admission PSRAM, les tentatives HTTP, la vérification, la connexion) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.90 Tf 1 0 0 1 43 290.39 Tm (UART, les octets envoyés et les acquittements. La page web est bilingue FR/EN.) Tj ET
+0.94 0.97 0.98 rg 43 200.39 509.28 64 re f
+0.07 0.48 0.51 rg 43 200.39 3 64 re f
+0.09 0.20 0.33 rg BT /F2 11 Tf 1 0 0 1 56 245.39 Tm (/api/fwupdate/status) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.20 Tf 1 0 0 1 56 227.39 Tm (Surveiller state, target, busy, progress, ota_stage, ota_stage_progress, last_operation et last_failure.) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.90 Tf 1 0 0 1 43 179.39 Tm (Le pourcentage global reflète des jalons pondérés, et non une durée restante estimée. Les pourcentages des) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.90 Tf 1 0 0 1 43 164.59 Tm (étapes de téléchargement et de transfert sont calculés sur les octets réels.) Tj ET
+endstream
+endobj
+11 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 12 0 R >>
+endobj
+12 0 obj
+<< /Length 5294 >>
+stream
+0.09 0.20 0.33 rg 0 755.89 595.28 86 re f
+0.07 0.48 0.51 rg 0 750.89 595.28 5 re f
+0.56 0.83 0.86 rg BT /F2 10 Tf 1 0 0 1 43 807.89 Tm (FLOW.IO / NOTE TECHNIQUE) Tj ET
+1 1 1 rg BT /F2 19 Tf 1 0 0 1 43 776.89 Tm (Validation et revue Christophe) Tj ET
+0.82 0.86 0.89 RG 0.70 w 43 48 m 552.28 48 l S
+0.37 0.43 0.50 rg BT /F1 8.30 Tf 1 0 0 1 43 31 Tm (24 NOVEMBRE 2026  |  DOCUMENT DE REVUE POUR CHRISTOPHE) Tj ET
+0.37 0.43 0.50 rg BT /F2 8.50 Tf 1 0 0 1 509.28 31 Tm (04 / 04) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.80 Tf 1 0 0 1 43 723.89 Tm (Résultats connus au 24 novembre 2026. Les simulations modélisent les contrats d'exclusion, de reprise et de) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.80 Tf 1 0 0 1 43 709.19 Tm (transfert; elles ne remplacent pas la validation électrique ou le comportement d'un Nextion réel.) Tj ET
+0.09 0.20 0.33 rg BT /F2 14.60 Tf 1 0 0 1 43 681.49 Tm (7. Couverture des essais) Tj ET
+0.82 0.86 0.89 RG 0.80 w 43 672.49 m 552.28 672.49 l S
+0.09 0.20 0.33 rg 43 628.49 509.28 27 re f
+1 1 1 rg BT /F2 9.10 Tf 1 0 0 1 52 637.49 Tm (Catégorie) Tj ET
+1 1 1 rg BT /F2 9.10 Tf 1 0 0 1 393.22 637.49 Tm (Scénarios) Tj ET
+0.94 0.97 0.98 rg 43 604.49 509.28 24 re f
+0.09 0.20 0.33 rg BT /F2 9.10 Tf 1 0 0 1 50 617.49 Tm (PSRAM : capacité, réserve, fragmentation) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.10 Tf 1 0 0 1 391.22 617.49 Tm (440) Tj ET
+0.82 0.86 0.89 RG 0.30 w 43 604.49 m 552.28 604.49 l S
+1 1 1 rg 43 580.49 509.28 24 re f
+0.09 0.20 0.33 rg BT /F2 9.10 Tf 1 0 0 1 50 593.49 Tm (HTTP : codes, longueurs, Content-Range) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.10 Tf 1 0 0 1 391.22 593.49 Tm (1 350) Tj ET
+0.82 0.86 0.89 RG 0.30 w 43 580.49 m 552.28 580.49 l S
+0.94 0.97 0.98 rg 43 556.49 509.28 24 re f
+0.09 0.20 0.33 rg BT /F2 9.10 Tf 1 0 0 1 50 569.49 Tm (Sessions HTTP : reprises, erreurs, 3 essais) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.10 Tf 1 0 0 1 391.22 569.49 Tm (1 890) Tj ET
+0.82 0.86 0.89 RG 0.30 w 43 556.49 m 552.28 556.49 l S
+1 1 1 rg 43 532.49 509.28 24 re f
+0.09 0.20 0.33 rg BT /F2 9.10 Tf 1 0 0 1 50 545.49 Tm (UART : ACK, écritures, limites 4 Kio) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.10 Tf 1 0 0 1 391.22 545.49 Tm (112) Tj ET
+0.82 0.86 0.89 RG 0.30 w 43 532.49 m 552.28 532.49 l S
+0.94 0.97 0.98 rg 43 508.49 509.28 24 re f
+0.09 0.20 0.33 rg BT /F2 9.10 Tf 1 0 0 1 50 521.49 Tm (Exclusivité des mises à jour) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.10 Tf 1 0 0 1 391.22 521.49 Tm (660) Tj ET
+0.82 0.86 0.89 RG 0.30 w 43 508.49 m 552.28 508.49 l S
+1 1 1 rg 43 484.49 509.28 24 re f
+0.09 0.20 0.33 rg BT /F2 9.10 Tf 1 0 0 1 50 497.49 Tm (Progression et étapes) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.10 Tf 1 0 0 1 391.22 497.49 Tm (21) Tj ET
+0.82 0.86 0.89 RG 0.30 w 43 484.49 m 552.28 484.49 l S
+0.94 0.97 0.98 rg 43 460.49 509.28 24 re f
+0.09 0.20 0.33 rg BT /F2 9.10 Tf 1 0 0 1 50 473.49 Tm (Modbus : pause et reprise) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.10 Tf 1 0 0 1 391.22 473.49 Tm (15) Tj ET
+0.82 0.86 0.89 RG 0.30 w 43 460.49 m 552.28 460.49 l S
+1 1 1 rg 43 436.49 509.28 24 re f
+0.09 0.20 0.33 rg BT /F2 9.10 Tf 1 0 0 1 50 449.49 Tm (Prérequis de sécurité avant flash) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.10 Tf 1 0 0 1 391.22 449.49 Tm (7) Tj ET
+0.82 0.86 0.89 RG 0.30 w 43 436.49 m 552.28 436.49 l S
+0.94 0.97 0.98 rg 43 412.49 509.28 24 re f
+0.09 0.20 0.33 rg BT /F2 9.10 Tf 1 0 0 1 50 425.49 Tm (TOTAL DES SCÉNARIOS MODÉLISÉS) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.10 Tf 1 0 0 1 391.22 425.49 Tm (4 495) Tj ET
+0.82 0.86 0.89 RG 0.30 w 43 412.49 m 552.28 412.49 l S
+0.90 0.96 0.96 rg 43 355.49 509.28 42 re f
+0.16 0.46 0.34 rg BT /F2 11 Tf 1 0 0 1 54 380.49 Tm (4 495 scénarios simulés : 0 échec) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.20 Tf 1 0 0 1 54 366.49 Tm (44 vérifications statiques : 44/44 conformes) Tj ET
+0.09 0.20 0.33 rg BT /F2 14.60 Tf 1 0 0 1 43 337.49 Tm (8. Validation acquise / points restant à revoir) Tj ET
+0.82 0.86 0.89 RG 0.80 w 43 328.49 m 552.28 328.49 l S
+0.07 0.48 0.51 rg BT /F2 12 Tf 1 0 0 1 43 309.49 Tm (•) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.50 Tf 1 0 0 1 60 309.49 Tm (Validé par l'utilisateur : compilation et mise à jour Nextion réussies sur son matériel.) Tj ET
+0.07 0.48 0.51 rg BT /F2 12 Tf 1 0 0 1 43 289.99 Tm (•) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.50 Tf 1 0 0 1 60 289.99 Tm (À confirmer par Christophe : test inverse des OTA concurrentes, charge Modbus, erreurs réseau/UART et) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.50 Tf 1 0 0 1 60 276.49 Tm (reprise, autres formats d'écran.) Tj ET
+0.07 0.48 0.51 rg BT /F2 12 Tf 1 0 0 1 43 256.99 Tm (•) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.50 Tf 1 0 0 1 60 256.99 Tm (À ne pas surinterpréter : l'absence de défaillance du modèle n'est pas une preuve de résistance à toutes les pannes) Tj ET
+0.07 0.15 0.25 rg BT /F1 9.50 Tf 1 0 0 1 60 243.49 Tm (matérielles.) Tj ET
+0.09 0.20 0.33 rg BT /F2 14.60 Tf 1 0 0 1 43 220.99 Tm (9. Références du correctif) Tj ET
+0.82 0.86 0.89 RG 0.80 w 43 211.99 m 552.28 211.99 l S
+0.16 0.38 0.58 rg BT /F1 8.50 Tf 1 0 0 1 43 194.99 Tm (Branche : stephdust/Flow.io-Waveshare / fix/nextion-psram-uart-priority-20261124) Tj ET
+0.16 0.38 0.58 rg BT /F1 8.50 Tf 1 0 0 1 43 178.59 Tm (Changelog : docs/core/CHANGELOG_NEXTION_PSRAM_OTA_PRIORITE_2026-11-24_FR.md) Tj ET
+0.16 0.38 0.58 rg BT /F1 8.50 Tf 1 0 0 1 43 162.19 Tm (Rapport des simulations : docs/core/nextion-psram-ota-failure-matrix-2026-11-24.md) Tj ET
+endstream
+endobj
+xref
+0 13
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000140 00000 n 
+0000000237 00000 n 
+0000000339 00000 n 
+0000000481 00000 n 
+0000004452 00000 n 
+0000004594 00000 n 
+0000008615 00000 n 
+0000008758 00000 n 
+0000013559 00000 n 
+0000013703 00000 n 
+trailer
+<< /Size 13 /Root 1 0 R >>
+startxref
+19049
+%%EOF
