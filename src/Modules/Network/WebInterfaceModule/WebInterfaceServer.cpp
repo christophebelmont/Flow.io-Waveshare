@@ -2545,8 +2545,10 @@ struct WaveshareDashboardRuntimeValue : DataValuePresentation {
     int8_t precision = VALUE_PRECISION_NONE;
 };
 
-constexpr uint8_t kWaveshareDashboardSlotCount = 8U;
-constexpr RuntimeUiId kWaveshareDashboardDefaultRuntimeUiIds[kWaveshareDashboardSlotCount] = {
+constexpr uint8_t kWaveshareDashboardSensorSlotCount = 10U;
+constexpr uint8_t kWaveshareAlarmDashboardSlotCount = 8U;
+constexpr uint8_t kWaveshareDashboardDefaultEnabledSlots = 8U;
+constexpr RuntimeUiId kWaveshareDashboardDefaultRuntimeUiIds[kWaveshareDashboardSensorSlotCount] = {
     makeRuntimeUiId(ModuleId::Io, 1),
     makeRuntimeUiId(ModuleId::Io, 2),
     makeRuntimeUiId(ModuleId::Io, 3),
@@ -2555,8 +2557,10 @@ constexpr RuntimeUiId kWaveshareDashboardDefaultRuntimeUiIds[kWaveshareDashboard
     makeRuntimeUiId(ModuleId::Io, 8),
     makeRuntimeUiId(ModuleId::Io, 7),
     makeRuntimeUiId(ModuleId::Io, 6),
+    0U,
+    0U,
 };
-constexpr const char* kWaveshareDashboardDefaultLabels[kWaveshareDashboardSlotCount] = {
+constexpr const char* kWaveshareDashboardDefaultLabels[kWaveshareDashboardSensorSlotCount] = {
     "Eau",
     "Air",
     "pH",
@@ -2565,8 +2569,10 @@ constexpr const char* kWaveshareDashboardDefaultLabels[kWaveshareDashboardSlotCo
     "BME680",
     "BMP280",
     "PSI",
+    "Mesure 9",
+    "Mesure 10",
 };
-constexpr uint8_t kWaveshareDashboardDefaultColorIds[kWaveshareDashboardSlotCount] = {
+constexpr uint8_t kWaveshareDashboardDefaultColorIds[kWaveshareDashboardSensorSlotCount] = {
     0U,
     1U,
     2U,
@@ -2575,8 +2581,10 @@ constexpr uint8_t kWaveshareDashboardDefaultColorIds[kWaveshareDashboardSlotCoun
     5U,
     6U,
     7U,
+    8U,
+    9U,
 };
-constexpr uint16_t kWaveshareAlarmDashboardDefaultIds[kWaveshareDashboardSlotCount] = {
+constexpr uint16_t kWaveshareAlarmDashboardDefaultIds[kWaveshareAlarmDashboardSlotCount] = {
     (uint16_t)AlarmId::PoolPsiLow,
     (uint16_t)AlarmId::PoolPsiHigh,
     (uint16_t)AlarmId::PoolPhTankLow,
@@ -2586,7 +2594,7 @@ constexpr uint16_t kWaveshareAlarmDashboardDefaultIds[kWaveshareDashboardSlotCou
     (uint16_t)AlarmId::PoolWaterLevelLow,
     (uint16_t)AlarmId::PoolWaterLevelLow,
 };
-constexpr bool kWaveshareAlarmDashboardDefaultEnabled[kWaveshareDashboardSlotCount] = {
+constexpr bool kWaveshareAlarmDashboardDefaultEnabled[kWaveshareAlarmDashboardSlotCount] = {
     true,
     true,
     true,
@@ -2596,7 +2604,7 @@ constexpr bool kWaveshareAlarmDashboardDefaultEnabled[kWaveshareDashboardSlotCou
     true,
     false,
 };
-constexpr const char* kWaveshareAlarmDashboardDefaultLabels[kWaveshareDashboardSlotCount] = {
+constexpr const char* kWaveshareAlarmDashboardDefaultLabels[kWaveshareAlarmDashboardSlotCount] = {
     "PSI bas",
     "PSI haut",
     "pH vide",
@@ -2606,7 +2614,7 @@ constexpr const char* kWaveshareAlarmDashboardDefaultLabels[kWaveshareDashboardS
     "Eau basse",
     "",
 };
-constexpr uint8_t kWaveshareAlarmDashboardDefaultColorIds[kWaveshareDashboardSlotCount] = {
+constexpr uint8_t kWaveshareAlarmDashboardDefaultColorIds[kWaveshareAlarmDashboardSlotCount] = {
     17U,
     17U,
     8U,
@@ -2626,7 +2634,7 @@ const char* waveshareDashboardColorHex_(uint8_t colorId, uint8_t slot)
 {
     const uint8_t colorCount = (uint8_t)(sizeof(kWaveshareDashboardColorHex) / sizeof(kWaveshareDashboardColorHex[0]));
     if (colorId < colorCount) return kWaveshareDashboardColorHex[colorId];
-    if (slot < kWaveshareDashboardSlotCount) {
+    if (slot < kWaveshareDashboardSensorSlotCount) {
         const uint8_t fallbackId = kWaveshareDashboardDefaultColorIds[slot];
         if (fallbackId < colorCount) return kWaveshareDashboardColorHex[fallbackId];
     }
@@ -2679,14 +2687,14 @@ void waveshareDashboardFallbackLabel_(RuntimeUiId id, char* out, size_t outLen)
 
 void waveshareLoadDashboardSlotConfig_(ConfigStore* cfgStore, uint8_t slot, WaveshareDashboardSlotConfig& out)
 {
-    out.enabled = true;
-    out.runtimeUiId = (slot < kWaveshareDashboardSlotCount) ? kWaveshareDashboardDefaultRuntimeUiIds[slot] : 0U;
-    out.colorId = (slot < kWaveshareDashboardSlotCount) ? kWaveshareDashboardDefaultColorIds[slot] : 0U;
+    out.enabled = slot < kWaveshareDashboardDefaultEnabledSlots;
+    out.runtimeUiId = (slot < kWaveshareDashboardSensorSlotCount) ? kWaveshareDashboardDefaultRuntimeUiIds[slot] : 0U;
+    out.colorId = (slot < kWaveshareDashboardSensorSlotCount) ? kWaveshareDashboardDefaultColorIds[slot] : 0U;
     snprintf(out.label,
              sizeof(out.label),
              "%s",
-             (slot < kWaveshareDashboardSlotCount) ? kWaveshareDashboardDefaultLabels[slot] : "Mesure");
-    if (!cfgStore || slot >= kWaveshareDashboardSlotCount) return;
+             (slot < kWaveshareDashboardSensorSlotCount) ? kWaveshareDashboardDefaultLabels[slot] : "Mesure");
+    if (!cfgStore || slot >= kWaveshareDashboardSensorSlotCount) return;
 
     char moduleName[32] = {0};
     snprintf(moduleName, sizeof(moduleName), "tft/s3/sensors/slot%02u", (unsigned)slot);
@@ -2707,14 +2715,14 @@ void waveshareLoadDashboardSlotConfig_(ConfigStore* cfgStore, uint8_t slot, Wave
 
 void waveshareLoadAlarmDashboardSlotConfig_(ConfigStore* cfgStore, uint8_t slot, WaveshareAlarmDashboardSlotConfig& out)
 {
-    out.enabled = (slot < kWaveshareDashboardSlotCount) ? kWaveshareAlarmDashboardDefaultEnabled[slot] : false;
-    out.alarmId = (slot < kWaveshareDashboardSlotCount) ? kWaveshareAlarmDashboardDefaultIds[slot] : 0U;
-    out.colorId = (slot < kWaveshareDashboardSlotCount) ? kWaveshareAlarmDashboardDefaultColorIds[slot] : 0U;
+    out.enabled = (slot < kWaveshareAlarmDashboardSlotCount) ? kWaveshareAlarmDashboardDefaultEnabled[slot] : false;
+    out.alarmId = (slot < kWaveshareAlarmDashboardSlotCount) ? kWaveshareAlarmDashboardDefaultIds[slot] : 0U;
+    out.colorId = (slot < kWaveshareAlarmDashboardSlotCount) ? kWaveshareAlarmDashboardDefaultColorIds[slot] : 0U;
     snprintf(out.label,
              sizeof(out.label),
              "%s",
-             (slot < kWaveshareDashboardSlotCount) ? kWaveshareAlarmDashboardDefaultLabels[slot] : "");
-    if (!cfgStore || slot >= kWaveshareDashboardSlotCount) return;
+             (slot < kWaveshareAlarmDashboardSlotCount) ? kWaveshareAlarmDashboardDefaultLabels[slot] : "");
+    if (!cfgStore || slot >= kWaveshareAlarmDashboardSlotCount) return;
 
     char moduleName[32] = {0};
     snprintf(moduleName, sizeof(moduleName), "tft/s3/alarms/slot%02u", (unsigned)slot);
@@ -3824,7 +3832,7 @@ void sendWaveshareDashboardSlotsResponse_(AsyncResponseStream& response,
                                          const IOServiceV2* ioSvc)
 {
     WaveshareRuntimeContext ctx{};
-    for (uint8_t i = 0U; i < kWaveshareDashboardSlotCount; ++i) {
+    for (uint8_t i = 0U; i < kWaveshareDashboardSensorSlotCount; ++i) {
         WaveshareDashboardSlotConfig slot{};
         waveshareLoadDashboardSlotConfig_(cfgStore, i, slot);
 
@@ -3895,7 +3903,7 @@ void sendWaveshareAlarmDashboardSlotsResponse_(AsyncResponseStream& response,
                                               ConfigStore* cfgStore,
                                               const AlarmService* alarmSvc)
 {
-    for (uint8_t i = 0U; i < kWaveshareDashboardSlotCount; ++i) {
+    for (uint8_t i = 0U; i < kWaveshareAlarmDashboardSlotCount; ++i) {
         WaveshareAlarmDashboardSlotConfig slot{};
         waveshareLoadAlarmDashboardSlotConfig_(cfgStore, i, slot);
 

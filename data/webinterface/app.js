@@ -7074,6 +7074,7 @@
       const data = await fetchPoolDashboardSlots();
       const slots = Array.isArray(data && data.slots) ? data.slots : [];
       return slots
+        .filter((slot) => slot && slot.enabled === true)
         .map((slot) => {
           const idx = Number(slot && slot.slot);
           return {
@@ -7087,8 +7088,8 @@
             available: !!(slot && slot.available)
           };
         })
-        .sort((a, b) => a.slot - b.slot)
-        .slice(0, 8);
+        .filter((slot) => Number.isInteger(slot.slot) && slot.slot >= 0 && slot.slot < 10)
+        .sort((a, b) => a.slot - b.slot);
     }
 
     function poolSondeRangeFromEntry(entry) {
@@ -7181,18 +7182,23 @@
     }
 
     function buildPoolSondeSlotsGrid(slots) {
-      const cleanSlots = Array(8).fill(null);
-      if (Array.isArray(slots)) {
-        slots.forEach((slot) => {
-          const idx = Number(slot && slot.slot);
-          if (Number.isInteger(idx) && idx >= 0 && idx < 8) cleanSlots[idx] = slot;
-        });
-      }
+      const activeSlots = Array.isArray(slots)
+        ? slots.filter((slot) => slot && slot.enabled === true &&
+            Number.isInteger(Number(slot.slot)) && Number(slot.slot) >= 0 && Number(slot.slot) < 10)
+          .sort((a, b) => Number(a.slot) - Number(b.slot))
+        : [];
       const grid = document.createElement('div');
       grid.className = 'status-sonde-slot-grid';
 
-      for (let i = 0; i < 8; i += 1) {
-        const slot = cleanSlots[i] || null;
+      if (!activeSlots.length) {
+        const empty = document.createElement('p');
+        empty.className = 'status-card-summary';
+        empty.textContent = tr('dashboard.sondes.noneEnabled', 'Aucune sonde activée dans TFT S3.');
+        grid.appendChild(empty);
+        return grid;
+      }
+
+      for (const slot of activeSlots) {
         const tile = document.createElement('div');
         tile.className = 'status-sonde-slot';
         const available = !!(slot && slot.enabled !== false && slot.available);
