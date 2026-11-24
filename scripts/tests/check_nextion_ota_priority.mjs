@@ -111,6 +111,15 @@ assert.match(nextion, /"nextion_verify"/);
 assert.match(nextion, /"nextion_uart"/);
 assert.match(nextion, /"nextion_upload"/);
 assert.match(nextion, /"nextion_ack"/);
+assert.match(nextion, /if \(!job\.nextionHasSha256\)/);
+assert.match(nextion, /if \(!sha256Matches_\(digest, job\.nextionSha256\)\)/);
+const manifest = fn('bool FirmwareUpdateModule::runManifestCheck_', 'bool FirmwareUpdateModule::rememberNextionRecoveryArtifact_');
+assert.match(manifest, /Nextion manifest SHA-256 missing or invalid/);
+const abort = fn('bool FirmwareUpdateModule::abortLocalRelease_', 'bool FirmwareUpdateModule::runJob_');
+assert.match(abort, /foreignUpdaterBusy/);
+assert.ok(abort.indexOf('if (foreignUpdaterBusy)') < abort.indexOf('if (!localTransactionMatches_'),
+          'Stale local release abort must be blocked before transaction mutation');
+
 assert.match(exported, /"sha256": _sha256\(path\)/);
 
 const webStages = ['download', 'verify', 'uart', 'upload', 'ack'];
@@ -123,6 +132,9 @@ const ui = web.split('function upgradePhasePercent(session) {')[1]
               .split('function upgradeStepProgress(')[0];
 assert.match(ui, /=== 'nextion'/);
 assert.match(ui, /Math\.min\(96, progress\)/);
+assert.match(ui, /Nextion has not yet downloaded any bytes/);
+assert.match(ui, /Do not invent a 6%-or-12% minimum when Nextion failed/);
+
 assert.match(modbus, /const bool otaBusy = fwUpdateSvc_ && fwUpdateSvc_->isBusy/);
 assert.match(modbus, /if \(otaBusy\) \{[\s\S]*?server_\.stop\(\);[\s\S]*?return;/);
 
