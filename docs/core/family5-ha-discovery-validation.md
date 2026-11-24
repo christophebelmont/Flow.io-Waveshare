@@ -41,8 +41,8 @@ These are source/host guards, **not** a firmware-build or hardware validation. B
 
 ## Status
 
-**Branch for lab testing:** `stephdust/Flow.io-Waveshare:fix/family5-ha-discovery-psram-20261124`, created directly from `christophebelmont/Flow.io-Waveshare:dev` at `b6df88da` (2026-11-24). This isolates the eight Family 5 files and includes Christophe's latest unrelated `app-core.js` change without merging other pending PRs.
+**Branch for lab testing:** `stephdust/Flow.io-Waveshare:fix/family5-ha-discovery-psram-20261124`, created directly from `christophebelmont/Flow.io-Waveshare:dev` at `b6df88da` (2026-11-24). This branch contains only Family 5 discovery, ConfigStore UI/CSS, tests and documentation; no pending TFT or Nextion feature branches are included.
 
 **Source review:** 19 targeted static consistency checks passed, covering production one-shot mode, PSRAM allocations and release, four deferred retries at five-second intervals, MQTT drop callbacks, registered unavailable-value fallback, refresh action and reboot confirmation. These checks inspect source contracts; they **do not execute the ESP32 firmware or constitute the Python test suite**.
 
-**Still required:** run the Python test commands above, compile with PlatformIO, and verify on an ESP32-S3 with real MQTT/Home Assistant including broker disconnections, missing initial sensor measurements, discovery refresh and PSRAM recovery. Do not mark Family 5 as production-ready until those checks are recorded.
+**User validation (2026-11-24):** after building and testing the latest Family 5 branch, the user reports that the update works correctly, including the corrected ConfigStore refresh layout. This user acceptance is distinct from the source-level/model checks above. Christophe's independent review and extended MQTT/HA failure-injection checks are still recommended before merging.
