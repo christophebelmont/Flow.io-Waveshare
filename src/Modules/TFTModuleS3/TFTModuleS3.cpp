@@ -12,6 +12,7 @@
 #include <ArduinoJson.h>
 #include <Fonts/FreeSans9pt7b.h>
 #include <Fonts/FreeSansBold9pt7b.h>
+#include "Modules/TFTModuleS3/FreeSansBold8pt7b.h"
 #include <Fonts/FreeSansBold12pt7b.h>
 #include <math.h>
 #include <stdio.h>
@@ -1284,7 +1285,8 @@ void TFTModuleS3::drawDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t
 
     const int16_t valueBaseY = (int16_t)(y + h - (dense ? 5 : 11));
     if (state.value[0] != '\0') {
-        setGfxFont_(dense ? &FreeSansBold9pt7b : &FreeSansBold12pt7b, valueColor, state.cardBg);
+        // Slightly smaller values in five-row mode only; four-row remains unchanged.
+        setGfxFont_(dense ? &FreeSansBold8pt7b : &FreeSansBold12pt7b, valueColor, state.cardBg);
         display_.setCursor((int16_t)(x + textPad), valueBaseY);
         display_.print(state.value);
     }
