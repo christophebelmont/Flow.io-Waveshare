@@ -107,6 +107,8 @@ private:
         char url[kUrlLen] = {0};
         char nextionCompatibility[HMI_DISPLAY_MODEL_TEXT_MAX] = {0};
         uint32_t expectedSize = 0U;
+        uint8_t nextionSha256[32]{};
+        bool nextionHasSha256 = false;
     };
 
     struct UpdateStatus {
@@ -136,6 +138,8 @@ private:
         char version[HMI_DISPLAY_VERSION_TEXT_MAX] = {0};
         char url[kUrlLen] = {0};
         uint32_t size = 0U;
+        uint8_t sha256[32]{};
+        bool hasSha256 = false;
     };
 
     struct ConfigData {
