@@ -72,6 +72,10 @@ private:
     static constexpr uint16_t MAX_HA_ENTITIES =
         MAX_HA_SENSORS + MAX_HA_BINARY_SENSORS + MAX_HA_SWITCHES + MAX_HA_NUMBERS + MAX_HA_BUTTONS + MAX_HA_SELECTS;
     static constexpr uint16_t HA_PENDING_WORDS = (MAX_HA_ENTITIES + 31U) / 32U;
+    // Retry unavailable catalogue values in separate passes, without
+    // blocking discovery of ready entities or retaining one-shot tables.
+    static constexpr uint8_t DiscoveryRetryPasses = 4U;
+    static constexpr uint32_t DiscoveryRetryDelayMs = 5000U;
 
     struct HAConfig {
         bool enabled = true;
@@ -119,6 +123,13 @@ private:
     HAButtonEntry* buttons_ = nullptr;
     HASelectEntry* selects_ = nullptr;
     uint32_t* pendingBits_ = nullptr;
+    // Second half of the same temporary PSRAM allocation; not a permanent cache.
+    uint32_t* deferredBits_ = nullptr;
+    uint16_t deferredBuildId_ = UINT16_MAX;
+    uint32_t deferredRetryNotBeforeMs_ = 0U;
+    uint16_t discoveredCount_ = 0U;
+    uint16_t retrySkippedCount_ = 0U;
+    uint8_t retryPass_ = 0U;
     uint16_t sensorCount_ = 0, sensorCapacity_ = 0;
     uint16_t binarySensorCount_ = 0, binarySensorCapacity_ = 0;
     uint16_t switchCount_ = 0, switchCapacity_ = 0;
@@ -183,7 +194,9 @@ private:
     void markAllPending_();
     bool isPending_(uint16_t messageId) const;
     void setPending_(uint16_t messageId, bool pending);
+    bool anyReadyPending_() const;
     bool anyPending_() const;
+    MqttBuildResult deferEntityBuild_(uint16_t messageId);
     uint16_t entityCount_() const;
 
     static MqttBuildResult producerBuildStatic_(void* ctx, uint16_t messageId, MqttBuildContext& buildCtx);

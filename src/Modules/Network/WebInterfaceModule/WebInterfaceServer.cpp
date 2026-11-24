@@ -8034,6 +8034,25 @@ void WebInterfaceModule::startServer_()
         return;
     });
 
+    // Refresh all Home Assistant discovery entities. During the one-shot
+    // window this is immediate; after catalogue release the UI offers a
+    // deliberate reboot to reconstruct every module's registration safely.
+    server_.on("/api/ha/discovery/refresh", HTTP_POST, [this](AsyncWebServerRequest* request) {
+        HttpLatencyScope latency(request, "/api/ha/discovery/refresh");
+        const HAService* ha = services_ ? services_->get<HAService>(ServiceId::Ha) : nullptr;
+        if (!ha || !ha->requestRefresh) {
+            request->send(503, "application/json",
+                          "{\"ok\":false,\"err\":{\"code\":\"NotReady\",\"where\":\"ha.discovery.refresh\"}}");
+            return;
+        }
+        if (!ha->requestRefresh(ha->ctx)) {
+            request->send(409, "application/json",
+                          "{\"ok\":false,\"restart_required\":true,\"reason\":\"oneshot_catalogue_released\"}");
+            return;
+        }
+        request->send(202, "application/json", "{\"ok\":true,\"queued\":true}");
+    });
+
     // Single-shot counter snapshot for Config Store. No background refresh.
     server_.on("/api/io/counter/value", HTTP_GET, [this](AsyncWebServerRequest* request) {
         char idText[16]{};

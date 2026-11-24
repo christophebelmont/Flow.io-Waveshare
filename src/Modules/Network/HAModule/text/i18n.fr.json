@@ -11,6 +11,17 @@
     "cfgdocs.ha.model.help": "Nom du modèle exposé dans Home Assistant.",
     "cfgdocs.ha.model.label": "Modèle",
     "cfgdocs.ha.vendor.help": "Nom du constructeur exposé dans Home Assistant.",
-    "cfgdocs.ha.vendor.label": "Constructeur"
+    "cfgdocs.ha.vendor.label": "Constructeur",
+    "cfgdocs.ha.refresh.label": "Rafraîchir la découverte Home Assistant",
+    "cfgdocs.ha.refresh.help": "Republie les entités via MQTT Discovery. Après la libération des ressources temporaires, Flow.io doit redémarrer pour reconstruire le catalogue complet.",
+    "cfgdocs.ha.refresh.button": "Rafraîchir les entités HA",
+    "cfgdocs.ha.refresh.disabled": "Activez Home Assistant avant de lancer la découverte.",
+    "cfgdocs.ha.refresh.confirm": "Republier toutes les entités Home Assistant ?",
+    "cfgdocs.ha.refresh.pending": "Demande de découverte en cours…",
+    "cfgdocs.ha.refresh.requiresReboot": "Le catalogue HA a été libéré. Un redémarrage est nécessaire.",
+    "cfgdocs.ha.refresh.rebootConfirm": "Redémarrer Flow.io pour reconstruire et republier toutes les entités HA ? Les changements non enregistrés seront perdus.",
+    "cfgdocs.ha.refresh.restarting": "Redémarrage demandé. La découverte sera relancée au démarrage.",
+    "cfgdocs.ha.refresh.accepted": "Découverte relancée. Les publications se poursuivent en arrière-plan.",
+    "cfgdocs.ha.refresh.failed": "Demande non confirmée. Vérifiez la connexion MQTT et les logs."
   }
 }
