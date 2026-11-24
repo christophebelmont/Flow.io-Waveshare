@@ -3003,7 +3003,25 @@ bool IOModule::configureRuntime_()
 
         ValueMetadata analogMeta{};
         analogMeta.precision = analogSlots_[i].def.precision;
-        setValueUnit(analogMeta.displayUnit, internal ? InternalAnalogSources::unit(analogSlots_[i].sourceValue) : analogCfg_[i].unit);
+        const char* displayUnit = internal
+            ? InternalAnalogSources::unit(analogSlots_[i].sourceValue)
+            : analogCfg_[i].unit;
+        // Generic analog slots can have an empty unit. Inherit the physical
+        // sensor's unit for humidity and pressure, but never replace an
+        // explicitly configured unit.
+        if (!internal && (!displayUnit || displayUnit[0] == '\0')) {
+            const uint8_t backend = analogSlots_[i].backend;
+            const uint8_t channel = analogSlots_[i].channel;
+            if (channel == 1U &&
+                (backend == IO_BACKEND_SHT40 || backend == IO_BACKEND_BME680)) {
+                displayUnit = "%";
+            } else if ((backend == IO_BACKEND_BMP280 && channel == 1U) ||
+                       (backend == IO_BACKEND_BME680 && channel == 2U)) {
+                // Both drivers convert pressure from Pa to hPa on sampling.
+                displayUnit = "hPa";
+            }
+        }
+        setValueUnit(analogMeta.displayUnit, displayUnit);
         if (!dataStore_->values.define(ValueIds::Analog + i, analogMeta)) return false;
         dataStore_->values.setName(ValueIds::Analog + i, analogCfg_[i].name);
         analogSlots_[i].endpoint = allocAnalogEndpoint_(analogSlots_[i].def.id);

@@ -26,7 +26,7 @@ public:
 
 class TFTModuleS3 : public Module {
 public:
-    static constexpr uint8_t DashboardSlotCount = 8;
+    static constexpr uint8_t DashboardSlotCount = 10;
     static constexpr uint8_t AlarmDashboardSlotCount = 8;
 
     explicit TFTModuleS3(const BoardSpec& board);
@@ -152,8 +152,8 @@ private:
     void drawWifiBars_(int16_t x, int16_t y, uint8_t bars);
     void drawBrandWordmark_(int16_t x, int16_t y, int16_t w, int16_t h,
                             const uint16_t* bitmap, int16_t bitmapW, int16_t bitmapH);
-    void drawDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t w, int16_t h);
-    void drawDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t w, int16_t h, const DashboardSlotRenderState& state);
+    void drawDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t w, int16_t h, bool dense = false);
+    void drawDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t w, int16_t h, const DashboardSlotRenderState& state, bool dense = false);
     void readDashboardSlotState_(uint8_t slot, DashboardSlotRenderState& state) const;
     void drawAlarmDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t w, int16_t h);
     void drawAlarmDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t w, int16_t h, const AlarmSlotRenderState& state);
@@ -257,9 +257,12 @@ private:
     bool motionReadErrorLogged_ = false;
     uint32_t lastMotionMs_ = 0;
     uint32_t lastRenderMs_ = 0;
+    uint32_t lastFlowRenderMs_[DashboardSlotCount]{};
+    RuntimeUiId lastFlowRuntimeId_[DashboardSlotCount]{};
     uint32_t splashHoldUntilMs_ = 0;
     uint32_t pageCycleStartMs_ = 0;
     uint32_t lastRenderedPageCycle_ = 0xFFFFFFFFU;
     uint8_t lastPage_ = 0xFFU;
+    uint16_t lastSensorEnabledMask_ = 0xFFFFU;
     OverviewRenderCache overviewCache_{};
 };

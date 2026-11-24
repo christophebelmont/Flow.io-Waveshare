@@ -49,6 +49,7 @@ constexpr uint8_t kCfgBranchAlarmBase = 32;
 constexpr uint16_t kCfgMsgSensorBase = 16U;
 constexpr uint16_t kCfgMsgAlarmBase = 32U;
 constexpr uint32_t kRenderPeriodMs = 1000U;
+constexpr uint32_t kFlowMeterTftRefreshMs = 5000U; // Display only; acquisition remains 1 Hz.
 constexpr uint32_t kBacklightTimeoutMs = 60000U;
 constexpr uint32_t kStartupSplashHoldMs = 5000U;
 constexpr uint32_t kWakeSplashHoldMs = 1000U;
@@ -95,22 +96,24 @@ constexpr const char* kSensorModuleNames[TFTModuleS3::DashboardSlotCount] = {
     "tft/s3/sensors/slot05",
     "tft/s3/sensors/slot06",
     "tft/s3/sensors/slot07",
+    "tft/s3/sensors/slot08",
+    "tft/s3/sensors/slot09",
 };
 
 constexpr const char* kSensorEnabledKeys[TFTModuleS3::DashboardSlotCount] = {
-    "tfs00en", "tfs01en", "tfs02en", "tfs03en", "tfs04en", "tfs05en", "tfs06en", "tfs07en"
+    "tfs00en", "tfs01en", "tfs02en", "tfs03en", "tfs04en", "tfs05en", "tfs06en", "tfs07en", "tfs08en", "tfs09en"
 };
 
 constexpr const char* kSensorRuntimeIdKeys[TFTModuleS3::DashboardSlotCount] = {
-    "tfs00ri", "tfs01ri", "tfs02ri", "tfs03ri", "tfs04ri", "tfs05ri", "tfs06ri", "tfs07ri"
+    "tfs00ri", "tfs01ri", "tfs02ri", "tfs03ri", "tfs04ri", "tfs05ri", "tfs06ri", "tfs07ri", "tfs08ri", "tfs09ri"
 };
 
 constexpr const char* kSensorLabelKeys[TFTModuleS3::DashboardSlotCount] = {
-    "tfs00lb", "tfs01lb", "tfs02lb", "tfs03lb", "tfs04lb", "tfs05lb", "tfs06lb", "tfs07lb"
+    "tfs00lb", "tfs01lb", "tfs02lb", "tfs03lb", "tfs04lb", "tfs05lb", "tfs06lb", "tfs07lb", "tfs08lb", "tfs09lb"
 };
 
 constexpr const char* kSensorColorIdKeys[TFTModuleS3::DashboardSlotCount] = {
-    "tfs00uc", "tfs01uc", "tfs02uc", "tfs03uc", "tfs04uc", "tfs05uc", "tfs06uc", "tfs07uc"
+    "tfs00uc", "tfs01uc", "tfs02uc", "tfs03uc", "tfs04uc", "tfs05uc", "tfs06uc", "tfs07uc", "tfs08uc", "tfs09uc"
 };
 
 constexpr const char* kAlarmModuleNames[TFTModuleS3::AlarmDashboardSlotCount] = {
@@ -154,6 +157,8 @@ constexpr RuntimeUiId kDashboardDefaultRuntimeUiIds[TFTModuleS3::DashboardSlotCo
     makeRuntimeUiId(ModuleId::Io, 8),
     makeRuntimeUiId(ModuleId::Io, 7),
     makeRuntimeUiId(ModuleId::Io, 6),
+    0U,
+    0U,
 };
 
 constexpr const char* kDashboardDefaultLabels[TFTModuleS3::DashboardSlotCount] = {
@@ -165,6 +170,8 @@ constexpr const char* kDashboardDefaultLabels[TFTModuleS3::DashboardSlotCount] =
     "BME680",
     "BMP280",
     "PSI",
+    "Mesure 9",
+    "Mesure 10",
 };
 
 constexpr DashboardColorPreset kDashboardColorPresets[] = {
@@ -200,6 +207,8 @@ constexpr uint8_t kDashboardDefaultColorIds[TFTModuleS3::DashboardSlotCount] = {
     5U,
     6U,
     7U,
+    8U,
+    9U,
 };
 
 constexpr uint16_t kAlarmDefaultIds[TFTModuleS3::AlarmDashboardSlotCount] = {
@@ -256,6 +265,8 @@ const MqttConfigRouteProducer::Route kCfgRoutes[] = {
     {(uint16_t)(kCfgMsgSensorBase + 5U), {(uint8_t)ConfigModuleId::TftS3, (uint8_t)(kCfgBranchSensorBase + 5U)}, kSensorModuleNames[5], kSensorModuleNames[5], (uint8_t)MqttPublishPriority::Normal, nullptr},
     {(uint16_t)(kCfgMsgSensorBase + 6U), {(uint8_t)ConfigModuleId::TftS3, (uint8_t)(kCfgBranchSensorBase + 6U)}, kSensorModuleNames[6], kSensorModuleNames[6], (uint8_t)MqttPublishPriority::Normal, nullptr},
     {(uint16_t)(kCfgMsgSensorBase + 7U), {(uint8_t)ConfigModuleId::TftS3, (uint8_t)(kCfgBranchSensorBase + 7U)}, kSensorModuleNames[7], kSensorModuleNames[7], (uint8_t)MqttPublishPriority::Normal, nullptr},
+    {(uint16_t)(kCfgMsgSensorBase + 8U), {(uint8_t)ConfigModuleId::TftS3, (uint8_t)(kCfgBranchSensorBase + 8U)}, kSensorModuleNames[8], kSensorModuleNames[8], (uint8_t)MqttPublishPriority::Normal, nullptr},
+    {(uint16_t)(kCfgMsgSensorBase + 9U), {(uint8_t)ConfigModuleId::TftS3, (uint8_t)(kCfgBranchSensorBase + 9U)}, kSensorModuleNames[9], kSensorModuleNames[9], (uint8_t)MqttPublishPriority::Normal, nullptr},
     {(uint16_t)(kCfgMsgAlarmBase + 0U), {(uint8_t)ConfigModuleId::TftS3, (uint8_t)(kCfgBranchAlarmBase + 0U)}, kAlarmModuleNames[0], kAlarmModuleNames[0], (uint8_t)MqttPublishPriority::Normal, nullptr},
     {(uint16_t)(kCfgMsgAlarmBase + 1U), {(uint8_t)ConfigModuleId::TftS3, (uint8_t)(kCfgBranchAlarmBase + 1U)}, kAlarmModuleNames[1], kAlarmModuleNames[1], (uint8_t)MqttPublishPriority::Normal, nullptr},
     {(uint16_t)(kCfgMsgAlarmBase + 2U), {(uint8_t)ConfigModuleId::TftS3, (uint8_t)(kCfgBranchAlarmBase + 2U)}, kAlarmModuleNames[2], kAlarmModuleNames[2], (uint8_t)MqttPublishPriority::Normal, nullptr},
@@ -360,11 +371,14 @@ Rect overviewAlarmCardRect_(int16_t w, int16_t h, uint8_t column)
     };
 }
 
-Rect metricCardRect_(int16_t w, int16_t h, uint8_t index)
+Rect metricCardRect_(int16_t w, int16_t h, uint8_t index, bool dense = false)
 {
-    const int16_t gap = 6;
+    // Preserve original two-column/four-row layout for up to eight measurements
+    // and alarms; enable five rows only for nine or ten active measurements.
+    const int16_t gap = dense ? 4 : 6;
+    const int16_t rows = dense ? 5 : 4;
     const int16_t cardW = (int16_t)((w - (2 * kSidePad) - gap) / 2);
-    const int16_t cardH = (int16_t)((h - (2 * kSidePad) - (3 * gap)) / 4);
+    const int16_t cardH = (int16_t)((h - (2 * kSidePad) - ((rows - 1) * gap)) / rows);
     const int16_t row = (int16_t)(index / 2U);
     const int16_t col = (int16_t)(index % 2U);
     return Rect{
@@ -421,6 +435,9 @@ TFTModuleS3::TFTModuleS3(const BoardSpec& board)
 bool TFTModuleS3::allocateUiStorage_()
 {
     if (uiStorage_) return true;
+    // Verify PSRAM allocation benefit once at startup, without hot-path logs.
+    const size_t internalBefore = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const size_t psramBefore = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
     void* memory = heap_caps_malloc(sizeof(UiStorage), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!memory) {
         LOGE("TFT unavailable: UI PSRAM allocation failed bytes=%u", (unsigned)sizeof(UiStorage));
@@ -430,7 +447,7 @@ bool TFTModuleS3::allocateUiStorage_()
 
     for (uint8_t i = 0; i < DashboardSlotCount; ++i) {
         DashboardSlotConfig& slotCfg = uiStorage_->dashboardCfg[i];
-        slotCfg.enabled = true;
+        slotCfg.enabled = (i < 8U); // Existing configuration untouched; new slots opt-in.
         slotCfg.runtimeUiId = kDashboardDefaultRuntimeUiIds[i];
         slotCfg.colorId = kDashboardDefaultColorIds[i];
         snprintf(slotCfg.label, sizeof(slotCfg.label), "%s", kDashboardDefaultLabels[i]);
@@ -507,7 +524,13 @@ bool TFTModuleS3::allocateUiStorage_()
         uiStorage_->alarmColorIdVars[i].persistence = ConfigPersistence::Persistent;
         uiStorage_->alarmColorIdVars[i].size = 0U;
     }
-    LOGI("TFT UI storage ready bytes=%u memory=psram", (unsigned)sizeof(UiStorage));
+    const size_t internalAfter = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const size_t psramAfter = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    LOGI("TFT UI PSRAM bytes=%u int_delta=%ld psram_delta=%ld int_largest=%u",
+         (unsigned)sizeof(UiStorage),
+         (long)((int64_t)internalBefore - (int64_t)internalAfter),
+         (long)((int64_t)psramBefore - (int64_t)psramAfter),
+         (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     return true;
 }
 
@@ -749,7 +772,24 @@ void TFTModuleS3::render_(bool force)
     const uint32_t pageCycle = currentPageCycle_() % 3U;
     const Page page = pageCycle == 0U ? Page::Overview : (pageCycle == 1U ? Page::Metrics : Page::Alarms);
     const uint8_t pageId = (uint8_t)page;
-    const bool fullRedraw = force || !layoutDrawn_ || lastPage_ != pageId;
+    // A change in enabled sensors changes their screen positions. Force
+    // one complete repaint so old cards cannot remain in vacated cells.
+    uint16_t enabledMask = 0U;
+    uint8_t visibleCount = 0U;
+    if (page == Page::Metrics) {
+        for (uint8_t i = 0U; i < DashboardSlotCount; ++i) {
+            if (uiStorage_->dashboardCfg[i].enabled) {
+                enabledMask |= (uint16_t)(1U << i);
+                ++visibleCount;
+            }
+        }
+    }
+    const bool denseMetrics = visibleCount > 8U;
+    const bool sensorLayoutChanged = page == Page::Metrics &&
+                                     enabledMask != lastSensorEnabledMask_;
+    const bool fullRedraw = force || !layoutDrawn_ || lastPage_ != pageId ||
+                            sensorLayoutChanged;
+    if (page == Page::Metrics) lastSensorEnabledMask_ = enabledMask;
     if (fullRedraw) {
         drawStaticLayout_(page);
         overviewCache_.valid = false;
@@ -822,14 +862,46 @@ void TFTModuleS3::render_(bool force)
     } else if (page == Page::Metrics) {
         const int16_t w = display_.width();
         const int16_t h = display_.height();
+        uint8_t visibleIndex = 0U;
         for (uint8_t i = 0U; i < DashboardSlotCount; ++i) {
+            if (!uiStorage_->dashboardCfg[i].enabled) continue;
             DashboardSlotRenderState state{};
             readDashboardSlotState_(i, state);
-            if (fullRedraw || !dashboardSlotStateEquals_(uiStorage_->dashboardSlotCache[i], state)) {
-                const Rect r = metricCardRect_(w, h, i);
-                drawDashboardSlot_(i, r.x, r.y, r.w, r.h, state);
+            const DashboardSlotRenderState& previous = uiStorage_->dashboardSlotCache[i];
+            const RuntimeUiId runtimeId = uiStorage_->dashboardCfg[i].runtimeUiId;
+            const ValueId dataId = runtimeDataValueId(runtimeId);
+            // Mode 2 publishes iXX.flow with a volumetric-flow unit. Only those
+            // TFT cards are rate-limited; regular values and counters stay live.
+            const bool flowId = dataId >= ValueIds::ConvertedRate &&
+                                dataId < ValueIds::Derived;
+            const bool flowUnit = strcmp(state.unit, "l/min") == 0 ||
+                                  strcmp(state.unit, "l/h") == 0 ||
+                                  strcmp(state.unit, "m3/min") == 0 ||
+                                  strcmp(state.unit, "m3/h") == 0;
+            const bool flowCard = flowId && flowUnit;
+            const bool sameFlowBinding = lastFlowRuntimeId_[i] == runtimeId;
+            const bool valueOnlyChanged = previous.valid == state.valid &&
+                                          previous.enabled == state.enabled &&
+                                          previous.available == state.available &&
+                                          previous.cardBg == state.cardBg &&
+                                          strncmp(previous.label, state.label, sizeof(state.label)) == 0 &&
+                                          strncmp(previous.unit, state.unit, sizeof(state.unit)) == 0;
+            const bool flowThrottle = !fullRedraw && flowCard && sameFlowBinding &&
+                                      valueOnlyChanged &&
+                                      (uint32_t)(now - lastFlowRenderMs_[i]) < kFlowMeterTftRefreshMs;
+            if (!flowThrottle &&
+                (fullRedraw || !dashboardSlotStateEquals_(previous, state))) {
+                const Rect r = metricCardRect_(w, h, visibleIndex, denseMetrics);
+                drawDashboardSlot_(i, r.x, r.y, r.w, r.h, state, denseMetrics);
                 uiStorage_->dashboardSlotCache[i] = state;
+                if (flowCard) {
+                    lastFlowRenderMs_[i] = now;
+                    lastFlowRuntimeId_[i] = runtimeId;
+                } else {
+                    lastFlowRuntimeId_[i] = 0U;
+                }
             }
+            ++visibleIndex;
         }
     } else {
         const int16_t w = display_.width();
@@ -1164,9 +1236,16 @@ void TFTModuleS3::drawMetricsPage_()
 {
     const int16_t w = display_.width();
     const int16_t h = display_.height();
+    uint8_t visibleIndex = 0U;
+    uint8_t visibleCount = 0U;
     for (uint8_t i = 0; i < DashboardSlotCount; ++i) {
-        const Rect r = metricCardRect_(w, h, i);
-        drawDashboardSlot_(i, r.x, r.y, r.w, r.h);
+        if (uiStorage_->dashboardCfg[i].enabled) ++visibleCount;
+    }
+    const bool denseMetrics = visibleCount > 8U;
+    for (uint8_t i = 0; i < DashboardSlotCount; ++i) {
+        if (!uiStorage_->dashboardCfg[i].enabled) continue;
+        const Rect r = metricCardRect_(w, h, visibleIndex++, denseMetrics);
+        drawDashboardSlot_(i, r.x, r.y, r.w, r.h, denseMetrics);
     }
 }
 
@@ -1180,14 +1259,14 @@ void TFTModuleS3::drawAlarmsPage_()
     }
 }
 
-void TFTModuleS3::drawDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t w, int16_t h)
+void TFTModuleS3::drawDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t w, int16_t h, bool dense)
 {
     DashboardSlotRenderState state{};
     readDashboardSlotState_(slot, state);
-    drawDashboardSlot_(slot, x, y, w, h, state);
+    drawDashboardSlot_(slot, x, y, w, h, state, dense);
 }
 
-void TFTModuleS3::drawDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t w, int16_t h, const DashboardSlotRenderState& state)
+void TFTModuleS3::drawDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t w, int16_t h, const DashboardSlotRenderState& state, bool dense)
 {
     (void)slot;
     const uint16_t bg = color_(state.cardBg);
@@ -1196,14 +1275,17 @@ void TFTModuleS3::drawDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t
 
     const uint16_t labelColor = state.enabled ? kColorMuted : kColorOff;
     const uint16_t valueColor = (state.enabled && state.available) ? kColorValue : kColorMuted;
+    // Original four-row dashboard keeps its fonts and spacing.
+    const int16_t textPad = dense ? 9 : 12;
     if (state.enabled && state.label[0] != '\0') {
-        drawGfxText_(&FreeSans9pt7b, labelColor, state.cardBg, (int16_t)(x + 12), (int16_t)(y + 18), state.label);
+        drawGfxText_(&FreeSans9pt7b, labelColor, state.cardBg,
+                     (int16_t)(x + textPad), (int16_t)(y + (dense ? 15 : 18)), state.label);
     }
 
-    const int16_t valueBaseY = (int16_t)(y + h - 11);
+    const int16_t valueBaseY = (int16_t)(y + h - (dense ? 5 : 11));
     if (state.value[0] != '\0') {
-        setGfxFont_(&FreeSansBold12pt7b, valueColor, state.cardBg);
-        display_.setCursor((int16_t)(x + 12), valueBaseY);
+        setGfxFont_(dense ? &FreeSansBold9pt7b : &FreeSansBold12pt7b, valueColor, state.cardBg);
+        display_.setCursor((int16_t)(x + textPad), valueBaseY);
         display_.print(state.value);
     }
 
@@ -1211,13 +1293,13 @@ void TFTModuleS3::drawDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t
         setGfxFont_(&FreeSans9pt7b, kColorMuted, state.cardBg);
         if (isDegreeCUnit_(state.unit)) {
             const int16_t cw = gfxTextWidth_("C");
-            const int16_t unitX = (int16_t)(x + w - cw - 18);
+            const int16_t unitX = (int16_t)(x + w - cw - (dense ? 12 : 18));
             display_.drawCircle((int16_t)(unitX - 6), (int16_t)(valueBaseY - 11), 2, color_(kColorMuted));
             display_.setCursor(unitX, valueBaseY);
             display_.print("C");
         } else {
             const int16_t unitW = gfxTextWidth_(state.unit);
-            const int16_t unitX = (int16_t)(x + w - unitW - 12);
+            const int16_t unitX = (int16_t)(x + w - unitW - (dense ? 9 : 12));
             display_.setCursor(unitX, valueBaseY);
             display_.print(state.unit);
         }

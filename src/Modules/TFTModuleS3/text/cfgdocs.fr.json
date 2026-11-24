@@ -377,6 +377,50 @@
       "type": "CharArray",
       "label_t": "cfgdocs.tft.s3.alarms.slot07.label.label",
       "help_t": "cfgdocs.tft.s3.alarms.slot07.label.help"
+    },
+    "tft/s3/sensors/slot08/color_id": {
+      "type": "UInt8",
+      "label_t": "cfgdocs.tft.s3.sensors.slot08.color_id.label",
+      "help_t": "cfgdocs.tft.s3.sensors.slot08.color_id.help",
+      "enum_set": "tft_s3_dashboard_color"
+    },
+    "tft/s3/sensors/slot08/enabled": {
+      "type": "Bool",
+      "label_t": "cfgdocs.tft.s3.sensors.slot08.enabled.label",
+      "help_t": "cfgdocs.tft.s3.sensors.slot08.enabled.help"
+    },
+    "tft/s3/sensors/slot08/label": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.tft.s3.sensors.slot08.label.label",
+      "help_t": "cfgdocs.tft.s3.sensors.slot08.label.help"
+    },
+    "tft/s3/sensors/slot08/runtime_ui_id": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.tft.s3.sensors.slot08.runtime_ui_id.label",
+      "help_t": "cfgdocs.tft.s3.sensors.slot08.runtime_ui_id.help",
+      "enum_set": "tft_s3_dashboard_runtime_ui"
+    },
+    "tft/s3/sensors/slot09/color_id": {
+      "type": "UInt8",
+      "label_t": "cfgdocs.tft.s3.sensors.slot09.color_id.label",
+      "help_t": "cfgdocs.tft.s3.sensors.slot09.color_id.help",
+      "enum_set": "tft_s3_dashboard_color"
+    },
+    "tft/s3/sensors/slot09/enabled": {
+      "type": "Bool",
+      "label_t": "cfgdocs.tft.s3.sensors.slot09.enabled.label",
+      "help_t": "cfgdocs.tft.s3.sensors.slot09.enabled.help"
+    },
+    "tft/s3/sensors/slot09/label": {
+      "type": "CharArray",
+      "label_t": "cfgdocs.tft.s3.sensors.slot09.label.label",
+      "help_t": "cfgdocs.tft.s3.sensors.slot09.label.help"
+    },
+    "tft/s3/sensors/slot09/runtime_ui_id": {
+      "type": "UInt16",
+      "label_t": "cfgdocs.tft.s3.sensors.slot09.runtime_ui_id.label",
+      "help_t": "cfgdocs.tft.s3.sensors.slot09.runtime_ui_id.help",
+      "enum_set": "tft_s3_dashboard_runtime_ui"
     }
   }
 }
