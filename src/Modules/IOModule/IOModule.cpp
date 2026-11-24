@@ -1664,14 +1664,18 @@ bool IOModule::processDigitalInputDefinition_(uint8_t slotIdx, uint32_t nowMs)
         auto* driver = static_cast<IDigitalCounterDriver*>(slot.provider.ctx);
         uint64_t raw = 0;
         if (!driver || !driver->readCount(raw)) return false;
+        const auto& cfg = digitalInCfg_[slot.logicalIdx];
         auto& measurement = slot.pulseRateOnly;
         const bool validRate = measurement.sample(raw, nowMs);
         if (!measurement.refreshed) return validRate; // One evaluation per second.
-        const auto& cfg = digitalInCfg_[slot.logicalIdx];
-        const bool validK = isfinite(cfg.c0) && cfg.c0 >= 0.0f;
-        const bool validUnit = pulseFlowUnitValid(cfg.flowUnit);
+        // Preserve the runtime engineering unit captured at startup until reboot.
+        // HA discovery is one-shot in production; applying the new config unit
+        // to the numeric result before re-announcing it would mislabel the flow.
+        const uint8_t activeUnit = slot.appliedFlowUnit;
+        const bool validK = isfinite(cfg.c0) && cfg.c0 > 0.0f;
+        const bool validUnit = pulseFlowUnitValid(activeUnit);
         const double converted = pulseFlowConvert((double)measurement.pulsesPerMinute,
-                                                  (double)cfg.c0, cfg.flowUnit);
+                                                  (double)cfg.c0, activeUnit);
         // ioRoundToPrecision receives a float and must not overflow to Inf.
         const bool valid = validRate && validK && validUnit && isfinite(converted) &&
                            converted <= 3.402823466e38;
@@ -3092,7 +3096,9 @@ bool IOModule::configureRuntime_()
                     s.inDef.pullMode,
                     s.inDef.mode != IO_DIGITAL_INPUT_STATE,
                     s.inDef.edgeMode,
-                    s.inDef.counterDebounceUs
+                    s.inDef.counterDebounceUs,
+                    s.inDef.mode == IO_DIGITAL_INPUT_PULSES_PER_MINUTE ||
+                    (s.inDef.mode == IO_DIGITAL_INPUT_COUNTER && s.logicalIdx == 1U)
                 );
                 driver = counterDriver;
             }
@@ -3148,6 +3154,7 @@ bool IOModule::configureRuntime_()
                 if (!dataStore_->values.define(ValueIds::PulseRate + s.logicalIdx, rateMeta) ||
                     !dataStore_->values.define(ValueIds::ConvertedRate + s.logicalIdx, flowMeta))
                     return false;
+                s.appliedFlowUnit = cfg.flowUnit;
                 // Reuse the physical input's configured name on its flow value.
                 // E.g. I05 "Flow Meter" remains selectable on TFT and Web when
                 // i05.state (mode 0) is replaced by i05.flow (mode 2).
@@ -3570,12 +3577,13 @@ IDigitalCounterDriver* IOModule::allocGpioDriver_(const char* driverId,
                                                   uint8_t inputPullMode,
                                                   bool counterEnabled,
                                                   uint8_t edgeMode,
-                                                  uint32_t counterDebounceUs)
+                                                  uint32_t counterDebounceUs,
+                                                  bool hardwareFilterOnly)
 {
     if (counterEnabled && !output) {
         if (gpioCounterDriverPoolUsed_ >= MAX_DIGITAL_INPUTS) return nullptr;
         void* mem = gpioCounterDriverPool_[gpioCounterDriverPoolUsed_++];
-        return new (mem) PcntCounterDriver(driverId, pin, activeHigh, inputPullMode, edgeMode, counterDebounceUs);
+        return new (mem) PcntCounterDriver(driverId, pin, activeHigh, inputPullMode, edgeMode, counterDebounceUs, hardwareFilterOnly);
     }
 
     if (gpioDriverPoolUsed_ >= MAX_DIGITAL_SLOTS) return nullptr;
