@@ -2999,7 +2999,17 @@ bool IOModule::configureRuntime_()
 
         ValueMetadata analogMeta{};
         analogMeta.precision = analogSlots_[i].def.precision;
-        setValueUnit(analogMeta.displayUnit, internal ? InternalAnalogSources::unit(analogSlots_[i].sourceValue) : analogCfg_[i].unit);
+        const char* displayUnit = internal
+            ? InternalAnalogSources::unit(analogSlots_[i].sourceValue)
+            : analogCfg_[i].unit;
+        // Generic analog slots default to no unit. Inherit the physical sensor
+        // unit for BME680/BME688 humidity, without overriding explicit units.
+        if (!internal && (!displayUnit || displayUnit[0] == '\0') &&
+            analogSlots_[i].backend == IO_BACKEND_BME680 &&
+            analogSlots_[i].channel == 1U) {
+            displayUnit = "%";
+        }
+        setValueUnit(analogMeta.displayUnit, displayUnit);
         if (!dataStore_->values.define(ValueIds::Analog + i, analogMeta)) return false;
         dataStore_->values.setName(ValueIds::Analog + i, analogCfg_[i].name);
         analogSlots_[i].endpoint = allocAnalogEndpoint_(analogSlots_[i].def.id);
