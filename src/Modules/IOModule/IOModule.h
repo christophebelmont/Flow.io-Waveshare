@@ -298,7 +298,8 @@ private:
                                             uint8_t inputPullMode = GpioDriver::PullNone,
                                             bool counterEnabled = false,
                                             uint8_t edgeMode = IO_EDGE_RISING,
-                                            uint32_t counterDebounceUs = 0);
+                                            uint32_t counterDebounceUs = 0,
+                                            bool hardwareFilterOnly = false);
     IAnalogSourceDriver* allocAdsDriver_(const char* driverId, I2CBus* bus, const Ads1115DriverConfig& cfg);
     Ds18b20Driver* allocDsDriver_(const char* driverId, OneWireBus* bus, const uint8_t address[8], const Ds18b20DriverConfig& cfg);
     IAnalogSourceDriver* allocSht40Driver_(const char* driverId, I2CBus* bus, const Sht40DriverConfig& cfg);
@@ -385,6 +386,7 @@ private:
         bool lastValue = false;
         PulseRuntime pulse{}; // Cumulative mode 1 only.
         PulseRateOnly pulseRateOnly{}; // Volatile rate mode 2 only.
+        uint8_t appliedFlowUnit = IO_FLOW_LITERS_PER_MINUTE; // Runtime metadata unit.
         uint16_t counterResetSeen = 0;
     };
 

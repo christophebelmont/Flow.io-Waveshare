@@ -26,16 +26,19 @@ int main() {
     assert(aUpdates == 11 && bUpdates == 11);
     assert(near(a.pulsesPerMinute, 600));
     assert(near(b.pulsesPerMinute, 300));
-    assert(near(pulseFlowConvert(a.pulsesPerMinute, 0.5, IO_FLOW_LITERS_PER_MINUTE), 300));
-    assert(near(pulseFlowConvert(a.pulsesPerMinute, 0.5, IO_FLOW_CUBIC_METERS_PER_MINUTE), 0.3));
-    assert(near(pulseFlowConvert(a.pulsesPerMinute, 0.5, IO_FLOW_LITERS_PER_HOUR), 18000));
-    assert(near(pulseFlowConvert(a.pulsesPerMinute, 0.5, IO_FLOW_CUBIC_METERS_PER_HOUR), 18));
+    // C0=20 pulses/liter: 600 pulses/min = 30 L/min.
+    assert(near(pulseFlowConvert(a.pulsesPerMinute, 20, IO_FLOW_LITERS_PER_MINUTE), 30));
+    assert(near(pulseFlowConvert(a.pulsesPerMinute, 20, IO_FLOW_CUBIC_METERS_PER_MINUTE), 0.03));
+    assert(near(pulseFlowConvert(a.pulsesPerMinute, 20, IO_FLOW_LITERS_PER_HOUR), 1800));
+    assert(near(pulseFlowConvert(a.pulsesPerMinute, 20, IO_FLOW_CUBIC_METERS_PER_HOUR), 1.8));
+    assert(near(pulseFlowConvert(230, 23, IO_FLOW_LITERS_PER_MINUTE), 10));
+    assert(near(pulseFlowConvert(230, 23, IO_FLOW_CUBIC_METERS_PER_HOUR), 0.6));
     assert(!pulseFlowUnitValid(4));
     assert(std::isnan(pulseFlowConvert(600, -1, IO_FLOW_LITERS_PER_MINUTE)));
     assert(std::isnan(pulseFlowConvert(NAN, 1, IO_FLOW_LITERS_PER_MINUTE)));
     assert(std::isnan(pulseFlowConvert(600, 1, 99)));
-    assert(near(pulseFlowConvert(0, 0.5, IO_FLOW_LITERS_PER_HOUR), 0));
-    assert(near(pulseFlowConvert(100, 0, IO_FLOW_LITERS_PER_MINUTE), 0));
+    assert(near(pulseFlowConvert(0, 20, IO_FLOW_LITERS_PER_HOUR), 0));
+    assert(std::isnan(pulseFlowConvert(100, 0, IO_FLOW_LITERS_PER_MINUTE)));
 
     // Stop incoming pulses: rate returns to zero, without a cumulative total.
     for (uint32_t t = 10020; t <= 12000; t += 20) a.sample(aRaw, t);

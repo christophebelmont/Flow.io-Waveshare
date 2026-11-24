@@ -24,7 +24,8 @@ public:
                       bool activeHigh,
                       uint8_t inputPullMode,
                       uint8_t edgeMode,
-                      uint32_t counterDebounceUs);
+                      uint32_t counterDebounceUs,
+                      bool hardwareFilterOnly = false);
 
     const char* id() const override { return driverId_; }
     bool begin() override;
@@ -72,6 +73,7 @@ private:
     uint8_t inputPullMode_ = 0;
     uint8_t edgeMode_ = 1;
     uint32_t counterDebounceUs_ = 0;
+    bool hardwareFilterOnly_ = false; // Skip sampled-level gate; retain PCNT glitch filtering.
 #if FLOW_PCNT_USE_PULSE_CNT
     pcnt_unit_handle_t unit_ = nullptr;
     pcnt_channel_handle_t channel_ = nullptr;

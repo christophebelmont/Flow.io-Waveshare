@@ -24,13 +24,13 @@ inline const char* pulseFlowUnitText(uint8_t unit) {
     }
 }
 
-// K (C0) is a volume in liters per pulse. Multiply by pulse frequency
-// (pulses/min) to obtain liters/min, then convert to the selected unit.
-inline double pulseFlowConvert(double pulsesPerMinute, double litersPerPulse, uint8_t unit) {
+// K (C0) is pulses per liter in mode 2. Divide pulse frequency
+// (pulses/min) by K to obtain liters/min, then convert units.
+inline double pulseFlowConvert(double pulsesPerMinute, double pulsesPerLiter, uint8_t unit) {
     if (!pulseFlowUnitValid(unit) || !isfinite(pulsesPerMinute) ||
-        !isfinite(litersPerPulse) || pulsesPerMinute < 0.0 || litersPerPulse < 0.0)
+        !isfinite(pulsesPerLiter) || pulsesPerMinute < 0.0 || pulsesPerLiter <= 0.0)
         return NAN;
-    const double litersPerMinute = pulsesPerMinute * litersPerPulse;
+    const double litersPerMinute = pulsesPerMinute / pulsesPerLiter;
     switch (unit) {
         case IO_FLOW_CUBIC_METERS_PER_HOUR: return litersPerMinute * 0.06;
         case IO_FLOW_LITERS_PER_HOUR: return litersPerMinute * 60.0;
