@@ -28,6 +28,7 @@ const fn = (start, stop) => {
 
 // Single admission gate covering Nextion, paired remote OTA and local ZIP OTA.
 const admission = fn('bool FirmwareUpdateModule::updateAdmissionBusyLocked_', 'bool FirmwareUpdateModule::isBusy_()');
+assert.match(admission, /const bool localReleaseBusy = localReleaseActive_ &&[\\s\\S]*?status_\\.state != UpdateState::Error/);
 for (const predicate of ['busy_', 'localReleaseActive_', 'queuedJob_.pending',
                          'nextionRebootQueued_', 'updateStartPending_',
                          'manifestCheckJob_.pending']) {
@@ -59,7 +60,8 @@ assert.match(status, /busy = busy_ \|\| queuedJob_\.pending/);
 // Actual concurrent updater decisions: no acceptance when either path owns a
 // reservation. Only the paired OTA worker may nest its own internal release.
 const admissionModel = (state, internalWorker = false) =>
-    Boolean((state.busy && !internalWorker) || state.local ||
+    Boolean((state.busy && !internalWorker) ||
+        (state.local && !state.terminalError) ||
         state.queued || state.nextionQueued || state.startPending ||
         state.manifestPending || state.manifestActive || state.copyReaders);
 for (const key of ['busy', 'local', 'queued', 'nextionQueued',
@@ -68,6 +70,10 @@ for (const key of ['busy', 'local', 'queued', 'nextionQueued',
 }
 assert.equal(admissionModel({busy:true}, true), false, 'Paired worker may open its own release');
 assert.equal(admissionModel({busy:true, local:true}, true), true, 'No nested duplicate release');
+assert.equal(admissionModel({local:true, terminalError:true}), false,
+             'Failed local release must not block a later Nextion update');
+assert.equal(admissionModel({busy:true, local:true, terminalError:true}), true,
+             'Still-running worker must prevent a second update');
 
 // Nextion uses the HMI physical UART2, never the Modbus RTU UART1.
 assert.match(nex, /#define nexSerial Serial2\b/);
