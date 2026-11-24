@@ -3002,14 +3002,20 @@ bool IOModule::configureRuntime_()
         const char* displayUnit = internal
             ? InternalAnalogSources::unit(analogSlots_[i].sourceValue)
             : analogCfg_[i].unit;
-        // Generic analog slots can have no configured unit. Physical
-        // humidity channels on SHT40 and BME680/BME688 report percent.
-        // Keep any explicitly configured display unit unchanged.
-        if (!internal && (!displayUnit || displayUnit[0] == '\0') &&
-            (analogSlots_[i].backend == IO_BACKEND_SHT40 ||
-             analogSlots_[i].backend == IO_BACKEND_BME680) &&
-            analogSlots_[i].channel == 1U) {
-            displayUnit = "%";
+        // Generic analog slots can have an empty unit. Inherit the physical
+        // sensor's unit for humidity and pressure, but never replace an
+        // explicitly configured unit.
+        if (!internal && (!displayUnit || displayUnit[0] == '\0')) {
+            const uint8_t backend = analogSlots_[i].backend;
+            const uint8_t channel = analogSlots_[i].channel;
+            if (channel == 1U &&
+                (backend == IO_BACKEND_SHT40 || backend == IO_BACKEND_BME680)) {
+                displayUnit = "%";
+            } else if ((backend == IO_BACKEND_BMP280 && channel == 1U) ||
+                       (backend == IO_BACKEND_BME680 && channel == 2U)) {
+                // Both drivers convert pressure from Pa to hPa on sampling.
+                displayUnit = "hPa";
+            }
         }
         setValueUnit(analogMeta.displayUnit, displayUnit);
         if (!dataStore_->values.define(ValueIds::Analog + i, analogMeta)) return false;
