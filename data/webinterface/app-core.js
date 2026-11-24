@@ -227,8 +227,9 @@
       storeVersion(version);
 
       await loadCssOnce(assetUrl('/webinterface/app-core.css', version), { retries: 3 });
+      var shellMarkup = await fetchShellMarkup(assetUrl('/webinterface/sh.html', version));
+      root.innerHTML = shellMarkup;
       root.className = '';
-      root.innerHTML = await fetchShellMarkup(assetUrl('/webinterface/sh.html', version));
       await loadScriptOnce(assetUrl('/webinterface/app.js', version), { retries: 3 });
     } catch (err) {
       setBootStatus("Chargement de l'interface impossible.", true);
