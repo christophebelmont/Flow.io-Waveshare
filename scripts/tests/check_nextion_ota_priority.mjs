@@ -18,6 +18,9 @@ const nexHdr = read('lib/ESPNexUpload/src/ESPNexUpload.h');
 const web = read('data/webinterface/app.js');
 const modbus = read('src/Modules/Network/ModbusTcpServerModule/ModbusTcpServerModule.h');
 const exported = read('scripts/export_binaries.py');
+const io = read('src/Modules/IOModule/IOModule.cpp');
+const ioHdr = read('src/Modules/IOModule/IOModule.h');
+const rs485Scheduler = read('src/Modules/IOModule/IOScheduler/Rs485TransactionScheduler.cpp');
 const fr = JSON.parse(read('data/webinterface/i18n/fr.json')).translations;
 const en = JSON.parse(read('data/webinterface/i18n/en.json')).translations;
 const fn = (start, stop) => {
@@ -123,4 +126,12 @@ assert.match(ui, /Math\.min\(96, progress\)/);
 assert.match(modbus, /const bool otaBusy = fwUpdateSvc_ && fwUpdateSvc_->isBusy/);
 assert.match(modbus, /if \(otaBusy\) \{[\s\S]*?server_\.stop\(\);[\s\S]*?return;/);
 
-console.log('PASS: exclusive Nextion/paired OTA, PSRAM before UART, Modbus TCP pause, real phase progress');
+// Complete RS485/Modbus isolation during firmware updates (not TCP only).
+assert.match(ioHdr, /const FirmwareUpdateService\* fwUpdateSvc_ = nullptr;/);
+assert.match(ioHdr, /ServiceRegistry\* serviceRegistry_ = nullptr;/);
+assert.match(io, /self\.fwUpdateSvc_->isBusy\(self\.fwUpdateSvc_->ctx\)/);
+assert.match(io, /self\.cfgData_\.enabled && !otaBusy/);
+assert.match(rs485Scheduler, /if \(!enabled\) \{[\s\S]*?SlotState::Queued[\s\S]*?MODBUS_RESULT_NOT_READY/);
+assert.match(rs485Scheduler, /bus_\.tick\(nowUs\)/);
+assert.match(rs485Scheduler, /const bool/); // Transport state stays responsive while quiesced.
+console.log('PASS: exclusive Nextion/paired OTA, PSRAM before UART, RS485/Modbus pause, real phase progress');
