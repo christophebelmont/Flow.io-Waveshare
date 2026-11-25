@@ -2517,7 +2517,17 @@ bool FirmwareUpdateModule::localImageProgressSnapshot_(
     portENTER_CRITICAL(&lock_);
     const bool match = localImageProgress_.transactionId == transactionId &&
                        localImageProgress_.target == target;
-    if (match) *out = localImageProgress_;
+    if (match) {
+        *out = localImageProgress_;
+        // This lightweight GET is performed only AFTER the browser received
+        // the successful HTTP 202 POST reply. Never start Flash based solely
+        // on having completed the network upload callback.
+        if (localImageProgress_.phase == FirmwareLocalImagePhase::Queued &&
+            !localFlashQueued_) {
+            localFlashQueued_ = true;
+            localFlashStartAfterMs_ = millis() + 250U;
+        }
+    }
     portEXIT_CRITICAL(&lock_);
     return match;
 }
@@ -2699,6 +2709,7 @@ void FirmwareUpdateModule::resetLocalRelease_()
     portENTER_CRITICAL(&lock_);
     localReleaseActive_ = false;
     localFlashQueued_ = false;
+    localFlashStartAfterMs_ = 0U;
     localImageProgress_ = FirmwareLocalImageProgress{};
     activeTotalBytes_ = 0U;
     activeSentBytes_ = 0U;
@@ -3264,11 +3275,17 @@ bool FirmwareUpdateModule::beginLocalImage_(uint32_t transactionId,
     const uint8_t currentProgress = activeTotalBytes_
         ? (uint8_t)(((uint64_t)activeSentBytes_ * 100U) / activeTotalBytes_) : 0U;
     portEXIT_CRITICAL(&lock_);
-    setStatus_(UpdateState::Flashing,
+    setStatus_(remotePaired ? UpdateState::Flashing : UpdateState::Downloading,
                remotePaired ? FirmwareUpdateTarget::Waveshare : target,
                currentProgress,
-               filesystemTarget ? "writing release filesystem" : "writing release firmware",
+               remotePaired
+                   ? (filesystemTarget ? "writing release filesystem" : "writing release firmware")
+                   : (filesystemTarget ? "ZIP: receiving SPIFFS in PSRAM"
+                                       : "ZIP: receiving firmware in PSRAM"),
                localRelease_.operationId);
+    if (!remotePaired) {
+        setOtaStage_(filesystemTarget ? "zip_spiffs_receive" : "zip_firmware_receive", 0U);
+    }
     LOGI("[UPGRADE] %s target=%s size=%u",
          filesystemTarget ? "filesystem" : "firmware",
          label,
@@ -3472,9 +3489,9 @@ bool FirmwareUpdateModule::endLocalImage_(uint32_t transactionId,
         setLocalImageProgress_(transactionId, target, FirmwareLocalImagePhase::Queued,
                                0U, (uint32_t)localRelease_.stagedBytes,
                                (uint32_t)localRelease_.stagedBytes);
-        portENTER_CRITICAL(&lock_);
-        localFlashQueued_ = true;
-        portEXIT_CRITICAL(&lock_);
+        // Flash is explicitly triggered by the browser's subsequent GET
+        // progress acknowledgement. If the POST socket dies before HTTP 202
+        // reaches the client, no inactive partition is touched.
         return true;
     }
 
@@ -4157,8 +4174,10 @@ void FirmwareUpdateModule::loop()
     }
     bool flashPending = false;
     portENTER_CRITICAL(&lock_);
-    if (localFlashQueued_) {
+    if (localFlashQueued_ &&
+        (int32_t)(millis() - localFlashStartAfterMs_) >= 0) {
         localFlashQueued_ = false;
+        localFlashStartAfterMs_ = 0U;
         flashPending = true;
     }
     portEXIT_CRITICAL(&lock_);

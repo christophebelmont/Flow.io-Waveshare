@@ -239,6 +239,7 @@ private:
     // Protected by lock_: work is picked up on fwupdate after the HTTP
     // callback acknowledges SHA-256 preverification. Never flash on AsyncTCP.
     bool localFlashQueued_ = false;
+    uint32_t localFlashStartAfterMs_ = 0U; // ACK grace period
     FirmwareLocalImageProgress localImageProgress_{};
     bool localImageProgressSnapshot_(uint32_t transactionId,
                                      FirmwareUpdateTarget target,
