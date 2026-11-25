@@ -116,4 +116,29 @@ has(loopHead, "handleQueuedLocalCall_()", "fwupdate task handles local ZIP");
 assert.ok(loopHead.indexOf("handleQueuedLocalCall_()") <
           loopHead.indexOf("if (!manifestMetadata_)"), "worker callbacks before updater idle returns");
 
+// Post-abort observability: a failed ZIP must be distinguishable from an OTA
+// admission rejection and from a TCP transport error after cleanup.
+const jsPos = js.indexOf("function uploadReleaseBlob(");
+const jsEnd = js.indexOf("async function installLocalRelease(", jsPos);
+const uploadClient = js.slice(jsPos, jsEnd);
+const serverZipPos = server.indexOf("const auto registerLocalImageRoute");
+const serverZip = server.slice(serverZipPos, serverZipPos + 7000);
+has(updater, "[OTA-ADMIT] tgt=%u", "new remote OTA admission diagnostics");
+has(updater, "[OTA-ZIP] abort cleanup op=", "local abort cleanup diagnostics");
+has(updater, "[OTA-ZIP] progress target=", "bounded image upload progress");
+has(serverZip, "[OTA-ZIP-HTTP] image failed", "HTTP response failure");
+has(serverZip, "[OTA-ZIP-HTTP] begin refused", "image begin failure");
+has(serverZip, "[OTA-ZIP-HTTP] chunk refused", "image chunk error");
+has(serverZip, "[OTA-ZIP-HTTP] end refused", "image verification error");
+has(uploadClient, "[OTA-ZIP-HTTP] refus du serveur", "browser HTTP error details");
+has(uploadClient, "request.onabort", "browser abort marker");
+const startUpdatePos = updater.indexOf("bool FirmwareUpdateModule::startUpdate_(");
+const startUpdateEnd = updater.indexOf("bool FirmwareUpdateModule::", startUpdatePos + 30);
+const startUpdate = updater.slice(startUpdatePos, startUpdateEnd);
+const snapshot = startUpdate.indexOf("const unsigned state = (unsigned)status_.state;");
+const unlock = startUpdate.indexOf("portEXIT_CRITICAL(&lock_);", snapshot);
+const warn = startUpdate.indexOf("LOGW(\"[OTA-ADMIT]", unlock);
+assert.ok(snapshot >= 0 && unlock > snapshot && warn > unlock,
+          "log after releasing OTA admission spinlock");
+
 console.log("PASS: ZIP upload uses inactive paired app/SPIFFS A/B slots; no premature Done before commit");
