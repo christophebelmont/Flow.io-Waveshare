@@ -93,5 +93,48 @@ int main() {
         self.assertIn('"wat_temp_io_id", "poollogic/sensors"', header)
 
 
+    def test_shared_source_gates_web_mqtt_hmi_and_rf(self):
+        io = (ROOT / "src/Modules/IOModule/IOModule.cpp").read_text()
+        iio = (ROOT / "src/Core/Services/IIO.h").read_text()
+        pool = (ROOT / "src/Modules/PoolLogicModule/PoolLogicControl.cpp").read_text()
+        web = (ROOT / "src/Modules/Network/WebInterfaceModule/WebInterfaceServer.cpp").read_text()
+        rf = (ROOT / "src/Modules/HMIModule/Drivers/TfaVeniceRf433Sink.cpp").read_text()
+
+        # One source-level gate controls both DataStore presentation paths.
+        self.assertIn("publish ? ValueQuality::Valid : ValueQuality::Invalid", io)
+        self.assertIn("if (publish) (void)setIoEndpointFloat(", io)
+        self.assertIn("else (void)setIoEndpointInvalid(", io)
+        self.assertIn("const bool publish = waterTempPublicationAllowed_(slot.ioId);", io)
+        self.assertIn("updatePublished(policy.ioId, allowed);", io)
+        self.assertIn("if (!waterTempPublicationAllowed_(id)) return IO_ERR_NOT_READY;", io)
+
+        # All public typed I/O reads are gated; physical acquisition remains
+        # available to PoolLogic regulation, including while filtration is off.
+        self.assertIn("IoStatus IOModule::ioReadAnalogRaw_(", io)
+        self.assertIn("return ioReadAnalogRaw_(id, outValue, outTsMs, outSeq);", io)
+        self.assertIn("(*readAnalogRaw)", iio)
+        self.assertIn("ioSvc_->readAnalogRaw", pool)
+        self.assertIn("ioSvc->readAnalog(ioSvc->ctx, waterTempIoId", rf)
+
+        # Legacy pool.water_temp in the runtime manifest maps to a04.
+        # The web endpoint now resolves the CURRENT configured water sensor.
+        self.assertIn("waveshareConfiguredWaterTemperatureInput_(poolCfgSvc)", web)
+        self.assertIn("sourceId = ValueIds::Analog +", web)
+        self.assertIn("presentDataValueById(dataStore->values, actual, out, metadata)", web)
+
+        # Physical analogue outputs and non-water sensors stay untouched.
+        self.assertIn("slot.endpoint->update(rounded, true", io)
+        self.assertIn("const IoId previouslyGatedId = waterTempGateLastIoId_;", io)
+        self.assertIn("updatePublished(previouslyGatedId, true);", io)
+
+    def test_both_supported_flowmeter_modes(self):
+        io = (ROOT / "src/Modules/IOModule/IOModule.cpp").read_text()
+        self.assertIn("mode != IO_DIGITAL_INPUT_COUNTER", io)
+        self.assertIn("mode != IO_DIGITAL_INPUT_PULSES_PER_MINUTE", io)
+        self.assertIn("flow.quality == ValueQuality::Valid", io)
+        self.assertIn("poolFreshPositiveFlow(true, valid,", io)
+
+
+
 if __name__ == "__main__":
     unittest.main()
