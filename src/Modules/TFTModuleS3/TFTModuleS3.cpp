@@ -623,16 +623,23 @@ void TFTModuleS3::loop()
     FirmwareUpdateDisplaySnapshot update{};
     bool updateVisible = readUpdateSnapshot_(update);
     if (updateVisible) {
-        const bool terminal = update.state == FirmwareUpdateDisplayState::Error ||
-                              update.state == FirmwareUpdateDisplayState::Done;
-        if (terminal) {
-            if (updateTerminalAtMs_ == 0U ||
-                update.operationId != updateLastOperation_) updateTerminalAtMs_ = now;
-            if (uint32_t(now - updateTerminalAtMs_) >= kUpdateResultHoldMs) {
-                updateVisible = false;
-            }
+        // Persistent terminal states must not re-enter the update screen
+        // every 20 seconds after the user returns to the dashboard.
+        if (update.operationId == updateDismissedOperation_) {
+            updateVisible = false;
         } else {
-            updateTerminalAtMs_ = 0U;
+            const bool terminal = update.state == FirmwareUpdateDisplayState::Error ||
+                                  update.state == FirmwareUpdateDisplayState::Done;
+            if (terminal) {
+                if (updateTerminalAtMs_ == 0U ||
+                    update.operationId != updateLastOperation_) updateTerminalAtMs_ = now;
+                if (uint32_t(now - updateTerminalAtMs_) >= kUpdateResultHoldMs) {
+                    updateDismissedOperation_ = update.operationId;
+                    updateVisible = false;
+                }
+            } else {
+                updateTerminalAtMs_ = 0U;
+            }
         }
     }
     if (updateVisible) {
