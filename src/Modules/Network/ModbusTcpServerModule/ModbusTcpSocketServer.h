@@ -105,6 +105,7 @@ public:
     static constexpr uint32_t kTraceSlowMs = 1000U;
     static constexpr uint32_t kTraceLogIntervalMs = 1000U;
     void trace_(uint8_t slot, const char* stage, uint32_t nowMs, int result = 0) {
+#if defined(FLOW_MODBUS_VERBOSE_DIAGNOSTICS) && FLOW_MODBUS_VERBOSE_DIAGNOSTICS
         if (!traceActive_[slot]) return;
         const uint8_t port = slot / kClientsPerPort;
         if (lastTraceLogMs_[port] != 0U &&
@@ -121,6 +122,10 @@ public:
             (unsigned long)(nowMs - traceStarted_[slot]),
             (unsigned long)bridges_[slot].queueWaitMs(),
             (unsigned long)bridges_[slot].rtuResponseMs(), result);
+#else
+        // Avoid Web log pressure and slow-response warnings in normal builds.
+        (void)slot; (void)stage; (void)nowMs; (void)result;
+#endif
     }
 
     void tick(uint32_t nowMs) {
@@ -140,13 +145,6 @@ public:
                     incoming.stop();
                 } else {
                     clients_[slot] = incoming;
-                    sessionIds_[slot] = sessionSequence_.next();
-                    // Capture peer address on admission: recv(ECONNRESET)
-                    // can make remoteIP()/remotePort() unavailable later.
-                    const IPAddress peerIp = clients_[slot].remoteIP();
-                    peerIdentities_[slot].setIPv4(
-                        peerIp[0], peerIp[1], peerIp[2], peerIp[3],
-                        clients_[slot].remotePort());
                     peerReadClosed_[slot] = false;
                     configureKeepAlive_(slot);
                     lastReadProgressMs_[slot] = nowMs;
@@ -285,8 +283,7 @@ public:
             if (received < 0) {
                 if (socketErrno != EAGAIN && socketErrno != EWOULDBLOCK &&
                     socketErrno != EINTR) {
-                    recordRxError_(slot, SocketRxErrorSource::DataRecv,
-                                   socketErrno, nowMs);
+                    ++stats_[port].rxErrors;
                     closePeer_(slot);
                 }
                 continue;
@@ -338,18 +335,6 @@ public:
     size_t psramFrameBytes() const { return frameStorage_ ? sizeof(FrameStorage) : 0U; }
     bool frameStorageReady() const { return frameStorage_ != nullptr; }
 private:
-    void recordRxError_(uint8_t slot, SocketRxErrorSource source,
-                        int socketErrno, uint32_t nowMs) {
-        const uint8_t port = slot / kClientsPerPort;
-        ++stats_[port].rxErrors;
-        stats_[port].lastRxError.capture(
-            source, slot, sessionIds_[slot], clients_[slot].fd(),
-            socketErrno, nowMs);
-        stats_[port].lastRxError.peer = peerIdentities_[slot];
-        // Do not log in the hot TCP loop: ModbusTcpServerModule publishes
-        // one bounded detail line only when the error counter changes.
-    }
-
     void dispatchRequest_(uint8_t slot, const ModbusTcpAdu::Request& request,
                           uint32_t nowMs) {
         const uint8_t port = slot / kClientsPerPort;
@@ -385,17 +370,7 @@ private:
                           MODBUS_RESULT_NOT_READY, nowMs);
             return;
         }
-        if (previouslyBusy) {
-            ++stats_[port].resolverBusyRecovered;
-            // Log the first successful lock recovery once per port and boot.
-            if (stats_[port].resolverBusyRecovered == 1U) {
-                ::Log::info((LogModuleId)LogModuleIdValue::ModbusTcpServerModule,
-                    "[MODBUS-RESOLVE-RECOVER] port=%u recovered=%lu busy_attempts=%lu",
-                    (unsigned)kPorts[port],
-                    (unsigned long)stats_[port].resolverBusyRecovered,
-                    (unsigned long)stats_[port].resolverBusyAttempts);
-            }
-        }
+        if (previouslyBusy) ++stats_[port].resolverBusyRecovered;
         // Shared ModbusMasterService remains the sole RS485 scheduler.
         if (!bridge.submit(*service_, request, line, configs_[port].errorMode,
                            configs_[port].transactionTimeoutMs, nowMs, targetUnitId)) {
@@ -487,8 +462,7 @@ private:
             const int socketErrno = result < 0 ? errno : 0;
             const auto state = classifySocketPeerProbe(result, socketErrno);
             if (state == SocketPeerHealth::Error) {
-                recordRxError_(slot, SocketRxErrorSource::PeerProbe,
-                               socketErrno, nowMs);
+                ++stats_[slot / kClientsPerPort].rxErrors;
                 closePeer_(slot);
             } else if (state == SocketPeerHealth::ReadClosed) {
                 peerReadClosed_[slot] = true;
@@ -529,8 +503,6 @@ private:
         bridges_[slot].reset();
         clients_[slot].stop();
         sessions_.release(slot);
-        sessionIds_[slot] = 0U;
-        peerIdentities_[slot] = SocketPeerIdentity{};
         sent_[slot] = 0U;
         writing_[slot] = false;
         lastWriteProgressMs_[slot] = 0U;
@@ -546,9 +518,6 @@ private:
     BridgeSlot bridges_[kMaxClients];
     PortConfig configs_[kPortCount]{};
     PortStats stats_[kPortCount]{};
-    SocketSessionSequence sessionSequence_{};
-    uint32_t sessionIds_[kMaxClients]{};
-    SocketPeerIdentity peerIdentities_[kMaxClients]{};
     uint32_t lastTraceLogMs_[kPortCount]{};
     uint32_t traceSuppressed_[kPortCount]{};
     size_t sent_[kMaxClients]{};

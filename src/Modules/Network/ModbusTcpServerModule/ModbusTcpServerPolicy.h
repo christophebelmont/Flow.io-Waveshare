@@ -8,7 +8,6 @@
  */
 #include <stdint.h>
 #include "Core/Services/IModbusMaster.h"
-#include "ModbusTcpSocketHealth.h"
 
 namespace ModbusTcpServer {
 constexpr uint8_t kPortCount = 3U;
@@ -62,9 +61,6 @@ struct PortStats {
     uint32_t txWouldBlock = 0U;
     uint32_t txErrors = 0U;
     uint32_t rxErrors = 0U;
-    // Snapshot of the LAST fatal socket RX error on this port. Updated only
-    // when rxErrors grows; normal FIN/EAGAIN do not count or create warnings.
-    SocketRxErrorDetail lastRxError{};
     uint32_t tcpBytesReceived = 0U;
     uint32_t tcpBytesSent = 0U;
     uint32_t responseTimeTotalMs = 0U;
