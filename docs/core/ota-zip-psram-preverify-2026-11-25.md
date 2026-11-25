@@ -95,3 +95,60 @@ serial log and browser Console if a failure is reproduced.
 
 **This patch is not hardware-validated until a complete PlatformIO build and
 the actual ESP32-S3 tests pass.**
+
+## ZIP update stage display (Web and local TFT)
+
+The **remote HTTP paired OTA** and **Nextion** stage labels stay unchanged.
+The local ZIP path has an independent 15-step journey in the Updates web
+page, using the localized `updates.zipStage.*` keys in both `fr.json`
+and `en.json`.
+
+| Web step | ZIP backend stage | What really happens |
+| --- | --- | --- |
+| 1 | `zip_prepare` | Browser validates the ZIP structure |
+| 2 | `zip_manifest` | Controller accepts the release manifest |
+| 3 | `zip_spiffs_receive` | Receive SPIFFS in PSRAM, measured upload bytes |
+| 4 | `zip_spiffs_ram_verify` | Verify complete SHA-256 before Flash |
+| 5 | `zip_spiffs_prepare` | Wait for HTTP 202 acknowledgement; prepare inactive partition |
+| 6 | `zip_spiffs_flash` | Write verified SPIFFS PSRAM buffer to Flash |
+| 7 | `zip_spiffs_readback` | SHA-256 readback and candidate FS validation |
+| 8 | `zip_firmware_receive` | Receive firmware into the recycled PSRAM buffer |
+| 9 | `zip_firmware_ram_verify` | Verify complete firmware SHA-256 in PSRAM |
+| 10 | `zip_firmware_prepare` | Prepare inactive firmware partition |
+| 11 | `zip_firmware_flash` | Flash verified firmware with sequential erase |
+| 12 | `zip_firmware_readback` | SHA-256 readback and firmware validation |
+| 13 | `zip_activate` | Joint A/B activation after both images verify |
+| 14 | `reboot` | ESP32-S3 restarts |
+| 15 | `reconnect` | Web UI reconnects and confirms receipt |
+
+`zip_spiffs_verified` and `zip_firmware_verified` are success aliases
+for the corresponding readback stages. The TFT shows **14 stages**, without
+the final *reconnect* stage (the device itself cannot show its own
+reconnection before reboot). It retains the ZIP title through the reboot
+stage even after the OTA status clears `ota_stage`.
+
+During reception, writing and readback, progress shows a **real per-stage
+percentage**; the combined Web progress does not move backwards between
+images. The TFT keeps its black background, Flow.IO logo, bold bilingual
+warning, 3D bar, and previous/current/next chronological layout without
+redrawing the whole panel on each percentage change.
+
+The HTTP 202 response means **staged and checked in PSRAM**, not already
+written to Flash. The browser waits for the dedicated `verifying` and
+`verified` states before sending the next image or the commit.
+
+### Stage regression checks
+
+```sh
+node scripts/tests/check_zip_web_tft_stages.mjs
+node scripts/tests/check_ota_ui_stages.mjs
+node scripts/tests/check_tft_update_progress.mjs
+node scripts/tests/check_zip_psram_preverify_async.mjs
+node scripts/tests/simulate_zip_browser_poll.mjs
+g++ -std=c++17 -Wall -Wextra -Werror -pedantic -Isrc test/host/tft_update_stages.cpp -o /tmp/tft_update_stages
+/tmp/tft_update_stages
+```
+
+Source/static checks and simulated browser logic do not prove physical TFT
+rendering or successful OTA on an ESP32. Full PlatformIO compile and paired
+firmware+SPIFFS deployment remain necessary.
