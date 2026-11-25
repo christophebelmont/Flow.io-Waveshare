@@ -59,7 +59,7 @@ struct FirmwareUpdateDisplaySnapshot {
 // ZIP upload staging / flash progress. Readable without blocking AsyncTCP
 // on the Flash mutex. Transaction ID prevents stale browser polling.
 enum class FirmwareLocalImagePhase : uint8_t {
-    Idle = 0, Receiving, Queued, Flashing, Verified, Error
+    Idle = 0, Receiving, Queued, Flashing, Verifying, Verified, Error
 };
 struct FirmwareLocalImageProgress {
     uint32_t transactionId = 0U;

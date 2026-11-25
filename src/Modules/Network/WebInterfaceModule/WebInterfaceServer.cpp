@@ -8492,6 +8492,7 @@ void WebInterfaceModule::startServer_()
                 case FirmwareLocalImagePhase::Receiving: phase = "receiving"; break;
                 case FirmwareLocalImagePhase::Queued: phase = "queued"; break;
                 case FirmwareLocalImagePhase::Flashing: phase = "flashing"; break;
+                case FirmwareLocalImagePhase::Verifying: phase = "verifying"; break;
                 case FirmwareLocalImagePhase::Verified: phase = "verified"; break;
                 case FirmwareLocalImagePhase::Error: phase = "error"; break;
                 default: break;

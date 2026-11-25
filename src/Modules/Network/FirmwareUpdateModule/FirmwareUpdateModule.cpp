@@ -2584,7 +2584,7 @@ bool FirmwareUpdateModule::flashStagedLocalImage_()
     setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare,
                baseProgress, fs ? "ZIP: writing verified SPIFFS"
                                     : "ZIP: writing verified firmware", op);
-    setOtaStage_(fs ? "zip_spiffs_flash" : "zip_firmware_flash", 0U);
+    setOtaStage_(fs ? "zip_spiffs_prepare" : "zip_firmware_prepare", 0U);
 
     esp_err_t err = ESP_OK;
     if (fs) {
@@ -2611,6 +2611,9 @@ bool FirmwareUpdateModule::flashStagedLocalImage_()
         failLocalRelease_("ZIP verified image flash preparation failed");
         return false;
     }
+
+    // The inactive image is now prepared; report the actual Flash write phase.
+    setOtaStage_(fs ? "zip_spiffs_flash" : "zip_firmware_flash", 0U);
 
     // Use an INTERNAL stack copy because PSRAM is inaccessible during some
     // Flash-cache stalls; no allocations or TCP receive buffers on this path.
@@ -2661,6 +2664,10 @@ bool FirmwareUpdateModule::flashStagedLocalImage_()
             return false;
         }
     }
+    // Read-back is a distinct integrity step, not more data being written.
+    setOtaStage_(fs ? "zip_spiffs_readback" : "zip_firmware_readback", 0U);
+    setLocalImageProgress_(txn, target, FirmwareLocalImagePhase::Verifying,
+                           0U, 0U, (uint32_t)total);
     mbedtls_sha256_context readbackSha{};
     mbedtls_sha256_init(&readbackSha);
     bool readbackOk = mbedtls_sha256_starts(&readbackSha, 0) == 0;
@@ -2673,7 +2680,15 @@ bool FirmwareUpdateModule::flashStagedLocalImage_()
             readbackOk = false;
             break;
         }
-        if ((offset & ((32U * 1024U) - 1U)) == 0U) vTaskDelay(1);
+        const size_t checked = offset + count;
+        if (checked == total || (checked / (32U * 1024U)) !=
+                                (offset / (32U * 1024U))) {
+            const uint8_t percent = (uint8_t)(((uint64_t)checked * 100U) / total);
+            setOtaStage_(nullptr, percent);
+            setLocalImageProgress_(txn, target, FirmwareLocalImagePhase::Verifying,
+                                   percent, (uint32_t)checked, (uint32_t)total);
+            vTaskDelay(1);
+        }
     }
     if (readbackOk) readbackOk = mbedtls_sha256_finish(&readbackSha, digest) == 0;
     mbedtls_sha256_free(&readbackSha);
@@ -3129,6 +3144,7 @@ bool FirmwareUpdateModule::beginLocalRelease_(const char* manifestJson,
                0U,
                internalRemoteWorker ? "remote paired release prepared" : "local release prepared",
                candidate.operationId);
+    if (!internalRemoteWorker) setOtaStage_("zip_manifest", 100U);
     LOGI("[UPGRADE] begin release=%s target=%s",
          candidate.version,
          candidate.targetSlot == ReleaseSlot::A ? "A" : "B");
@@ -3503,6 +3519,11 @@ bool FirmwareUpdateModule::endLocalImage_(uint32_t transactionId,
         return writeSimpleError_(errOut, errOutLen, reason);
     }
 
+    const bool localStaged = localRelease_.stagedImage != nullptr;
+    if (localStaged) {
+        setOtaStage_(filesystemTarget ? "zip_spiffs_ram_verify"
+                                     : "zip_firmware_ram_verify", 0U);
+    }
     const uint32_t verifyAtMs = millis();
     LOGI("[OTA-ZIP-PHASE] image_verify_begin txn=%lu target=%u received=%lu expected=%lu stage=%u",
          (unsigned long)transactionId, (unsigned)target,
@@ -3521,12 +3542,15 @@ bool FirmwareUpdateModule::endLocalImage_(uint32_t transactionId,
         // SHA completed BEFORE Flash; a browser HTTP 202 response can now be
         // returned immediately. fwupdate::loop() later flashes this verified
         // PSRAM image and publishes the result via localImageProgress().
+        setOtaStage_(nullptr, 100U);
         LOGI("[OTA-ZIP-PSRAM] preverify_ok txn=%lu target=%u bytes=%lu flash_touched=0",
              (unsigned long)transactionId, (unsigned)target,
              (unsigned long)localRelease_.stagedBytes);
         setLocalImageProgress_(transactionId, target, FirmwareLocalImagePhase::Queued,
                                0U, (uint32_t)localRelease_.stagedBytes,
                                (uint32_t)localRelease_.stagedBytes);
+        setOtaStage_(filesystemTarget ? "zip_spiffs_prepare"
+                                     : "zip_firmware_prepare", 0U);
         // Flash is explicitly triggered by the browser's subsequent GET
         // progress acknowledgement. If the POST socket dies before HTTP 202
         // reaches the client, no inactive partition is touched.
@@ -3621,6 +3645,7 @@ bool FirmwareUpdateModule::commitLocalRelease_(uint32_t transactionId,
     LOGI("[OTA-ZIP-PHASE] commit_begin txn=%lu op=%lu stage=%u",
          (unsigned long)transactionId, (unsigned long)localRelease_.operationId,
          (unsigned)localRelease_.stage);
+    if (remoteReleaseWorker_ == nullptr) setOtaStage_("zip_activate", 0U);
     if (!localTransactionMatches_(transactionId) ||
         localRelease_.stage != LocalReleaseStage::FirmwareVerified) {
         LOGW("[UPGRADE] commit rejected stage=%u transaction_match=%u",
