@@ -2578,8 +2578,11 @@ bool FirmwareUpdateModule::flashStagedLocalImage_()
          (unsigned)uxTaskGetStackHighWaterMark(nullptr));
     setLocalImageProgress_(txn, target, FirmwareLocalImagePhase::Flashing,
                            0U, (uint32_t)total, (uint32_t)total);
+    const uint8_t baseProgress = fs ? 0U
+        : (uint8_t)(((uint64_t)localRelease_.filesystem.size * 100U) /
+                    ((uint64_t)localRelease_.filesystem.size + localRelease_.firmware.size));
     setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare,
-               fs ? 0U : 35U, fs ? "ZIP: writing verified SPIFFS"
+               baseProgress, fs ? "ZIP: writing verified SPIFFS"
                                     : "ZIP: writing verified firmware", op);
     setOtaStage_(fs ? "zip_spiffs_flash" : "zip_firmware_flash", 0U);
 
@@ -2623,6 +2626,9 @@ bool FirmwareUpdateModule::flashStagedLocalImage_()
             : esp_ota_write(localRelease_.otaHandle, chunk, amount);
         if (err != ESP_OK) break;
         written += amount;
+        // Global percentage follows bytes committed to Flash, not bytes
+        // merely received in PSRAM. No regressions between ZIP phases.
+        onProgressChunk_((uint32_t)amount);
         localRelease_.lastActivityMs = millis();
         const uint8_t pct = (uint8_t)(((uint64_t)written * 100U) / total);
         setLocalImageProgress_(txn, target, FirmwareLocalImagePhase::Flashing,
@@ -3299,8 +3305,8 @@ bool FirmwareUpdateModule::beginLocalImage_(uint32_t transactionId,
         activeTotalBytes_ = localRelease_.filesystem.size + localRelease_.firmware.size;
         if (filesystemTarget) activeSentBytes_ = 0U;
     } else {
-        activeTotalBytes_ = (uint32_t)totalSize;
-        activeSentBytes_ = 0U;
+        activeTotalBytes_ = localRelease_.filesystem.size + localRelease_.firmware.size;
+        activeSentBytes_ = filesystemTarget ? 0U : localRelease_.filesystem.size;
     }
     const uint8_t currentProgress = activeTotalBytes_
         ? (uint8_t)(((uint64_t)activeSentBytes_ * 100U) / activeTotalBytes_) : 0U;
@@ -3423,7 +3429,9 @@ bool FirmwareUpdateModule::writeLocalImage_(uint32_t transactionId,
              (unsigned long)localRelease_.received,
              (unsigned long)expectedSize);
     }
-    onProgressChunk_((uint32_t)len);
+    if (!localRelease_.stagedImage) {
+        onProgressChunk_((uint32_t)len);
+    }
     if (remoteReleaseWorker_ != nullptr &&
         remoteReleaseWorker_ == xTaskGetCurrentTaskHandle()) {
         // Image-local progress; preserve PSRAM write vs HTTP streaming mode.
