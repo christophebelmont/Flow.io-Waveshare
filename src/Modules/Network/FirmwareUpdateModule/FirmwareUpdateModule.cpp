@@ -2523,7 +2523,7 @@ bool FirmwareUpdateModule::localImageProgressSnapshot_(
         // the successful HTTP 202 POST reply. Never start Flash based solely
         // on having completed the network upload callback.
         if (localImageProgress_.phase == FirmwareLocalImagePhase::Queued &&
-            !localFlashQueued_) {
+            !localFlashQueued_ && !localFlashStarted_) {
             localFlashQueued_ = true;
             localFlashStartAfterMs_ = millis() + 250U;
         }
@@ -2709,6 +2709,7 @@ void FirmwareUpdateModule::resetLocalRelease_()
     portENTER_CRITICAL(&lock_);
     localReleaseActive_ = false;
     localFlashQueued_ = false;
+    localFlashStarted_ = false;
     localFlashStartAfterMs_ = 0U;
     localImageProgress_ = FirmwareLocalImageProgress{};
     activeTotalBytes_ = 0U;
@@ -3231,19 +3232,12 @@ bool FirmwareUpdateModule::beginLocalImage_(uint32_t transactionId,
             vTaskDelay(1);
         }
     } else {
-        // AsyncTCP must not wait ~4 seconds for a full partition erase.
-        // ESP-IDF incremental mode erases Flash while sequential OTA chunks
-        // are written. Remote PSRAM paired OTA retains its verified behavior.
-        const bool incrementalErase = !remotePaired;
-        const size_t otaBeginSize = incrementalErase
-            ? static_cast<size_t>(OTA_WITH_SEQUENTIAL_WRITES)
-            : totalSize;
-        LOGI("[OTA-ZIP-PHASE] app_erase_strategy txn=%lu mode=%s requested_size=%lu",
-             (unsigned long)transactionId,
-             incrementalErase ? "incremental" : "upfront",
-             (unsigned long)totalSize);
+        // Remote paired OTA retains its existing, validated upfront erase.
+        // Local ZIP uses the separate flashStagedLocalImage_ path after SHA.
+        LOGI("[OTA-ZIP-PHASE] app_erase_strategy txn=%lu mode=upfront requested_size=%lu",
+             (unsigned long)transactionId, (unsigned long)totalSize);
         flashError = esp_ota_begin(localRelease_.writePartition,
-                                   otaBeginSize, &localRelease_.otaHandle);
+                                   totalSize, &localRelease_.otaHandle);
     }
     if (flashError != ESP_OK) {
         failLocalRelease_("failed to initialize target partition");
@@ -3261,6 +3255,11 @@ bool FirmwareUpdateModule::beginLocalImage_(uint32_t transactionId,
     localRelease_.stage = filesystemTarget ? LocalReleaseStage::WritingFilesystem
                                            : LocalReleaseStage::WritingFirmware;
     if (!remotePaired) {
+        portENTER_CRITICAL(&lock_);
+        localFlashQueued_ = false;
+        localFlashStarted_ = false;
+        localFlashStartAfterMs_ = 0U;
+        portEXIT_CRITICAL(&lock_);
         setLocalImageProgress_(transactionId, target, FirmwareLocalImagePhase::Receiving,
                                0U, 0U, (uint32_t)totalSize);
     }
@@ -4177,6 +4176,7 @@ void FirmwareUpdateModule::loop()
     if (localFlashQueued_ &&
         (int32_t)(millis() - localFlashStartAfterMs_) >= 0) {
         localFlashQueued_ = false;
+        localFlashStarted_ = true;
         localFlashStartAfterMs_ = 0U;
         flashPending = true;
     }
