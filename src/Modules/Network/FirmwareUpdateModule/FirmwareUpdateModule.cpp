@@ -1274,7 +1274,27 @@ bool FirmwareUpdateModule::startUpdate_(FirmwareUpdateTarget target,
 
     portENTER_CRITICAL(&lock_);
     if (updateAdmissionBusyLocked_()) {
+        // A failed local ZIP must not silently prevent the next OTA.
+        // Snapshot the admission gates while the lock is held; print only
+        // AFTER releasing the spinlock (logging under it is unsafe).
+        const unsigned state = (unsigned)status_.state;
+        const unsigned localStage = (unsigned)localRelease_.stage;
+        const bool local = localReleaseActive_;
+        const bool rpc = localCallInFlight_;
+        const bool queued = queuedJob_.pending;
+        const bool manifest = manifestCheckJob_.pending;
+        const bool manifestActive = manifestMetadata_ &&
+                                   manifestCheckIsActive_(manifestMetadata_->check.state);
+        const bool nextionReboot = nextionRebootQueued_;
+        const bool pendingStart = updateStartPending_;
+        const bool running = busy_;
+        const unsigned readers = manifestCopyReaders_;
         portEXIT_CRITICAL(&lock_);
+        LOGW("[OTA-ADMIT] rejected target=%u busy=%u local=%u stage=%u state=%u rpc=%u queued=%u manifest=%u active=%u nextion=%u pending=%u readers=%u",
+             (unsigned)target, running ? 1U : 0U, local ? 1U : 0U,
+             localStage, state, rpc ? 1U : 0U, queued ? 1U : 0U,
+             manifest ? 1U : 0U, manifestActive ? 1U : 0U,
+             nextionReboot ? 1U : 0U, pendingStart ? 1U : 0U, readers);
         writeSimpleError_(errOut, errOutLen, "updater busy");
         return false;
     }
@@ -2547,7 +2567,13 @@ bool FirmwareUpdateModule::dispatchLocalCall_(const LocalCall& call,
         localCallPending_ = true;
     }
     portEXIT_CRITICAL(&lock_);
-    if (otherJob) return writeSimpleError_(errOut, errLen, "updater busy");
+    if (otherJob) {
+        LOGW("[OTA-ZIP] handoff rejected action=%u busy=%u queued=%u rpc=%u",
+             (unsigned)call.kind, busy_ ? 1U : 0U,
+             queuedJob_.pending ? 1U : 0U,
+             localCallInFlight_ ? 1U : 0U);
+        return writeSimpleError_(errOut, errLen, "updater busy");
+    }
 
     // Normally the firmware task handles this within its 60 ms loop period.
     // The timed first wait catches a worker that has not started; if it has
@@ -2984,8 +3010,20 @@ bool FirmwareUpdateModule::writeLocalImage_(uint32_t transactionId,
         failLocalRelease_("release image write failed");
         return writeSimpleError_(errOut, errOutLen, "release image write failed");
     }
+    const size_t previousReceived = localRelease_.received;
     localRelease_.received += len;
     localRelease_.lastActivityMs = millis();
+    // Large local ZIP images are streamed in ~1436-byte TCP callbacks.
+    // Sparse progress checkpoints distinguish transport stalls from Flash
+    // failures without overwhelming the logger or the AsyncTCP queue.
+    if (remoteReleaseWorker_ == nullptr &&
+        ((previousReceived / (256U * 1024U)) !=
+         (localRelease_.received / (256U * 1024U)))) {
+        LOGI("[OTA-ZIP] progress target=%u received=%lu/%lu",
+             (unsigned)target,
+             (unsigned long)localRelease_.received,
+             (unsigned long)expectedSize);
+    }
     onProgressChunk_((uint32_t)len);
     if (remoteReleaseWorker_ != nullptr &&
         remoteReleaseWorker_ == xTaskGetCurrentTaskHandle()) {
@@ -3260,6 +3298,16 @@ bool FirmwareUpdateModule::abortLocalRelease_(uint32_t transactionId,
                0U,
                "local release aborted",
                operationId);
+    // The in-flight RPC flag is cleared immediately after this method
+    // returns to handleQueuedLocalCall_(). The release transaction and its
+    // OTA handle should ALREADY be cleared at this checkpoint.
+    LOGI("[OTA-ZIP] abort cleanup op=%lu local=%u active=%u ota_handle=%u state=idle psram=%lu internal=%lu",
+         (unsigned long)operationId,
+         localReleaseActive_ ? 1U : 0U,
+         localRelease_.active ? 1U : 0U,
+         (unsigned)localRelease_.otaHandle,
+         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     return true;
 }
 
