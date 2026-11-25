@@ -859,10 +859,14 @@ bool IOModule::waterTempPublicationAllowed_(IoId ioId) const
     if (!svc->getWaterTempPublicationPolicy(svc->ctx, &policy) ||
         !policy.circulationOnly || policy.ioId != ioId) return true;
     if (poolWaterTemperatureCanPublish(policy.circulationOnly, policy.filtrationOn, false)) return true;
-    // A real, fresh mode-2 flow measurement is required, not a pulse count.
+    // Use a fresh converted flow rate, not the accumulated pulse count.
+    // Both pulse-counter mode (1) and rate-only mode (2) can be configured
+    // as flow meters; their ConvertedRate quality validates the reading.
     if (!dataStore_) return false;
     for (uint8_t i = 0; i < MAX_DIGITAL_INPUTS; ++i) {
-        if (digitalInCfg_[i].mode != IO_DIGITAL_INPUT_PULSES_PER_MINUTE ||
+        const uint8_t mode = digitalInCfg_[i].mode;
+        if ((mode != IO_DIGITAL_INPUT_COUNTER &&
+             mode != IO_DIGITAL_INPUT_PULSES_PER_MINUTE) ||
             !digitalInputSlotUsed(i)) continue;
         ValueSnapshot flow{};
         const bool valid = dataStore_->values.read(ValueIds::ConvertedRate + i, flow) &&
@@ -888,16 +892,37 @@ void IOModule::refreshWaterTempPublicationGate_(uint32_t nowMs)
     const bool allowed = waterTempPublicationAllowed_(policy.ioId);
     if (waterTempGateLastIoId_ == policy.ioId &&
         waterTempGateLastAllowed_ == allowed) return;
+    const IoId previouslyGatedId = waterTempGateLastIoId_;
     waterTempGateLastIoId_ = policy.ioId;
     waterTempGateLastAllowed_ = allowed;
-    // Wake the existing MQTT runtime route on a gate transition even if the
-    // physical temperature is unchanged. Do not mutate the sensor/ValueStore.
-    const uint8_t analog = uint8_t(policy.ioId - IO_ID_AI_BASE);
-    if (analog < MAX_ANALOG_ENDPOINTS && analogSlots_[analog].endpoint) {
-        const uint8_t runtimeIndex = analogSlots_[analog].endpoint->runtimeIndex;
-        if (runtimeIndex < IO_MAX_ENDPOINTS)
+    // Apply the gate at the shared published-value source, not in each UI.
+    // The raw AnalogSensorEndpoint still holds the physical sample for PoolLogic
+    // heater/filtration regulation via IOServiceV2::readAnalog.
+    // Changing the selected sensor must also restore the old input.
+    const auto updatePublished = [&](IoId id, bool publish) {
+        if (id < IO_ID_AI_BASE || id >= IO_ID_AI_MAX) return;
+        const uint8_t analog = uint8_t(id - IO_ID_AI_BASE);
+        if (analog >= MAX_ANALOG_ENDPOINTS) return;
+        AnalogSlot& slot = analogSlots_[analog];
+        if (!slot.endpoint) return;
+        const uint64_t timestampMs = uint64_t(esp_timer_get_time()) / 1000ULL;
+        ValueNumber sample{}; sample.f = slot.lastRounded;
+        const bool available = publish && slot.lastRoundedValid;
+        (void)dataStore_->values.write(ValueIds::Analog + analog, sample,
+                                       timestampMs,
+                                       available ? ValueQuality::Valid : ValueQuality::Invalid);
+        const uint8_t runtimeIndex = slot.endpoint->runtimeIndex;
+        if (runtimeIndex < IO_MAX_ENDPOINTS) {
+            if (available) (void)setIoEndpointFloat(*dataStore_, runtimeIndex, slot.lastRounded, nowMs);
+            else (void)setIoEndpointInvalid(*dataStore_, runtimeIndex, IO_VALUE_FLOAT, nowMs);
             dataStore_->notifyChanged(DataKey(DATAKEY_IO_BASE + runtimeIndex));
+        }
+    };
+    if (previouslyGatedId != IO_ID_INVALID &&
+        previouslyGatedId != policy.ioId) {
+        updatePublished(previouslyGatedId, true);
     }
+    updatePublished(policy.ioId, allowed);
 }
 
 bool IOModule::buildInputSnapshot(char* out, size_t len, uint32_t& maxTsOut) const
@@ -976,9 +1001,20 @@ bool IOModule::writeRuntimeUiValue(uint8_t valueId, IRuntimeUiWriter& writer) co
             return writeAnalogProviderRuntimeValue_(runtimeId, IO_SRC_BME680, 2U, writer);
         case RuntimeUiBme680Gaz:
             return writeAnalogProviderRuntimeValue_(runtimeId, IO_SRC_BME680, 3U, writer);
-        case RuntimeUiWaterTemp:
+        case RuntimeUiWaterTemp: {
             runtimeIndex = 4;
+            const auto* service = serviceRegistry_
+                ? serviceRegistry_->get<PoolConfigurationService>(ServiceId::PoolConfiguration)
+                : nullptr;
+            PoolWaterTemperaturePublicationPolicy policy{};
+            if (service && service->getWaterTempPublicationPolicy &&
+                service->getWaterTempPublicationPolicy(service->ctx, &policy) &&
+                policy.ioId >= IO_ID_AI_BASE &&
+                policy.ioId < IO_ID_AI_BASE + MAX_ANALOG_ENDPOINTS) {
+                runtimeIndex = uint8_t(policy.ioId - IO_ID_AI_BASE);
+            }
             break;
+        }
         case RuntimeUiAirTemp:
             runtimeIndex = 5;
             break;
@@ -1650,10 +1686,15 @@ bool IOModule::processAnalogDefinition_(uint8_t idx, uint32_t nowMs)
         }
     }
 
+    // One authoritative exposure decision for the shared value registry,
+    // live HTTP runtime snapshots, HMI/Nextion and other external consumers.
+    // Keep the endpoint's raw sample for local closed-loop PoolLogic control.
+    const bool publish = waterTempPublicationAllowed_(slot.ioId);
     slot.endpoint->update(rounded, true, uint32_t(timestampMs));
     if (dataStore_) {
         ValueNumber sample; sample.f = rounded;
-        dataStore_->values.write(ValueIds::Analog + idx, sample, timestampMs);
+        dataStore_->values.write(ValueIds::Analog + idx, sample, timestampMs,
+                                 publish ? ValueQuality::Valid : ValueQuality::Invalid);
     }
 
     if (!slot.lastRoundedValid || rounded != slot.lastRounded) {
@@ -1662,7 +1703,8 @@ bool IOModule::processAnalogDefinition_(uint8_t idx, uint32_t nowMs)
         if (dataStore_) {
             uint8_t rtIdx = 0;
             if ((rtIdx = slot.endpoint->runtimeIndex) < IO_MAX_ENDPOINTS) {
-                (void)setIoEndpointFloat(*dataStore_, rtIdx, rounded, nowMs);
+                if (publish) (void)setIoEndpointFloat(*dataStore_, rtIdx, rounded, nowMs);
+                else (void)setIoEndpointInvalid(*dataStore_, rtIdx, IO_VALUE_FLOAT, nowMs);
             }
         }
         markIoCycleChanged_(slot.ioId);
@@ -1872,7 +1914,10 @@ void IOModule::forceAnalogSnapshotPublish_(uint8_t analogIdx, uint32_t nowMs)
     float republished = ioRoundToPrecision(v.v.f, slot.def.precision);
     slot.endpoint->update(republished, true, nowMs);
     if (dataStore_) {
-        (void)setIoEndpointFloat(*dataStore_, slot.endpoint->runtimeIndex, republished, nowMs);
+        if (waterTempPublicationAllowed_(slot.ioId))
+            (void)setIoEndpointFloat(*dataStore_, slot.endpoint->runtimeIndex, republished, nowMs);
+        else
+            (void)setIoEndpointInvalid(*dataStore_, slot.endpoint->runtimeIndex, IO_VALUE_FLOAT, nowMs);
     }
 }
 
@@ -2311,6 +2356,9 @@ IoStatus IOModule::ioReadValue_(IoId id, IoValue* outValue) const
         const uint8_t analogIdx = (uint8_t)(id - IO_ID_AI_BASE);
         const AnalogSlot& s = analogSlots_[analogIdx];
         if (!s.used || !s.endpoint) return IO_ERR_NOT_READY;
+        // Public typed I/O reads must obey the same source-level gate as the
+        // shared DataStore; internal readAnalog remains unchanged for control.
+        if (!waterTempPublicationAllowed_(id)) return IO_ERR_NOT_READY;
 
         IOEndpointValue v{};
         if (!s.endpoint->read(v) || !v.valid || v.valueType != IO_EP_VALUE_FLOAT) return IO_ERR_NOT_READY;
@@ -2398,6 +2446,15 @@ IoStatus IOModule::ioWriteDigital_(IoId id, uint8_t on, uint32_t tsMs, uint8_t o
 }
 
 IoStatus IOModule::ioReadAnalog_(IoId id, float* outValue, uint32_t* outTsMs, IoSeq* outSeq) const
+{
+    // Canonical service-level exposure gate: covers web, RF, external module
+    // reads and future consumers, without affecting PoolLogic raw acquisition.
+    if (id >= IO_ID_AI_BASE && id < IO_ID_AI_MAX &&
+        !waterTempPublicationAllowed_(id)) return IO_ERR_NOT_READY;
+    return ioReadAnalogRaw_(id, outValue, outTsMs, outSeq);
+}
+
+IoStatus IOModule::ioReadAnalogRaw_(IoId id, float* outValue, uint32_t* outTsMs, IoSeq* outSeq) const
 {
     if (!outValue) return IO_ERR_INVALID_ARG;
     if (id < IO_ID_AI_BASE || id >= IO_ID_AI_MAX) return IO_ERR_UNKNOWN_ID;
