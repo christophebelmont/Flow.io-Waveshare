@@ -1,5 +1,6 @@
 import runpy
 import json
+import hashlib
 import tempfile
 import unittest
 import zipfile
@@ -115,6 +116,80 @@ class ReleasePackageTests(unittest.TestCase):
                 self.assertEqual("WaveshareESP32S3", manifest["hardware"])
                 self.assertEqual(len(firmware.read_bytes()), manifest["firmware"]["size"])
                 self.assertEqual(expected_filesystem_size, manifest["filesystem"]["size"])
+
+            # Remote OTA needs these *two additional files* in binary/, not
+            # just the browser ZIP. Each must refer to the flat binary names.
+            expected_sha_fw = hashlib.sha256(firmware.read_bytes()).hexdigest()
+            expected_sha_fs = hashlib.sha256(filesystem.read_bytes()).hexdigest()
+            for name in ("flowio-release-2.0.1.json", "release.json"):
+                path = output / name
+                self.assertTrue(path.is_file(), f"remote OTA manifest missing: {name}")
+                remote = json.loads(path.read_text(encoding="utf-8"))
+                self.assertEqual("flowios3-2.0.1.bin", remote["firmware"]["file"])
+                self.assertEqual("flowios3-spiffs-2.0.1.bin", remote["filesystem"]["file"])
+                self.assertEqual(expected_sha_fw, remote["firmware"]["sha256"])
+                self.assertEqual(expected_sha_fs, remote["filesystem"]["sha256"])
+                self.assertEqual(firmware.stat().st_size, remote["firmware"]["size"])
+                self.assertEqual(filesystem.stat().st_size, remote["filesystem"]["size"])
+
+    def test_missing_remote_manifests_are_recreated_even_with_existing_zip(self):
+        function = MODULE["_write_release_package"]
+        globals_ = function.__globals__
+        original_binary_dir = globals_["_binary_dir"]
+        original_project_dir = globals_["_project_dir"]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir)
+            (output / "flowios3-2.0.1.bin").write_bytes(b"firmware-image")
+            (output / "flowios3-spiffs-2.0.1.bin").write_bytes(b"\\xff" * 0x180000)
+            try:
+                globals_["_binary_dir"] = lambda: output
+                globals_["_project_dir"] = lambda: output
+                function("2.0.1")
+                (output / "flowio-release-2.0.1.json").unlink()
+                (output / "release.json").unlink()
+                self.assertTrue((output / "flowio-2.0.1.zip").is_file())
+
+                function("2.0.1")  # A second build repairs both missing files.
+                self.assertTrue((output / "flowio-release-2.0.1.json").is_file())
+                self.assertTrue((output / "release.json").is_file())
+            finally:
+                globals_["_binary_dir"] = original_binary_dir
+                globals_["_project_dir"] = original_project_dir
+
+    def test_release_zip_is_not_published_before_remote_manifests(self):
+        function = MODULE["_write_release_package"]
+        globals_ = function.__globals__
+        original_binary_dir = globals_["_binary_dir"]
+        original_project_dir = globals_["_project_dir"]
+        original_zipfile = globals_["zipfile"]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir)
+            (output / "flowios3-2.0.1.bin").write_bytes(b"firmware-image")
+            (output / "flowios3-spiffs-2.0.1.bin").write_bytes(b"\\xff" * 0x180000)
+
+            # Fail right when ZIP writing starts. Both remote OTA manifests
+            # must already be published. No partial ZIP may be left behind.
+            class FailingZip:
+                def ZipFile(self, *args, **kwargs):
+                    self_file = output / "flowio-release-2.0.1.json"
+                    current = output / "release.json"
+                    assert self_file.is_file() and current.is_file()
+                    raise OSError("simulated ZIP writer failure")
+
+                ZIP_STORED = zipfile.ZIP_STORED
+
+            try:
+                globals_["_binary_dir"] = lambda: output
+                globals_["_project_dir"] = lambda: output
+                globals_["zipfile"] = FailingZip()
+                with self.assertRaises(OSError):
+                    function("2.0.1")
+                self.assertFalse((output / "flowio-2.0.1.zip").exists())
+                self.assertFalse((output / "flowio-2.0.1.zip.tmp").exists())
+            finally:
+                globals_["_binary_dir"] = original_binary_dir
+                globals_["_project_dir"] = original_project_dir
+                globals_["zipfile"] = original_zipfile
 
     def test_wrong_filesystem_size_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp_dir:
