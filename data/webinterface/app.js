@@ -580,7 +580,7 @@
     }
 
     function createRuntimeDomainState() {
-      return { loading: true, entries: [], gaugeEntries: [], values: [], sondeSlots: [], alarmSlots: [], error: '', requestSeq: 0 };
+      return { loading: true, entries: [], gaugeEntries: [], values: [], gaugeValues: [], sondeSlots: [], alarmSlots: [], error: '', requestSeq: 0 };
     }
 
     function ensureRuntimeDomainState() {
@@ -9770,7 +9770,7 @@
       const label = webUiLocale === 'en' ? def.en : def.fr;
       const entries = Array.isArray(state?.gaugeEntries) ? state.gaugeEntries : [];
       const entry = entries.find((candidate) => candidate.key === def.key || Number(candidate.id) === def.id);
-      const values = Array.isArray(state?.values) ? state.values : [];
+      const values = Array.isArray(state?.gaugeValues) ? state.gaugeValues : [];
       const runtime = values.find((candidate) => Number(candidate.id) === def.id);
       const slots = Array.isArray(state?.sondeSlots) ? state.sondeSlots : [];
       const slot = slots.find((candidate) =>
@@ -9838,9 +9838,15 @@
         const gaugeEntries = cleanDomain === 'sondes'
           ? allEntries.filter((entry) => dashboardGaugeDefs.some((def) => def.key === entry.key))
           : [];
-        const ids = [...new Set([...entries, ...gaugeEntries]
-          .map((entry) => Number(entry.id)).filter((id) => Number.isFinite(id)))];
-        const values = ids.length ? await fetchRuntimeValues(ids) : [];
+        const ids = entries.map((entry) => Number(entry.id)).filter((id) => Number.isFinite(id));
+        // Keep the normal domain query within its existing size limit; the
+        // four fixed hero sensors use an independent small runtime request.
+        const [values, gaugeValues] = await Promise.all([
+          ids.length ? fetchRuntimeValues(ids) : Promise.resolve([]),
+          cleanDomain === 'sondes'
+            ? fetchRuntimeValues(dashboardGaugeDefs.map((def) => def.id)).catch(() => [])
+            : Promise.resolve([])
+        ]);
         const sondeSlots = cleanDomain === 'sondes'
           ? enrichPoolSondeSlotsWithRanges(await fetchPoolSondeSlots().catch(() => []), allEntries)
           : [];
@@ -9851,6 +9857,7 @@
         state.entries = entries;
         state.gaugeEntries = gaugeEntries;
         state.values = values;
+        state.gaugeValues = gaugeValues;
         state.sondeSlots = sondeSlots;
         state.alarmSlots = alarmSlots;
         state.error = '';
@@ -9863,6 +9870,7 @@
           state.entries = [];
           state.gaugeEntries = [];
           state.values = [];
+          state.gaugeValues = [];
           state.sondeSlots = [];
           state.alarmSlots = [];
         }
