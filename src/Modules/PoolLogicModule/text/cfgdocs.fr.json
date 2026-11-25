@@ -365,6 +365,11 @@
       "type": "UInt8",
       "label_t": "cfgdocs.poollogic.ph.correction_type.label",
       "help_t": "cfgdocs.poollogic.ph.correction_type.help"
+    },
+    "poollogic/sensors/wat_temp_only_circulating": {
+      "type": "Bool",
+      "label_t": "cfgdocs.poollogic.sensors.wat_temp_only_circulating.label",
+      "help_t": "cfgdocs.poollogic.sensors.wat_temp_only_circulating.help"
     }
   }
 }
