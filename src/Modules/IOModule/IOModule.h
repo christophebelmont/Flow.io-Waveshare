@@ -113,6 +113,7 @@ public:
     bool derivedValuePublished(uint8_t slot) const;
     const char* derivedValueName(uint8_t slot) const;
     const char* endpointLabel(IoId id) const;
+    bool waterTempPublicationAllowed_(IoId ioId) const;
     bool buildInputSnapshot(char* out, size_t len, uint32_t& maxTsOut) const;
     bool buildOutputSnapshot(char* out, size_t len, uint32_t& maxTsOut) const;
     uint16_t runtimeSnapshotCount() const override;
