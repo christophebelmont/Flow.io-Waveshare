@@ -122,14 +122,15 @@ const jsPos = js.indexOf("function uploadReleaseBlob(");
 const jsEnd = js.indexOf("async function installLocalRelease(", jsPos);
 const uploadClient = js.slice(jsPos, jsEnd);
 const serverZipPos = server.indexOf("const auto registerLocalImageRoute");
-const serverZip = server.slice(serverZipPos, serverZipPos + 7000);
+const serverZip = server.slice(serverZipPos,
+  server.indexOf('registerLocalImageRoute("/api/upgrade/filesystem"', serverZipPos));
 has(updater, "[OTA-ADMIT] tgt=%u", "new remote OTA admission diagnostics");
 has(updater, "[OTA-ZIP] abort cleanup op=", "local abort cleanup diagnostics");
 has(updater, "[OTA-ZIP] progress target=", "bounded image upload progress");
-has(serverZip, "[OTA-ZIP-HTTP] image failed", "HTTP response failure");
+has(serverZip, "[OTA-ZIP-HTTP] image_failed", "HTTP response failure");
 has(serverZip, "[OTA-ZIP-HTTP] begin refused", "image begin failure");
 has(serverZip, "[OTA-ZIP-HTTP] chunk refused", "image chunk error");
-has(serverZip, "[OTA-ZIP-HTTP] end refused", "image verification error");
+has(serverZip, "[OTA-ZIP-HTTP] verification_failed", "image verification error");
 has(uploadClient, "[OTA-ZIP-HTTP] refus du serveur", "browser HTTP error details");
 has(uploadClient, "request.onabort", "browser abort marker");
 const startUpdatePos = updater.indexOf("bool FirmwareUpdateModule::startUpdate_(");
