@@ -580,7 +580,7 @@ body.menu-icons-remote .refresh-icon-glyph::before{content:"refresh";}
   0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--primary) 40%,transparent);}
   50%{box-shadow:0 0 0 6px color-mix(in srgb,var(--primary) 12%,transparent);}
 }
-.sdot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#639922;margin-right:6px;animation:blink 1.4s ease-in-out infinite;}
+.sdot{display:inline-block;width:11px;height:11px;border-radius:50%;background:#639922;margin-right:8px;vertical-align:middle;animation:blink 1.4s ease-in-out infinite;}
 @keyframes blink{
   0%,100%{opacity:1;}
   50%{opacity:0.25;}
