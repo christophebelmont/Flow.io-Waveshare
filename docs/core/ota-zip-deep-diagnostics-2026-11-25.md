@@ -60,8 +60,10 @@ These are diagnostic bits; they do not change admission decisions.
 
 - Successful HTTP and Flash upload callbacks are summarized **every 256 KiB**,
   at the first and final blocks. There is **no log for every ~1.4-KiB chunk**.
-- An individual RPC is logged only at phase boundaries, when rejected/failed,
-  or when slower than 300 ms. Worker delays above 250 ms are recorded.
+- An individual RPC is logged at phase boundaries, when rejected/failed,
+  or when slower than 300 ms **at most once every five seconds**. Worker
+  delays above 250 ms and slow HTTP callbacks follow the same rate limit;
+  a per-image count is retained in the final summary.
 - The idle watchdog starts at 10 seconds without data and is rate-limited
   to one entry every 15 seconds. This avoids compounding AsyncTCP load.
 - No additional Flash/NVS writes for diagnostics, no raw firmware bytes, no
