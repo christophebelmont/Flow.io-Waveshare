@@ -15,8 +15,8 @@ int main() {
     assert(p.consider(ResolveStatus::Ready,1050)==ResolveDecision::Ready && !p.pending());
     p.begin(1000);
     assert(p.consider(ResolveStatus::Busy,1000)==ResolveDecision::Retry);
-    assert(p.consider(ResolveStatus::Busy,1725)==ResolveDecision::Retry);
-    assert(p.consider(ResolveStatus::Busy,1750)==ResolveDecision::BusyTimeout && !p.pending());
+    assert(p.consider(ResolveStatus::Busy,1175)==ResolveDecision::Retry);
+    assert(p.consider(ResolveStatus::Busy,1200)==ResolveDecision::BusyTimeout && !p.pending());
     p.begin(1000);
     assert(p.consider(ResolveStatus::Busy,1000)==ResolveDecision::Retry);
     assert(p.consider(ResolveStatus::Invalid,1025)==ResolveDecision::Invalid);
@@ -39,16 +39,16 @@ int main() {
         ResolverRetryPolicy request;
         request.begin(1000);
         ResolveDecision last = ResolveDecision::Retry;
-        for (uint32_t offset = 0; offset <= 750; offset += 25) {
+        for (uint32_t offset = 0; offset <= 200; offset += 25) {
             const ResolveStatus state = offset >= busyDurationMs
                 ? ResolveStatus::Ready : ResolveStatus::Busy;
             last = request.consider(state, 1000 + offset);
             if (last != ResolveDecision::Retry) break;
         }
-        // Profile retrieval succeeds before (or at) the absolute 750-ms
+        // Profile retrieval succeeds before (or at) the absolute 200-ms
         // budget; a blocked profile eventually fails closed.
-        assert((last == ResolveDecision::Ready) == (busyDurationMs <= 750));
-        assert((last == ResolveDecision::BusyTimeout) == (busyDurationMs > 750));
+        assert((last == ResolveDecision::Ready) == (busyDurationMs <= 200));
+        assert((last == ResolveDecision::BusyTimeout) == (busyDurationMs > 200));
         assert(!request.pending());
     }
     // A separate connection on another TCP port must not share retry state.
