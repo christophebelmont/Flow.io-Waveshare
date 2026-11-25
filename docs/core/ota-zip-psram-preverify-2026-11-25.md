@@ -1,0 +1,97 @@
+# Secure local ZIP OTA — PSRAM preverify + asynchronous A/B Flash
+
+Date: 2026-11-25. Branch: `feature/zip-psram-preverify-async-flash-20261125`.
+
+## Problem observed
+
+A successful ZIP upload could be followed by a firmware HTTP reset and an OTA
+that failed until reboot. Browser log for transaction `1552688753`:
+`ERR_CONNECTION_RESET` 4.17 s into firmware upload (HTTP 0, 81,920 bytes
+reported sent). A previous Flash initialization took ~3.99 s while AsyncTCP
+was synchronously blocked. A subsequent commit/abort could recover, but these
+failures were intermittent.
+
+Earlier changes protected the **inactive A/B partitions**, SHA-256 checks,
+and delegated Flash operations to fwupdate. However, the local ZIP handler
+**still wrote each incoming HTTP chunk directly to Flash** before completing
+the file's SHA-256. The remote paired OTA and Nextion preverify their images
+in PSRAM; local ZIP did not.
+
+## Final architecture
+
+The browser opens the uncompressed, three-entry ZIP. Flow.io never stores
+or decompresses the entire archive on the ESP32.
+
+1. `manifest.json`: validates version, target, sizes and SHA-256.
+2. POST `/api/upgrade/filesystem`: allocate **one 1.5 MiB PSRAM buffer**,
+   preserving at least **2 MiB** and requiring a sufficiently large contiguous
+   region. Copy the SPIFFS HTTP body into PSRAM only; enforce offsets/sizes.
+3. `endLocalImage_` verifies the **entire received SHA-256 against the
+   manifest BEFORE any inactive partition erase or write**. A mismatch fails
+   closed and frees PSRAM. If good, respond **HTTP 202 staged** promptly.
+4. Browser GET `/api/upgrade/image/status?transaction_id=...&target=spiffs`
+   acknowledges the 202 and starts async Flash after a 250 ms response grace
+   period. The GET returns a tiny lock-copied snapshot; it never waits on the
+   Flash mutex or mounts SPIFFS. Repeated GET cannot enqueue another writer.
+5. The fwupdate task erases/writes the inactive SPIFFS partition using an
+   **internal 1024-byte buffer**. Read back all written bytes and recompute
+   SHA-256; validate the candidate SPIFFS. Only then report `verified`, free
+   PSRAM and permit the next image.
+6. Repeat steps 2–5 for `firmware.bin` (about 2.72 MiB). Its Flash writer
+   uses `esp_ota_begin(..., OTA_WITH_SEQUENTIAL_WRITES)` then
+   `esp_ota_write`, `esp_ota_end`, full-partition SHA-256 readback.
+7. POST `/api/upgrade/commit` **only after both snapshots read verified**.
+   Confirm A/B boot-slot selection, persist the update receipt and reboot.
+   The remote manifest-driven OTA / Nextion workers are not modified.
+
+The SHA-256 checks provide **integrity** against the supplied manifest. This
+mechanism does not add digital signature authentication of who created the ZIP.
+
+## Safety & failure handling
+
+- **Insufficient or fragmented PSRAM:** reject without touching an A/B image
+  partition. No silent fallback to concurrent HTTP-to-Flash streaming.
+- **Interrupted upload / missing first GET:** no Flash; inactive ZIP buffer
+  discarded by abort or the existing 120-second inactivity watchdog.
+- **Wrong offset, size or SHA:** abort, free PSRAM, do not start Flash.
+- **Flash erase/write, `esp_ota_end`, readback SHA or SPIFFS validation
+  failure:** mark the image failed, free PSRAM, never commit the new boot slot.
+- **Repeated browser GET:** one-shot Flash start, protected by queue/start
+  flags. No duplicate writes.
+- **Browser refresh during asynchronous Flash:** the worker is independent of
+  the HTTP callback and continues safely; an abort can run once it finishes.
+- **New OTA/Nextion before ZIP complete:** admission barrier remains closed.
+  After an aborted/error ZIP, it opens again without requiring reboot.
+
+All existing `[OTA-ZIP-*]` diagnostics remain. New prefixes:
+`[OTA-ZIP-PSRAM] stage_allocated`, `preverify_ok`, `flash_begin`,
+`flash_progress`, `flash_readback_sha256`, `flash_verified`. The browser
+logs `flash_state` and `flash_verified`.
+
+## Validation before field deployment
+
+Source-contract and host simulations:
+```bash
+node scripts/tests/check_zip_ab_release.mjs
+node scripts/tests/check_zip_psram_preverify_async.mjs
+node scripts/tests/check_ota_deep_diagnostics.mjs
+node scripts/tests/simulate_local_zip_ota_worker.mjs
+```
+
+Hardware build and end-to-end ESP32-S3 test still required:
+```bash
+pio run -e Flowio-waveshare-esp32-s3
+pio run -e Flowio-waveshare-esp32-s3 --target buildfs
+```
+
+Both binaries are necessary, because the new browser protocol is implemented
+in `data/webinterface/app.js` (SPIFFS) **and** in the firmware. Use the
+newly generated paired release ZIP, not an older package.
+
+Field test matrix: ZIP success; induced upload disconnect; repeated ZIPs;
+refusal on deliberate SHA/size mismatch; remote OTA after a failed ZIP
+without restarting; remote OTA success; Nextion success. Capture a full
+serial log and browser Console if a failure is reproduced.
+
+**This patch is not hardware-validated until a complete PlatformIO build and
+the actual ESP32-S3 tests pass.**
