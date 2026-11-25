@@ -1156,12 +1156,11 @@ void TFTModuleS3::renderUpdate_(const FirmwareUpdateDisplaySnapshot& u,
     const bool rebooting = u.state == FirmwareUpdateDisplayState::Rebooting;
     const tft_update::Text stage = tft_update::steps(nextion, u.stage, english,
                                                     queued, rebooting);
-    constexpr int16_t bx = 12, by = 104, bh = 14;
+    constexpr int16_t bx = 12, by = 103, bh = 17;
     const int16_t bw = w - 24;
 
     if (dirty.full) {
-        // 96x46 logo and 69x19 wordmark instead of the 111px white banner.
-        // The original boot/wakeup splash logo is not modified.
+        // Compact black brand (drawn once, never touched by progress ticks).
         display_.fillScreen(color_(dark));
         drawUpdateBrandBitmap_(kFlowIoLogoBitmap,
                                kFlowIoLogoWidth, kFlowIoLogoHeight,
@@ -1169,7 +1168,18 @@ void TFTModuleS3::renderUpdate_(const FirmwareUpdateDisplaySnapshot& u,
         drawUpdateBrandBitmap_(kFlowIoWordmarkSplashBitmap,
                                kFlowIoWordmarkSplashWidth, kFlowIoWordmarkSplashHeight,
                                (w - 69) / 2, 48, 69, 19, true);
-        display_.drawRoundRect(bx, by, bw, bh, 6, color_(track));
+
+        // Stationary bevel + drop shadow: no animated glare or full redraw.
+        display_.fillRoundRect(bx + 1, by + 3, bw, bh, 7,
+                               color_(rgb565_(5, 12, 22)));
+        display_.fillRoundRect(bx, by, bw, bh, 7,
+                               color_(rgb565_(42, 66, 88)));
+        display_.drawRoundRect(bx, by, bw, bh, 7,
+                               color_(rgb565_(73, 105, 124)));
+        display_.drawFastHLine(bx + 9, by + 1, bw - 18,
+                               color_(rgb565_(89, 121, 145)));
+        display_.drawFastHLine(bx + 9, by + bh - 2, bw - 18,
+                               color_(rgb565_(13, 25, 42)));
         display_.drawFastHLine(12, 214, w - 24, color_(track));
     }
 
@@ -1184,7 +1194,7 @@ void TFTModuleS3::renderUpdate_(const FirmwareUpdateDisplaySnapshot& u,
         const int16_t titleW = gfxTextWidth_(title);
         display_.setCursor((w - titleW) / 2, 91);
         display_.print(title);
-        // Footer is static except for a language change or first paint.
+        // Footer only changes for initial display or language changes.
         display_.fillRect(12, 218, w - 24, h - 218, color_(dark));
         display_.setFont(nullptr);
         display_.setTextSize(1);
@@ -1195,53 +1205,113 @@ void TFTModuleS3::renderUpdate_(const FirmwareUpdateDisplaySnapshot& u,
     }
 
     if (dirty.progress) {
-        // The progress tick touches only the 10px bar interior and percentage.
-        // This fixes the repeated large-region clear observed on real ST7789.
-        const int16_t interior = bw - 4;
-        display_.fillRect(bx + 2, by + 2, interior, bh - 4, color_(track));
+        // Simple 3D gradient, refreshed only inside the original progress track.
+        // No scrolling shine: preserves the anti-flicker partial redraw design.
+        const int16_t x = bx + 3, y = by + 4;
+        const int16_t interior = bw - 6;
+        constexpr int16_t barH = 9;
+        display_.fillRect(x, y, interior, barH, color_(track));
+        display_.drawFastHLine(x, y, interior, color_(rgb565_(44, 67, 88)));
+
         const int16_t filled = int16_t(int32_t(interior) * pct / 100);
-        if (filled > 0) display_.fillRect(bx + 2, by + 2, filled, bh - 4,
-                                         color_(error ? red : cyan));
-        display_.fillRect(w - 105, 121, 93, 12, color_(dark));
-        char pctText[24];
-        snprintf(pctText, sizeof(pctText), english ? "STEP %u%%" : "ETAPE %u%%",
-                 unsigned(pct));
+        if (filled > 0) {
+            const uint16_t glow = error ? rgb565_(255, 176, 174) :
+                                  done ? rgb565_(138, 255, 186) :
+                                         rgb565_(116, 244, 255);
+            const uint16_t upper = error ? rgb565_(255, 116, 123) :
+                                   done ? rgb565_(54, 220, 132) :
+                                          rgb565_(30, 215, 247);
+            const uint16_t middle = error ? rgb565_(222, 62, 78) :
+                                    done ? rgb565_(36, 163, 94) :
+                                           rgb565_(0, 152, 211);
+            const uint16_t lower = error ? rgb565_(107, 27, 51) :
+                                   done ? rgb565_(11, 85, 56) :
+                                          rgb565_(3, 64, 124);
+            display_.fillRect(x, y, filled, 2, color_(glow));
+            display_.fillRect(x, y + 2, filled, 3, color_(upper));
+            display_.fillRect(x, y + 5, filled, 2, color_(middle));
+            display_.fillRect(x, y + 7, filled, 2, color_(lower));
+            display_.drawFastVLine(x + filled - 1, y + 1, barH - 2, color_(glow));
+        }
+
+        // Display the raw percentage only, without the confusing STEP/ETAPE.
+        display_.fillRect(w - 76, 124, 64, 17, color_(dark));
+        char pctText[8];
+        snprintf(pctText, sizeof(pctText), "%u%%", unsigned(pct));
         display_.setFont(nullptr);
-        display_.setTextSize(1);
+        display_.setTextSize(2);
         display_.setTextColor(color_(white), color_(dark));
-        display_.setCursor(w - 12 - int16_t(strlen(pctText) * 6), 122);
+        display_.setCursor(w - 12 - int16_t(strlen(pctText) * 12), 124);
         display_.print(pctText);
+        display_.setTextSize(1);
     }
 
     if (dirty.details) {
-        // Refresh the three text rows only on stage/status/language changes.
-        display_.fillRect(8, 135, w - 16, 75, color_(dark));
-        const char* active = done ? (english ? "Update completed" : "Mise a jour terminee") :
-                             rebooting ? (english ? "Restarting..." : "Redemarrage...") :
-                             stage.current;
-        setGfxFont_(&FreeSansBold9pt7b, error ? red : cyan, dark);
-        if (gfxTextWidth_(active) + gfxTextWidth_("> ") > w - 24) {
-            setGfxFont_(&FreeSansBold8pt7b, error ? red : cyan, dark);
-        }
-        display_.setCursor(12, 157);
-        display_.print("> ");
-        display_.print(active);
+        // Chronological view: finished step at TOP, active step in the
+        // CENTER and next step at BOTTOM. No disconnected "OK" in between.
+        // Three bounded rows are cleared only when step/state/locale changes.
+        display_.fillRect(8, 143, w - 16, 67, color_(dark));
+
+        // Keep long translated labels within 320 px without clipping midword.
+        const auto drawBounded = [&](const char* label, int16_t x, int16_t baseline,
+                                     const GFXfont* mainFont, const GFXfont* smallFont,
+                                     uint16_t ink) {
+            char bounded[80];
+            snprintf(bounded, sizeof(bounded), "%s", label ? label : "");
+            setGfxFont_(mainFont, ink, dark);
+            const int16_t maxWidth = w - x - 12;
+            if (smallFont && gfxTextWidth_(bounded) > maxWidth) {
+                setGfxFont_(smallFont, ink, dark);
+            }
+            if (gfxTextWidth_(bounded) > maxWidth) {
+                // Keep the line readable: shorten at a character boundary and
+                // show an ellipsis instead of letting the TFT crop the text.
+                for (size_t len = strlen(bounded); len > 4U; --len) {
+                    bounded[len - 1U] = '\0';
+                    char shortened[80];
+                    snprintf(shortened, sizeof(shortened), "%s...", bounded);
+                    if (gfxTextWidth_(shortened) <= maxWidth) {
+                        snprintf(bounded, sizeof(bounded), "%s", shortened);
+                        break;
+                    }
+                }
+            }
+            display_.setCursor(x, baseline);
+            display_.print(bounded);
+        };
+
+        // Previous completed stage; the green tick means VERIFIED transition.
         if (updateCompletedStage_[0] && !error) {
-            const tft_update::Text completed = tft_update::steps(nextion,
-                                                                updateCompletedStage_, english);
-            setGfxFont_(&FreeSans9pt7b, green, dark);
-            display_.setCursor(12, 181);
-            display_.print("OK ");
-            display_.print(completed.current);
+            const tft_update::Text completed = tft_update::steps(
+                nextion, updateCompletedStage_, english);
+            display_.drawLine(12, 151, 16, 156, color_(green));
+            display_.drawLine(16, 156, 25, 146, color_(green));
+            drawBounded(completed.current, 32, 159,
+                        &FreeSans9pt7b, nullptr, green);
         }
+
+        // A dark tinted focus strip makes the actual operation unambiguous.
+        const uint16_t activeColor = error ? red : cyan;
+        display_.fillRoundRect(8, 164, w - 16, 29, 5,
+            color_(error ? rgb565_(45, 15, 24) : rgb565_(5, 30, 43)));
+        display_.fillRect(11, 169, 3, 18, color_(activeColor));
+        drawBounded(done ? (english ? "Update completed" : "Mise a jour terminee") :
+                    rebooting ? (english ? "Restarting..." : "Redemarrage...") :
+                    stage.current,
+                    23, 184, &FreeSansBold9pt7b, &FreeSansBold8pt7b, activeColor);
+
         const char* detail = error ? tft_update::failureReason(u.message, english) :
                              done ? (english ? "Ready for restart" : "Pret pour redemarrage") :
                              stage.next ? stage.next :
                              (english ? "Finalizing..." : "Finalisation...");
-        setGfxFont_(&FreeSans9pt7b, error ? red : faded, dark);
-        display_.setCursor(12, 203);
-        display_.print(error ? "! " : "+ ");
-        display_.print(detail);
+        if (error) {
+            display_.drawFastVLine(16, 198, 6, color_(red));
+            display_.drawPixel(16, 206, color_(red));
+        } else {
+            display_.drawCircle(16, 201, 3, color_(faded));
+        }
+        drawBounded(detail, 30, 209, &FreeSans9pt7b, nullptr,
+                    error ? red : faded);
     }
 }
 

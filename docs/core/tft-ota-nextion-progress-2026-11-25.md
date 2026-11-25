@@ -84,3 +84,20 @@ next boot/splash, and backlight wake behavior.
 - Added host-testable rendering-decision rules in TftUpdateRenderPlan.h and
   native C++ simulation cases in test/host/tft_update_render_plan.cpp.
 - Real SPI/TFT tests remain needed to measure flicker and text clipping.
+
+## 25 November follow-up: readable stages and a static 3D progress bar
+
+- The right-aligned progress figure displays only `65%`, not `ETAPE 65%`
+  / `STEP 65%`; the larger 2x built-in font improves readability.
+- OTA/Nextion step rows now follow their natural chronological order:
+  last observed completed step on top (green check), **current step** in the
+  middle (accent strip, cyan or red), and next step/error detail below (muted
+  or red). There is no isolated `OK` between moving rows.
+- The progress bar gets a subtle beveled metallic rim, upper reflected
+  highlight, a 4-band cyan/green/red vertical fill and a bright leading edge.
+  There is **no continuously animated shine**: on each relevant percentage
+  change, only the interior and percentage region are repainted.
+- Text gets a smaller font if necessary, then an ellipsis before the
+  320px boundary, rather than overflowing visibly to the next area.
+- No change to actual OTA/Nextion state machine, PSRAM staging, partition
+  writes, Modbus TCP or logging.
