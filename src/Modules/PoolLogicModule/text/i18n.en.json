@@ -190,6 +190,8 @@
     "cfgmods_meta.poollogicmodule.enum_sets.poollogic_operating_mode.2.label": "Hivers",
     "cfgmods_meta.poollogicmodule.enum_sets.poollogic_ph_correction.0.label": "Disabled",
     "cfgmods_meta.poollogicmodule.enum_sets.poollogic_ph_correction.1.label": "pH−",
-    "cfgmods_meta.poollogicmodule.enum_sets.poollogic_ph_correction.2.label": "pH+"
+    "cfgmods_meta.poollogicmodule.enum_sets.poollogic_ph_correction.2.label": "pH+",
+    "cfgdocs.poollogic.sensors.wat_temp_only_circulating.label": "Publish water temperature only with circulation",
+    "cfgdocs.poollogic.sensors.wat_temp_only_circulating.help": "Off by default. When enabled, expose the water temperature only if filtration runs or a configured flow meter reports positive flow. Otherwise, the sensor is unavailable and no temperature value is published."
   }
 }
