@@ -186,6 +186,16 @@ bool PoolLogicModule::serviceGetPoolCharacteristics_(void* ctx,
     return self && outCharacteristics && self->getPoolCharacteristics_(*outCharacteristics);
 }
 
+bool PoolLogicModule::serviceWaterTempPublicationPolicy_(void* ctx, PoolWaterTemperaturePublicationPolicy* out)
+{
+    const auto* self = static_cast<const PoolLogicModule*>(ctx);
+    if (!self || !out) return false;
+    out->ioId = self->waterTempIoId_;
+    out->circulationOnly = self->waterTempCirculationOnly_;
+    out->filtrationOn = self->filtrationFsm_.on;
+    return true;
+}
+
 bool PoolLogicModule::serviceGetDeviceAssignments_(void* ctx, PoolDeviceAssignments* outAssignments)
 {
     const auto* self = static_cast<const PoolLogicModule*>(ctx);
@@ -317,6 +327,7 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
     orpIdVar_.moduleName = kCfgModuleSensors;
     psiIdVar_.moduleName = kCfgModuleSensors;
     waterTempIdVar_.moduleName = kCfgModuleSensors;
+    waterTempCirculationOnlyVar_.moduleName = kCfgModuleSensors;
     airTempIdVar_.moduleName = kCfgModuleSensors;
     levelIdVar_.moduleName = kCfgModuleSensors;
     phLevelIdVar_.moduleName = kCfgModuleSensors;
@@ -392,6 +403,7 @@ void PoolLogicModule::init(ConfigStore& cfg, ServiceRegistry& services)
     cfg.registerVar(orpIdVar_, kCfgModuleId, kCfgBranchSensors);
     cfg.registerVar(psiIdVar_, kCfgModuleId, kCfgBranchSensors);
     cfg.registerVar(waterTempIdVar_, kCfgModuleId, kCfgBranchSensors);
+    cfg.registerVar(waterTempCirculationOnlyVar_, kCfgModuleId, kCfgBranchSensors);
     cfg.registerVar(airTempIdVar_, kCfgModuleId, kCfgBranchSensors);
     cfg.registerVar(levelIdVar_, kCfgModuleId, kCfgBranchSensors);
     cfg.registerVar(phLevelIdVar_, kCfgModuleId, kCfgBranchSensors);
