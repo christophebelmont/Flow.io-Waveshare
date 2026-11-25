@@ -88,6 +88,11 @@ public:
     bool serialDeviceInfo(uint16_t deviceId, SerialLineProfile& out,
                           char* label, size_t labelCapacity,
                           uint8_t* slaveAddress = nullptr) const;
+    // Nonblocking lookup for TCP: mutex contention is not an invalid profile.
+    enum class SerialLookupStatus : uint8_t { Ready, Busy, Invalid };
+    SerialLookupStatus trySerialDeviceInfo(uint16_t deviceId,
+                                           SerialLineProfile& out,
+                                           uint8_t& slaveAddress) const;
     uint16_t runtimeSnapshotCount() const override;
     const char* runtimeSnapshotSuffix(uint16_t idx) const override;
     RuntimeRouteClass runtimeSnapshotClass(uint16_t idx) const override;
@@ -318,6 +323,15 @@ private:
     portMUX_TYPE resetMux_ = portMUX_INITIALIZER_UNLOCKED;
     mutable StaticSemaphore_t stateMutexBuf_{};
     mutable SemaphoreHandle_t stateMutex_ = nullptr;
+    // Driver serial line is immutable after configureRuntime_(). A published
+    // release/acquire snapshot lets the TCP task resolve profiles without
+    // waiting on the PoolDevice mutex held during direct RS485 polling.
+    struct SerialProfileSnapshot {
+        SerialLineProfile line{};
+        uint8_t slaveAddress = 0U;
+        uint8_t state = 0U; // 0=initializing; 1=valid; 2=invalid
+    };
+    SerialProfileSnapshot* serialProfileSnapshots_ = nullptr;
     uint8_t resetPendingMask_ = 0;
     bool periodReconcilePending_ = true;
 

@@ -267,7 +267,7 @@ void ModbusTcpServerModule::logWebSnapshot_(
             }
             if (newResolverFailure) {
                 Log::warn(kLogModule_,
-                          "[MODBUS-RESOLVE] port=%u mode=%u device=%u unit=%u fc=%u addr=%u fails=%lu age_ms=%lu",
+                          "[MODBUS-RESOLVE] port=%u mode=%u device=%u unit=%u fc=%u addr=%u fails=%lu cause=%s busy=%lu",
                           port,
                           configs_[i].serialSource == ModbusTcpServer::SerialSource::Manual ? 2U : 1U,
                           (unsigned)configs_[i].deviceId,
@@ -275,7 +275,8 @@ void ModbusTcpServerModule::logWebSnapshot_(
                           (unsigned)p.lastResolverFunction,
                           (unsigned)p.lastResolverAddress,
                           (unsigned long)p.resolverFailures,
-                          (unsigned long)(now - p.lastResolverAtMs));
+                          p.lastResolverCause == 1U ? "lock_timeout" : "invalid_profile",
+                          (unsigned long)p.resolverBusyAttempts);
             }
             // Snapshot all error counters, including those with zero values.
             // A later increase produces exactly one new warning.
@@ -448,15 +449,20 @@ void ModbusTcpServerModule::onConfigLoaded(ConfigStore& cfg, ServiceRegistry& se
 void ModbusTcpServerModule::setPoolDeviceModule(PoolDeviceModule* devices)
 {
     devices_ = devices;
-    resolver_.setDeviceLookup(&ModbusTcpServerModule::lookupDevice_, this);
+    resolver_.setDeviceLookupDetailed(&ModbusTcpServerModule::lookupDeviceDetailed_, this);
 }
 
-bool ModbusTcpServerModule::lookupDevice_(void* context, uint16_t deviceId,
-                                          SerialLineProfile& out, uint8_t& slaveAddress)
+ModbusTcpServer::ResolveStatus ModbusTcpServerModule::lookupDeviceDetailed_(
+    void* context, uint16_t deviceId,
+    SerialLineProfile& out, uint8_t& slaveAddress)
 {
     const auto* module = static_cast<const ModbusTcpServerModule*>(context);
-    return module && module->devices_ &&
-        module->devices_->serialDeviceInfo(deviceId, out, nullptr, 0U, &slaveAddress);
+    if (!module || !module->devices_) return ModbusTcpServer::ResolveStatus::Invalid;
+    const auto status = module->devices_->trySerialDeviceInfo(deviceId, out, slaveAddress);
+    if (status == PoolDeviceModule::SerialLookupStatus::Busy)
+        return ModbusTcpServer::ResolveStatus::Busy;
+    return status == PoolDeviceModule::SerialLookupStatus::Ready
+        ? ModbusTcpServer::ResolveStatus::Ready : ModbusTcpServer::ResolveStatus::Invalid;
 }
 
 bool ModbusTcpServerModule::readPort(uint8_t index, ModbusTcpServer::PortConfig& out) const

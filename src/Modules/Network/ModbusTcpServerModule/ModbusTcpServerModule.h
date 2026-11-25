@@ -147,7 +147,7 @@ public:
             if (lastPsramStartFailureMs_ &&
                 uint32_t(now - lastPsramStartFailureMs_) < 10000U) return;
             const bool reusedPool = server_.frameStorageReady();
-            if (!server_.begin(*master_, &ModbusTcpServer::LineResolver::resolveStatic, &resolver_)) {
+            if (!server_.beginDetailed(*master_, &ModbusTcpServer::LineResolver::resolveDetailedStatic, &resolver_)) {
                 lastPsramStartFailureMs_ = now ? now : 1U;
                 // Keep failure alerts bounded to one per minute in Web logs.
                 if (!psramFailureReported_ ||
@@ -327,8 +327,9 @@ private:
     static bool validateConfigCandidate_(void* context, const ConfigCandidate& candidate);
     ModbusTcpServer::PortConfig fromSettings_(uint8_t index) const;
     MqttConfigRouteProducer* cfgMqttPub_ = nullptr;
-    static bool lookupDevice_(void* context, uint16_t deviceId,
-                              SerialLineProfile& out, uint8_t& slaveAddress);
+    static ModbusTcpServer::ResolveStatus lookupDeviceDetailed_(
+        void* context, uint16_t deviceId,
+        SerialLineProfile& out, uint8_t& slaveAddress);
     PoolDeviceModule* devices_ = nullptr;
     ServiceRegistry* registry_ = nullptr;
     const ModbusMasterService* master_ = nullptr;
