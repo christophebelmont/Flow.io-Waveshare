@@ -182,34 +182,61 @@ def _write_release_package(version):
     }
     package = out_dir / f"flowio-{version}.zip"
     manifest_bytes = (json.dumps(manifest, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
-    # Images are stored without ZIP compression. They are already dense binary
-    # images and STORE lets the browser stream Blob slices without inflating an
-    # image into memory.
-    with zipfile.ZipFile(package, "w", compression=zipfile.ZIP_STORED) as archive:
-        archive.writestr("manifest.json", manifest_bytes)
-        archive.write(firmware, "firmware.bin")
-        archive.write(filesystem, "spiffs.bin")
 
-    # HTTP releases use the same *flat* binary/ directory as the historical
-    # firmware and SPIFFS images. Preserve legacy filenames and manifest.json:
-    # older Flow.io installations continue using the repository unchanged.
+    # The remote manifests must be complete BEFORE a ZIP is made visible.
+    # Previously these JSON files were written after the ZIP: an interrupted
+    # exporter could leave a plausible but unserviceable OTA release.
     remote_manifest = {
         **manifest,
-        "firmware": {
-            **manifest["firmware"],
-            "file": firmware.name,
-        },
-        "filesystem": {
-            **manifest["filesystem"],
-            "file": filesystem.name,
-        },
+        "firmware": {**manifest["firmware"], "file": firmware.name},
+        "filesystem": {**manifest["filesystem"], "file": filesystem.name},
     }
     remote_bytes = (json.dumps(remote_manifest, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
     versioned_release = out_dir / f"flowio-release-{version}.json"
-    versioned_release.write_bytes(remote_bytes)
-    # Default/current release for the firmware-embedded rescue interface.
-    (out_dir / "release.json").write_bytes(remote_bytes)
-    print(f"[export_binaries] remote paired release -> {versioned_release.relative_to(_project_dir())}")
+    current_release = out_dir / "release.json"
+
+    def atomic_write(path, payload):
+        temporary = path.with_name(path.name + ".tmp")
+        try:
+            temporary.write_bytes(payload)
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    atomic_write(versioned_release, remote_bytes)
+    atomic_write(current_release, remote_bytes)
+
+    # Write the package to a temporary name: publish it only when complete.
+    # ZIP_STORED lets the browser send large images without decompression.
+    temporary_package = package.with_name(package.name + ".tmp")
+    try:
+        with zipfile.ZipFile(temporary_package, "w", compression=zipfile.ZIP_STORED) as archive:
+            archive.writestr("manifest.json", manifest_bytes)
+            archive.write(firmware, "firmware.bin")
+            archive.write(filesystem, "spiffs.bin")
+        temporary_package.replace(package)
+    finally:
+        temporary_package.unlink(missing_ok=True)
+
+    # Treat missing remote OTA manifests as a BUILD FAILURE, not a release
+    # that will first fail later with HTTP 404 on a real device.
+    for release_path in (versioned_release, current_release):
+        if not release_path.is_file() or release_path.read_bytes() != remote_bytes:
+            raise RuntimeError(
+                f"[export_binaries] missing or corrupted OTA manifest: {release_path}"
+            )
+    with zipfile.ZipFile(package) as archive:
+        if archive.namelist() != ["manifest.json", "firmware.bin", "spiffs.bin"]:
+            raise RuntimeError("[export_binaries] incomplete paired OTA ZIP")
+        if archive.read("manifest.json") != manifest_bytes:
+            raise RuntimeError("[export_binaries] mismatched local OTA manifest")
+        if archive.getinfo("firmware.bin").file_size != firmware.stat().st_size:
+            raise RuntimeError("[export_binaries] firmware size mismatch in ZIP")
+        if archive.getinfo("spiffs.bin").file_size != filesystem.stat().st_size:
+            raise RuntimeError("[export_binaries] SPIFFS size mismatch in ZIP")
+
+    print(f"[export_binaries] paired OTA manifest -> {versioned_release.relative_to(_project_dir())}")
+    print(f"[export_binaries] current OTA manifest -> {current_release.relative_to(_project_dir())}")
     print(f"[export_binaries] release package -> {package.relative_to(_project_dir())}")
 
 
