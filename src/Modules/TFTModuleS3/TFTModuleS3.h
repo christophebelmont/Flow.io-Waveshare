@@ -270,6 +270,7 @@ private:
     uint32_t updateLastOperation_ = 0U;
     uint32_t updateLastRenderMs_ = 0U;
     uint32_t updateTerminalAtMs_ = 0U;
+    uint32_t updateDismissedOperation_ = 0U;
     uint8_t updateLastPercent_ = 255U;
     char updateLastStage_[28]{};
     char updateCompletedStage_[28]{};
