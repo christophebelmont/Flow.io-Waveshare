@@ -858,22 +858,46 @@ bool IOModule::waterTempPublicationAllowed_(IoId ioId) const
     PoolWaterTemperaturePublicationPolicy policy{};
     if (!svc->getWaterTempPublicationPolicy(svc->ctx, &policy) ||
         !policy.circulationOnly || policy.ioId != ioId) return true;
-    if (policy.filtrationOn) return true;
+    if (poolWaterTemperatureCanPublish(policy.circulationOnly, policy.filtrationOn, false)) return true;
     // A real, fresh mode-2 flow measurement is required, not a pulse count.
     if (!dataStore_) return false;
     for (uint8_t i = 0; i < MAX_DIGITAL_INPUTS; ++i) {
         if (digitalInCfg_[i].mode != IO_DIGITAL_INPUT_PULSES_PER_MINUTE ||
             !digitalInputSlotUsed(i)) continue;
         ValueSnapshot flow{};
-        if (!dataStore_->values.read(ValueIds::ConvertedRate + i, flow) ||
-            flow.quality != ValueQuality::Valid || !isfinite(flow.value.d) ||
-            flow.value.d <= 0.0) continue;
+        const bool valid = dataStore_->values.read(ValueIds::ConvertedRate + i, flow) &&
+                           flow.quality == ValueQuality::Valid;
         const uint64_t nowMs = uint64_t(esp_timer_get_time()) / 1000ULL;
-        if (flow.timestampMs == 0 || nowMs < flow.timestampMs ||
-            nowMs - flow.timestampMs > 10000ULL) continue;
-        return true;
+        if (poolFreshPositiveFlow(true, valid, flow.value.d, flow.timestampMs, nowMs))
+            return true;
     }
     return false;
+}
+
+void IOModule::refreshWaterTempPublicationGate_(uint32_t nowMs)
+{
+    if (!runtimeReady_ || !dataStore_ || !serviceRegistry_ ||
+        (waterTempGateLastCheckMs_ != 0U && uint32_t(nowMs - waterTempGateLastCheckMs_) < 250U))
+        return;
+    waterTempGateLastCheckMs_ = nowMs ? nowMs : 1U;
+    const auto* svc = serviceRegistry_->get<PoolConfigurationService>(ServiceId::PoolConfiguration);
+    if (!svc || !svc->getWaterTempPublicationPolicy) return;
+    PoolWaterTemperaturePublicationPolicy policy{};
+    if (!svc->getWaterTempPublicationPolicy(svc->ctx, &policy) ||
+        policy.ioId < IO_ID_AI_BASE || policy.ioId >= IO_ID_AI_MAX) return;
+    const bool allowed = waterTempPublicationAllowed_(policy.ioId);
+    if (waterTempGateLastIoId_ == policy.ioId &&
+        waterTempGateLastAllowed_ == allowed) return;
+    waterTempGateLastIoId_ = policy.ioId;
+    waterTempGateLastAllowed_ = allowed;
+    // Wake the existing MQTT runtime route on a gate transition even if the
+    // physical temperature is unchanged. Do not mutate the sensor/ValueStore.
+    const uint8_t analog = uint8_t(policy.ioId - IO_ID_AI_BASE);
+    if (analog < MAX_ANALOG_ENDPOINTS && analogSlots_[analog].endpoint) {
+        const uint8_t runtimeIndex = analogSlots_[analog].endpoint->runtimeIndex;
+        if (runtimeIndex < IO_MAX_ENDPOINTS)
+            dataStore_->notifyChanged(DataKey(DATAKEY_IO_BASE + runtimeIndex));
+    }
 }
 
 bool IOModule::buildInputSnapshot(char* out, size_t len, uint32_t& maxTsOut) const
@@ -4101,6 +4125,7 @@ void IOModule::loop()
 
     if (runtimeReady_ && dataStore_ && valueConfig_) valueConfig_->applyParameters(dataStore_->values, esp_timer_get_time() / 1000ULL);
     const IoStatus st = ioTick_(nowMs);
+    refreshWaterTempPublicationGate_(nowMs);
     if (!servicePulseRequest_(nowMs)) checkpointPulses_(nowMs);
 #if FLOW_PERFORMANCE_DIAGNOSTICS
     reportDsPollTiming_(nowMs);
