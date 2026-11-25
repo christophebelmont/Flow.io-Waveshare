@@ -62,6 +62,15 @@ assert.ok(cpp.includes("update.operationId == updateDismissedOperation_"),"persi
 assert.ok(cpp.includes("updateDismissedOperation_ = update.operationId"),"terminal expiration must mark operation as dismissed");
 assert.ok(fw.includes('setOtaStage_("nextion_upload"'));
 assert.ok(fw.includes('setOtaStage_("activate"'));
+for (const stage of [
+  'zip_prepare', 'zip_manifest', 'zip_spiffs_receive',
+  'zip_spiffs_ram_verify', 'zip_spiffs_prepare', 'zip_spiffs_flash',
+  'zip_spiffs_readback', 'zip_firmware_receive', 'zip_firmware_ram_verify',
+  'zip_firmware_prepare', 'zip_firmware_flash', 'zip_firmware_readback',
+  'zip_activate'
+]) assert.ok(h.includes('"'+stage+'"'), "missing ZIP TFT label: "+stage);
+assert.ok(cpp.includes('updateLastWasZip_'), "ZIP title preserved through reboot");
+assert.ok(cpp.includes('zipUpdate ? "ZIP FIRMWARE + SPIFFS"'), "ZIP TFT title");
 console.log("PASS: TFT OTA/Nextion stage labels, bilingual display, bounded redraw, no worker-side drawing");
 
 assert.ok(renderer.includes('display_.print(english ? "DO NOT" : "NE PAS")'),"warning at top FR/EN");

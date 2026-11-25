@@ -18,7 +18,12 @@ const en = JSON.parse(read("data/webinterface/i18n/en.json")).translations;
 
 assert.match(shell, /id="upgradeStageDetail"/);
 assert.match(css, /\.updates-progress-stage\{/);
-assert.equal([...app.matchAll(/\{ id: 'ota-\d+'/g)].length, 11);
+assert.equal([...app.matchAll(/\{ id: 'ota-\d+'/g)].length, 15);
+assert.equal([...app.matchAll(/\{ id: 'zip-\d+'/g)].length, 15);
+for (const key of Object.keys(fr).filter(k => k.startsWith("updates.zipStage"))) {
+  assert.equal(typeof en[key], "string", "missing ZIP English label: " + key);
+}
+assert.equal(Object.keys(fr).filter(k => k.startsWith("updates.zipStage")).length, 15);
 for (const key of Object.keys(fr).filter(k => k.startsWith("updates.otaStage"))) {
   assert.equal(typeof en[key], "string", "missing English translation: " + key);
 }
@@ -33,18 +38,18 @@ const map = new Function(paired[0] + "\n" + stage[0] + "\nreturn upgradePairedOt
 const samples = [
   ["target", "", 0],
   ["download", "downloading paired release manifest", 1],
-  ["flash", "preparing release filesystem", 2],
-  ["flash", "writing release filesystem", 3],
-  ["flash", "verifying release filesystem", 4],
-  ["flash", "filesystem SHA-256 OK; firmware next", 5],
-  ["flash", "preparing release firmware", 5],
-  ["flash", "writing release firmware", 6],
-  ["flash", "verifying release firmware", 7],
-  ["flash", "firmware SHA-256 OK; committing release", 8],
-  ["flash", "activating paired release", 8],
-  ["reboot", "", 9],
-  ["reconnect", "", 10],
-  ["done", "", 10],
+  ["flash", "preparing release filesystem", 4],
+  ["flash", "writing release filesystem", 5],
+  ["flash", "verifying release filesystem", 6],
+  ["flash", "filesystem SHA-256 OK; firmware next", 7],
+  ["flash", "preparing release firmware", 9],
+  ["flash", "writing release firmware", 10],
+  ["flash", "verifying release firmware", 11],
+  ["flash", "firmware SHA-256 OK; committing release", 12],
+  ["flash", "activating paired release", 12],
+  ["reboot", "", 13],
+  ["reconnect", "", 14],
+  ["done", "", 14],
   ["flash", "unknown old-firmware message", null]
 ];
 for (const [phase, backendMessage, expected] of samples) {
@@ -56,6 +61,21 @@ for (const message of [
 ]) {
   assert.ok(updater.includes(message), "backend stage is missing: " + message);
 }
+const zipStages = [
+  ["zip_prepare",0], ["zip_manifest",1],
+  ["zip_spiffs_receive",2], ["zip_spiffs_ram_verify",3],
+  ["zip_spiffs_prepare",4], ["zip_spiffs_flash",5],
+  ["zip_spiffs_readback",6], ["zip_spiffs_verified",6],
+  ["zip_firmware_receive",7], ["zip_firmware_ram_verify",8],
+  ["zip_firmware_prepare",9], ["zip_firmware_flash",10],
+  ["zip_firmware_readback",11], ["zip_firmware_verified",11],
+  ["zip_activate",12]
+];
+for (const [otaBackendStage,index] of zipStages) {
+  assert.equal(map({target:"release",phase:"flash",otaBackendStage}),index,otaBackendStage);
+}
+assert.equal(map({target:"release",phase:"reboot"}),13);
+assert.equal(map({target:"release",phase:"reconnect"}),14);
 assert.equal(map({ target: "nextion", phase: "flash", backendMessage: "" }), null,
   "Nextion must retain its existing generic progress UI");
-console.log("PASS: paired OTA has 11 localized steps, 15 stage mappings, and matching backend stages");
+console.log("PASS: 15 remote OTA + 15 local ZIP bilingual stages; Nextion unchanged");

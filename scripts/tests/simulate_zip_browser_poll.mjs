@@ -12,9 +12,10 @@ const end = js.indexOf("async function installLocalRelease(", start);
 assert.ok(start > 0 && end > start, "browser wait-for-verified helper exists");
 const code = js.slice(start, end);
 const make = (fetch, consoleLog, messages) =>
-  new Function("fetchOkJson", "setUpgradeDetail", "console", "setTimeout",
+  new Function("fetchOkJson", "setZipUiStage", "console", "setTimeout",
                code + "\nreturn waitForZipImageFlash;")(
-    fetch, (msg) => messages.push(msg), consoleLog, (cb) => cb());
+    fetch, (stage, pct) => messages.push(stage + ":" + pct),
+    consoleLog, (cb) => cb());
 
 async function expectError(fn, part) {
   let got = "";
@@ -27,7 +28,8 @@ const message = (phase, percentage = 0, reason = "", txn = 41, target = "spiffs"
 let cases = 0;
 {
   const incoming = [message("queued"), message("flashing", 35),
-                    message("flashing", 79), message("verified", 100)];
+                    message("flashing", 79), message("verifying", 68),
+                    message("verified", 100)];
   const messages = [], logs = [];
   const fn = make(async (url) => {
     assert.ok(url.includes("transaction_id=41&target=spiffs"));
@@ -35,7 +37,9 @@ let cases = 0;
   }, {info:(...a)=>logs.push(a.join(" ")), warn:()=>{}}, messages);
   await fn(41, "spiffs");
   assert.equal(incoming.length, 0);
-  assert.ok(messages.some(x=>x.includes("79%")));
+  assert.ok(messages.some(x=>x.includes("zip_spiffs_flash:79")));
+  assert.ok(messages.some(x=>x.includes("zip_spiffs_readback:68")));
+  assert.ok(messages.some(x=>x.includes("zip_spiffs_readback:100")));
   assert.ok(logs.some(x=>x.includes("flash_verified")));
   cases++;
 }
