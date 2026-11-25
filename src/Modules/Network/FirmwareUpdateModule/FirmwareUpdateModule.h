@@ -97,6 +97,8 @@ private:
         const esp_partition_t* writePartition = nullptr;
         esp_ota_handle_t otaHandle = 0;
         size_t received = 0U;
+        uint8_t* stagedImage = nullptr; // one local ZIP artifact in PSRAM
+        size_t stagedBytes = 0U;
         mbedtls_sha256_context shaContext{};
     };
 
@@ -234,6 +236,21 @@ private:
     bool localCallPending_ = false; // protected by lock_
     bool localCallInFlight_ = false; // protected by lock_
     bool localCallResult_ = false;
+    // Protected by lock_: work is picked up on fwupdate after the HTTP
+    // callback acknowledges SHA-256 preverification. Never flash on AsyncTCP.
+    bool localFlashQueued_ = false;
+    FirmwareLocalImageProgress localImageProgress_{};
+    bool localImageProgressSnapshot_(uint32_t transactionId,
+                                     FirmwareUpdateTarget target,
+                                     FirmwareLocalImageProgress* out);
+    void setLocalImageProgress_(uint32_t transactionId,
+                                FirmwareUpdateTarget target,
+                                FirmwareLocalImagePhase phase,
+                                uint8_t percent,
+                                uint32_t received,
+                                uint32_t total,
+                                const char* reason = nullptr);
+    bool flashStagedLocalImage_();
     // fwupdate-task-only rate limit for idle ZIP transaction warnings.
     uint32_t localReleaseLastIdleDiagMs_ = 0U;
     // Rate limits for anomalously slow WriteImage callbacks. Ordinary chunks
@@ -368,6 +385,7 @@ private:
         ServiceBinding::bind<&FirmwareUpdateModule::commitLocalRelease_>,
         ServiceBinding::bind<&FirmwareUpdateModule::abortLocalRelease_>,
         this,
-        ServiceBinding::bind<&FirmwareUpdateModule::displaySnapshot_>
+        ServiceBinding::bind<&FirmwareUpdateModule::displaySnapshot_>,
+        ServiceBinding::bind<&FirmwareUpdateModule::localImageProgressSnapshot_>
     };
 };
