@@ -70,3 +70,17 @@ in existing firmware logs and Web status.
 ports 502/503 listening, Nextion transfer with the TFT awake and asleep,
 English/FR switching, bad HTTP/SHA/ACK, recovery after failure,
 next boot/splash, and backlight wake behavior.
+
+## 25 November follow-up: compact black update screen
+
+- Local OTA/Nextion update UI now uses a **black full-screen background**.
+- Existing white-matted brand icon and wordmark are scaled down, colour-keyed
+  at draw time, and painted **once per update**, not on every progress tick.
+  Icon 96x46, wordmark 69x19; normal boot/wake splash remains unchanged.
+- Progress redraw now touches **only** the bar interior and percentage field.
+  Text rows update on stage, state, target or language changes; the static logo
+  does not move. 1% changes accumulate until 2% or a phase reset/100%.
+- Stage changes and terminal success/failure states remain immediately visible.
+- Added host-testable rendering-decision rules in TftUpdateRenderPlan.h and
+  native C++ simulation cases in test/host/tft_update_render_plan.cpp.
+- Real SPI/TFT tests remain needed to measure flicker and text clipping.
