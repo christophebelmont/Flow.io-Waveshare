@@ -11,7 +11,7 @@ enum class ResolveDecision : uint8_t { Ready, Retry, Invalid, BusyTimeout };
 class ResolverRetryPolicy {
 public:
     static constexpr uint32_t kRetryIntervalMs = 25U;
-    static constexpr uint32_t kBusyDeadlineMs = 750U;
+    static constexpr uint32_t kBusyDeadlineMs = 200U;
     void begin(uint32_t nowMs) {
         startedAtMs_ = nowMs;
         lastTriedAtMs_ = nowMs;
