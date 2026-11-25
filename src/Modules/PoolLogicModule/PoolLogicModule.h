@@ -183,6 +183,7 @@ private:
     void reconcileModes_(uint32_t nowMs);
     static bool validateModes_(void* ctx, const ConfigCandidate& candidate);
     static bool serviceManualControlAllowed_(void* ctx, uint8_t slot);
+    static bool serviceWaterTempPublicationPolicy_(void* ctx, PoolWaterTemperaturePublicationPolicy* out);
     bool indoorPool_ = false;
     bool automaticCoverPresent_ = false;
     bool coverClosedAtNight_ = false;
@@ -202,6 +203,7 @@ private:
     IoId orpIoId_ = IO_ID_ORP_DEFAULT;
     IoId psiIoId_ = IO_ID_PSI_DEFAULT;
     IoId waterTempIoId_ = IO_ID_WATER_TEMP_DEFAULT;
+    bool waterTempCirculationOnly_ = false;
     IoId airTempIoId_ = IO_ID_AIR_TEMP_DEFAULT;
     IoId levelIoId_ = IO_ID_LEVEL_DEFAULT;
     IoId phLevelIoId_ = IO_ID_PH_LEVEL_DEFAULT;
@@ -335,6 +337,9 @@ private:
                                         &psiIoId_, ConfigPersistence::Persistent, 0};
     ConfigVariable<IoId,0> waterTempIdVar_{NVS_KEY(NvsKeys::PoolLogic::WaterTempIoId), "wat_temp_io_id", "poollogic/sensors", ConfigType::UInt16,
                                               &waterTempIoId_, ConfigPersistence::Persistent, 0};
+    ConfigVariable<bool,0> waterTempCirculationOnlyVar_{NVS_KEY(NvsKeys::PoolLogic::WaterTempCirculationOnly),
+        "wat_temp_only_circulating", "poollogic/sensors", ConfigType::Bool,
+        &waterTempCirculationOnly_, ConfigPersistence::Persistent, 0};
     ConfigVariable<IoId,0> airTempIdVar_{NVS_KEY(NvsKeys::PoolLogic::AirTempIoId), "air_temp_io_id", "poollogic/sensors", ConfigType::UInt16,
                                             &airTempIoId_, ConfigPersistence::Persistent, 0};
     ConfigVariable<IoId,0> levelIdVar_{NVS_KEY(NvsKeys::PoolLogic::LevelIoId), "pool_lvl_io_id", "poollogic/sensors", ConfigType::UInt16,
@@ -483,7 +488,8 @@ private:
         &PoolLogicModule::serviceGetDeviceAssignments_,
         &PoolLogicModule::serviceGetDeviceSetpoint_,
         &PoolLogicModule::serviceSetDeviceSetpoint_,
-        &PoolLogicModule::serviceManualControlAllowed_
+        &PoolLogicModule::serviceManualControlAllowed_,
+        &PoolLogicModule::serviceWaterTempPublicationPolicy_
     };
     MqttConfigRouteProducer* cfgMqttPub_ = nullptr;
 

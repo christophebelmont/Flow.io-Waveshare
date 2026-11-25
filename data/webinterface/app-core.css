@@ -1591,15 +1591,17 @@ select.runtime-setpoint-input { width: auto; max-width: 120px; text-align: left;
 :root[data-theme="dark"] .app-header-subtitle.is-loading{background:linear-gradient(100deg,#1b2a3d 20%,#26384f 50%,#1b2a3d 80%);background-size:200% 100%;}
 
 /* Hero gauges */
-.dash-gauges{position:relative;z-index:1;display:flex;gap:28px;align-items:flex-start;}
+.dash-gauges{position:relative;z-index:1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px;justify-items:center;align-items:start;}
 .dash-gauges[hidden]{display:none;}
 .dash-gauge-wrap{display:grid;gap:10px;justify-items:center;min-width:0;}
-.dash-gauge{width:148px;height:148px;border-radius:50%;position:relative;display:flex;align-items:center;justify-content:center;background:conic-gradient(from 225deg,var(--dash-gauge-accent,#46d3ee) 0 var(--dash-gauge-deg,0deg),rgba(255,255,255,.13) var(--dash-gauge-deg,0deg) 270deg,transparent 270deg 360deg);}
+.dash-gauge{width:clamp(100px,9vw,148px);height:clamp(100px,9vw,148px);border-radius:50%;position:relative;display:flex;align-items:center;justify-content:center;background:conic-gradient(from 225deg,var(--dash-gauge-accent,#46d3ee) 0 var(--dash-gauge-deg,0deg),rgba(255,255,255,.13) var(--dash-gauge-deg,0deg) 270deg,transparent 270deg 360deg);}
 .dash-gauge::before{content:"";position:absolute;inset:13px;border-radius:50%;background:#0a2947;}
 .dash-gauge-in{position:relative;display:grid;gap:2px;text-align:center;}
 .dash-gauge-val{font-size:30px;font-weight:850;letter-spacing:-1.2px;line-height:1;}
 .dash-gauge-unit{font-size:12px;font-weight:750;color:#9dc0dd;}
 .dash-gauge-name{font-size:12px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:#cfe4f5;text-align:center;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dash-gauge-wrap.is-unavailable .dash-gauge{--dash-gauge-deg:0deg;}
+.dash-gauge-wrap.is-unavailable .dash-gauge-val{color:#a2b8cc;}
 
 /* Question separators */
 .dash-question{display:flex;align-items:center;gap:10px;margin:10px 2px 0;font-size:16px;font-weight:850;color:var(--text);letter-spacing:-0.2px;}
@@ -1763,6 +1765,7 @@ select.runtime-setpoint-input { width: auto; max-width: 120px; text-align: left;
   .dash-advice-btn{grid-column:1 / -1;justify-content:center;}
 }
 @media (max-width:560px){
+  .dash-gauges{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:18px;}
   .dash-gauge{width:88px;height:88px;}
   .dash-gauge-val{font-size:19px;}
   .dash-gauge-name{max-width:92px;}

@@ -113,6 +113,8 @@ public:
     bool derivedValuePublished(uint8_t slot) const;
     const char* derivedValueName(uint8_t slot) const;
     const char* endpointLabel(IoId id) const;
+    bool waterTempPublicationAllowed_(IoId ioId) const;
+    void refreshWaterTempPublicationGate_(uint32_t nowMs);
     bool buildInputSnapshot(char* out, size_t len, uint32_t& maxTsOut) const;
     bool buildOutputSnapshot(char* out, size_t len, uint32_t& maxTsOut) const;
     uint16_t runtimeSnapshotCount() const override;
@@ -185,6 +187,7 @@ private:
     IoStatus ioReadDigital_(IoId id, uint8_t* outOn, uint32_t* outTsMs, IoSeq* outSeq) const;
     IoStatus ioWriteDigital_(IoId id, uint8_t on, uint32_t tsMs, uint8_t owner);
     IoStatus ioReadAnalog_(IoId id, float* outValue, uint32_t* outTsMs, IoSeq* outSeq) const;
+    IoStatus ioReadAnalogRaw_(IoId id, float* outValue, uint32_t* outTsMs, IoSeq* outSeq) const;
     IoStatus ioTick_(uint32_t nowMs);
     IoStatus ioLastCycle_(IoCycleInfo* outCycle) const;
     IoStatus ioSensorStatus_(IoId id, IoSensorStatus* outStatus) const;
@@ -416,6 +419,9 @@ private:
     // Shared OTA service is discovered lazily in the RS485 task so the IO
     // module never depends on FirmwareUpdate's module start order.
     ServiceRegistry* serviceRegistry_ = nullptr;
+    IoId waterTempGateLastIoId_ = IO_ID_INVALID;
+    bool waterTempGateLastAllowed_ = true;
+    uint32_t waterTempGateLastCheckMs_ = 0;
     const FirmwareUpdateService* fwUpdateSvc_ = nullptr;
     const ConfigStoreService* cfgSvc_ = nullptr;
     const LogHubService* logHub_ = nullptr;
@@ -479,7 +485,8 @@ private:
         ServiceBinding::bind<&IOModule::setOutputControlState_>,
         ServiceBinding::bind<&IOModule::resetCounter_>,
         ServiceBinding::bind<&IOModule::saveCounters_>,
-        ServiceBinding::bind<&IOModule::outputBootPolicy_>
+        ServiceBinding::bind<&IOModule::outputBootPolicy_>,
+        ServiceBinding::bind<&IOModule::ioReadAnalogRaw_>
     };
     IoCycleInfo* lastCycle_ = nullptr;
 

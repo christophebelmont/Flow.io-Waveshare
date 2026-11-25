@@ -5,6 +5,7 @@
  */
 
 #include <stdint.h>
+#include <math.h>
 #include "PoolOperatingMode.h"
 
 enum class PoolDisinfectionMethod : uint8_t {
@@ -63,6 +64,28 @@ struct PoolOperatingConfiguration {
     uint32_t orpAutoModeSinceMs = 0;
 };
 
+/** Optional publication rule. Internal pool control always retains access to the raw measurement. */
+struct PoolWaterTemperaturePublicationPolicy {
+    uint16_t ioId = UINT16_MAX;
+    bool circulationOnly = false;
+    bool filtrationOn = false;
+};
+
+/** Return true if a water temperature reading may be exposed externally. */
+constexpr bool poolWaterTemperatureCanPublish(bool circulationOnly, bool filtrationOn, bool flowPositive)
+{
+    return !circulationOnly || filtrationOn || flowPositive;
+}
+
+/** Ignore missing, invalid, zero and stale flow values; 10 seconds is a generous
+ * limit for the one-second pulse-rate integration window. */
+inline bool poolFreshPositiveFlow(bool configured, bool sampleValid, double value,
+                                  uint64_t sampleMs, uint64_t nowMs)
+{
+    return configured && sampleValid && isfinite(value) && value > 0.0 &&
+           sampleMs != 0 && nowMs >= sampleMs && (nowMs - sampleMs) <= 10000ULL;
+}
+
 /** Effective PoolLogic device assignments, read after configuration is loaded. */
 struct PoolDeviceAssignments {
     uint8_t filtration = UINT8_MAX;
@@ -85,4 +108,5 @@ struct PoolConfigurationService {
     bool (*getDeviceSetpoint)(void* ctx, uint8_t slot, float* out) = nullptr;
     bool (*setDeviceSetpoint)(void* ctx, uint8_t slot, float value) = nullptr;
     bool (*manualControlAllowed)(void* ctx, uint8_t slot) = nullptr;
+    bool (*getWaterTempPublicationPolicy)(void* ctx, PoolWaterTemperaturePublicationPolicy* out) = nullptr;
 };

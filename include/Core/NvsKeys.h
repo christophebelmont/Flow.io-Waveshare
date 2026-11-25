@@ -435,6 +435,7 @@ constexpr char PhIoId[] = "pl_phiid"; // Pool logic module persisted key for fie
 constexpr char OrpIoId[] = "pl_oiid"; // Pool logic module persisted key for field `pl_oiid`.
 constexpr char PsiIoId[] = "pl_piid"; // Pool logic module persisted key for field `pl_piid`.
 constexpr char WaterTempIoId[] = "pl_wiid"; // Pool logic module persisted key for field `pl_wiid`.
+constexpr char WaterTempCirculationOnly[] = "pl_wtcirc"; // Default false: water temperature publication gate.
 constexpr char AirTempIoId[] = "pl_aiid"; // Pool logic module persisted key for field `pl_aiid`.
 constexpr char LevelIoId[] = "pl_liid"; // Pool logic module persisted key for field `pl_liid`.
 constexpr char PhLevelIoId[] = "pl_phli"; // Pool logic module persisted key for field `pl_phli`.

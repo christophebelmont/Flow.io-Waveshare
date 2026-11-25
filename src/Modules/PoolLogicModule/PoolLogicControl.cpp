@@ -779,8 +779,12 @@ uint32_t PoolLogicModule::stateUptimeSec_(const DeviceFsm& fsm, uint32_t nowMs) 
 bool PoolLogicModule::loadAnalogSensor_(IoId ioId, float& out, uint32_t* tsMsOut) const
 {
     if (!ioSvc_ || !ioSvc_->readAnalog) return false;
+    // PoolLogic regulation needs the physical water sample even when external
+    // publication is suppressed by the optional circulation-only setting.
+    const auto read = (ioId == waterTempIoId_ && ioSvc_->readAnalogRaw)
+        ? ioSvc_->readAnalogRaw : ioSvc_->readAnalog;
     uint32_t tsMs = 0U;
-    if (ioSvc_->readAnalog(ioSvc_->ctx, ioId, &out, &tsMs, nullptr) != IO_OK) return false;
+    if (read(ioSvc_->ctx, ioId, &out, &tsMs, nullptr) != IO_OK) return false;
     if (tsMsOut) *tsMsOut = tsMs;
     return true;
 }

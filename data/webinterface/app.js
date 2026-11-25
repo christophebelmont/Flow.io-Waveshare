@@ -580,7 +580,7 @@
     }
 
     function createRuntimeDomainState() {
-      return { loading: true, entries: [], values: [], sondeSlots: [], alarmSlots: [], error: '', requestSeq: 0 };
+      return { loading: true, entries: [], gaugeEntries: [], values: [], gaugeValues: [], sondeSlots: [], alarmSlots: [], error: '', requestSeq: 0 };
     }
 
     function ensureRuntimeDomainState() {
@@ -9707,12 +9707,13 @@
       return Number.isInteger(n) ? String(n) : n.toFixed(1);
     }
 
-    // The hero always shows the three vital measurements (water, pH, disinfection),
-    // resolved through the runtime manifest semantic keys rather than labels.
+    // Four stable hero measurements, independent of sensor availability and
+    // the user-configurable TFT dashboard slots. No unrelated fallback.
     const dashboardGaugeDefs = Object.freeze([
-      Object.freeze({ key: 'pool.water_temp', accent: '#46d3ee' }),
-      Object.freeze({ key: 'pool.ph', accent: '#4fd1a5' }),
-      Object.freeze({ key: 'pool.orp', accent: '#ffb057' })
+      Object.freeze({ id: 2201, key: 'pool.water_temp', fr: 'Eau', en: 'Water', unit: '°C', decimals: 1, accent: '#46d3ee' }),
+      Object.freeze({ id: 2202, key: 'pool.air_temp', fr: 'Air', en: 'Air', unit: '°C', decimals: 1, accent: '#76a9e4' }),
+      Object.freeze({ id: 2203, key: 'pool.ph', fr: 'pH', en: 'pH', unit: '', decimals: 1, accent: '#4fd1a5' }),
+      Object.freeze({ id: 2204, key: 'pool.orp', fr: 'ORP', en: 'ORP', unit: 'mV', decimals: 0, accent: '#ffb057' })
     ]);
 
     function buildDashboardGauge(slot, accent) {
@@ -9722,6 +9723,7 @@
 
       const wrap = document.createElement('div');
       wrap.className = 'dash-gauge-wrap';
+      if (!slot.available) wrap.classList.add('is-unavailable');
 
       const ring = document.createElement('div');
       ring.className = 'dash-gauge';
@@ -9756,37 +9758,47 @@
       return wrap;
     }
 
+    function resolveDashboardGauge(def, state) {
+      const label = webUiLocale === 'en' ? def.en : def.fr;
+      const entries = Array.isArray(state?.gaugeEntries) ? state.gaugeEntries : [];
+      const entry = entries.find((candidate) => candidate.key === def.key || Number(candidate.id) === def.id);
+      const values = Array.isArray(state?.gaugeValues) ? state.gaugeValues : [];
+      const runtime = values.find((candidate) => Number(candidate.id) === def.id);
+      const slots = Array.isArray(state?.sondeSlots) ? state.sondeSlots : [];
+      const slot = slots.find((candidate) =>
+        candidate && (candidate.key === def.key || Number(candidate.runtimeUiId) === def.id));
+      const hasRuntimeValue = !!runtime && runtime.status !== 'unavailable' &&
+        runtime.status !== 'not_found' && runtime.value !== undefined &&
+        runtime.value !== null && runtime.value !== '' && Number.isFinite(Number(runtime.value));
+      // The runtime API is authoritative: it reports the circulation gate even
+      // when a TFT dashboard slot is disabled, absent or has cached text.
+      const available = runtime ? hasRuntimeValue : !!(slot && slot.available);
+      const precision = Number.isInteger(Number(entry?.decimals)) &&
+        Number(entry.decimals) >= 0 && Number(entry.decimals) <= 6
+        ? Number(entry.decimals) : def.decimals;
+      const value = available
+        ? (runtime ? formatRuntimeFloatValue(Number(runtime.value), precision) : String(slot.value || ''))
+        : '';
+      const range = entry ? poolSondeRangeFromEntry(entry) : null;
+      return {
+        key: def.key,
+        label,
+        value,
+        unit: available ? String(entry?.unit || slot?.unit || def.unit) : '',
+        available,
+        rangeMin: slot?.rangeMin ?? range?.min,
+        rangeMax: slot?.rangeMax ?? range?.max
+      };
+    }
+
     function renderDashboardGauges() {
       if (!dashGauges) return;
       const state = poolMeasureDomainState.sondes;
-      const slots = state && Array.isArray(state.sondeSlots) ? state.sondeSlots : [];
-      const available = slots.filter((slot) => slot && slot.enabled !== false && slot.available);
-
-      // Prefer the three vital measurements (water / pH / disinfection), then fall back
-      // to the remaining available slots so the gauges never disappear.
-      const ordered = [];
-      const usedIds = new Set();
+      dashGauges.replaceChildren();
       dashboardGaugeDefs.forEach((def) => {
-        const slot = available.find((candidate) => String(candidate.key || '') === def.key);
-        if (slot) {
-          ordered.push(slot);
-          usedIds.add(Number(slot.runtimeUiId));
-        }
+        dashGauges.appendChild(buildDashboardGauge(resolveDashboardGauge(def, state), def.accent));
       });
-      available.forEach((slot) => {
-        if (ordered.length >= dashboardGaugeDefs.length) return;
-        const id = Number(slot.runtimeUiId);
-        if (usedIds.has(id)) return;
-        usedIds.add(id);
-        ordered.push(slot);
-      });
-
-      const gauges = ordered.slice(0, dashboardGaugeDefs.length)
-        .map((slot, index) => ({ slot: slot, accent: dashboardGaugeDefs[index].accent }));
-
-      dashGauges.innerHTML = '';
-      dashGauges.hidden = gauges.length === 0;
-      gauges.forEach((item) => dashGauges.appendChild(buildDashboardGauge(item.slot, item.accent)));
+      dashGauges.hidden = false;
     }
 
     function refreshPoolMeasuresView() {
@@ -9815,8 +9827,18 @@
         const entries = cleanDomain === 'sondes'
           ? allEntries.filter((entry) => !isPoolDashboardGroupEntry(entry))
           : allEntries;
+        const gaugeEntries = cleanDomain === 'sondes'
+          ? allEntries.filter((entry) => dashboardGaugeDefs.some((def) => def.key === entry.key))
+          : [];
         const ids = entries.map((entry) => Number(entry.id)).filter((id) => Number.isFinite(id));
-        const values = ids.length ? await fetchRuntimeValues(ids) : [];
+        // Keep the normal domain query within its existing size limit; the
+        // four fixed hero sensors use an independent small runtime request.
+        const [values, gaugeValues] = await Promise.all([
+          ids.length ? fetchRuntimeValues(ids) : Promise.resolve([]),
+          cleanDomain === 'sondes'
+            ? fetchRuntimeValues(dashboardGaugeDefs.map((def) => def.id)).catch(() => [])
+            : Promise.resolve([])
+        ]);
         const sondeSlots = cleanDomain === 'sondes'
           ? enrichPoolSondeSlotsWithRanges(await fetchPoolSondeSlots().catch(() => []), allEntries)
           : [];
@@ -9825,7 +9847,9 @@
           : [];
         if (state.requestSeq !== requestSeq) return;
         state.entries = entries;
+        state.gaugeEntries = gaugeEntries;
         state.values = values;
+        state.gaugeValues = gaugeValues;
         state.sondeSlots = sondeSlots;
         state.alarmSlots = alarmSlots;
         state.error = '';
@@ -9836,7 +9860,9 @@
         if (state.requestSeq !== requestSeq) return;
         if (!hadRenderableData) {
           state.entries = [];
+          state.gaugeEntries = [];
           state.values = [];
+          state.gaugeValues = [];
           state.sondeSlots = [];
           state.alarmSlots = [];
         }
