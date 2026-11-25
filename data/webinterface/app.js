@@ -5118,13 +5118,24 @@
             onProgress(Math.round((event.loaded * 100) / event.total));
           }
         };
-        request.onerror = () => reject(new Error('connexion interrompue pendant l’upload'));
+        request.onerror = () => {
+          const detail = 'connexion interrompue pendant l’upload (HTTP ' +
+            request.status + ', état ' + request.readyState + ')';
+          console.error('[OTA-ZIP-HTTP] ' + detail, url);
+          reject(new Error(detail));
+        };
+        request.onabort = () => {
+          console.error('[OTA-ZIP-HTTP] requête annulée par le navigateur', url);
+          reject(new Error('upload annulé par le navigateur'));
+        };
         request.onload = () => {
           let payload = null;
           try { payload = request.responseText ? JSON.parse(request.responseText) : null; } catch (_) {}
           if (request.status < 200 || request.status >= 300 || (payload && payload.ok === false)) {
             const detail = payload && payload.err ? (payload.err.msg || payload.err.code) : request.responseText;
-            reject(new Error(detail || 'upload refusé'));
+            console.error('[OTA-ZIP-HTTP] refus du serveur', url,
+                          'HTTP ' + request.status, detail);
+            reject(new Error('HTTP ' + request.status + ' : ' + (detail || 'upload refusé')));
             return;
           }
           resolve(payload || { ok: true });
@@ -5192,6 +5203,8 @@
         setUpgradeMessage('Release installée. Flow.IO redémarre…');
         enterUpgradeReconnectPhase();
       } catch (err) {
+        console.error('[OTA-ZIP-HTTP] échec package local, transaction=' +
+                      transactionId, err);
         if (transactionId > 0) {
           await fetch('/api/upgrade/abort?transaction_id=' + encodeURIComponent(String(transactionId)), {
             method: 'POST', cache: 'no-store'
