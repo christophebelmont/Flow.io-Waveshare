@@ -850,6 +850,32 @@ const char* IOModule::endpointLabel(IoId id) const
     return nullptr;
 }
 
+bool IOModule::waterTempPublicationAllowed_(IoId ioId) const
+{
+    if (!serviceRegistry_) return true;
+    const auto* svc = serviceRegistry_->get<PoolConfigurationService>(ServiceId::PoolConfiguration);
+    if (!svc || !svc->getWaterTempPublicationPolicy) return true;
+    PoolWaterTemperaturePublicationPolicy policy{};
+    if (!svc->getWaterTempPublicationPolicy(svc->ctx, &policy) ||
+        !policy.circulationOnly || policy.ioId != ioId) return true;
+    if (policy.filtrationOn) return true;
+    // A real, fresh mode-2 flow measurement is required, not a pulse count.
+    if (!dataStore_) return false;
+    for (uint8_t i = 0; i < MAX_DIGITAL_INPUTS; ++i) {
+        if (digitalInCfg_[i].mode != IO_DIGITAL_INPUT_PULSES_PER_MINUTE ||
+            !digitalInputSlotUsed(i)) continue;
+        ValueSnapshot flow{};
+        if (!dataStore_->values.read(ValueIds::ConvertedRate + i, flow) ||
+            flow.quality != ValueQuality::Valid || !isfinite(flow.value.d) ||
+            flow.value.d <= 0.0) continue;
+        const uint64_t nowMs = uint64_t(esp_timer_get_time()) / 1000ULL;
+        if (flow.timestampMs == 0 || nowMs < flow.timestampMs ||
+            nowMs - flow.timestampMs > 10000ULL) continue;
+        return true;
+    }
+    return false;
+}
+
 bool IOModule::buildInputSnapshot(char* out, size_t len, uint32_t& maxTsOut) const
 {
     return buildGroupSnapshot_(out, len, true, maxTsOut);
@@ -942,6 +968,9 @@ bool IOModule::writeRuntimeUiValue(uint8_t valueId, IRuntimeUiWriter& writer) co
             return false;
     }
 
+    if (valueId == RuntimeUiWaterTemp &&
+        !waterTempPublicationAllowed_(IO_ID_AI_BASE + runtimeIndex))
+        return writer.writeUnavailable(runtimeId);
     if (!dataStore_) return writer.writeUnavailable(runtimeId);
 
     ValueSnapshot value{};
@@ -1061,12 +1090,16 @@ bool IOModule::buildEndpointSnapshot_(IOEndpoint* ep, char* out, size_t len, uin
             doc["max"] = measurementMetadata.displayMax;
         }
     }
-    doc["available"] = value.valid;
-    if (!value.valid) doc["value"] = nullptr;
-    else if (value.valueType == IO_EP_VALUE_BOOL) doc["value"] = value.v.b;
-    else if (value.valueType == IO_EP_VALUE_FLOAT) doc["value"] = value.v.f;
-    else if (value.valueType == IO_EP_VALUE_INT32) doc["value"] = value.v.i;
-    else doc["value"] = nullptr;
+    const bool publicationAllowed = waterTempPublicationAllowed_(ep->numericId);
+    doc["available"] = value.valid && publicationAllowed;
+    // No value field at all while stopped: never publish a substitute 0 or null.
+    if (publicationAllowed) {
+        if (!value.valid) doc["value"] = nullptr;
+        else if (value.valueType == IO_EP_VALUE_BOOL) doc["value"] = value.v.b;
+        else if (value.valueType == IO_EP_VALUE_FLOAT) doc["value"] = value.v.f;
+        else if (value.valueType == IO_EP_VALUE_INT32) doc["value"] = value.v.i;
+        else doc["value"] = nullptr;
+    }
     if (ep->numericId >= IO_ID_DO_BASE && ep->numericId < IO_ID_DO_BASE + Limits::Io::MaxDigitalOutputs) {
         portENTER_CRITICAL(&outputControlMux_);
         const auto control = outputControl_[ep->numericId - IO_ID_DO_BASE];
@@ -1249,7 +1282,8 @@ bool IOModule::buildGroupSnapshot_(char* out, size_t len, bool inputGroup, uint3
         const bool sensor = ep->type() == IO_EP_ANALOG_SENSOR || ep->type() == IO_EP_DIGITAL_SENSOR;
         if (inputGroup != sensor) continue;
         if (ep->type() == IO_EP_ANALOG_SENSOR &&
-            !analogSlotPublished_(ep->numericId - IO_ID_AI_BASE)) continue;
+            (!analogSlotPublished_(ep->numericId - IO_ID_AI_BASE) ||
+             !waterTempPublicationAllowed_(ep->numericId))) continue;
         if (ep->type() == IO_EP_DIGITAL_SENSOR) {
             // Counter-mode inputs stay internal (local web only): never broadcast on MQTT.
             uint8_t slotIdx = 0xFF;
