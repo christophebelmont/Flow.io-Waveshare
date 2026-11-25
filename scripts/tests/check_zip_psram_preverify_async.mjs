@@ -60,6 +60,11 @@ for (const token of [
   "offset != localRelease_.received"
 ]) has(receive, token, "receive into PSRAM with bounds checks");
 has(receive, "if (localRelease_.stagedImage)", "ZIP does not write incoming chunks to Flash");
+has(receive, "if (!localRelease_.stagedImage) {\n        onProgressChunk_((uint32_t)len);",
+    "PSRAM receive does not inflate globally committed Flash bytes");
+has(flash, "onProgressChunk_((uint32_t)amount)", "Flash writes update global percentage");
+has(begin, "activeSentBytes_ = filesystemTarget ? 0U : localRelease_.filesystem.size",
+    "paired ZIP global progress resumes from SPIFFS size");
 before(finish, "sha256Matches_(digest, image.sha256)",
                "FirmwareLocalImagePhase::Queued", "SHA verification before queue");
 has(finish, "flash_touched=0", "no preverify Flash changes");
