@@ -234,6 +234,8 @@ private:
     bool localCallPending_ = false; // protected by lock_
     bool localCallInFlight_ = false; // protected by lock_
     bool localCallResult_ = false;
+    // fwupdate-task-only rate limit for idle ZIP transaction warnings.
+    uint32_t localReleaseLastIdleDiagMs_ = 0U;
 
     StaticSemaphore_t localReleaseMutexStorage_{};
     SemaphoreHandle_t localReleaseMutex_ = nullptr;

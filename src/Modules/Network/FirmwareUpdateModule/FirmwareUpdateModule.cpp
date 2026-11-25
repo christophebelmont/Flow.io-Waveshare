@@ -2506,6 +2506,13 @@ bool FirmwareUpdateModule::localTransactionMatches_(uint32_t transactionId) cons
 
 void FirmwareUpdateModule::resetLocalRelease_()
 {
+    LOGI("[OTA-ZIP-CLEAN] reset_begin op=%lu txn=%lu stage=%u active=%u received=%lu sha=%u handle=%u",
+         (unsigned long)localRelease_.operationId,
+         (unsigned long)localRelease_.id,
+         (unsigned)localRelease_.stage, localRelease_.active ? 1U : 0U,
+         (unsigned long)localRelease_.received,
+         localRelease_.shaActive ? 1U : 0U,
+         localRelease_.otaHandle != 0 ? 1U : 0U);
     if (localRelease_.shaActive) {
         mbedtls_sha256_free(&localRelease_.shaContext);
     }
@@ -2513,12 +2520,16 @@ void FirmwareUpdateModule::resetLocalRelease_()
         (void)esp_ota_abort(localRelease_.otaHandle);
     }
     localRelease_ = LocalReleaseTransaction{};
+    localReleaseLastIdleDiagMs_ = 0U;
     portENTER_CRITICAL(&lock_);
     localReleaseActive_ = false;
     activeTotalBytes_ = 0U;
     activeSentBytes_ = 0U;
     portEXIT_CRITICAL(&lock_);
     setHmiOtaCondition_(false);
+    LOGI("[OTA-ZIP-CLEAN] reset_end active=0 handle=0 internal=%lu psram=%lu",
+         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
 }
 
 void FirmwareUpdateModule::failLocalRelease_(const char* reason)
@@ -2845,6 +2856,7 @@ bool FirmwareUpdateModule::beginLocalRelease_(const char* manifestJson,
     portEXIT_CRITICAL(&lock_);
 
     localRelease_ = candidate;
+    localReleaseLastIdleDiagMs_ = 0U;
     LOGI("[OTA] paired transaction checkpoint begin operation_id=%lu stack_free_bytes=%u",
          (unsigned long)candidate.operationId,
          (unsigned)uxTaskGetStackHighWaterMark(nullptr));
@@ -2869,6 +2881,11 @@ bool FirmwareUpdateModule::beginLocalRelease_(const char* manifestJson,
     LOGI("[UPGRADE] begin release=%s target=%s",
          candidate.version,
          candidate.targetSlot == ReleaseSlot::A ? "A" : "B");
+    LOGI("[OTA-ZIP-PHASE] transaction_ready op=%lu txn=%lu remote=%u slot=%u fs_bytes=%lu fw_bytes=%lu stage=%u",
+         (unsigned long)candidate.operationId, (unsigned long)candidate.id,
+         internalRemoteWorker ? 1U : 0U, (unsigned)candidate.targetSlot,
+         (unsigned long)candidate.filesystem.size, (unsigned long)candidate.firmware.size,
+         (unsigned)localRelease_.stage);
     return true;
 }
 
@@ -2948,6 +2965,10 @@ bool FirmwareUpdateModule::beginLocalImage_(uint32_t transactionId,
         return writeSimpleError_(errOut, errOutLen, "release target overlaps active partition");
     }
 
+    const uint32_t flashPrepareAtMs = millis();
+    LOGI("[OTA-ZIP-PHASE] image_prepare txn=%lu target=%u bytes=%lu partition=%s",
+         (unsigned long)transactionId, (unsigned)target,
+         (unsigned long)totalSize, label);
     esp_err_t flashError = ESP_OK;
     if (filesystemTarget) {
         // Erase the inactive SPIFFS in bounded chunks. This path serves both
@@ -3003,6 +3024,11 @@ bool FirmwareUpdateModule::beginLocalImage_(uint32_t transactionId,
          filesystemTarget ? "filesystem" : "firmware",
          label,
          (unsigned)totalSize);
+    LOGI("[OTA-ZIP-PHASE] image_ready txn=%lu target=%u stage=%u flash_prepare_ms=%lu stack=%u",
+         (unsigned long)transactionId, (unsigned)target,
+         (unsigned)localRelease_.stage,
+         (unsigned long)(millis() - flashPrepareAtMs),
+         (unsigned)uxTaskGetStackHighWaterMark(nullptr));
     return true;
 }
 
@@ -3155,6 +3181,11 @@ bool FirmwareUpdateModule::endLocalImage_(uint32_t transactionId,
         return writeSimpleError_(errOut, errOutLen, reason);
     }
 
+    const uint32_t verifyAtMs = millis();
+    LOGI("[OTA-ZIP-PHASE] image_verify_begin txn=%lu target=%u received=%lu expected=%lu stage=%u",
+         (unsigned long)transactionId, (unsigned)target,
+         (unsigned long)localRelease_.received, (unsigned long)image.size,
+         (unsigned)localRelease_.stage);
     uint8_t digest[32]{};
     const int shaError = mbedtls_sha256_finish(&localRelease_.shaContext, digest);
     mbedtls_sha256_free(&localRelease_.shaContext);
@@ -3225,6 +3256,10 @@ bool FirmwareUpdateModule::endLocalImage_(uint32_t transactionId,
                                     : "firmware SHA-256 OK; committing release",
                    localRelease_.operationId);
     }
+    LOGI("[OTA-ZIP-PHASE] image_verify_ok txn=%lu target=%u stage=%u sha256=OK verify_ms=%lu",
+         (unsigned long)transactionId, (unsigned)target,
+         (unsigned)localRelease_.stage,
+         (unsigned long)(millis() - verifyAtMs));
     return true;
 }
 
@@ -3240,10 +3275,14 @@ bool FirmwareUpdateModule::commitLocalRelease_(uint32_t transactionId,
         call.errorLen = errOutLen;
         return dispatchLocalCall_(call, errOut, errOutLen);
     }
+    const uint32_t commitAtMs = millis();
     SemaphoreGuard transactionGuard(localReleaseMutex_);
     if (!transactionGuard.acquired()) {
         return writeSimpleError_(errOut, errOutLen, "upgrade synchronization unavailable");
     }
+    LOGI("[OTA-ZIP-PHASE] commit_begin txn=%lu op=%lu stage=%u",
+         (unsigned long)transactionId, (unsigned long)localRelease_.operationId,
+         (unsigned)localRelease_.stage);
     if (!localTransactionMatches_(transactionId) ||
         localRelease_.stage != LocalReleaseStage::FirmwareVerified) {
         LOGW("[UPGRADE] commit rejected stage=%u transaction_match=%u",
@@ -3291,6 +3330,10 @@ bool FirmwareUpdateModule::commitLocalRelease_(uint32_t transactionId,
                localRelease_.operationId);
     LOGI("[UPGRADE] release verified; boot partition -> %s",
          ReleaseStorage::applicationLabel(localRelease_.targetSlot));
+    LOGI("[OTA-ZIP-PHASE] commit_ok txn=%lu op=%lu boot=%s elapsed_ms=%lu",
+         (unsigned long)transactionId, (unsigned long)localRelease_.operationId,
+         ReleaseStorage::applicationLabel(localRelease_.targetSlot),
+         (unsigned long)(millis() - commitAtMs));
     return true;
 }
 
@@ -3836,6 +3879,12 @@ void FirmwareUpdateModule::loop()
 
     static constexpr uint32_t kLocalReleaseIdleTimeoutMs = 120000U;
     bool localReleaseRebootDue = false;
+    bool traceIdle = false;
+    uint32_t idleOperationId = 0U;
+    uint32_t idleTransactionId = 0U;
+    uint32_t idleMs = 0U;
+    size_t idleReceived = 0U;
+    unsigned idleStage = 0U;
     {
         // Upload callbacks run in the async TCP task. A non-blocking take keeps
         // the updater loop responsive while a flash chunk is being committed.
@@ -3844,6 +3893,21 @@ void FirmwareUpdateModule::loop()
             const uint32_t nowMs = millis();
             localReleaseRebootDue = localRelease_.rebootPending &&
                                     (int32_t)(nowMs - localRelease_.rebootAtMs) >= 0;
+            // A browser-side stall can leave no Flash error, only a silent
+            // active transaction. Report every 15s after 10s inactivity.
+            if (localRelease_.active && !localRelease_.rebootPending &&
+                localRelease_.lastActivityMs != 0U &&
+                uint32_t(nowMs - localRelease_.lastActivityMs) >= 10000U &&
+                (localReleaseLastIdleDiagMs_ == 0U ||
+                 uint32_t(nowMs - localReleaseLastIdleDiagMs_) >= 15000U)) {
+                localReleaseLastIdleDiagMs_ = nowMs;
+                traceIdle = true;
+                idleOperationId = localRelease_.operationId;
+                idleTransactionId = localRelease_.id;
+                idleMs = nowMs - localRelease_.lastActivityMs;
+                idleReceived = localRelease_.received;
+                idleStage = (unsigned)localRelease_.stage;
+            }
             if (localRelease_.active && !localRelease_.rebootPending &&
                 localRelease_.lastActivityMs != 0U &&
                 (uint32_t)(nowMs - localRelease_.lastActivityMs) > kLocalReleaseIdleTimeoutMs) {
@@ -3857,6 +3921,14 @@ void FirmwareUpdateModule::loop()
                           operationId);
             }
         }
+    }
+    if (traceIdle) {
+        LOGW("[OTA-ZIP-IDLE] op=%lu txn=%lu stage=%u idle_ms=%lu received=%lu stack=%u internal=%lu psram=%lu",
+             (unsigned long)idleOperationId, (unsigned long)idleTransactionId,
+             idleStage, (unsigned long)idleMs, (unsigned long)idleReceived,
+             (unsigned)uxTaskGetStackHighWaterMark(nullptr),
+             (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     }
     if (localReleaseRebootDue) {
         if (!prepareLocalReleaseReboot_()) return;
