@@ -5218,6 +5218,36 @@
       });
     }
 
+    function setZipUiStage(stage, percent = 0) {
+      // One 15-step journey for the ZIP only. Throttle browser writes to
+      // 5% buckets: avoid loading AsyncTCP indirectly through WebSocket/UI.
+      const clamped = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+      const current = readUpgradeUiSession();
+      const index = upgradePairedOtaStageIndex({
+        target: 'release', phase: 'flash', otaBackendStage: stage
+      });
+      if (index === null) return;
+      const previousIndex = Number(current && current.otaStageIndex) || 0;
+      if (index < previousIndex) return; // never regress between two images
+      const sameStage = current && current.otaBackendStage === stage;
+      const previous = Math.max(0, Math.min(100, Number(current && current.otaBackendStepProgress) || 0));
+      if (sameStage && Math.floor(previous / 5) === Math.floor(clamped / 5) &&
+          (clamped !== 100 || previous === 100)) return;
+      const definitions = upgradeStepDefinitions('release');
+      const stageLabel = definitions[index].label;
+      const moving = ['zip_spiffs_receive', 'zip_spiffs_flash', 'zip_spiffs_readback',
+                      'zip_firmware_receive', 'zip_firmware_flash',
+                      'zip_firmware_readback'].includes(stage);
+      const detail = moving ? stageLabel + ' · ' + clamped + '%' : stageLabel;
+      updateUpgradeUiSession({
+        phase: stage.endsWith('_receive') || stage.includes('ram_verify') ? 'download' : 'flash',
+        target: 'release',
+        otaBackendStage: stage,
+        otaBackendStepProgress: clamped,
+        detail: detail
+      });
+    }
+
     async function waitForZipImageFlash(transactionId, target) {
       // HTTP 202 means staged + preverified; the fwupdate task completes
       // erasing/writing/validation asynchronously, without blocking AsyncTCP.
@@ -5253,7 +5283,7 @@
         if (Number(progress.transaction_id) !== transactionId || progress.target !== target) {
           throw new Error('identifiant de transaction ZIP incorrect pendant la programmation');
         }
-        if (!['queued', 'flashing', 'verified', 'error'].includes(progress.phase)) {
+        if (!['queued', 'flashing', 'verifying', 'verified', 'error'].includes(progress.phase)) {
           throw new Error('état de programmation ZIP incohérent : ' + progress.phase);
         }
         if (progress.phase !== lastPhase || progress.progress !== lastPercent) {
@@ -5262,10 +5292,13 @@
           console.info('[OTA-ZIP-BROWSER] flash_state', target,
                        progress.phase, progress.progress + '%',
                        'elapsed_ms=' + (Date.now() - started));
-          setUpgradeDetail('Programmation ' + (target === 'spiffs' ? 'SPIFFS' : 'firmware') +
-                           ' depuis la PSRAM : ' + progress.progress + '%');
         }
+        const stem = target === 'spiffs' ? 'zip_spiffs_' : 'zip_firmware_';
+        if (progress.phase === 'queued') setZipUiStage(stem + 'prepare', 0);
+        if (progress.phase === 'flashing') setZipUiStage(stem + 'flash', progress.progress);
+        if (progress.phase === 'verifying') setZipUiStage(stem + 'readback', progress.progress);
         if (progress.phase === 'verified') {
+          setZipUiStage(stem + 'readback', 100);
           console.info('[OTA-ZIP-BROWSER] flash_verified', target,
                        'elapsed_ms=' + (Date.now() - started));
           return;
@@ -5304,11 +5337,12 @@
                      'spiffs=' + filesystem.size);
 
         startUpgradeUiSession('release');
+        setZipUiStage('zip_prepare', 100);
         updateUpgradeUiSession({
           releaseFilesystemTotal: Number(manifest.filesystem && manifest.filesystem.size) || 0,
           releaseFirmwareTotal: Number(manifest.firmware && manifest.firmware.size) || 0
         });
-        setUpgradeDetail('Préparation de la release ' + manifest.version + '…');
+        setZipUiStage('zip_manifest', 0);
         const started = await fetchOkJson('/api/upgrade/begin', {
           method: 'POST',
           cache: 'no-store',
@@ -5321,20 +5355,29 @@
         }
         const query = '?transaction_id=' + encodeURIComponent(String(transactionId));
         console.info('[OTA-ZIP-BROWSER] transaction_started', transactionId);
+        setZipUiStage('zip_manifest', 100);
+        setZipUiStage('zip_spiffs_receive', 0);
         await uploadReleaseBlob('/api/upgrade/filesystem' + query, filesystem, (progress) => {
-          setUpgradeDetail('Réception SPIFFS en PSRAM : ' + progress + '%');
+          if (progress < 100) setZipUiStage('zip_spiffs_receive', progress);
+          else setZipUiStage('zip_spiffs_ram_verify', 0);
         });
+        setZipUiStage('zip_spiffs_ram_verify', 100);
         await waitForZipImageFlash(transactionId, 'spiffs');
         console.info('[OTA-ZIP-BROWSER] filesystem_verified', transactionId);
+        setZipUiStage('zip_firmware_receive', 0);
         await uploadReleaseBlob('/api/upgrade/firmware' + query, firmware, (progress) => {
-          setUpgradeDetail('Réception firmware en PSRAM : ' + progress + '%');
+          if (progress < 100) setZipUiStage('zip_firmware_receive', progress);
+          else setZipUiStage('zip_firmware_ram_verify', 0);
         });
+        setZipUiStage('zip_firmware_ram_verify', 100);
         await waitForZipImageFlash(transactionId, 'firmware');
         console.info('[OTA-ZIP-BROWSER] firmware_verified', transactionId);
+        setZipUiStage('zip_activate', 0);
         await fetchOkJson('/api/upgrade/commit' + query,
                           { method: 'POST', cache: 'no-store' },
                           'échec de validation de la release');
         console.info('[OTA-ZIP-BROWSER] commit_accepted', transactionId);
+        setZipUiStage('zip_activate', 100);
         transactionId = 0;
         updateUpgradeUiSession({
           phase: 'reboot',
@@ -5363,7 +5406,7 @@
                           transactionId, abortError);
           }
         }
-        updateUpgradeUiSession({ phase: 'error', target: 'release', detail: String(err), backendProgress: 0 });
+        updateUpgradeUiSession({ phase: 'error', target: 'release', detail: String(err) });
         setUpgradeMessage('Échec du package local : ' + err);
       } finally {
         if (localReleaseSelectBtn) localReleaseSelectBtn.disabled = false;
