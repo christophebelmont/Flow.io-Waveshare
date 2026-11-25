@@ -202,6 +202,39 @@ private:
     uint32_t activeTotalBytes_ = 0;
     uint32_t activeSentBytes_ = 0;
     const char* hardwareName_ = nullptr;
+    // ZIP requests arrive from AsyncTCP, whose stack is not intended for
+    // SPIFFS mounting, flash erase, OTA validation or NVS checkpointing.
+    // Only the fwupdate task executes these operations. The submitter waits,
+    // keeping request-owned buffers valid until the call has returned.
+    enum class LocalCallKind : uint8_t {
+        BeginRelease, BeginImage, WriteImage, EndImage, Commit, Abort
+    };
+    struct LocalCall {
+        LocalCallKind kind = LocalCallKind::BeginRelease;
+        uint32_t transactionId = 0U;
+        uint32_t* transactionIdOut = nullptr;
+        FirmwareUpdateTarget target = FirmwareUpdateTarget::Waveshare;
+        const char* manifest = nullptr;
+        size_t manifestLen = 0U;
+        const uint8_t* data = nullptr;
+        size_t imageSize = 0U;
+        size_t offset = 0U;
+        char* error = nullptr;
+        size_t errorLen = 0U;
+    };
+    bool dispatchLocalCall_(const LocalCall& call, char* errOut, size_t errLen);
+    bool executeLocalCall_(const LocalCall& call);
+    bool handleQueuedLocalCall_();
+    StaticSemaphore_t localCallMutexStorage_{};
+    StaticSemaphore_t localCallDoneStorage_{};
+    SemaphoreHandle_t localCallMutex_ = nullptr;
+    SemaphoreHandle_t localCallDone_ = nullptr;
+    LocalCall localCall_{};
+    TaskHandle_t localCallOwner_ = nullptr;
+    bool localCallPending_ = false; // protected by lock_
+    bool localCallInFlight_ = false; // protected by lock_
+    bool localCallResult_ = false;
+
     StaticSemaphore_t localReleaseMutexStorage_{};
     SemaphoreHandle_t localReleaseMutex_ = nullptr;
     // Mirrored under lock_ so legacy and local update admission checks share

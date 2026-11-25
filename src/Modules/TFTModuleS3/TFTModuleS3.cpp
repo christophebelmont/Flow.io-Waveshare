@@ -1193,21 +1193,18 @@ void TFTModuleS3::renderUpdate_(const FirmwareUpdateDisplaySnapshot& u,
         const int16_t titleW = gfxTextWidth_(title);
         display_.setCursor((w - titleW) / 2, 91);
         display_.print(title);
-        // Safety reminder in the unused area to the LEFT of the compact
-        // 96px logo (logo begins at x=112 on 320x240). Never use the footer.
-        // Paint here only for a new operation or language/status transition.
-        display_.fillRect(6, 3, 98, 29, color_(dark));
+        // Bolder 8pt warning next to the logo, within x=2..109.
+        // The compact icon starts at x=112 and remains untouched.
+        display_.fillRect(2, 3, 108, 38, color_(dark));
         const uint16_t warning = rgb565_(255, 206, 87);
-        display_.drawCircle(16, 15, 9, color_(warning));
-        display_.drawFastVLine(16, 10, 7, color_(warning));
-        display_.drawPixel(16, 20, color_(warning));
-        display_.setFont(nullptr);
-        display_.setTextSize(1);
-        display_.setTextColor(color_(warning), color_(dark));
-        display_.setCursor(29, 9);
+        display_.drawCircle(9, 20, 5, color_(warning));
+        display_.drawFastVLine(9, 17, 4, color_(warning));
+        display_.drawPixel(9, 23, color_(warning));
+        setGfxFont_(&FreeSansBold8pt7b, warning, dark);
+        display_.setCursor(19, 18);
         display_.print(english ? "DO NOT" : "NE PAS");
-        display_.setCursor(29, 20);
-        display_.print(english ? "POWER OFF" : "ETEINDRE");
+        display_.setCursor(19, 35);
+        display_.print(english ? "TURN OFF" : "ETEINDRE");
     }
 
     if (dirty.progress) {

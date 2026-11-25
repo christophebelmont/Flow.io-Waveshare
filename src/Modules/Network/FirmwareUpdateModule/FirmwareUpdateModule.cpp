@@ -356,6 +356,8 @@ bool cloneActiveReleaseFilesystem_(char* errOut, size_t errOutLen)
 FirmwareUpdateModule::FirmwareUpdateModule(const BoardSpec& board)
 {
     localReleaseMutex_ = xSemaphoreCreateMutexStatic(&localReleaseMutexStorage_);
+    localCallMutex_ = xSemaphoreCreateMutexStatic(&localCallMutexStorage_);
+    localCallDone_ = xSemaphoreCreateBinaryStatic(&localCallDoneStorage_);
     hardwareName_ = board.name;
     const LocalUiBoardSpec& boardCfg = localUiBoardSpec_(board);
     const UartSpec& panelUart = panelUartSpec_(board);
@@ -849,7 +851,7 @@ bool FirmwareUpdateModule::statusJson_(char* out, size_t outLen)
     snap = status_;
     // Match the admission barrier: report busy as soon as an operation is
     // queued or reserving the updater, not only once the worker is flashing.
-    busy = busy_ || queuedJob_.pending || nextionRebootQueued_ ||
+    busy = busy_ || localCallInFlight_ || queuedJob_.pending || nextionRebootQueued_ ||
            updateStartPending_ || manifestCheckJob_.pending ||
            (manifestMetadata_ && manifestCheckIsActive_(manifestMetadata_->check.state)) ||
            (localReleaseActive_ && status_.state != UpdateState::Error);
@@ -937,8 +939,10 @@ bool FirmwareUpdateModule::updateAdmissionBusyLocked_(bool allowCurrentRemoteWor
     // prevent a subsequent Nextion or paired OTA until reboot.
     const bool localReleaseBusy = localReleaseActive_ &&
                                   status_.state != UpdateState::Error;
+    const bool foreignLocalRpc = localCallInFlight_ &&
+        xTaskGetCurrentTaskHandle() != localCallOwner_;
     return (busy_ && !allowCurrentRemoteWorker) ||
-           localReleaseBusy ||
+           localReleaseBusy || foreignLocalRpc ||
            queuedJob_.pending ||
            manifestCheckJob_.pending ||
            nextionRebootQueued_ ||
@@ -957,7 +961,7 @@ bool FirmwareUpdateModule::isBusy_()
     // Modbus indefinitely. Actual running OTA work is still gated by busy_.
     const bool localReleaseBusy = localReleaseActive_ &&
                                   status_.state != UpdateState::Error;
-    busy = busy_ || localReleaseBusy || queuedJob_.pending ||
+    busy = busy_ || localReleaseBusy || localCallInFlight_ || queuedJob_.pending ||
            nextionRebootQueued_ || updateStartPending_ ||
            manifestCheckIsActive_(manifestMetadata_->check.state);
     portEXIT_CRITICAL(&lock_);
@@ -2517,12 +2521,134 @@ void FirmwareUpdateModule::failLocalRelease_(const char* reason)
     setError_(target, localRelease_.failureReason, localRelease_.operationId);
 }
 
+// Handoff to the 10 KiB fwupdate task. All flashing and filesystem probes
+// happen there, never inside the AsyncTCP upload/data/completion callbacks.
+// No second OTA writer is introduced, and the remote paired OTA path still
+// calls the same verified A/B transaction methods directly from this task.
+bool FirmwareUpdateModule::dispatchLocalCall_(const LocalCall& call,
+                                               char* errOut, size_t errLen)
+{
+    if (!localCallOwner_ || !localCallMutex_ || !localCallDone_) {
+        return writeSimpleError_(errOut, errLen, "local OTA worker not ready");
+    }
+    SemaphoreGuard submitter(localCallMutex_, pdMS_TO_TICKS(2000U));
+    if (!submitter.acquired()) {
+        return writeSimpleError_(errOut, errLen, "local OTA worker busy");
+    }
+    portENTER_CRITICAL(&lock_);
+    const bool otherJob = busy_ || queuedJob_.pending || manifestCheckJob_.pending ||
+                          nextionRebootQueued_ || updateStartPending_ ||
+                          localCallInFlight_ ||
+                          (manifestMetadata_ &&
+                           manifestCheckIsActive_(manifestMetadata_->check.state));
+    if (!otherJob) {
+        localCall_ = call;
+        localCallInFlight_ = true;
+        localCallPending_ = true;
+    }
+    portEXIT_CRITICAL(&lock_);
+    if (otherJob) return writeSimpleError_(errOut, errLen, "updater busy");
+
+    // Normally the firmware task handles this within its 60 ms loop period.
+    // The timed first wait catches a worker that has not started; if it has
+    // started, do NOT release the HTTP buffer until the writer finishes.
+    if (xSemaphoreTake(localCallDone_, pdMS_TO_TICKS(30000U)) != pdTRUE) {
+        bool cancelled = false;
+        portENTER_CRITICAL(&lock_);
+        if (localCallPending_) {
+            localCallPending_ = false;
+            localCallInFlight_ = false;
+            cancelled = true;
+        }
+        portEXIT_CRITICAL(&lock_);
+        if (cancelled) {
+            LOGE("[OTA-ZIP] worker dispatch timeout before start");
+            return writeSimpleError_(errOut, errLen, "local OTA worker dispatch timed out");
+        }
+        LOGW("[OTA-ZIP] worker busy over 30s; waiting for buffer safety");
+        (void)xSemaphoreTake(localCallDone_, portMAX_DELAY);
+    }
+    return localCallResult_;
+}
+
+bool FirmwareUpdateModule::executeLocalCall_(const LocalCall& call)
+{
+    switch (call.kind) {
+        case LocalCallKind::BeginRelease:
+            return beginLocalRelease_(call.manifest, call.manifestLen,
+                                      call.transactionIdOut, call.error,
+                                      call.errorLen);
+        case LocalCallKind::BeginImage:
+            return beginLocalImage_(call.transactionId, call.target,
+                                    call.imageSize, call.error, call.errorLen);
+        case LocalCallKind::WriteImage:
+            return writeLocalImage_(call.transactionId, call.target,
+                                    call.data, call.imageSize, call.offset,
+                                    call.error, call.errorLen);
+        case LocalCallKind::EndImage:
+            return endLocalImage_(call.transactionId, call.target,
+                                  call.error, call.errorLen);
+        case LocalCallKind::Commit:
+            return commitLocalRelease_(call.transactionId, call.error,
+                                       call.errorLen);
+        case LocalCallKind::Abort:
+            return abortLocalRelease_(call.transactionId, call.error,
+                                      call.errorLen);
+        default:
+            return false;
+    }
+}
+
+bool FirmwareUpdateModule::handleQueuedLocalCall_()
+{
+    LocalCall pending{};
+    portENTER_CRITICAL(&lock_);
+    if (!localCallPending_) {
+        portEXIT_CRITICAL(&lock_);
+        return false;
+    }
+    pending = localCall_;
+    localCallPending_ = false;
+    portEXIT_CRITICAL(&lock_);
+
+    if (pending.kind != LocalCallKind::WriteImage ||
+        pending.offset == 0U) {
+        LOGI("[OTA-ZIP] worker start action=%u target=%u bytes=%lu stack=%u",
+             (unsigned)pending.kind, (unsigned)pending.target,
+             (unsigned long)pending.imageSize,
+             (unsigned)uxTaskGetStackHighWaterMark(nullptr));
+    }
+    const bool ok = executeLocalCall_(pending);
+    if (pending.kind != LocalCallKind::WriteImage ||
+        (!ok || pending.offset == 0U)) {
+        LOGI("[OTA-ZIP] worker end action=%u ok=%u stack=%u",
+             (unsigned)pending.kind, ok ? 1U : 0U,
+             (unsigned)uxTaskGetStackHighWaterMark(nullptr));
+    }
+    localCallResult_ = ok;
+    portENTER_CRITICAL(&lock_);
+    localCallInFlight_ = false;
+    portEXIT_CRITICAL(&lock_);
+    xSemaphoreGive(localCallDone_);
+    return true;
+}
+
 bool FirmwareUpdateModule::beginLocalRelease_(const char* manifestJson,
                                                size_t manifestLen,
                                                uint32_t* transactionIdOut,
                                                char* errOut,
                                                size_t errOutLen)
 {
+    if (xTaskGetCurrentTaskHandle() != localCallOwner_) {
+        LocalCall call{};
+        call.kind = LocalCallKind::BeginRelease;
+        call.manifest = manifestJson;
+        call.manifestLen = manifestLen;
+        call.transactionIdOut = transactionIdOut;
+        call.error = errOut;
+        call.errorLen = errOutLen;
+        return dispatchLocalCall_(call, errOut, errOutLen);
+    }
     SemaphoreGuard transactionGuard(localReleaseMutex_);
     if (!transactionGuard.acquired()) {
         return writeSimpleError_(errOut, errOutLen, "upgrade synchronization unavailable");
@@ -2667,6 +2793,16 @@ bool FirmwareUpdateModule::beginLocalImage_(uint32_t transactionId,
                                              char* errOut,
                                              size_t errOutLen)
 {
+    if (xTaskGetCurrentTaskHandle() != localCallOwner_) {
+        LocalCall call{};
+        call.kind = LocalCallKind::BeginImage;
+        call.transactionId = transactionId;
+        call.target = target;
+        call.imageSize = totalSize;
+        call.error = errOut;
+        call.errorLen = errOutLen;
+        return dispatchLocalCall_(call, errOut, errOutLen);
+    }
     SemaphoreGuard transactionGuard(localReleaseMutex_);
     if (!transactionGuard.acquired()) {
         return writeSimpleError_(errOut, errOutLen, "upgrade synchronization unavailable");
@@ -2793,6 +2929,18 @@ bool FirmwareUpdateModule::writeLocalImage_(uint32_t transactionId,
                                              char* errOut,
                                              size_t errOutLen)
 {
+    if (xTaskGetCurrentTaskHandle() != localCallOwner_) {
+        LocalCall call{};
+        call.kind = LocalCallKind::WriteImage;
+        call.transactionId = transactionId;
+        call.target = target;
+        call.data = data;
+        call.imageSize = len;
+        call.offset = offset;
+        call.error = errOut;
+        call.errorLen = errOutLen;
+        return dispatchLocalCall_(call, errOut, errOutLen);
+    }
     SemaphoreGuard transactionGuard(localReleaseMutex_);
     if (!transactionGuard.acquired()) {
         return writeSimpleError_(errOut, errOutLen, "upgrade synchronization unavailable");
@@ -2857,6 +3005,15 @@ bool FirmwareUpdateModule::endLocalImage_(uint32_t transactionId,
                                            char* errOut,
                                            size_t errOutLen)
 {
+    if (xTaskGetCurrentTaskHandle() != localCallOwner_) {
+        LocalCall call{};
+        call.kind = LocalCallKind::EndImage;
+        call.transactionId = transactionId;
+        call.target = target;
+        call.error = errOut;
+        call.errorLen = errOutLen;
+        return dispatchLocalCall_(call, errOut, errOutLen);
+    }
     SemaphoreGuard transactionGuard(localReleaseMutex_);
     if (!transactionGuard.acquired()) {
         return writeSimpleError_(errOut, errOutLen, "upgrade synchronization unavailable");
@@ -2978,6 +3135,14 @@ bool FirmwareUpdateModule::commitLocalRelease_(uint32_t transactionId,
                                                 char* errOut,
                                                 size_t errOutLen)
 {
+    if (xTaskGetCurrentTaskHandle() != localCallOwner_) {
+        LocalCall call{};
+        call.kind = LocalCallKind::Commit;
+        call.transactionId = transactionId;
+        call.error = errOut;
+        call.errorLen = errOutLen;
+        return dispatchLocalCall_(call, errOut, errOutLen);
+    }
     SemaphoreGuard transactionGuard(localReleaseMutex_);
     if (!transactionGuard.acquired()) {
         return writeSimpleError_(errOut, errOutLen, "upgrade synchronization unavailable");
@@ -3054,6 +3219,14 @@ bool FirmwareUpdateModule::abortLocalRelease_(uint32_t transactionId,
                                                char* errOut,
                                                size_t errOutLen)
 {
+    if (xTaskGetCurrentTaskHandle() != localCallOwner_) {
+        LocalCall call{};
+        call.kind = LocalCallKind::Abort;
+        call.transactionId = transactionId;
+        call.error = errOut;
+        call.errorLen = errOutLen;
+        return dispatchLocalCall_(call, errOut, errOutLen);
+    }
     SemaphoreGuard transactionGuard(localReleaseMutex_);
     if (!transactionGuard.acquired()) {
         return writeSimpleError_(errOut, errOutLen, "upgrade synchronization unavailable");
@@ -3538,6 +3711,11 @@ void FirmwareUpdateModule::init(ConfigStore& cfg, ServiceRegistry& services)
 
 void FirmwareUpdateModule::loop()
 {
+    if (!localCallOwner_) localCallOwner_ = xTaskGetCurrentTaskHandle();
+    if (handleQueuedLocalCall_()) {
+        delayNextCycle(pdMS_TO_TICKS(1));
+        return;
+    }
     if (!manifestMetadata_) {
         delayNextCycle(pdMS_TO_TICKS(60));
         return;
