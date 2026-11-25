@@ -5,6 +5,7 @@
  */
 
 #include <stdint.h>
+#include <math.h>
 #include "PoolOperatingMode.h"
 
 enum class PoolDisinfectionMethod : uint8_t {
@@ -74,6 +75,15 @@ struct PoolWaterTemperaturePublicationPolicy {
 constexpr bool poolWaterTemperatureCanPublish(bool circulationOnly, bool filtrationOn, bool flowPositive)
 {
     return !circulationOnly || filtrationOn || flowPositive;
+}
+
+/** Ignore missing, invalid, zero and stale flow values; 10 seconds is a generous
+ * limit for the one-second pulse-rate integration window. */
+inline bool poolFreshPositiveFlow(bool configured, bool sampleValid, double value,
+                                  uint64_t sampleMs, uint64_t nowMs)
+{
+    return configured && sampleValid && isfinite(value) && value > 0.0 &&
+           sampleMs != 0 && nowMs >= sampleMs && (nowMs - sampleMs) <= 10000ULL;
 }
 
 /** Effective PoolLogic device assignments, read after configuration is loaded. */
