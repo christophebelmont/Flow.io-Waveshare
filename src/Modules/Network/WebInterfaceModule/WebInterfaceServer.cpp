@@ -92,6 +92,8 @@ struct LocalUpgradeImageContext {
     size_t total = 0U;
     uint32_t chunks = 0U;
     uint32_t maxWriteMs = 0U;
+    uint32_t slowChunks = 0U;
+    uint32_t lastSlowWarningMs = 0U;
     char error[144]{};
 };
 
@@ -8274,12 +8276,13 @@ void WebInterfaceModule::startServer_()
                 }
                 auto* context = static_cast<LocalUpgradeImageContext*>(request->_tempObject);
                 if (!context || !context->ok) {
-                    LOGW("[OTA-ZIP-HTTP] image_failed target=%u txn=%lu received=%lu total=%lu chunks=%lu elapsed_ms=%lu max_write_ms=%lu reason=%s",
+                    LOGW("[OTA-ZIP-HTTP] image_failed target=%u txn=%lu received=%lu total=%lu chunks=%lu slow=%lu elapsed_ms=%lu max_write_ms=%lu reason=%s",
                          context ? (unsigned)context->target : 0U,
                          context ? (unsigned long)context->transactionId : 0UL,
                          context ? (unsigned long)context->received : 0UL,
                          context ? (unsigned long)context->total : 0UL,
                          context ? (unsigned long)context->chunks : 0UL,
+                         context ? (unsigned long)context->slowChunks : 0UL,
                          context ? (unsigned long)(millis() - context->startedAtMs) : 0UL,
                          context ? (unsigned long)context->maxWriteMs : 0UL,
                          context && context->error[0] ? context->error : "upload context missing");
@@ -8306,6 +8309,7 @@ void WebInterfaceModule::startServer_()
                 const size_t received = context->received;
                 const size_t total = context->total;
                 const uint32_t chunks = context->chunks;
+                const uint32_t slowChunks = context->slowChunks;
                 const uint32_t maxWriteMs = context->maxWriteMs;
                 const uint32_t startedAtMs = context->startedAtMs;
                 delete context;
@@ -8330,10 +8334,10 @@ void WebInterfaceModule::startServer_()
                     request->send(409, "application/json", response);
                     return;
                 }
-                LOGI("[OTA-ZIP-HTTP] image_verified target=%u txn=%lu bytes=%lu/%lu chunks=%lu elapsed_ms=%lu verify_ms=%lu max_write_ms=%lu",
+                LOGI("[OTA-ZIP-HTTP] image_verified target=%u txn=%lu bytes=%lu/%lu chunks=%lu slow=%lu elapsed_ms=%lu verify_ms=%lu max_write_ms=%lu",
                      (unsigned)requestTarget, (unsigned long)transactionId,
                      (unsigned long)received, (unsigned long)total,
-                     (unsigned long)chunks,
+                     (unsigned long)chunks, (unsigned long)slowChunks,
                      (unsigned long)(millis() - startedAtMs),
                      (unsigned long)(millis() - verifyStartMs),
                      (unsigned long)maxWriteMs);
@@ -8421,10 +8425,17 @@ void WebInterfaceModule::startServer_()
                     }
                 }
                 if (writeMs >= 300U) {
-                    LOGW("[OTA-ZIP-HTTP] slow_callback target=%u txn=%lu offset=%lu len=%lu wait_ms=%lu",
-                         (unsigned)target, (unsigned long)context->transactionId,
-                         (unsigned long)index, (unsigned long)len,
-                         (unsigned long)writeMs);
+                    ++context->slowChunks;
+                    const uint32_t nowMs = millis();
+                    if (context->lastSlowWarningMs == 0U ||
+                        uint32_t(nowMs - context->lastSlowWarningMs) >= 5000U) {
+                        context->lastSlowWarningMs = nowMs;
+                        LOGW("[OTA-ZIP-HTTP] slow_callback target=%u txn=%lu offset=%lu len=%lu wait_ms=%lu count=%lu",
+                             (unsigned)target, (unsigned long)context->transactionId,
+                             (unsigned long)index, (unsigned long)len,
+                             (unsigned long)writeMs,
+                             (unsigned long)context->slowChunks);
+                    }
                 }
                 if (!context->ok) {
                     LOGW("[OTA-ZIP-HTTP] chunk refused target=%u txn=%lu offset=%lu len=%lu total=%lu reason=%s",

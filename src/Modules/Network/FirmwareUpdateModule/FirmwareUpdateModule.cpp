@@ -2638,8 +2638,13 @@ bool FirmwareUpdateModule::dispatchLocalCall_(const LocalCall& call,
     const uint32_t roundTripMs = millis() - requestAtMs;
     // Most ZIP chunks are about 1.4KiB; logging each one would saturate
     // WebSocket logs and make the original AsyncTCP timing problem worse.
+    const uint32_t rpcNowMs = millis();
+    const bool slowRpc = roundTripMs >= 300U &&
+        (localSlowRpcLastLogMs_ == 0U ||
+         uint32_t(rpcNowMs - localSlowRpcLastLogMs_) >= 5000U);
+    if (slowRpc) localSlowRpcLastLogMs_ = rpcNowMs;
     if (call.kind != LocalCallKind::WriteImage || !localCallResult_ ||
-        roundTripMs >= 300U) {
+        slowRpc) {
         LOGI("[OTA-ZIP-RPC] reply action=%u txn=%lu target=%u offset=%lu len=%lu ok=%u rtt_ms=%lu internal=%lu psram=%lu reason=%s",
              (unsigned)call.kind, (unsigned long)call.transactionId,
              (unsigned)call.target, (unsigned long)call.offset,
@@ -2702,8 +2707,13 @@ bool FirmwareUpdateModule::handleQueuedLocalCall_()
     }
     const bool ok = executeLocalCall_(pending);
     const uint32_t workerMs = millis() - workerStartMs;
+    const uint32_t workerNowMs = millis();
+    const bool slowWorker = workerMs >= 250U &&
+        (localSlowWorkerLastLogMs_ == 0U ||
+         uint32_t(workerNowMs - localSlowWorkerLastLogMs_) >= 5000U);
+    if (slowWorker) localSlowWorkerLastLogMs_ = workerNowMs;
     if (pending.kind != LocalCallKind::WriteImage || !ok ||
-        pending.offset == 0U || workerMs >= 250U) {
+        pending.offset == 0U || slowWorker) {
         LOGI("[OTA-ZIP-WORK] end action=%u txn=%lu target=%u offset=%lu ok=%u elapsed_ms=%lu stage=%u stack=%u internal=%lu largest=%lu psram=%lu reason=%s",
              (unsigned)pending.kind, (unsigned long)pending.transactionId,
              (unsigned)pending.target, (unsigned long)pending.offset,

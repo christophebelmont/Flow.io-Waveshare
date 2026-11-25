@@ -236,6 +236,10 @@ private:
     bool localCallResult_ = false;
     // fwupdate-task-only rate limit for idle ZIP transaction warnings.
     uint32_t localReleaseLastIdleDiagMs_ = 0U;
+    // Rate limits for anomalously slow WriteImage callbacks. Ordinary chunks
+    // are still summarized every 256 KiB, without one log per TCP segment.
+    uint32_t localSlowRpcLastLogMs_ = 0U;    // submitter task, localCallMutex_
+    uint32_t localSlowWorkerLastLogMs_ = 0U; // fwupdate worker only
 
     StaticSemaphore_t localReleaseMutexStorage_{};
     SemaphoreHandle_t localReleaseMutex_ = nullptr;
