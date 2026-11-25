@@ -3508,14 +3508,42 @@
 
     function upgradeUsesReconnect(target) {
       const key = String(target || '').trim().toLowerCase();
-      return key === 'flowios3' || key === 'esp32s3' || key === 'waveshare' || key === 'spiffs' || key === 'nextion';
+      return key === 'flowios3' || key === 'esp32s3' || key === 'waveshare' || key === 'spiffs' || key === 'nextion' || key === 'release';
     }
 
     function upgradeIsPairedTarget(target) {
       return ['flowios3', 'waveshare', 'esp32s3'].includes(String(target || '').trim().toLowerCase());
     }
 
+    function upgradeIsZipTarget(target) {
+      return String(target || '').trim().toLowerCase() === 'release';
+    }
+    function upgradeHasDetailedStages(target) {
+      return upgradeIsPairedTarget(target) || upgradeIsZipTarget(target);
+    }
+
     function upgradeStepDefinitions(target) {
+      if (upgradeIsZipTarget(target)) {
+        // The browser opens ZIP; each image is staged and SHA-verified in
+        // PSRAM BEFORE inactive Flash erase/write/readback.
+        return [
+          { id: 'zip-0', label: tr('updates.zipStage.prepare', 'Préparation du ZIP') },
+          { id: 'zip-1', label: tr('updates.zipStage.manifest', 'Lecture du manifeste ZIP') },
+          { id: 'zip-2', label: tr('updates.zipStage.receiveSpiffs', 'Réception SPIFFS en PSRAM') },
+          { id: 'zip-3', label: tr('updates.zipStage.verifyRamSpiffs', 'SHA-256 SPIFFS en PSRAM') },
+          { id: 'zip-4', label: tr('updates.zipStage.prepareSpiffs', 'Préparation Flash SPIFFS') },
+          { id: 'zip-5', label: tr('updates.zipStage.writeSpiffs', 'Écriture SPIFFS en Flash') },
+          { id: 'zip-6', label: tr('updates.zipStage.verifySpiffs', 'Relecture et SHA-256 SPIFFS en Flash') },
+          { id: 'zip-7', label: tr('updates.zipStage.receiveFirmware', 'Réception firmware en PSRAM') },
+          { id: 'zip-8', label: tr('updates.zipStage.verifyRamFirmware', 'SHA-256 firmware en PSRAM') },
+          { id: 'zip-9', label: tr('updates.zipStage.prepareFirmware', 'Préparation Flash firmware') },
+          { id: 'zip-10', label: tr('updates.zipStage.writeFirmware', 'Écriture firmware en Flash') },
+          { id: 'zip-11', label: tr('updates.zipStage.verifyFirmware', 'Relecture et SHA-256 firmware en Flash') },
+          { id: 'zip-12', label: tr('updates.zipStage.activate', 'Activation des partitions A/B') },
+          { id: 'zip-13', label: tr('updates.zipStage.reboot', 'Redémarrage Flow.IO') },
+          { id: 'zip-14', label: tr('updates.zipStage.reconnect', 'Reconnexion et validation') }
+        ];
+      }
       if (upgradeIsPairedTarget(target)) {
         // PSRAM OTA downloads and flash writes are distinct, independently
         // measured phases for each image. The low-memory streaming fallback
@@ -3548,13 +3576,28 @@
     }
 
     function upgradePairedOtaStageIndex(session) {
-      if (!upgradeIsPairedTarget(session && session.target)) return null;
+      const isZip = String(session && session.target || '').trim().toLowerCase() === 'release';
+      if (!isZip && !upgradeIsPairedTarget(session && session.target)) return null;
       const phase = String(session && session.phase || 'idle');
       const stage = String(session && session.otaBackendStage || '').trim().toLowerCase();
       const msg = String(session && session.backendMessage || '').trim().toLowerCase();
       if (phase === 'target') return 0;
       if (phase === 'reboot') return 13;
       if (phase === 'reconnect' || phase === 'done') return 14;
+      if (isZip) {
+        const zipStages = {
+          zip_prepare: 0, zip_manifest: 1,
+          zip_spiffs_receive: 2, zip_spiffs_ram_verify: 3,
+          zip_spiffs_prepare: 4, zip_spiffs_flash: 5,
+          zip_spiffs_readback: 6, zip_spiffs_verified: 6,
+          zip_firmware_receive: 7, zip_firmware_ram_verify: 8,
+          zip_firmware_prepare: 9, zip_firmware_flash: 10,
+          zip_firmware_readback: 11, zip_firmware_verified: 11,
+          zip_activate: 12
+        };
+        if (Object.prototype.hasOwnProperty.call(zipStages, stage)) return zipStages[stage];
+        return phase === 'download' || phase === 'flash' ? 1 : null;
+      }
       // Prefer the explicit firmware stage, not the generic HTTPClient state:
       // an image may download and then flash in the same paired OTA operation.
       const stages = {
@@ -3599,7 +3642,9 @@
       if (index === null || !defs[index]) return tr('updates.otaStage.generic', 'Transfert OTA en cours');
       const label = defs[index].label;
       const progressKeys = ['spiffs_download', 'spiffs_write', 'spiffs_stream',
-        'firmware_download', 'firmware_write', 'firmware_stream'];
+        'firmware_download', 'firmware_write', 'firmware_stream',
+        'zip_spiffs_receive', 'zip_spiffs_flash', 'zip_spiffs_readback',
+        'zip_firmware_receive', 'zip_firmware_flash', 'zip_firmware_readback'];
       const text = progressKeys.includes(stage)
         ? label + ' · ' + Math.max(0, Math.min(100, Number(stageProgress) || 0)) + '%'
         : label;
@@ -3610,7 +3655,7 @@
     }
 
     function upgradePairedOtaStageText(session) {
-      if (!upgradeIsPairedTarget(session && session.target)) return '';
+      if (!upgradeHasDetailedStages(session && session.target)) return '';
       const phase = String(session && session.phase || 'idle');
       if (phase === 'idle' || phase === 'error') return '';
       const index = upgradePairedOtaStageIndex(session);
@@ -3637,7 +3682,7 @@
     function upgradePhaseTitle(session) {
       const phase = String(session && session.phase ? session.phase : 'idle');
       if (phase === 'target') return tr('updates.title.target', 'Préparation de la mise à jour');
-      if (upgradeIsPairedTarget(session && session.target) &&
+      if (upgradeHasDetailedStages(session && session.target) &&
           (phase === 'download' || phase === 'flash')) {
         const index = upgradePairedOtaStageIndex(session);
         const stages = upgradeStepDefinitions(session.target);
@@ -3658,7 +3703,7 @@
 
     function upgradeProgressHintText(session, targetLabel) {
       const phase = String(session && session.phase ? session.phase : 'idle');
-      if (upgradeIsPairedTarget(session && session.target)) {
+      if (upgradeHasDetailedStages(session && session.target)) {
         if (phase === 'flash' || phase === 'reboot') return tr('updates.hint.flash', 'Ne coupez pas l’alimentation.');
         if (phase === 'reconnect') return tr('updates.hint.reconnect', 'Cette page se rafraîchit automatiquement.');
         return '';
@@ -3707,7 +3752,7 @@
           (phase === 'download' || phase === 'flash')) {
         return Math.max(0, Math.min(96, progress));
       }
-      if (upgradeIsPairedTarget(session && session.target) &&
+      if (upgradeHasDetailedStages(session && session.target) &&
           (phase === 'download' || phase === 'flash')) {
         const index = upgradePairedOtaStageIndex(session);
         if (index !== null) {
@@ -3715,7 +3760,9 @@
           // or flash-write phase advances by its OWN byte percentage.
           const key = String(session && session.otaBackendStage || '');
           const moving = ['spiffs_download', 'spiffs_write', 'spiffs_stream',
-            'firmware_download', 'firmware_write', 'firmware_stream'].includes(key);
+            'firmware_download', 'firmware_write', 'firmware_stream',
+            'zip_spiffs_receive', 'zip_spiffs_flash', 'zip_spiffs_readback',
+            'zip_firmware_receive', 'zip_firmware_flash', 'zip_firmware_readback'].includes(key);
           const phaseProgress = moving
             ? Math.max(0, Math.min(100, Number(session.otaBackendStepProgress) || 0)) / 100
             : 0;
@@ -3742,11 +3789,14 @@
     function upgradeStepProgress(stepId, state, session) {
       if (state === 'done') return 100;
       // Paired OTA dots display the image-local HTTP / flash percentage.
-      if (String(stepId || '').startsWith('ota-')) {
+      if (String(stepId || '').startsWith('ota-') ||
+          String(stepId || '').startsWith('zip-')) {
         if (state !== 'active') return null;
         const stage = String(session && session.otaBackendStage || '');
         if (['spiffs_download', 'spiffs_write', 'spiffs_stream',
-             'firmware_download', 'firmware_write', 'firmware_stream'].includes(stage)) {
+             'firmware_download', 'firmware_write', 'firmware_stream',
+             'zip_spiffs_receive', 'zip_spiffs_flash', 'zip_spiffs_readback',
+             'zip_firmware_receive', 'zip_firmware_flash', 'zip_firmware_readback'].includes(stage)) {
           return Math.max(0, Math.min(100, Number(session.otaBackendStepProgress) || 0));
         }
         return null;
@@ -3785,7 +3835,9 @@
 
     function upgradeStepState(stepId, session) {
       const phase = String(session && session.phase ? session.phase : 'idle');
-      if (String(stepId || '').startsWith('ota-') && upgradeIsPairedTarget(session && session.target)) {
+      if ((String(stepId || '').startsWith('ota-') ||
+           String(stepId || '').startsWith('zip-')) &&
+          upgradeHasDetailedStages(session && session.target)) {
         if (phase === 'idle') return 'pending';
         if (phase === 'done') return 'done';
         const stepIndex = Number(stepId.slice(4));
@@ -3870,7 +3922,7 @@
         upgradeStageDetail.hidden = !stageText;
       }
       if (upgradeProgressPanel) {
-        upgradeProgressPanel.classList.toggle('is-paired', upgradeIsPairedTarget(safeSession.target));
+        upgradeProgressPanel.classList.toggle('is-paired', upgradeHasDetailedStages(safeSession.target));
         const progressVisible = phase === 'target' || phase === 'download' || phase === 'flash'
           || phase === 'reboot' || phase === 'reconnect' || phase === 'error';
         upgradeProgressPanel.hidden = !progressVisible;
