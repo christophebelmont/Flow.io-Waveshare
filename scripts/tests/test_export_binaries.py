@@ -191,6 +191,41 @@ class ReleasePackageTests(unittest.TestCase):
                 globals_["_project_dir"] = original_project_dir
                 globals_["zipfile"] = original_zipfile
 
+    def test_firmware_build_fails_without_both_remote_manifests(self):
+        verify = MODULE["_assert_complete_release"]
+        globals_ = verify.__globals__
+        original_binary_dir = globals_["_binary_dir"]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir)
+            for name in (
+                "flowios3-2.0.1.bin",
+                "flowios3-spiffs-2.0.1.bin",
+                "flowio-2.0.1.zip",
+            ):
+                (output / name).write_bytes(b"test")
+            globals_["_binary_dir"] = lambda: output
+            try:
+                with self.assertRaisesRegex(RuntimeError, "INCOMPLETE OTA RELEASE"):
+                    verify("2.0.1")
+
+                manifest = {
+                    "version": "2.0.1",
+                    "firmware": {"file": "flowios3-2.0.1.bin"},
+                    "filesystem": {"file": "flowios3-spiffs-2.0.1.bin"},
+                }
+                content = json.dumps(manifest) + "\n"
+                (output / "flowio-release-2.0.1.json").write_text(content, encoding="utf-8")
+                with self.assertRaisesRegex(RuntimeError, "INCOMPLETE OTA RELEASE"):
+                    verify("2.0.1")
+                (output / "release.json").write_text(content, encoding="utf-8")
+                verify("2.0.1")
+                manifest["filesystem"]["file"] = "wrong-spiffs.bin"
+                (output / "release.json").write_text(json.dumps(manifest), encoding="utf-8")
+                with self.assertRaisesRegex(RuntimeError, "invalid remote OTA release manifest"):
+                    verify("2.0.1")
+            finally:
+                globals_["_binary_dir"] = original_binary_dir
+
     def test_wrong_filesystem_size_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             output = Path(temp_dir)
