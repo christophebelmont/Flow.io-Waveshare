@@ -264,6 +264,7 @@ private:
     bool redrawRequested_ = true;
     bool splashHeld_ = false;
     bool updateScreenActive_ = false;
+    bool updateLastWasZip_ = false; // preserve ZIP steps through cleared reboot stage
     bool updateLastEnglish_ = false;
     FirmwareUpdateDisplayState updateLastState_ = FirmwareUpdateDisplayState::Idle;
     FirmwareUpdateTarget updateLastTarget_ = FirmwareUpdateTarget::Waveshare;

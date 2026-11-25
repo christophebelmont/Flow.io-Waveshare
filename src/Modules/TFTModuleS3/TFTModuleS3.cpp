@@ -650,9 +650,13 @@ void TFTModuleS3::loop()
                                   update.operationId != updateLastOperation_ ||
                                   update.target != updateLastTarget_;
         if (newOperation) {
+            updateLastWasZip_ = false;
             updateCompletedStage_[0] = '\0';
             updateLastStage_[0] = '\0';
             updateLastPercent_ = 255U;
+        }
+        if (strncmp(update.stage, "zip_", 4U) == 0) {
+            updateLastWasZip_ = true;
         }
         const bool english = localeSvc_ && localeSvc_->language &&
             tft_update::isEnglish(localeSvc_->language(localeSvc_->ctx));
@@ -1150,12 +1154,13 @@ void TFTModuleS3::renderUpdate_(const FirmwareUpdateDisplaySnapshot& u,
     const uint16_t white = rgb565_(241, 248, 255);
     const uint16_t track = rgb565_(26, 43, 61);
     const bool nextion = u.target == FirmwareUpdateTarget::Nextion;
+    const bool zipUpdate = !nextion && updateLastWasZip_;
     const bool error = u.state == FirmwareUpdateDisplayState::Error;
     const bool done = u.state == FirmwareUpdateDisplayState::Done;
     const bool queued = u.state == FirmwareUpdateDisplayState::Queued;
     const bool rebooting = u.state == FirmwareUpdateDisplayState::Rebooting;
     const tft_update::Text stage = tft_update::steps(nextion, u.stage, english,
-                                                    queued, rebooting);
+                                                    queued, rebooting, zipUpdate);
     constexpr int16_t bx = 12, by = 103, bh = 17;
     const int16_t bw = w - 24;
 
@@ -1188,7 +1193,8 @@ void TFTModuleS3::renderUpdate_(const FirmwareUpdateDisplaySnapshot& u,
             (english ? "UPDATE FAILED" : "ECHEC DE LA MAJ") :
             done ? (english ? "UPDATE COMPLETE" : "MISE A JOUR OK") :
             nextion ? (english ? "NEXTION UPDATE" : "MISE A JOUR NEXTION") :
-                      (english ? "FIRMWARE + SPIFFS" : "MISE A JOUR OTA");
+            zipUpdate ? "ZIP FIRMWARE + SPIFFS" :
+                        (english ? "FIRMWARE + SPIFFS" : "MISE A JOUR OTA");
         setGfxFont_(&FreeSansBold9pt7b, error ? red : cyan, dark);
         const int16_t titleW = gfxTextWidth_(title);
         display_.setCursor((w - titleW) / 2, 91);
@@ -1286,7 +1292,7 @@ void TFTModuleS3::renderUpdate_(const FirmwareUpdateDisplaySnapshot& u,
         // Previous completed stage; the green tick means VERIFIED transition.
         if (updateCompletedStage_[0] && !error) {
             const tft_update::Text completed = tft_update::steps(
-                nextion, updateCompletedStage_, english);
+                nextion, updateCompletedStage_, english, false, false, zipUpdate);
             display_.drawLine(12, 154, 16, 159, color_(green));
             display_.drawLine(16, 159, 25, 149, color_(green));
             drawBounded(completed.current, 32, 162,
