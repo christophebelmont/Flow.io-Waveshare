@@ -5383,6 +5383,21 @@
         }
         const query = '?transaction_id=' + encodeURIComponent(String(transactionId));
         console.info('[OTA-ZIP-BROWSER] transaction_started', transactionId);
+        // The ZIP transaction ID is not the persisted OTA operation ID.
+        // Save the latter before the first image upload so the post-reboot
+        // success receipt can be matched, including after a page reload.
+        const beginStatus = await fetchUpgradeReconnectHeartbeat();
+        const zipOperationId = Number(beginStatus && beginStatus.operation_id);
+        if (!Number.isSafeInteger(zipOperationId) || zipOperationId <= 0 ||
+            beginStatus.ok !== true || !beginStatus.busy) {
+          throw new Error('identifiant de suivi OTA ZIP indisponible');
+        }
+        updateUpgradeUiSession({
+          operationId: zipOperationId,
+          bootId: Number(beginStatus.boot_id) || 0
+        });
+        console.info('[OTA-ZIP-BROWSER] operation_linked',
+                     'txn=' + transactionId, 'op=' + zipOperationId);
         setZipUiStage('zip_manifest', 100);
         setZipUiStage('zip_spiffs_receive', 0);
         await uploadReleaseBlob('/api/upgrade/filesystem' + query, filesystem, (progress) => {
