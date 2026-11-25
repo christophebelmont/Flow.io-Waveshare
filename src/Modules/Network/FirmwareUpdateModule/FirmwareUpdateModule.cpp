@@ -2642,6 +2642,45 @@ bool FirmwareUpdateModule::flashStagedLocalImage_()
         failLocalRelease_("ZIP verified image Flash write failed");
         return false;
     }
+    // The firmware OTA handle must be finalized before read-back. SPIFFS
+    // requires no handle. Never mark the image Verified until the actual
+    // inactive partition contents match manifest.json byte-for-byte by SHA.
+    if (!fs) {
+        err = esp_ota_end(localRelease_.otaHandle);
+        localRelease_.otaHandle = 0;
+        if (err != ESP_OK) {
+            LOGE("[OTA-ZIP-PSRAM] firmware_validation_failed txn=%lu err=%d",
+                 (unsigned long)txn, (int)err);
+            failLocalRelease_("ZIP verified firmware candidate rejected");
+            return false;
+        }
+    }
+    mbedtls_sha256_context readbackSha{};
+    mbedtls_sha256_init(&readbackSha);
+    bool readbackOk = mbedtls_sha256_starts(&readbackSha, 0) == 0;
+    uint8_t digest[32]{};
+    for (size_t offset = 0U; readbackOk && offset < total; offset += sizeof(chunk)) {
+        const size_t count = total - offset < sizeof(chunk)
+                                 ? total - offset : sizeof(chunk);
+        err = esp_partition_read(localRelease_.writePartition, offset, chunk, count);
+        if (err != ESP_OK || mbedtls_sha256_update(&readbackSha, chunk, count) != 0) {
+            readbackOk = false;
+            break;
+        }
+        if ((offset & ((32U * 1024U) - 1U)) == 0U) vTaskDelay(1);
+    }
+    if (readbackOk) readbackOk = mbedtls_sha256_finish(&readbackSha, digest) == 0;
+    mbedtls_sha256_free(&readbackSha);
+    const LocalImageManifest& expected = fs ? localRelease_.filesystem
+                                            : localRelease_.firmware;
+    readbackOk = readbackOk && sha256Matches_(digest, expected.sha256);
+    LOGI("[OTA-ZIP-PSRAM] flash_readback_sha256 txn=%lu target=%u ok=%u bytes=%lu",
+         (unsigned long)txn, (unsigned)target, readbackOk ? 1U : 0U,
+         (unsigned long)total);
+    if (!readbackOk) {
+        failLocalRelease_("ZIP Flash read-back SHA-256 mismatch");
+        return false;
+    }
     if (fs) {
         if (!candidateFilesystemIsValid_(
                 ReleaseStorage::filesystemLabel(localRelease_.targetSlot),
@@ -2651,14 +2690,6 @@ bool FirmwareUpdateModule::flashStagedLocalImage_()
         }
         localRelease_.stage = LocalReleaseStage::FilesystemVerified;
     } else {
-        err = esp_ota_end(localRelease_.otaHandle);
-        localRelease_.otaHandle = 0;
-        if (err != ESP_OK) {
-            LOGE("[OTA-ZIP-PSRAM] firmware_validation_failed txn=%lu err=%d",
-                 (unsigned long)txn, (int)err);
-            failLocalRelease_("ZIP verified firmware candidate rejected");
-            return false;
-        }
         localRelease_.stage = LocalReleaseStage::FirmwareVerified;
     }
     // Free before the browser is permitted to begin uploading the next image.
