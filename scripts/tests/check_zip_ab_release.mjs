@@ -65,6 +65,18 @@ has(updater, 'failLocalRelease_("release image sha256 mismatch")', "both image S
 has(updater, "candidateFilesystemIsValid_(", "candidate SPIFFS validation");
 has(updater, "localRelease_.stage != LocalReleaseStage::FirmwareVerified", "require both images verified");
 has(updater, "esp_ota_set_boot_partition(target)", "activate new boot partition");
+has(updater, "OTA_WITH_SEQUENTIAL_WRITES", "ZIP defers firmware erase until write");
+has(updater, "incrementalErase = !remotePaired", "only local ZIP uses incremental erase");
+has(updater, 'incrementalErase ? "incremental" : "upfront"', "erase strategy diagnostic");
+const beginImageStart = updater.indexOf("bool FirmwareUpdateModule::beginLocalImage_(");
+const beginImageEnd = updater.indexOf("bool FirmwareUpdateModule::writeLocalImage_(", beginImageStart);
+const beginImageCode = updater.slice(beginImageStart, beginImageEnd);
+has(beginImageCode, "const bool remotePaired = remoteReleaseWorker_ != nullptr", "remote paired OTA stays distinct");
+has(beginImageCode, "flashError = esp_ota_begin(localRelease_.writePartition,", "SDK OTA initialization retained");
+has(beginImageCode, "otaBeginSize, &localRelease_.otaHandle)", "select incremental vs upfront");
+assert.ok(!beginImageCode.includes("esp_ota_begin(localRelease_.writePartition, totalSize, &localRelease_.otaHandle)"),
+          "local ZIP no longer triggers a full synchronous erase");
+
 has(updater, "localRelease_.rebootPending = true;", "schedule single reboot");
 has(release, "esp_ota_mark_app_invalid_rollback_and_reboot()", "post-boot rollback");
 has(bootstrap, "ReleaseStorage::confirmPendingApplication()", "confirm only after module startup");

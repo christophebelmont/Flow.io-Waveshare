@@ -83,3 +83,20 @@ pio run -e Flowio-waveshare-esp32-s3
 The Node tests cover source contracts and scheduling simulations, not an
 ESP32 hardware flash or actual TCP transfer. A successful PlatformIO build and
 one full ZIP + OTA recovery sequence are still required.
+
+## 25 November — firmware upload socket reset after 4s erase
+
+For local ZIP txn `1552688753`, the browser reported `ERR_CONNECTION_RESET`
+after ~4.17 s uploading the firmware; the OTA module's initial
+`esp_ota_begin(partition, totalSize, ...)` occupied 3.998 s. A previous ZIP
+txn `4022852754` had the same ~3.993 s delay but succeeded. This is an
+intermittent timing / AsyncTCP callback stall, not a SHA mismatch.
+
+Local ZIP firmware uploads now use `OTA_WITH_SEQUENTIAL_WRITES` with
+`esp_ota_begin`, moving erase work to subsequent sequential writes and
+avoiding the 4-second HTTP callback stall. The remote PSRAM A/B OTA keeps
+the earlier `totalSize` behavior. SHA-256, exact image length, inactive
+partition checks, `esp_ota_end`, commit and abort cleanup remain unchanged.
+
+Next hardware trace: `[OTA-ZIP-PHASE] app_erase_strategy ... mode=incremental`
+and `[OTA-ZIP-HTTP] image_begin_ok ... elapsed_ms=...`.

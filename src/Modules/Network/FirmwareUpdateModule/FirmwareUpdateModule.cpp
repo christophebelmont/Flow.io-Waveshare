@@ -2985,6 +2985,8 @@ bool FirmwareUpdateModule::beginLocalImage_(uint32_t transactionId,
          (unsigned long)transactionId, (unsigned)target,
          (unsigned long)totalSize, label);
     esp_err_t flashError = ESP_OK;
+    const bool remotePaired = remoteReleaseWorker_ != nullptr &&
+                              remoteReleaseWorker_ == xTaskGetCurrentTaskHandle();
     if (filesystemTarget) {
         // Erase the inactive SPIFFS in bounded chunks. This path serves both
         // local and remote paired releases, so never monopolize the Wi-Fi CPU.
@@ -3000,7 +3002,19 @@ bool FirmwareUpdateModule::beginLocalImage_(uint32_t transactionId,
             vTaskDelay(1);
         }
     } else {
-        flashError = esp_ota_begin(localRelease_.writePartition, totalSize, &localRelease_.otaHandle);
+        // AsyncTCP must not wait ~4 seconds for a full partition erase.
+        // ESP-IDF incremental mode erases Flash while sequential OTA chunks
+        // are written. Remote PSRAM paired OTA retains its verified behavior.
+        const bool incrementalErase = !remotePaired;
+        const size_t otaBeginSize = incrementalErase
+            ? static_cast<size_t>(OTA_WITH_SEQUENTIAL_WRITES)
+            : totalSize;
+        LOGI("[OTA-ZIP-PHASE] app_erase_strategy txn=%lu mode=%s requested_size=%lu",
+             (unsigned long)transactionId,
+             incrementalErase ? "incremental" : "upfront",
+             (unsigned long)totalSize);
+        flashError = esp_ota_begin(localRelease_.writePartition,
+                                   otaBeginSize, &localRelease_.otaHandle);
     }
     if (flashError != ESP_OK) {
         failLocalRelease_("failed to initialize target partition");
@@ -3017,8 +3031,6 @@ bool FirmwareUpdateModule::beginLocalImage_(uint32_t transactionId,
     localRelease_.lastActivityMs = millis();
     localRelease_.stage = filesystemTarget ? LocalReleaseStage::WritingFilesystem
                                            : LocalReleaseStage::WritingFirmware;
-    const bool remotePaired = remoteReleaseWorker_ != nullptr &&
-                              remoteReleaseWorker_ == xTaskGetCurrentTaskHandle();
     portENTER_CRITICAL(&lock_);
     if (remotePaired) {
         activeTotalBytes_ = localRelease_.filesystem.size + localRelease_.firmware.size;
