@@ -46,6 +46,8 @@ assert.ok(!renderer.includes("kColorBg"),"update must use black-only background"
 assert.ok(renderer.includes("rgb565_(0, 0, 0)"),"black background");
 assert.ok(renderer.includes("96, 46, false"),"compact pictogram");
 assert.ok(renderer.includes("69, 19, true"),"compact wordmark");
+assert.ok(cpp.includes("update.operationId == updateDismissedOperation_"),"persistent terminal result must not reopen update screen");
+assert.ok(cpp.includes("updateDismissedOperation_ = update.operationId"),"terminal expiration must mark operation as dismissed");
 assert.ok(fw.includes('setOtaStage_("nextion_upload"'));
 assert.ok(fw.includes('setOtaStage_("activate"'));
 console.log("PASS: TFT OTA/Nextion stage labels, bilingual display, bounded redraw, no worker-side drawing");
