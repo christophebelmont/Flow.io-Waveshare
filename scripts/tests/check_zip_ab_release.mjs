@@ -128,7 +128,7 @@ has(updater, "const bool foreignLocalRpc = localCallInFlight_", "pending ZIP exc
 has(updater, "if (localCallPending_) {", "timeout cancellation before worker takes request");
 has(updater, "xSemaphoreTake(localCallDone_, portMAX_DELAY)", "never free request buffer while worker uses it");
 const loopIndex = updater.indexOf("void FirmwareUpdateModule::loop()");
-const loopHead = updater.slice(loopIndex, loopIndex + 420);
+const loopHead = updater.slice(loopIndex, loopIndex + 1200);
 has(loopHead, "handleQueuedLocalCall_()", "fwupdate task handles local ZIP");
 assert.ok(loopHead.indexOf("handleQueuedLocalCall_()") <
           loopHead.indexOf("if (!manifestMetadata_)"), "worker callbacks before updater idle returns");

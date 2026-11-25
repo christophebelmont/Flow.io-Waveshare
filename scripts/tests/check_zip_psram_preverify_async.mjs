@@ -98,7 +98,7 @@ before(zip, "await waitForZipImageFlash(transactionId, 'firmware')", "fetchOkJso
        "commit only after firmware Flash success");
 has(policy, "constexpr size_t kReserveBytes = 2U * 1024U * 1024U", "2 MiB safety reserve");
 has(fw, "esp_ota_set_boot_partition(target)", "A/B activation unchanged");
-has(fw, "localRelease_.targetSlot = ", "slot setup"); // may be set by candidate instead
+has(fw, "candidate.targetSlot = ReleaseStorage::inactiveSlot()", "slot setup");
 
 const MiB = 1024 * 1024;
 class SimulatedZip {
