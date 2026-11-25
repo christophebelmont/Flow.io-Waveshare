@@ -50,7 +50,7 @@ for (const tag of [
   "[OTA-ZIP-HTTP] image_progress",
   "[OTA-ZIP-HTTP] slow_callback",
   "[OTA-ZIP-HTTP] image_failed",
-  "[OTA-ZIP-HTTP] image_verified",
+  "[OTA-ZIP-HTTP] image_staged",
   "[OTA-ZIP-HTTP] verification_failed",
   "[OTA-ZIP-HTTP] commit_ok",
   "[OTA-ZIP-HTTP] commit_failed",
@@ -63,14 +63,16 @@ for (const tag of [
   "[OTA-ZIP-BROWSER] image_start",
   "[OTA-ZIP-BROWSER] upload_progress",
   "[OTA-ZIP-BROWSER] image_end",
-  "[OTA-ZIP-BROWSER] image_verified_response",
+  "[OTA-ZIP-BROWSER] image_staged_response",
   "[OTA-ZIP-BROWSER] xhr_abort",
   "[OTA-ZIP-BROWSER] abort_response",
   "[OTA-ZIP-BROWSER] abort_network_failure",
   "[OTA-ZIP-BROWSER] manifest_accepted",
   "[OTA-ZIP-BROWSER] filesystem_verified",
   "[OTA-ZIP-BROWSER] firmware_verified",
-  "[OTA-ZIP-BROWSER] commit_accepted"
+  "[OTA-ZIP-BROWSER] commit_accepted",
+  "[OTA-ZIP-BROWSER] flash_state",
+  "[OTA-ZIP-BROWSER] flash_verified"
 ]) has(browser, tag, "browser diagnostic");
 
 has(h, "localReleaseLastIdleDiagMs_", "bounded idle watchdog");

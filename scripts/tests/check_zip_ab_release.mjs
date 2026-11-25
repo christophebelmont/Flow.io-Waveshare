@@ -50,6 +50,10 @@ has(server, 'registerLocalImageRoute("/api/upgrade/filesystem", FirmwareUpdateTa
 has(server, 'registerLocalImageRoute("/api/upgrade/firmware", FirmwareUpdateTarget::Waveshare)', "firmware route");
 has(server, "fwUpdateSvc_->writeLocalImage(", "stream write service binding");
 has(server, "fwUpdateSvc_->endLocalImage(", "image SHA validation binding");
+has(server, '"/api/upgrade/image/status"', "asynchronous Flash progress route");
+has(server, 'request->send(202, "application/json"', "upload callback must not wait for Flash");
+has(zip, "await waitForZipImageFlash(transactionId, 'spiffs');", "wait for SPIFFS Flash before firmware");
+has(zip, "await waitForZipImageFlash(transactionId, 'firmware');", "wait for firmware Flash before commit");
 has(server, "fwUpdateSvc_->commitLocalRelease(", "commit binding");
 
 has(release, "gRunningSlot = slotFromPartition(running);", "running slot from running app");
@@ -66,14 +70,15 @@ has(updater, "candidateFilesystemIsValid_(", "candidate SPIFFS validation");
 has(updater, "localRelease_.stage != LocalReleaseStage::FirmwareVerified", "require both images verified");
 has(updater, "esp_ota_set_boot_partition(target)", "activate new boot partition");
 has(updater, "OTA_WITH_SEQUENTIAL_WRITES", "ZIP defers firmware erase until write");
-has(updater, "incrementalErase = !remotePaired", "only local ZIP uses incremental erase");
-has(updater, 'incrementalErase ? "incremental" : "upfront"', "erase strategy diagnostic");
+has(updater, "esp_ota_begin(localRelease_.writePartition,\n                            static_cast<size_t>(OTA_WITH_SEQUENTIAL_WRITES)", "local ZIP uses incremental erase in background");
+has(updater, "[OTA-ZIP-PSRAM] flash_readback_sha256", "post-flash SHA-256 integrity check");
 const beginImageStart = updater.indexOf("bool FirmwareUpdateModule::beginLocalImage_(");
 const beginImageEnd = updater.indexOf("bool FirmwareUpdateModule::writeLocalImage_(", beginImageStart);
 const beginImageCode = updater.slice(beginImageStart, beginImageEnd);
 has(beginImageCode, "const bool remotePaired = remoteReleaseWorker_ != nullptr", "remote paired OTA stays distinct");
 has(beginImageCode, "flashError = esp_ota_begin(localRelease_.writePartition,", "SDK OTA initialization retained");
-has(beginImageCode, "otaBeginSize, &localRelease_.otaHandle)", "select incremental vs upfront");
+has(beginImageCode, "totalSize, &localRelease_.otaHandle)", "remote OTA retains original upfront erase");
+has(beginImageCode, "OtaPsramPolicy::canStageImage(totalSize, freeBytes, largestBlock)", "ZIP PSRAM 2MiB safety reserve");
 assert.ok(!beginImageCode.includes("esp_ota_begin(localRelease_.writePartition, totalSize, &localRelease_.otaHandle)"),
           "local ZIP no longer triggers a full synchronous erase");
 
