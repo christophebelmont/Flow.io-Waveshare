@@ -2405,7 +2405,6 @@
     const appHeaderInfo = document.getElementById('appHeaderInfo');
     const poolHeroState = document.getElementById('poolHeroState');
     const dashGauges = document.getElementById('dashGauges');
-    const dashModes = document.getElementById('dashModes');
     const dashEquip = document.getElementById('dashEquip');
     const dashSondes = document.getElementById('dashSondes');
     const dashSecurity = document.getElementById('dashSecurity');
@@ -9566,7 +9565,6 @@
 
     function dashboardDomainContainers() {
       return {
-        mode: dashModes,
         equipements: dashEquip,
         sondes: dashSondes,
         alarm: dashSecurity
@@ -9609,11 +9607,7 @@
         fragment.appendChild(buildDashboardAlarmCard(state.entries, state.alarmSlots));
         return fragment;
       }
-      // The operating mode is already displayed by the header selector.
-      const entries = domainKey === 'mode'
-        ? state.entries.filter((entry) => entry.key !== 'pool.operating_mode')
-        : state.entries;
-      fragment.appendChild(buildPoolMeasureCards(entries, state.values, {
+      fragment.appendChild(buildPoolMeasureCards(state.entries, state.values, {
         sondeSlots: state.sondeSlots,
         alarmSlots: state.alarmSlots
       }));
@@ -9670,9 +9664,7 @@
     }
 
     function renderPoolMeasuresGrid() {
-      const containers = dashboardDomainContainers();
-      dashboardMeasureDomainKeys().forEach((domainKey) => {
-        const container = containers[domainKey];
+      Object.entries(dashboardDomainContainers()).forEach(([domainKey, container]) => {
         if (!container) return;
         reconcileDashboardMeasureCards(container, buildDashboardDomainFragment(domainKey));
       });

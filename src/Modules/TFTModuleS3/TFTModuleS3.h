@@ -73,27 +73,26 @@ private:
 
     using RuntimeValue = DataValuePresentation;
 
+    struct OverviewStatusRenderState {
+        bool operatingAvailable = false;
+        bool treatmentAvailable = false;
+        PoolOperatingMode operatingMode = PoolOperatingMode::Manual;
+        PoolPhCorrection phCorrection = PoolPhCorrection::Disabled;
+        PoolDisinfectionMethod treatment = PoolDisinfectionMethod::Disabled;
+    };
+
     struct OverviewRenderCache {
         bool valid = false;
         char timeText[16]{};
         char ip[20]{};
         uint8_t wifiBars = 0U;
         bool apMode = false;
-        bool statusAvailable = false;
-        bool autoMode = false;
-        bool phAutoMode = false;
-        bool orpAutoMode = false;
-        bool swgAutoMode = false;
-        bool winterMode = false;
+        OverviewStatusRenderState status{};
     };
 
-    struct OverviewStatusRenderState {
-        bool available = false;
-        bool autoMode = false;
-        bool phAutoMode = false;
-        bool orpAutoMode = false;
-        bool swgAutoMode = false;
-        bool winterMode = false;
+    struct OverviewChoice {
+        const char* label;
+        uint8_t value;
     };
 
     struct DashboardSlotRenderState {
@@ -135,8 +134,10 @@ private:
     void drawStaticLayout_(Page page);
     void drawHeader_(const char* timeText, uint8_t wifiBars, bool apMode);
     void drawOverviewPage_();
-    void drawStatusCard_(int16_t x, int16_t y, int16_t w, int16_t h, uint8_t startSlot, uint8_t count, const OverviewStatusRenderState& state);
-    void drawStatusIndicator_(int16_t cx, int16_t cy, bool on, bool known);
+    void drawOverviewSelectors_(const OverviewStatusRenderState& state);
+    void drawOverviewSelectorRow_(uint8_t row, const OverviewChoice* choices, uint8_t count,
+                                  uint8_t selected, bool available);
+    static bool overviewStatusEquals_(const OverviewStatusRenderState& a, const OverviewStatusRenderState& b);
     void readOverviewStatus_(OverviewStatusRenderState& state) const;
     void drawAlarmCard_(int16_t x, int16_t y, int16_t w, int16_t h, uint8_t startSlot);
     void drawAlarmIndicator_(int16_t cx, int16_t cy, uint16_t fill, bool active);
@@ -175,7 +176,6 @@ private:
     const char* alarmIdLabel_(uint16_t alarmId) const;
     bool readAlarmRuntimeState_(uint16_t alarmId, AlarmSlotRenderState& state) const;
     void loadAlarmMasks_(uint32_t& activeMask, uint32_t& resettableMask, uint32_t& conditionMask) const;
-    bool loadPoolModeFlags_(bool& autoMode, bool& winterMode, bool& phAutoMode, bool& orpAutoMode, bool& swgAutoMode) const;
     uint32_t currentPageCycle_() const;
     static bool dashboardSlotStateEquals_(const DashboardSlotRenderState& a, const DashboardSlotRenderState& b);
     static bool alarmSlotStateEquals_(const AlarmSlotRenderState& a, const AlarmSlotRenderState& b);

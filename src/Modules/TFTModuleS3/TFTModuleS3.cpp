@@ -78,15 +78,9 @@ constexpr uint16_t kColorCheckMark = rgb565_(255, 255, 255);
 constexpr int16_t kHeaderH = 48;
 constexpr int16_t kSidePad = 8;
 constexpr uint8_t kAlarmSlotCount = 8U;
-constexpr uint8_t kOverviewStatusCount = 5U;
-
-constexpr const char* kOverviewStatusLabels[kOverviewStatusCount] = {
-    "Auto",
-    "Auto pH",
-    "Auto ORP",
-    "Auto SWG",
-    "Winter",
-};
+constexpr uint16_t kColorSelected = rgb565_(18, 102, 207);
+constexpr uint8_t kOverviewSelectorRows = 3U;
+constexpr int16_t kOverviewSelectorGap = 6;
 
 constexpr const char* kSensorModuleNames[TFTModuleS3::DashboardSlotCount] = {
     "tft/s3/sensors/slot00",
@@ -358,18 +352,20 @@ Rect overviewTopCardRect_(int16_t w, uint8_t column)
     };
 }
 
-Rect overviewAlarmCardRect_(int16_t w, int16_t h, uint8_t column)
+Rect overviewSelectorButtonRect_(int16_t w, int16_t h, uint8_t row, uint8_t count, uint8_t column)
 {
+    // The header and address cards keep their existing geometry. Only the
+    // area below them is divided into three rows and equally spaced choices.
     const Rect topCard = overviewTopCardRect_(w, 0U);
-    const int16_t gap = 6;
     const int16_t top = (int16_t)(topCard.y + topCard.h + 8);
-    const int16_t cardW = (int16_t)((w - (2 * kSidePad) - gap) / 2);
-    return Rect{
-        (int16_t)(kSidePad + ((column > 0U) ? (cardW + gap) : 0)),
-        top,
-        cardW,
-        (int16_t)(h - top - 8)
-    };
+    const int16_t rowSpace = (int16_t)(h - top - kSidePad + kOverviewSelectorGap);
+    const int16_t columnSpace = (int16_t)(w - 2 * kSidePad + kOverviewSelectorGap);
+    const int16_t y = (int16_t)(top + row * rowSpace / kOverviewSelectorRows);
+    const int16_t nextY = (int16_t)(top + (row + 1) * rowSpace / kOverviewSelectorRows);
+    const int16_t x = (int16_t)(kSidePad + column * columnSpace / count);
+    const int16_t nextX = (int16_t)(kSidePad + (column + 1) * columnSpace / count);
+    return Rect{x, y, (int16_t)(nextX - x - kOverviewSelectorGap),
+                (int16_t)(nextY - y - kOverviewSelectorGap)};
 }
 
 Rect metricCardRect_(int16_t w, int16_t h, uint8_t index, bool dense = false)
@@ -828,38 +824,23 @@ void TFTModuleS3::render_(bool force)
         }
 
         const int16_t w = display_.width();
-        const int16_t h = display_.height();
         const Rect leftTop = overviewTopCardRect_(w, 0U);
         const Rect rightTop = overviewTopCardRect_(w, 1U);
-        const Rect leftStatus = overviewAlarmCardRect_(w, h, 0U);
-        const Rect rightStatus = overviewAlarmCardRect_(w, h, 1U);
         if (fullRedraw || !overviewCache_.valid || strncmp(overviewCache_.ip, ip, sizeof(overviewCache_.ip)) != 0) {
             drawCenteredTextCard_(leftTop.x, leftTop.y, leftTop.w, leftTop.h, ip, true);
         }
         if (fullRedraw || !overviewCache_.valid) {
             drawCenteredTextCard_(rightTop.x, rightTop.y, rightTop.w, rightTop.h, "http://flowio.local", false);
         }
-        if (fullRedraw || !overviewCache_.valid ||
-            overviewCache_.statusAvailable != status.available ||
-            overviewCache_.autoMode != status.autoMode ||
-            overviewCache_.phAutoMode != status.phAutoMode ||
-            overviewCache_.orpAutoMode != status.orpAutoMode ||
-            overviewCache_.swgAutoMode != status.swgAutoMode ||
-            overviewCache_.winterMode != status.winterMode) {
-            drawStatusCard_(leftStatus.x, leftStatus.y, leftStatus.w, leftStatus.h, 0U, 3U, status);
-            drawStatusCard_(rightStatus.x, rightStatus.y, rightStatus.w, rightStatus.h, 3U, 2U, status);
+        if (fullRedraw || !overviewCache_.valid || !overviewStatusEquals_(overviewCache_.status, status)) {
+            drawOverviewSelectors_(status);
         }
 
         snprintf(overviewCache_.timeText, sizeof(overviewCache_.timeText), "%s", timeBuf);
         snprintf(overviewCache_.ip, sizeof(overviewCache_.ip), "%s", ip);
         overviewCache_.apMode = apMode;
         overviewCache_.wifiBars = bars;
-        overviewCache_.statusAvailable = status.available;
-        overviewCache_.autoMode = status.autoMode;
-        overviewCache_.phAutoMode = status.phAutoMode;
-        overviewCache_.orpAutoMode = status.orpAutoMode;
-        overviewCache_.swgAutoMode = status.swgAutoMode;
-        overviewCache_.winterMode = status.winterMode;
+        overviewCache_.status = status;
         overviewCache_.valid = true;
     } else if (page == Page::Metrics) {
         const int16_t w = display_.width();
@@ -1120,67 +1101,60 @@ void TFTModuleS3::drawAlarmIndicator_(int16_t cx, int16_t cy, uint16_t fill, boo
     display_.fillCircle(cx, (int16_t)(cy + 6), 2, markColor);
 }
 
-void TFTModuleS3::drawStatusIndicator_(int16_t cx, int16_t cy, bool on, bool known)
+void TFTModuleS3::drawOverviewSelectorRow_(uint8_t row, const OverviewChoice* choices,
+                                           uint8_t count, uint8_t selected, bool available)
 {
-    const uint16_t fill = !known ? kColorWifiOff : (on ? kColorOn : kColorOff);
-    display_.fillCircle(cx, cy, 11, color_(fill));
-    const uint16_t markColor = color_(kColorCheckMark);
-    if (known && on) {
-        for (int8_t off = -1; off <= 1; ++off) {
-            display_.drawLine((int16_t)(cx - 5), (int16_t)(cy + off), (int16_t)(cx - 1), (int16_t)(cy + 4 + off), markColor);
-            display_.drawLine((int16_t)(cx - 1), (int16_t)(cy + 4 + off), (int16_t)(cx + 6), (int16_t)(cy - 4 + off), markColor);
-        }
-        return;
+    setGfxFont_(&FreeSans9pt7b, kColorSelected, kColorCardBg);
+    for (uint8_t column = 0U; column < count; ++column) {
+        const Rect rect = overviewSelectorButtonRect_(display_.width(), display_.height(), row, count, column);
+        const bool active = available && choices[column].value == selected;
+        const uint16_t background = active ? kColorSelected : kColorCardBg;
+        const uint16_t foreground = !available ? kColorMuted : (active ? kColorBg : kColorSelected);
+        const uint16_t border = active ? kColorSelected : kColorCardBorder;
+        display_.fillRoundRect(rect.x, rect.y, rect.w, rect.h, 6, color_(background));
+        display_.drawRoundRect(rect.x, rect.y, rect.w, rect.h, 6, color_(border));
+
+        int16_t x1 = 0, y1 = 0;
+        uint16_t textW = 0, textH = 0;
+        display_.getTextBounds(choices[column].label, 0, 0, &x1, &y1, &textW, &textH);
+        const int16_t textX = (int16_t)(rect.x + (rect.w - (int16_t)textW) / 2 - x1);
+        const int16_t baselineY = (int16_t)(rect.y + (rect.h - (int16_t)textH) / 2 - y1);
+        drawGfxText_(&FreeSans9pt7b, foreground, background, textX, baselineY, choices[column].label);
     }
-    display_.fillRoundRect((int16_t)(cx - 5), (int16_t)(cy - 1), 10, 3, 1, markColor);
 }
 
-void TFTModuleS3::drawStatusCard_(int16_t x,
-                                  int16_t y,
-                                  int16_t w,
-                                  int16_t h,
-                                  uint8_t startSlot,
-                                  uint8_t count,
-                                  const OverviewStatusRenderState& state)
+void TFTModuleS3::drawOverviewSelectors_(const OverviewStatusRenderState& state)
 {
-    display_.fillRoundRect(x, y, w, h, 12, color_(kColorCardBg));
-    display_.drawRoundRect(x, y, w, h, 12, color_(kColorCardBorder));
+    static constexpr OverviewChoice kOperatingChoices[] = {
+        {"Manuel", (uint8_t)PoolOperatingMode::Manual},
+        {"Auto", (uint8_t)PoolOperatingMode::Automatic},
+        {"Hiver", (uint8_t)PoolOperatingMode::Winter},
+    };
+    static constexpr OverviewChoice kPhChoices[] = {
+        {"pH+", (uint8_t)PoolPhCorrection::Plus},
+        {"pH-", (uint8_t)PoolPhCorrection::Minus},
+        {"Off", (uint8_t)PoolPhCorrection::Disabled},
+    };
+    // The built-in FreeSans font contains ASCII glyphs: use O2, not a subscript.
+    static constexpr OverviewChoice kTreatmentChoices[] = {
+        {"Chlore", (uint8_t)PoolDisinfectionMethod::ChlorineBromine},
+        {"Electro", (uint8_t)PoolDisinfectionMethod::SaltElectrolysis},
+        {"O2", (uint8_t)PoolDisinfectionMethod::ActiveOxygen},
+        {"Off", (uint8_t)PoolDisinfectionMethod::Disabled},
+    };
+    drawOverviewSelectorRow_(0U, kOperatingChoices, sizeof(kOperatingChoices) / sizeof(kOperatingChoices[0]),
+                             (uint8_t)state.operatingMode, state.operatingAvailable);
+    drawOverviewSelectorRow_(1U, kPhChoices, sizeof(kPhChoices) / sizeof(kPhChoices[0]),
+                             (uint8_t)state.phCorrection, state.operatingAvailable);
+    drawOverviewSelectorRow_(2U, kTreatmentChoices, sizeof(kTreatmentChoices) / sizeof(kTreatmentChoices[0]),
+                             (uint8_t)state.treatment, state.treatmentAvailable);
+}
 
-    const int16_t iconCx = (int16_t)(x + w - 22);
-    const int16_t labelX = (int16_t)(x + 12);
-    const int16_t topPad = 18;
-    const int16_t bottomPad = 18;
-    const int16_t rowSpan = (int16_t)(h - topPad - bottomPad);
-    const uint8_t rows = count > 0U ? count : 1U;
-    const int16_t rowGap = rows > 1U ? (int16_t)(rowSpan / (int16_t)(rows - 1U)) : 0;
-
-    for (uint8_t i = 0U; i < count; ++i) {
-        const uint8_t statusIndex = (uint8_t)(startSlot + i);
-        if (statusIndex >= kOverviewStatusCount) break;
-
-        bool on = false;
-        switch (statusIndex) {
-            case 0: on = state.autoMode; break;
-            case 1: on = state.phAutoMode; break;
-            case 2: on = state.orpAutoMode; break;
-            case 3: on = state.swgAutoMode; break;
-            case 4: on = state.winterMode; break;
-            default: break;
-        }
-
-        const int16_t rowCenterY = rows > 1U
-            ? (int16_t)(y + topPad + ((int16_t)i * rowGap))
-            : (int16_t)(y + (h / 2));
-        const uint16_t textColor = (state.available && on) ? kColorText : kColorMuted;
-        drawGfxTextCenteredY_(&FreeSans9pt7b,
-                              textColor,
-                              kColorCardBg,
-                              labelX,
-                              (int16_t)(rowCenterY - 12),
-                              24,
-                              kOverviewStatusLabels[statusIndex]);
-        drawStatusIndicator_(iconCx, rowCenterY, on, state.available);
-    }
+bool TFTModuleS3::overviewStatusEquals_(const OverviewStatusRenderState& a, const OverviewStatusRenderState& b)
+{
+    return a.operatingAvailable == b.operatingAvailable &&
+           a.treatmentAvailable == b.treatmentAvailable &&
+           a.operatingMode == b.operatingMode && a.phCorrection == b.phCorrection && a.treatment == b.treatment;
 }
 
 void TFTModuleS3::drawAlarmCard_(int16_t x, int16_t y, int16_t w, int16_t h, uint8_t startSlot)
@@ -1218,20 +1192,16 @@ void TFTModuleS3::drawAlarmCard_(int16_t x, int16_t y, int16_t w, int16_t h, uin
 void TFTModuleS3::drawOverviewPage_()
 {
     const int16_t w = display_.width();
-    const int16_t h = display_.height();
     char ip[20] = {0};
     formatIp_(ip, sizeof(ip));
 
     const Rect leftTop = overviewTopCardRect_(w, 0U);
     const Rect rightTop = overviewTopCardRect_(w, 1U);
-    const Rect leftStatus = overviewAlarmCardRect_(w, h, 0U);
-    const Rect rightStatus = overviewAlarmCardRect_(w, h, 1U);
     OverviewStatusRenderState status{};
     readOverviewStatus_(status);
     drawCenteredTextCard_(leftTop.x, leftTop.y, leftTop.w, leftTop.h, ip, true);
     drawCenteredTextCard_(rightTop.x, rightTop.y, rightTop.w, rightTop.h, "http://flowio.local", false);
-    drawStatusCard_(leftStatus.x, leftStatus.y, leftStatus.w, leftStatus.h, 0U, 3U, status);
-    drawStatusCard_(rightStatus.x, rightStatus.y, rightStatus.w, rightStatus.h, 3U, 2U, status);
+    drawOverviewSelectors_(status);
 }
 
 void TFTModuleS3::drawMetricsPage_()
@@ -1591,11 +1561,25 @@ bool TFTModuleS3::readRuntimeValue_(RuntimeUiId runtimeId, RuntimeValue& out) co
 void TFTModuleS3::readOverviewStatus_(OverviewStatusRenderState& state) const
 {
     state = OverviewStatusRenderState{};
-    state.available = loadPoolModeFlags_(state.autoMode,
-                                         state.winterMode,
-                                         state.phAutoMode,
-                                         state.orpAutoMode,
-                                         state.swgAutoMode);
+    if (!poolConfigurationSvc_) return;
+
+    PoolOperatingConfiguration config{};
+    if (poolConfigurationSvc_->getOperatingConfiguration &&
+        poolConfigurationSvc_->getOperatingConfiguration(poolConfigurationSvc_->ctx, &config) &&
+        config.available && poolModeValid((uint8_t)config.operatingMode) &&
+        poolPhCorrectionValid((uint8_t)config.phCorrection)) {
+        state.operatingAvailable = true;
+        state.operatingMode = config.operatingMode;
+        state.phCorrection = config.phCorrection;
+    }
+    PoolCharacteristics characteristics{};
+    if (poolConfigurationSvc_->getCharacteristics &&
+        poolConfigurationSvc_->getCharacteristics(poolConfigurationSvc_->ctx, &characteristics) &&
+        characteristics.available &&
+        (uint8_t)characteristics.disinfectionMethod <= (uint8_t)PoolDisinfectionMethod::Disabled) {
+        state.treatmentAvailable = true;
+        state.treatment = characteristics.disinfectionMethod;
+    }
 }
 
 bool TFTModuleS3::readIoValue_(IoId ioId, char* out, size_t outLen) const
@@ -1888,27 +1872,6 @@ void TFTModuleS3::loadAlarmMasks_(uint32_t& activeMask, uint32_t& resettableMask
         if ((doc["r"] | 0U) != 0U) resettableMask |= bit;
         if ((doc["c"] | 0U) == 1U) conditionMask |= bit;
     }
-}
-
-bool TFTModuleS3::loadPoolModeFlags_(bool& autoMode,
-                                     bool& winterMode,
-                                     bool& phAutoMode,
-                                     bool& orpAutoMode,
-                                     bool& swgAutoMode) const
-{
-    autoMode = winterMode = phAutoMode = orpAutoMode = swgAutoMode = false;
-    PoolOperatingConfiguration config;
-    if (!poolConfigurationSvc_ || !poolConfigurationSvc_->getOperatingConfiguration ||
-        !poolConfigurationSvc_->getOperatingConfiguration(poolConfigurationSvc_->ctx, &config)) return false;
-    autoMode = config.filtrationAutoMode;
-    winterMode = poolFrostProtection(config.operatingMode);
-    phAutoMode = config.phAutoMode;
-    orpAutoMode = config.orpAutoMode;
-    PoolCharacteristics characteristics;
-    swgAutoMode = poolRegulationAutomatic(config.operatingMode) && poolConfigurationSvc_->getCharacteristics &&
-        poolConfigurationSvc_->getCharacteristics(poolConfigurationSvc_->ctx, &characteristics) &&
-        characteristics.disinfectionMethod == PoolDisinfectionMethod::SaltElectrolysis;
-    return true;
 }
 
 uint32_t TFTModuleS3::currentPageCycle_() const

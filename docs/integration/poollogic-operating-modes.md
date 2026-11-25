@@ -179,7 +179,27 @@ par cette migration.** Leur suppression et l'adaptation des automatisations
 existantes sont manuelles. Les exemples YAML du dépôt utilisent les nouveaux
 sélecteurs ; ils ne modifient pas une instance Home Assistant.
 
-Le TFT local lit le même mode. Le menu de configuration Nextion expose le
+Le TFT local ST7789 affiche les choix enregistrés sur sa page d'accueil
+320 × 240, sous forme de trois rangées :
+
+- `Manuel / Auto / Hiver`
+- `pH+ / pH- / Off`
+- `Chlore / Electro / O2 / Off`
+
+Le choix sélectionné est affiché en blanc sur fond bleu ; les autres restent
+sur fond blanc. L'en-tête, l'IP et l'URL conservent leurs dimensions et positions.
+Les libellés utilisent la même police `FreeSans9pt7b` que les adresses, sans
+titres de rangée, coches ni ligne de résumé. Les trois rangées occupent la zone
+de `y=98` à `y=231`, avec des espacements de 6 pixels. Les libellés ASCII `pH-`
+et `O2` correspondent aux caractères disponibles dans cette police.
+
+Cette page affiche la configuration, y compris en Manu et Hivers lorsque la
+régulation est suspendue. Une configuration indisponible ne sélectionne aucun
+choix dans la rangée concernée. Ce TFT est un afficheur sans commande tactile
+dans le pilote actuel ; les changements s'effectuent depuis les interfaces de
+configuration.
+
+Le menu de configuration Nextion expose le
 sélecteur à trois choix. Dans le protocole Home historique, l'action `0x02`
 accepte `0`, `1`, `2`, l'action `0x0A` fait défiler Manu → Auto → Hivers,
 et `0x0D` sélectionne Hivers. Les anciennes actions pH/ORP auto `0x0B` et
