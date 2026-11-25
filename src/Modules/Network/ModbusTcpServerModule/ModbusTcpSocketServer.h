@@ -140,6 +140,7 @@ public:
                     incoming.stop();
                 } else {
                     clients_[slot] = incoming;
+                    sessionIds_[slot] = sessionSequence_.next();
                     peerReadClosed_[slot] = false;
                     configureKeepAlive_(slot);
                     lastReadProgressMs_[slot] = nowMs;
@@ -269,14 +270,17 @@ public:
             uint8_t input[kMaxRxBytesPerTick]{};
             const size_t readLength = needed < sizeof(input) ? needed : sizeof(input);
             const int received = ::recv(client.fd(), input, readLength, MSG_DONTWAIT);
+            const int socketErrno = received < 0 ? errno : 0;
             if (received == 0) {
                 // FIN even if Arduino NetworkClient still reports connected.
                 closePeer_(slot);
                 continue;
             }
             if (received < 0) {
-                if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
-                    ++stats_[port].rxErrors;
+                if (socketErrno != EAGAIN && socketErrno != EWOULDBLOCK &&
+                    socketErrno != EINTR) {
+                    recordRxError_(slot, SocketRxErrorSource::DataRecv,
+                                   socketErrno, nowMs);
                     closePeer_(slot);
                 }
                 continue;
@@ -328,6 +332,17 @@ public:
     size_t psramFrameBytes() const { return frameStorage_ ? sizeof(FrameStorage) : 0U; }
     bool frameStorageReady() const { return frameStorage_ != nullptr; }
 private:
+    void recordRxError_(uint8_t slot, SocketRxErrorSource source,
+                        int socketErrno, uint32_t nowMs) {
+        const uint8_t port = slot / kClientsPerPort;
+        ++stats_[port].rxErrors;
+        stats_[port].lastRxError.capture(
+            source, slot, sessionIds_[slot], clients_[slot].fd(),
+            socketErrno, nowMs);
+        // Do not log in the hot TCP loop: ModbusTcpServerModule publishes
+        // one bounded detail line only when the error counter changes.
+    }
+
     void dispatchRequest_(uint8_t slot, const ModbusTcpAdu::Request& request,
                           uint32_t nowMs) {
         const uint8_t port = slot / kClientsPerPort;
@@ -462,9 +477,11 @@ private:
             // MSG_PEEK does not consume an MBAP byte from a pipelined frame.
             // A nonblocking EOF (recv==0) means FIN, not an idle socket.
             const int result = ::recv(fd, &byte, 1U, MSG_PEEK | MSG_DONTWAIT);
-            const auto state = classifySocketPeerProbe(result, errno);
+            const int socketErrno = result < 0 ? errno : 0;
+            const auto state = classifySocketPeerProbe(result, socketErrno);
             if (state == SocketPeerHealth::Error) {
-                ++stats_[port].rxErrors;
+                recordRxError_(slot, SocketRxErrorSource::PeerProbe,
+                               socketErrno, nowMs);
                 closePeer_(slot);
             } else if (state == SocketPeerHealth::ReadClosed) {
                 peerReadClosed_[slot] = true;
@@ -505,6 +522,7 @@ private:
         bridges_[slot].reset();
         clients_[slot].stop();
         sessions_.release(slot);
+        sessionIds_[slot] = 0U;
         sent_[slot] = 0U;
         writing_[slot] = false;
         lastWriteProgressMs_[slot] = 0U;
@@ -520,6 +538,8 @@ private:
     BridgeSlot bridges_[kMaxClients];
     PortConfig configs_[kPortCount]{};
     PortStats stats_[kPortCount]{};
+    SocketSessionSequence sessionSequence_{};
+    uint32_t sessionIds_[kMaxClients]{};
     uint32_t lastTraceLogMs_[kPortCount]{};
     uint32_t traceSuppressed_[kPortCount]{};
     size_t sent_[kMaxClients]{};

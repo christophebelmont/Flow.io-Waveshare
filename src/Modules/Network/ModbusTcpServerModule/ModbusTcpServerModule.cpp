@@ -255,6 +255,7 @@ void ModbusTcpServerModule::logWebSnapshot_(
                 p.keepaliveSetupFailures != reported.keepaliveSetupFailures;
             const bool newResolverFailure =
                 p.resolverFailures != reported.resolverFailures;
+            const bool newRxError = p.rxErrors != reported.rxErrors;
             if (newErrors) {
                 Log::warn(kLogModule_,
                           "[MODBUS-ERR] port=%u rxerr=%lu txerr=%lu invalid=%lu resolver=%lu silent=%lu connrej=%lu kaerr=%lu",
@@ -264,6 +265,19 @@ void ModbusTcpServerModule::logWebSnapshot_(
                           (unsigned long)p.silentFailures,
                           (unsigned long)p.connectionsRejected,
                           (unsigned long)p.keepaliveSetupFailures);
+            }
+            if (newRxError) {
+                // Latest failing connection, with count of earlier RX errors
+                // folded into this one 60-second snapshot. No per-frame spam.
+                const auto& rx = p.lastRxError;
+                Log::warn(kLogModule_,
+                          "[MODBUS-RX] port=%u new=%lu total=%lu src=%s slot=%u sid=%lu fd=%ld errno=%ld age_ms=%lu close=socket_error",
+                          port, (unsigned long)(p.rxErrors - reported.rxErrors),
+                          (unsigned long)p.rxErrors,
+                          ModbusTcpServer::socketRxErrorSourceName(rx.source),
+                          (unsigned)rx.slot, (unsigned long)rx.sessionId,
+                          (long)rx.fd, (long)rx.socketErrno,
+                          (unsigned long)(now - rx.atMs));
             }
             if (newResolverFailure) {
                 Log::warn(kLogModule_,
