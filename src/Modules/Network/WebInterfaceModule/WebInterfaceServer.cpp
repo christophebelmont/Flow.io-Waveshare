@@ -1904,7 +1904,7 @@ bool appendWaveshareLocalRuntimeValue_(Print& out,
         ValueId sourceId = runtimeDataValueId(id);
         if (id == 2201U) {
             const IoId selected = waveshareConfiguredWaterTemperatureInput_(poolCfgSvc);
-            if (selected >= IO_ID_AI_BASE && selected < IO_ID_AI_MAX)
+            if (selected >= IO_ID_AI_BASE && selected < (IoId)(IO_ID_AI_BASE + Limits::Io::MaxAnalogEndpoints))
                 sourceId = ValueIds::Analog + uint8_t(selected - IO_ID_AI_BASE);
         }
         if (!readAvailableDataValue(dataStore->values, sourceId, value, metadata) ||
@@ -2028,7 +2028,7 @@ bool appendWaveshareLocalRuntimeValue_(Print& out,
         case 2206: {
             const IoId waterTemperatureIoId = waveshareConfiguredWaterTemperatureInput_(poolCfgSvc);
             uint8_t runtimeIndex = waterTemperatureIoId >= IO_ID_AI_BASE &&
-                waterTemperatureIoId < IO_ID_AI_MAX
+                waterTemperatureIoId < (IoId)(IO_ID_AI_BASE + Limits::Io::MaxAnalogEndpoints)
                 ? uint8_t(waterTemperatureIoId - IO_ID_AI_BASE) : 4U;
             const char* key = "pool.water_temp";
             if (id == 2202) {
@@ -2692,7 +2692,7 @@ IoId waveshareConfiguredWaterTemperatureInput_(const PoolConfigurationService* p
     PoolWaterTemperaturePublicationPolicy policy{};
     if (poolCfgSvc && poolCfgSvc->getWaterTempPublicationPolicy &&
         poolCfgSvc->getWaterTempPublicationPolicy(poolCfgSvc->ctx, &policy) &&
-        policy.ioId >= IO_ID_AI_BASE && policy.ioId < IO_ID_AI_MAX)
+        policy.ioId >= IO_ID_AI_BASE && policy.ioId < (IoId)(IO_ID_AI_BASE + Limits::Io::MaxAnalogEndpoints))
         return IoId(policy.ioId);
     return ioIdFromSlot(analogInputSlot(4));
 }
@@ -2705,7 +2705,7 @@ bool waveshareReadDashboardPoolSensorDataStore_(DataStore* dataStore,
     if (!dataStore) return false;
 
     uint8_t runtimeIndex = waterTemperatureIoId >= IO_ID_AI_BASE &&
-        waterTemperatureIoId < IO_ID_AI_MAX
+        waterTemperatureIoId < (IoId)(IO_ID_AI_BASE + Limits::Io::MaxAnalogEndpoints)
         ? uint8_t(waterTemperatureIoId - IO_ID_AI_BASE) : 4U;
     if (valueId == 2U) {
         runtimeIndex = 5;
@@ -2755,7 +2755,7 @@ bool waveshareReadDashboardRuntimeValue_(DataStore* dataStore,
         bool haveData = false;
         if (dataStore && id == 2201U) {
             const IoId selected = waveshareConfiguredWaterTemperatureInput_(poolCfgSvc);
-            if (selected >= IO_ID_AI_BASE && selected < IO_ID_AI_MAX) {
+            if (selected >= IO_ID_AI_BASE && selected < (IoId)(IO_ID_AI_BASE + Limits::Io::MaxAnalogEndpoints)) {
                 const ValueId actual = ValueIds::Analog + uint8_t(selected - IO_ID_AI_BASE);
                 haveData = presentDataValueById(dataStore->values, actual, out, metadata) && out.available;
             }
