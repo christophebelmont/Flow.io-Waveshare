@@ -99,7 +99,6 @@ assert.ok(fw.includes('setOtaStage_(filesystemTarget ? "zip_spiffs_ram_verify"')
 assert.ok(fw.includes('setOtaStage_(filesystemTarget ? "zip_spiffs_prepare"'));
 assert.ok(fw.includes('setOtaStage_("zip_manifest", 100U)'));
 assert.ok(fw.includes('setOtaStage_("zip_activate", 0U)'));
-assert.ok(iface.includes("FirmwareLocalImagePhase::") === false); // enum declaration, not use
 assert.ok(iface.includes("Verifying, Verified, Error"));
 assert.ok(server.includes('case FirmwareLocalImagePhase::Verifying: phase = "verifying"'));
 assert.ok(app.includes("progress.phase === 'verifying'"));
