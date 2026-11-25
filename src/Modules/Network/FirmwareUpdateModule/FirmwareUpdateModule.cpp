@@ -1278,7 +1278,6 @@ bool FirmwareUpdateModule::startUpdate_(FirmwareUpdateTarget target,
         // Snapshot the admission gates while the lock is held; print only
         // AFTER releasing the spinlock (logging under it is unsafe).
         const unsigned state = (unsigned)status_.state;
-        const unsigned localStage = (unsigned)localRelease_.stage;
         const bool local = localReleaseActive_;
         const bool rpc = localCallInFlight_;
         const bool queued = queuedJob_.pending;
@@ -1290,9 +1289,9 @@ bool FirmwareUpdateModule::startUpdate_(FirmwareUpdateTarget target,
         const bool running = busy_;
         const unsigned readers = manifestCopyReaders_;
         portEXIT_CRITICAL(&lock_);
-        LOGW("[OTA-ADMIT] tgt=%u busy=%u local=%u stage=%u state=%u rpc=%u job=%u man=%u act=%u nex=%u pend=%u read=%u",
+        LOGW("[OTA-ADMIT] tgt=%u busy=%u local=%u state=%u rpc=%u job=%u man=%u act=%u nex=%u pend=%u read=%u",
              (unsigned)target, running ? 1U : 0U, local ? 1U : 0U,
-             localStage, state, rpc ? 1U : 0U, queued ? 1U : 0U,
+             state, rpc ? 1U : 0U, queued ? 1U : 0U,
              manifest ? 1U : 0U, manifestActive ? 1U : 0U,
              nextionReboot ? 1U : 0U, pendingStart ? 1U : 0U, readers);
         writeSimpleError_(errOut, errOutLen, "updater busy");
