@@ -140,7 +140,7 @@ class ReleasePackageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             output = Path(temp_dir)
             (output / "flowios3-2.0.1.bin").write_bytes(b"firmware-image")
-            (output / "flowios3-spiffs-2.0.1.bin").write_bytes(b"\\xff" * 0x180000)
+            (output / "flowios3-spiffs-2.0.1.bin").write_bytes(b"\xff" * 0x180000)
             try:
                 globals_["_binary_dir"] = lambda: output
                 globals_["_project_dir"] = lambda: output
@@ -165,7 +165,7 @@ class ReleasePackageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             output = Path(temp_dir)
             (output / "flowios3-2.0.1.bin").write_bytes(b"firmware-image")
-            (output / "flowios3-spiffs-2.0.1.bin").write_bytes(b"\\xff" * 0x180000)
+            (output / "flowios3-spiffs-2.0.1.bin").write_bytes(b"\xff" * 0x180000)
 
             # Fail right when ZIP writing starts. Both remote OTA manifests
             # must already be published. No partial ZIP may be left behind.
