@@ -5173,12 +5173,31 @@
       const timeoutMs = 240000;
       let lastPercent = -1;
       let lastPhase = '';
+      let consecutivePollErrors = 0;
       while (Date.now() - started < timeoutMs) {
         const query = '?transaction_id=' + encodeURIComponent(String(transactionId)) +
                       '&target=' + encodeURIComponent(target);
-        const progress = await fetchOkJson('/api/upgrade/image/status' + query,
-                                           { method: 'GET', cache: 'no-store' },
-                                           'échec de consultation de la programmation ZIP');
+        let progress;
+        try {
+          progress = await fetchOkJson('/api/upgrade/image/status' + query,
+                                        { method: 'GET', cache: 'no-store' },
+                                        'échec de consultation de la programmation ZIP');
+        } catch (err) {
+          // A short Wi-Fi/HTTP interruption while Flash is busy is NOT an
+          // indication that the image failed. Keep polling rather than
+          // prematurely aborting a healthy asynchronous Flash operation.
+          consecutivePollErrors++;
+          if (consecutivePollErrors === 1 || consecutivePollErrors % 5 === 0) {
+            console.warn('[OTA-ZIP-BROWSER] flash_poll_retry', target,
+                         consecutivePollErrors, String(err));
+          }
+          if (consecutivePollErrors >= 20) {
+            throw new Error('suivi de programmation ZIP indisponible après 20 essais : ' + err);
+          }
+          await new Promise(resolve => setTimeout(resolve, 750));
+          continue;
+        }
+        consecutivePollErrors = 0;
         if (Number(progress.transaction_id) !== transactionId || progress.target !== target) {
           throw new Error('identifiant de transaction ZIP incorrect pendant la programmation');
         }
