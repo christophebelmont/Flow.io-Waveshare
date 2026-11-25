@@ -1328,6 +1328,12 @@ bool FirmwareUpdateModule::startUpdate_(FirmwareUpdateTarget target,
          (unsigned long)job.operationId,
          targetStr_(target),
          job.url);
+    LOGI("[OTA-ADMIT] accepted op=%lu target=%u local_active=%u rpc=%u state=%u internal=%lu psram=%lu",
+         (unsigned long)job.operationId, (unsigned)target,
+         localReleaseActive_ ? 1U : 0U, localCallInFlight_ ? 1U : 0U,
+         (unsigned)status_.state,
+         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     return true;
 }
 
@@ -2518,6 +2524,12 @@ void FirmwareUpdateModule::resetLocalRelease_()
 void FirmwareUpdateModule::failLocalRelease_(const char* reason)
 {
     if (localRelease_.stage == LocalReleaseStage::Error) return;
+    LOGE("[OTA-ZIP-FAIL] op=%lu txn=%lu stage=%u received=%lu handle=%u reason=%s",
+         (unsigned long)localRelease_.operationId,
+         (unsigned long)localRelease_.id, (unsigned)localRelease_.stage,
+         (unsigned long)localRelease_.received,
+         localRelease_.otaHandle != 0 ? 1U : 0U,
+         reason ? reason : "unspecified");
     if (localRelease_.shaActive) {
         mbedtls_sha256_free(&localRelease_.shaContext);
         localRelease_.shaActive = false;
@@ -2547,19 +2559,34 @@ void FirmwareUpdateModule::failLocalRelease_(const char* reason)
 bool FirmwareUpdateModule::dispatchLocalCall_(const LocalCall& call,
                                                char* errOut, size_t errLen)
 {
+    const uint32_t requestAtMs = millis();
     if (!localCallOwner_ || !localCallMutex_ || !localCallDone_) {
+        LOGE("[OTA-ZIP-RPC] unready action=%u txn=%lu owner=%u mutex=%u done=%u",
+             (unsigned)call.kind, (unsigned long)call.transactionId,
+             localCallOwner_ ? 1U : 0U, localCallMutex_ ? 1U : 0U,
+             localCallDone_ ? 1U : 0U);
         return writeSimpleError_(errOut, errLen, "local OTA worker not ready");
     }
     SemaphoreGuard submitter(localCallMutex_, pdMS_TO_TICKS(2000U));
     if (!submitter.acquired()) {
+        LOGW("[OTA-ZIP-RPC] mutex_timeout action=%u txn=%lu wait_ms=%lu",
+             (unsigned)call.kind, (unsigned long)call.transactionId,
+             (unsigned long)(millis() - requestAtMs));
         return writeSimpleError_(errOut, errLen, "local OTA worker busy");
     }
     portENTER_CRITICAL(&lock_);
-    const bool otherJob = busy_ || queuedJob_.pending || manifestCheckJob_.pending ||
-                          nextionRebootQueued_ || updateStartPending_ ||
-                          localCallInFlight_ ||
-                          (manifestMetadata_ &&
-                           manifestCheckIsActive_(manifestMetadata_->check.state));
+    // Bitmask is captured under lock and logged outside it to avoid tracing
+    // inconsistent state or performing potentially blocking I/O in a spinlock.
+    const uint32_t admissionMask =
+        (busy_ ? 1U : 0U) |
+        (queuedJob_.pending ? 2U : 0U) |
+        (manifestCheckJob_.pending ? 4U : 0U) |
+        (nextionRebootQueued_ ? 8U : 0U) |
+        (updateStartPending_ ? 16U : 0U) |
+        (localCallInFlight_ ? 32U : 0U) |
+        ((manifestMetadata_ &&
+          manifestCheckIsActive_(manifestMetadata_->check.state)) ? 64U : 0U);
+    const bool otherJob = admissionMask != 0U;
     if (!otherJob) {
         localCall_ = call;
         localCallInFlight_ = true;
@@ -2567,7 +2594,9 @@ bool FirmwareUpdateModule::dispatchLocalCall_(const LocalCall& call,
     }
     portEXIT_CRITICAL(&lock_);
     if (otherJob) {
-        LOGW("[OTA-ZIP] handoff rejected action=%u", (unsigned)call.kind);
+        LOGW("[OTA-ZIP-RPC] gate_reject action=%u txn=%lu mask=0x%02lx",
+             (unsigned)call.kind, (unsigned long)call.transactionId,
+             (unsigned long)admissionMask);
         return writeSimpleError_(errOut, errLen, "updater busy");
     }
 
@@ -2584,11 +2613,30 @@ bool FirmwareUpdateModule::dispatchLocalCall_(const LocalCall& call,
         }
         portEXIT_CRITICAL(&lock_);
         if (cancelled) {
-            LOGE("[OTA-ZIP] worker dispatch timeout before start");
+            LOGE("[OTA-ZIP-RPC] queue_timeout action=%u txn=%lu offset=%lu len=%lu wait_ms=%lu",
+                 (unsigned)call.kind, (unsigned long)call.transactionId,
+                 (unsigned long)call.offset, (unsigned long)call.imageSize,
+                 (unsigned long)(millis() - requestAtMs));
             return writeSimpleError_(errOut, errLen, "local OTA worker dispatch timed out");
         }
-        LOGW("[OTA-ZIP] worker busy over 30s; waiting for buffer safety");
+        LOGW("[OTA-ZIP-RPC] worker_stall action=%u txn=%lu offset=%lu len=%lu waiting_for_safe_completion=1",
+             (unsigned)call.kind, (unsigned long)call.transactionId,
+             (unsigned long)call.offset, (unsigned long)call.imageSize);
         (void)xSemaphoreTake(localCallDone_, portMAX_DELAY);
+    }
+    const uint32_t roundTripMs = millis() - requestAtMs;
+    // Most ZIP chunks are about 1.4KiB; logging each one would saturate
+    // WebSocket logs and make the original AsyncTCP timing problem worse.
+    if (call.kind != LocalCallKind::WriteImage || !localCallResult_ ||
+        roundTripMs >= 300U) {
+        LOGI("[OTA-ZIP-RPC] reply action=%u txn=%lu target=%u offset=%lu len=%lu ok=%u rtt_ms=%lu internal=%lu psram=%lu reason=%s",
+             (unsigned)call.kind, (unsigned long)call.transactionId,
+             (unsigned)call.target, (unsigned long)call.offset,
+             (unsigned long)call.imageSize, localCallResult_ ? 1U : 0U,
+             (unsigned long)roundTripMs,
+             (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+             localCallResult_ ? "-" : (errOut && errOut[0] ? errOut : "unspecified"));
     }
     return localCallResult_;
 }
@@ -2633,25 +2681,40 @@ bool FirmwareUpdateModule::handleQueuedLocalCall_()
     localCallPending_ = false;
     portEXIT_CRITICAL(&lock_);
 
-    if (pending.kind != LocalCallKind::WriteImage ||
-        pending.offset == 0U) {
-        LOGI("[OTA-ZIP] worker start action=%u target=%u bytes=%lu stack=%u",
-             (unsigned)pending.kind, (unsigned)pending.target,
+    const uint32_t workerStartMs = millis();
+    if (pending.kind != LocalCallKind::WriteImage || pending.offset == 0U) {
+        LOGI("[OTA-ZIP-WORK] start action=%u txn=%lu target=%u offset=%lu len=%lu stack=%u",
+             (unsigned)pending.kind, (unsigned long)pending.transactionId,
+             (unsigned)pending.target, (unsigned long)pending.offset,
              (unsigned long)pending.imageSize,
              (unsigned)uxTaskGetStackHighWaterMark(nullptr));
     }
     const bool ok = executeLocalCall_(pending);
-    if (pending.kind != LocalCallKind::WriteImage ||
-        (!ok || pending.offset == 0U)) {
-        LOGI("[OTA-ZIP] worker end action=%u ok=%u stack=%u",
-             (unsigned)pending.kind, ok ? 1U : 0U,
-             (unsigned)uxTaskGetStackHighWaterMark(nullptr));
+    const uint32_t workerMs = millis() - workerStartMs;
+    if (pending.kind != LocalCallKind::WriteImage || !ok ||
+        pending.offset == 0U || workerMs >= 250U) {
+        LOGI("[OTA-ZIP-WORK] end action=%u txn=%lu target=%u offset=%lu ok=%u elapsed_ms=%lu stage=%u stack=%u internal=%lu largest=%lu psram=%lu reason=%s",
+             (unsigned)pending.kind, (unsigned long)pending.transactionId,
+             (unsigned)pending.target, (unsigned long)pending.offset,
+             ok ? 1U : 0U, (unsigned long)workerMs,
+             (unsigned)localRelease_.stage,
+             (unsigned)uxTaskGetStackHighWaterMark(nullptr),
+             (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+             ok ? "-" : (pending.error && pending.error[0] ? pending.error : "unspecified"));
     }
     localCallResult_ = ok;
     portENTER_CRITICAL(&lock_);
     localCallInFlight_ = false;
     portEXIT_CRITICAL(&lock_);
     xSemaphoreGive(localCallDone_);
+    if (pending.kind == LocalCallKind::Abort ||
+        pending.kind == LocalCallKind::Commit || !ok) {
+        LOGI("[OTA-ZIP-WORK] completion action=%u txn=%lu rpc_inflight=0 release_active=%u state=%u",
+             (unsigned)pending.kind, (unsigned long)pending.transactionId,
+             localReleaseActive_ ? 1U : 0U, (unsigned)status_.state);
+    }
     return true;
 }
 
@@ -3285,6 +3348,12 @@ bool FirmwareUpdateModule::abortLocalRelease_(uint32_t transactionId,
         return writeSimpleError_(errOut, errOutLen, "committed release cannot be aborted");
     }
     const uint32_t operationId = localRelease_.operationId;
+    LOGW("[OTA-ZIP-CLEAN] abort_begin txn=%lu op=%lu stage=%u received=%lu sha=%u ota_handle=%u reason=%s",
+         (unsigned long)transactionId, (unsigned long)operationId,
+         (unsigned)localRelease_.stage, (unsigned long)localRelease_.received,
+         localRelease_.shaActive ? 1U : 0U,
+         localRelease_.otaHandle != 0 ? 1U : 0U,
+         localRelease_.failureReason[0] ? localRelease_.failureReason : "browser abort");
     (void)persistReceipt_(FirmwareUpdateTarget::Waveshare,
                           operationId,
                           FirmwareUpdateReceiptState::Failed);

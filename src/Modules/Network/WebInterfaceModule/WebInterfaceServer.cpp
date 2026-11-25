@@ -87,6 +87,11 @@ struct LocalUpgradeImageContext {
     bool ok = false;
     uint32_t transactionId = 0U;
     FirmwareUpdateTarget target = FirmwareUpdateTarget::Waveshare;
+    uint32_t startedAtMs = 0U;
+    size_t received = 0U;
+    size_t total = 0U;
+    uint32_t chunks = 0U;
+    uint32_t maxWriteMs = 0U;
     char error[144]{};
 };
 
@@ -8207,6 +8212,7 @@ void WebInterfaceModule::startServer_()
             const uint32_t transactionId = context->transactionId;
             delete context;
             request->_tempObject = nullptr;
+            LOGI("[OTA-ZIP-HTTP] manifest_accepted txn=%lu", (unsigned long)transactionId);
             char response[112] = {0};
             snprintf(response,
                      sizeof(response),
@@ -8247,6 +8253,11 @@ void WebInterfaceModule::startServer_()
                 &context->transactionId,
                 context->error,
                 sizeof(context->error));
+            if (!context->ok) {
+                LOGW("[OTA-ZIP-HTTP] manifest_rejected bytes=%lu reason=%s",
+                     (unsigned long)total,
+                     context->error[0] ? context->error : "unspecified");
+            }
         });
 
     const auto registerLocalImageRoute = [this, readLocalTransactionId](const char* route,
@@ -8263,9 +8274,14 @@ void WebInterfaceModule::startServer_()
                 }
                 auto* context = static_cast<LocalUpgradeImageContext*>(request->_tempObject);
                 if (!context || !context->ok) {
-                    LOGW("[OTA-ZIP-HTTP] image failed target=%u txn=%lu reason=%s",
+                    LOGW("[OTA-ZIP-HTTP] image_failed target=%u txn=%lu received=%lu total=%lu chunks=%lu elapsed_ms=%lu max_write_ms=%lu reason=%s",
                          context ? (unsigned)context->target : 0U,
                          context ? (unsigned long)context->transactionId : 0UL,
+                         context ? (unsigned long)context->received : 0UL,
+                         context ? (unsigned long)context->total : 0UL,
+                         context ? (unsigned long)context->chunks : 0UL,
+                         context ? (unsigned long)(millis() - context->startedAtMs) : 0UL,
+                         context ? (unsigned long)context->maxWriteMs : 0UL,
                          context && context->error[0] ? context->error : "upload context missing");
                     char escaped[144] = {0};
                     snprintf(escaped,
@@ -8287,13 +8303,23 @@ void WebInterfaceModule::startServer_()
                 }
                 const uint32_t transactionId = context->transactionId;
                 const FirmwareUpdateTarget requestTarget = context->target;
+                const size_t received = context->received;
+                const size_t total = context->total;
+                const uint32_t chunks = context->chunks;
+                const uint32_t maxWriteMs = context->maxWriteMs;
+                const uint32_t startedAtMs = context->startedAtMs;
                 delete context;
                 request->_tempObject = nullptr;
                 char err[144] = {0};
+                const uint32_t verifyStartMs = millis();
                 if (!fwUpdateSvc_->endLocalImage(
                         fwUpdateSvc_->ctx, transactionId, requestTarget, err, sizeof(err))) {
-                    LOGW("[OTA-ZIP-HTTP] end refused target=%u txn=%lu reason=%s",
+                    LOGW("[OTA-ZIP-HTTP] verification_failed target=%u txn=%lu received=%lu total=%lu chunks=%lu elapsed_ms=%lu verify_ms=%lu reason=%s",
                          (unsigned)requestTarget, (unsigned long)transactionId,
+                         (unsigned long)received, (unsigned long)total,
+                         (unsigned long)chunks,
+                         (unsigned long)(millis() - startedAtMs),
+                         (unsigned long)(millis() - verifyStartMs),
                          err[0] ? err : "verification failed");
                     sanitizeJsonString_(err);
                     char response[240] = {0};
@@ -8304,6 +8330,13 @@ void WebInterfaceModule::startServer_()
                     request->send(409, "application/json", response);
                     return;
                 }
+                LOGI("[OTA-ZIP-HTTP] image_verified target=%u txn=%lu bytes=%lu/%lu chunks=%lu elapsed_ms=%lu verify_ms=%lu max_write_ms=%lu",
+                     (unsigned)requestTarget, (unsigned long)transactionId,
+                     (unsigned long)received, (unsigned long)total,
+                     (unsigned long)chunks,
+                     (unsigned long)(millis() - startedAtMs),
+                     (unsigned long)(millis() - verifyStartMs),
+                     (unsigned long)maxWriteMs);
                 request->send(200, "application/json", "{\"ok\":true,\"verified\":true}");
             },
             nullptr,
@@ -8318,7 +8351,14 @@ void WebInterfaceModule::startServer_()
                         request->_tempObject = reinterpret_cast<void*>(kRequestContextAllocationFailed);
                         return;
                     }
-                    static_cast<LocalUpgradeImageContext*>(request->_tempObject)->target = target;
+                    auto* opened = static_cast<LocalUpgradeImageContext*>(request->_tempObject);
+                    opened->target = target;
+                    opened->startedAtMs = millis();
+                    opened->total = total;
+                    LOGI("[OTA-ZIP-HTTP] image_open target=%u bytes=%lu internal=%lu largest=%lu",
+                         (unsigned)target, (unsigned long)total,
+                         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                         (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
                 }
                 if (request->_tempObject == reinterpret_cast<void*>(kRequestContextAllocationFailed)) return;
                 auto* context = static_cast<LocalUpgradeImageContext*>(request->_tempObject);
@@ -8348,9 +8388,15 @@ void WebInterfaceModule::startServer_()
                              (unsigned)target, (unsigned long)context->transactionId,
                              (unsigned long)total,
                              context->error[0] ? context->error : "begin failed");
+                    } else {
+                        LOGI("[OTA-ZIP-HTTP] image_begin_ok target=%u txn=%lu total=%lu elapsed_ms=%lu",
+                             (unsigned)target, (unsigned long)context->transactionId,
+                             (unsigned long)total,
+                             (unsigned long)(millis() - context->startedAtMs));
                     }
                 }
                 if (!context->ok) return;
+                const uint32_t writeStartMs = millis();
                 context->ok = fwUpdateSvc_->writeLocalImage(
                     fwUpdateSvc_->ctx,
                     context->transactionId,
@@ -8360,6 +8406,26 @@ void WebInterfaceModule::startServer_()
                     index,
                     context->error,
                     sizeof(context->error));
+                const uint32_t writeMs = millis() - writeStartMs;
+                if (writeMs > context->maxWriteMs) context->maxWriteMs = writeMs;
+                if (context->ok) {
+                    context->received = index + len;
+                    ++context->chunks;
+                    if (index == 0U || context->received == total ||
+                        index / (256U * 1024U) != context->received / (256U * 1024U)) {
+                        LOGI("[OTA-ZIP-HTTP] image_progress target=%u txn=%lu bytes=%lu/%lu chunks=%lu write_ms=%lu max_write_ms=%lu",
+                             (unsigned)target, (unsigned long)context->transactionId,
+                             (unsigned long)context->received, (unsigned long)total,
+                             (unsigned long)context->chunks, (unsigned long)writeMs,
+                             (unsigned long)context->maxWriteMs);
+                    }
+                }
+                if (writeMs >= 300U) {
+                    LOGW("[OTA-ZIP-HTTP] slow_callback target=%u txn=%lu offset=%lu len=%lu wait_ms=%lu",
+                         (unsigned)target, (unsigned long)context->transactionId,
+                         (unsigned long)index, (unsigned long)len,
+                         (unsigned long)writeMs);
+                }
                 if (!context->ok) {
                     LOGW("[OTA-ZIP-HTTP] chunk refused target=%u txn=%lu offset=%lu len=%lu total=%lu reason=%s",
                          (unsigned)target, (unsigned long)context->transactionId,
@@ -8372,11 +8438,15 @@ void WebInterfaceModule::startServer_()
     registerLocalImageRoute("/api/upgrade/firmware", FirmwareUpdateTarget::Waveshare);
 
     server_.on("/api/upgrade/commit", HTTP_POST, [this, readLocalTransactionId](AsyncWebServerRequest* request) {
+        const uint32_t startMs = millis();
         uint32_t transactionId = 0U;
         char err[144] = {0};
         if (!readLocalTransactionId(request, transactionId) || !fwUpdateSvc_ ||
             !fwUpdateSvc_->commitLocalRelease ||
             !fwUpdateSvc_->commitLocalRelease(fwUpdateSvc_->ctx, transactionId, err, sizeof(err))) {
+            LOGW("[OTA-ZIP-HTTP] commit_failed txn=%lu elapsed_ms=%lu reason=%s",
+                 (unsigned long)transactionId, (unsigned long)(millis() - startMs),
+                 err[0] ? err : "commit refused");
             sanitizeJsonString_(err);
             char response[240] = {0};
             snprintf(response,
@@ -8386,19 +8456,27 @@ void WebInterfaceModule::startServer_()
             request->send(409, "application/json", response);
             return;
         }
+        LOGI("[OTA-ZIP-HTTP] commit_ok txn=%lu elapsed_ms=%lu",
+             (unsigned long)transactionId, (unsigned long)(millis() - startMs));
         request->send(200, "application/json", "{\"ok\":true,\"rebooting\":true}");
     });
 
     server_.on("/api/upgrade/abort", HTTP_POST, [this, readLocalTransactionId](AsyncWebServerRequest* request) {
+        const uint32_t startMs = millis();
         uint32_t transactionId = 0U;
         char err[144] = {0};
         if (!readLocalTransactionId(request, transactionId) || !fwUpdateSvc_ ||
             !fwUpdateSvc_->abortLocalRelease ||
             !fwUpdateSvc_->abortLocalRelease(fwUpdateSvc_->ctx, transactionId, err, sizeof(err))) {
+            LOGW("[OTA-ZIP-HTTP] abort_failed txn=%lu elapsed_ms=%lu reason=%s",
+                 (unsigned long)transactionId, (unsigned long)(millis() - startMs),
+                 err[0] ? err : "abort unavailable");
             request->send(409, "application/json",
                           "{\"ok\":false,\"err\":{\"code\":\"Failed\",\"where\":\"upgrade.abort\"}}");
             return;
         }
+        LOGI("[OTA-ZIP-HTTP] abort_ok txn=%lu elapsed_ms=%lu",
+             (unsigned long)transactionId, (unsigned long)(millis() - startMs));
         request->send(200, "application/json", "{\"ok\":true}");
     });
 

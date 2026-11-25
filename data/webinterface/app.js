@@ -5111,22 +5111,42 @@
     function uploadReleaseBlob(url, blob, onProgress) {
       return new Promise((resolve, reject) => {
         const request = new XMLHttpRequest();
+        const startedAt = Date.now();
+        let sentBytes = 0;
+        let nextCheckpoint = 25;
+        console.info('[OTA-ZIP-BROWSER] image_start', url, 'bytes=' + blob.size);
         request.open('POST', url, true);
         request.setRequestHeader('Content-Type', 'application/octet-stream');
         request.upload.onprogress = (event) => {
-          if (event.lengthComputable && typeof onProgress === 'function') {
-            onProgress(Math.round((event.loaded * 100) / event.total));
+          sentBytes = event.loaded;
+          if (event.lengthComputable && event.total > 0) {
+            const percent = Math.round((event.loaded * 100) / event.total);
+            if (percent >= nextCheckpoint || percent === 100) {
+              console.info('[OTA-ZIP-BROWSER] upload_progress', url,
+                           percent + '%', event.loaded + '/' + event.total,
+                           'elapsed_ms=' + (Date.now() - startedAt));
+              nextCheckpoint = (Math.floor(percent / 25) + 1) * 25;
+            }
+            if (typeof onProgress === 'function') onProgress(percent);
           }
         };
         request.onerror = () => {
           const detail = 'connexion interrompue pendant l’upload (HTTP ' +
-            request.status + ', état ' + request.readyState + ')';
+            request.status + ', état ' + request.readyState +
+            ', envoyés ' + sentBytes + '/' + blob.size +
+            ', durée ' + (Date.now() - startedAt) + ' ms)';
           console.error('[OTA-ZIP-HTTP] ' + detail, url);
           reject(new Error(detail));
         };
         request.onabort = () => {
-          console.error('[OTA-ZIP-HTTP] requête annulée par le navigateur', url);
-          reject(new Error('upload annulé par le navigateur'));
+          console.error('[OTA-ZIP-BROWSER] xhr_abort', url,
+                        'sent=' + sentBytes, 'elapsed_ms=' + (Date.now() - startedAt));
+          reject(new Error('upload annulé par le navigateur après ' + sentBytes + ' octets'));
+        };
+        request.onloadend = () => {
+          console.info('[OTA-ZIP-BROWSER] image_end', url, 'http=' + request.status,
+                       'sent=' + sentBytes + '/' + blob.size,
+                       'elapsed_ms=' + (Date.now() - startedAt));
         };
         request.onload = () => {
           let payload = null;
@@ -5138,6 +5158,8 @@
             reject(new Error('HTTP ' + request.status + ' : ' + (detail || 'upload refusé')));
             return;
           }
+          console.info('[OTA-ZIP-BROWSER] image_verified_response', url,
+                       'http=' + request.status, 'elapsed_ms=' + (Date.now() - startedAt));
           resolve(payload || { ok: true });
         };
         request.send(blob);
@@ -5165,6 +5187,9 @@
           ' octets\nFilesystem : ' + filesystem.size + ' octets';
         if (localReleaseSummary) localReleaseSummary.textContent = description.replace(/\n/g, ' · ');
         if (!confirm(description + '\n\nInstaller cette release puis redémarrer ?')) return;
+        console.info('[OTA-ZIP-BROWSER] manifest_accepted',
+                     manifest.version, 'firmware=' + firmware.size,
+                     'spiffs=' + filesystem.size);
 
         startUpgradeUiSession('release');
         updateUpgradeUiSession({
@@ -5183,15 +5208,19 @@
           throw new Error('identifiant de transaction invalide');
         }
         const query = '?transaction_id=' + encodeURIComponent(String(transactionId));
+        console.info('[OTA-ZIP-BROWSER] transaction_started', transactionId);
         await uploadReleaseBlob('/api/upgrade/filesystem' + query, filesystem, (progress) => {
           setUpgradeDetail('Installation du filesystem : ' + progress + '%');
         });
+        console.info('[OTA-ZIP-BROWSER] filesystem_verified', transactionId);
         await uploadReleaseBlob('/api/upgrade/firmware' + query, firmware, (progress) => {
           setUpgradeDetail('Installation du firmware : ' + progress + '%');
         });
+        console.info('[OTA-ZIP-BROWSER] firmware_verified', transactionId);
         await fetchOkJson('/api/upgrade/commit' + query,
                           { method: 'POST', cache: 'no-store' },
                           'échec de validation de la release');
+        console.info('[OTA-ZIP-BROWSER] commit_accepted', transactionId);
         transactionId = 0;
         updateUpgradeUiSession({
           phase: 'reboot',
@@ -5206,9 +5235,19 @@
         console.error('[OTA-ZIP-HTTP] échec package local, transaction=' +
                       transactionId, err);
         if (transactionId > 0) {
-          await fetch('/api/upgrade/abort?transaction_id=' + encodeURIComponent(String(transactionId)), {
-            method: 'POST', cache: 'no-store'
-          }).catch(() => {});
+          const abortStartedAt = Date.now();
+          try {
+            const abortReply = await fetch('/api/upgrade/abort?transaction_id=' +
+                                           encodeURIComponent(String(transactionId)), {
+              method: 'POST', cache: 'no-store'
+            });
+            console.warn('[OTA-ZIP-BROWSER] abort_response', transactionId,
+                         'http=' + abortReply.status,
+                         'elapsed_ms=' + (Date.now() - abortStartedAt));
+          } catch (abortError) {
+            console.error('[OTA-ZIP-BROWSER] abort_network_failure',
+                          transactionId, abortError);
+          }
         }
         updateUpgradeUiSession({ phase: 'error', target: 'release', detail: String(err), backendProgress: 0 });
         setUpgradeMessage('Échec du package local : ' + err);
