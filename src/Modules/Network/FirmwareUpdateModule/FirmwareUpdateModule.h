@@ -226,6 +226,7 @@ private:
                       size_t errOutLen);
     bool queueNextionReboot_(char* errOut, size_t errOutLen);
     bool statusJson_(char* out, size_t outLen);
+    bool displaySnapshot_(FirmwareUpdateDisplaySnapshot* out);
     bool isBusy_();
     // Must be called while lock_ is held. Shares the one admission barrier
     // between Nextion, paired firmware+SPIFFS OTA and local release upload.
@@ -327,6 +328,7 @@ private:
         ServiceBinding::bind<&FirmwareUpdateModule::endLocalImage_>,
         ServiceBinding::bind<&FirmwareUpdateModule::commitLocalRelease_>,
         ServiceBinding::bind<&FirmwareUpdateModule::abortLocalRelease_>,
-        this
+        this,
+        ServiceBinding::bind<&FirmwareUpdateModule::displaySnapshot_>
     };
 };
