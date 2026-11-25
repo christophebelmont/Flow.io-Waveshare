@@ -63,6 +63,19 @@ struct PoolOperatingConfiguration {
     uint32_t orpAutoModeSinceMs = 0;
 };
 
+/** Optional publication rule. Internal pool control always retains access to the raw measurement. */
+struct PoolWaterTemperaturePublicationPolicy {
+    uint16_t ioId = UINT16_MAX;
+    bool circulationOnly = false;
+    bool filtrationOn = false;
+};
+
+/** Return true if a water temperature reading may be exposed externally. */
+constexpr bool poolWaterTemperatureCanPublish(bool circulationOnly, bool filtrationOn, bool flowPositive)
+{
+    return !circulationOnly || filtrationOn || flowPositive;
+}
+
 /** Effective PoolLogic device assignments, read after configuration is loaded. */
 struct PoolDeviceAssignments {
     uint8_t filtration = UINT8_MAX;
@@ -85,4 +98,5 @@ struct PoolConfigurationService {
     bool (*getDeviceSetpoint)(void* ctx, uint8_t slot, float* out) = nullptr;
     bool (*setDeviceSetpoint)(void* ctx, uint8_t slot, float value) = nullptr;
     bool (*manualControlAllowed)(void* ctx, uint8_t slot) = nullptr;
+    bool (*getWaterTempPublicationPolicy)(void* ctx, PoolWaterTemperaturePublicationPolicy* out) = nullptr;
 };
