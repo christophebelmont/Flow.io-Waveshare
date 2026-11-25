@@ -261,4 +261,8 @@ struct IOServiceV2 {
     IoStatus (*saveCounters)(void* ctx) = nullptr;
     /** Configured policy by logical output slot, independent of physical binding or availability. */
     IoStatus (*outputBootPolicy)(void* ctx, uint8_t slot, IoOutputBootPolicy* out) = nullptr;
+    /** Internal-only physical sample for PoolLogic closed-loop control.
+     *  External clients must use readAnalog, which honors the exposure gate. */
+    IoStatus (*readAnalogRaw)(void* ctx, IoId id, float* outValue,
+                              uint32_t* outTsMs, IoSeq* outSeq) = nullptr;
 };
