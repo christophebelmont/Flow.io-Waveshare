@@ -1321,6 +1321,9 @@ bool FirmwareUpdateModule::startUpdate_(FirmwareUpdateTarget target,
     queuedJob_ = job;
     queuedJob_.pending = true;
     updateStartPending_ = false;
+    const bool localActiveAtQueue = localReleaseActive_;
+    const bool rpcActiveAtQueue = localCallInFlight_;
+    const unsigned stateAtQueue = (unsigned)status_.state;
     portEXIT_CRITICAL(&lock_);
 
     if (operationIdOut) *operationIdOut = job.operationId;
@@ -1330,8 +1333,8 @@ bool FirmwareUpdateModule::startUpdate_(FirmwareUpdateTarget target,
          job.url);
     LOGI("[OTA-ADMIT] accepted op=%lu target=%u local_active=%u rpc=%u state=%u internal=%lu psram=%lu",
          (unsigned long)job.operationId, (unsigned)target,
-         localReleaseActive_ ? 1U : 0U, localCallInFlight_ ? 1U : 0U,
-         (unsigned)status_.state,
+         localActiveAtQueue ? 1U : 0U, rpcActiveAtQueue ? 1U : 0U,
+         stateAtQueue,
          (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
          (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     return true;
@@ -2728,13 +2731,15 @@ bool FirmwareUpdateModule::handleQueuedLocalCall_()
     localCallResult_ = ok;
     portENTER_CRITICAL(&lock_);
     localCallInFlight_ = false;
+    const bool releaseActiveAtCompletion = localReleaseActive_;
+    const unsigned stateAtCompletion = (unsigned)status_.state;
     portEXIT_CRITICAL(&lock_);
     xSemaphoreGive(localCallDone_);
     if (pending.kind == LocalCallKind::Abort ||
         pending.kind == LocalCallKind::Commit || !ok) {
         LOGI("[OTA-ZIP-WORK] completion action=%u txn=%lu rpc_inflight=0 release_active=%u state=%u",
              (unsigned)pending.kind, (unsigned long)pending.transactionId,
-             localReleaseActive_ ? 1U : 0U, (unsigned)status_.state);
+             releaseActiveAtCompletion ? 1U : 0U, stateAtCompletion);
     }
     return true;
 }
