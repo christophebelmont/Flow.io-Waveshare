@@ -271,11 +271,14 @@ void ModbusTcpServerModule::logWebSnapshot_(
                 // folded into this one 60-second snapshot. No per-frame spam.
                 const auto& rx = p.lastRxError;
                 Log::warn(kLogModule_,
-                          "[MODBUS-RX] port=%u new=%lu total=%lu src=%s slot=%u sid=%lu fd=%ld errno=%ld age_ms=%lu close=socket_error",
+                          "[MODBUS-RX] port=%u new=%lu total=%lu src=%s slot=%u sid=%lu peer=%u.%u.%u.%u:%u fd=%ld errno=%ld age_ms=%lu close=socket_error",
                           port, (unsigned long)(p.rxErrors - reported.rxErrors),
                           (unsigned long)p.rxErrors,
                           ModbusTcpServer::socketRxErrorSourceName(rx.source),
                           (unsigned)rx.slot, (unsigned long)rx.sessionId,
+                          (unsigned)rx.peer.ipv4[0], (unsigned)rx.peer.ipv4[1],
+                          (unsigned)rx.peer.ipv4[2], (unsigned)rx.peer.ipv4[3],
+                          (unsigned)rx.peer.port,
                           (long)rx.fd, (long)rx.socketErrno,
                           (unsigned long)(now - rx.atMs));
             }

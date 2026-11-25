@@ -30,6 +30,17 @@ int main() {
     assert(latest.sessionId == second);
     assert(socketRxErrorSourceName(latest.source)[0] == 'p');
     assert(socketRxErrorSourceName(SocketRxErrorSource::DataRecv)[0] == 'r');
+    // Remote peer is frozen at accept time, before the RST and close.
+    SocketPeerIdentity gateway{};
+    gateway.setIPv4(192, 168, 1, 72, 54321);
+    latest.peer = gateway;
+    assert(latest.peer.ipv4[0] == 192 && latest.peer.ipv4[3] == 72);
+    assert(latest.peer.port == 54321);
+    const SocketRxErrorDetail priorPeer = latest;
+    gateway.setIPv4(192, 168, 1, 101, 56000); // same slot, new client
+    latest.peer = gateway;
+    assert(priorPeer.peer.ipv4[3] == 72 && priorPeer.peer.port == 54321);
+    assert(latest.peer.ipv4[3] == 101 && latest.peer.port == 56000);
     // Six simultaneous sessions use unique IDs; recycled slots differ.
     for (int i = 0; i < 6; ++i) assert(seq.next() != first);
     seq.current = 0xffffffffU;

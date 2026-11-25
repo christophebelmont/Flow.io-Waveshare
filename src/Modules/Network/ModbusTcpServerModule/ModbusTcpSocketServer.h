@@ -141,6 +141,12 @@ public:
                 } else {
                     clients_[slot] = incoming;
                     sessionIds_[slot] = sessionSequence_.next();
+                    // Capture peer address on admission: recv(ECONNRESET)
+                    // can make remoteIP()/remotePort() unavailable later.
+                    const IPAddress peerIp = clients_[slot].remoteIP();
+                    peerIdentities_[slot].setIPv4(
+                        peerIp[0], peerIp[1], peerIp[2], peerIp[3],
+                        clients_[slot].remotePort());
                     peerReadClosed_[slot] = false;
                     configureKeepAlive_(slot);
                     lastReadProgressMs_[slot] = nowMs;
@@ -339,6 +345,7 @@ private:
         stats_[port].lastRxError.capture(
             source, slot, sessionIds_[slot], clients_[slot].fd(),
             socketErrno, nowMs);
+        stats_[port].lastRxError.peer = peerIdentities_[slot];
         // Do not log in the hot TCP loop: ModbusTcpServerModule publishes
         // one bounded detail line only when the error counter changes.
     }
@@ -523,6 +530,7 @@ private:
         clients_[slot].stop();
         sessions_.release(slot);
         sessionIds_[slot] = 0U;
+        peerIdentities_[slot] = SocketPeerIdentity{};
         sent_[slot] = 0U;
         writing_[slot] = false;
         lastWriteProgressMs_[slot] = 0U;
@@ -540,6 +548,7 @@ private:
     PortStats stats_[kPortCount]{};
     SocketSessionSequence sessionSequence_{};
     uint32_t sessionIds_[kMaxClients]{};
+    SocketPeerIdentity peerIdentities_[kMaxClients]{};
     uint32_t lastTraceLogMs_[kPortCount]{};
     uint32_t traceSuppressed_[kPortCount]{};
     size_t sent_[kMaxClients]{};
