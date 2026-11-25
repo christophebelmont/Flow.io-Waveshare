@@ -52,14 +52,20 @@ assert.ok(renderer.includes("if (dirty.progress)") && renderer.includes("if (dir
 assert.ok(renderer.includes("display_.fillRect(x, y, filled, 2"),"beveled bar shine");
 assert.ok(renderer.includes("display_.fillRect(x, y + 7, filled, 2"),"beveled bar shadow");
 assert.ok(renderer.includes("display_.drawFastVLine(x + filled - 1"),"3D progress nose");
-assert.ok(renderer.includes("display_.drawLine(12, 151"),"completed step checkmark");
-assert.ok(renderer.includes("display_.fillRoundRect(8, 164"),"active step focus strip");
+assert.ok(renderer.includes("display_.drawLine(12, 154"),"completed step checkmark");
+assert.ok(renderer.includes("display_.fillRoundRect(8, 169"),"active step focus strip");
 assert.ok(!renderer.includes('display_.print("OK ")'),"no OK in step list");
-assert.ok(renderer.indexOf("updateCompletedStage_[0] && !error") < renderer.indexOf("display_.fillRoundRect(8, 164"),"completed above current");
-assert.ok(renderer.indexOf("display_.fillRoundRect(8, 164") < renderer.indexOf("drawBounded(detail, 30, 209"),"next below current");
+assert.ok(renderer.indexOf("updateCompletedStage_[0] && !error") < renderer.indexOf("display_.fillRoundRect(8, 169"),"completed above current");
+assert.ok(renderer.indexOf("display_.fillRoundRect(8, 164") < renderer.indexOf("drawBounded(detail, 30, 229"),"next below current");
 
 assert.ok(cpp.includes("update.operationId == updateDismissedOperation_"),"persistent terminal result must not reopen update screen");
 assert.ok(cpp.includes("updateDismissedOperation_ = update.operationId"),"terminal expiration must mark operation as dismissed");
 assert.ok(fw.includes('setOtaStage_("nextion_upload"'));
 assert.ok(fw.includes('setOtaStage_("activate"'));
 console.log("PASS: TFT OTA/Nextion stage labels, bilingual display, bounded redraw, no worker-side drawing");
+
+assert.ok(renderer.includes('display_.print(english ? "DO NOT" : "NE PAS")'),"warning at top FR/EN");
+assert.ok(renderer.includes('display_.print(english ? "POWER OFF" : "ETEINDRE")'),"two-line safety reminder");
+assert.ok(renderer.includes("display_.fillRect(6, 3, 98, 29"),"warning confined to free left header");
+assert.ok(renderer.includes("drawBounded(detail, 30, 229"),"bottom space reused for next stage");
+assert.ok(!renderer.includes('"Ne pas eteindre l\'appareil"'),"bottom footer removed");

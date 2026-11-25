@@ -1180,7 +1180,6 @@ void TFTModuleS3::renderUpdate_(const FirmwareUpdateDisplaySnapshot& u,
                                color_(rgb565_(89, 121, 145)));
         display_.drawFastHLine(bx + 9, by + bh - 2, bw - 18,
                                color_(rgb565_(13, 25, 42)));
-        display_.drawFastHLine(12, 214, w - 24, color_(track));
     }
 
     if (dirty.title) {
@@ -1194,14 +1193,21 @@ void TFTModuleS3::renderUpdate_(const FirmwareUpdateDisplaySnapshot& u,
         const int16_t titleW = gfxTextWidth_(title);
         display_.setCursor((w - titleW) / 2, 91);
         display_.print(title);
-        // Footer only changes for initial display or language changes.
-        display_.fillRect(12, 218, w - 24, h - 218, color_(dark));
+        // Safety reminder in the unused area to the LEFT of the compact
+        // 96px logo (logo begins at x=112 on 320x240). Never use the footer.
+        // Paint here only for a new operation or language/status transition.
+        display_.fillRect(6, 3, 98, 29, color_(dark));
+        const uint16_t warning = rgb565_(255, 206, 87);
+        display_.drawCircle(16, 15, 9, color_(warning));
+        display_.drawFastVLine(16, 10, 7, color_(warning));
+        display_.drawPixel(16, 20, color_(warning));
         display_.setFont(nullptr);
         display_.setTextSize(1);
-        display_.setTextColor(color_(faded), color_(dark));
-        display_.setCursor(30, 223);
-        display_.print(english ? "Do not switch off the device" :
-                                "Ne pas eteindre l'appareil");
+        display_.setTextColor(color_(warning), color_(dark));
+        display_.setCursor(29, 9);
+        display_.print(english ? "DO NOT" : "NE PAS");
+        display_.setCursor(29, 20);
+        display_.print(english ? "POWER OFF" : "ETEINDRE");
     }
 
     if (dirty.progress) {
@@ -1250,7 +1256,7 @@ void TFTModuleS3::renderUpdate_(const FirmwareUpdateDisplaySnapshot& u,
         // Chronological view: finished step at TOP, active step in the
         // CENTER and next step at BOTTOM. No disconnected "OK" in between.
         // Three bounded rows are cleared only when step/state/locale changes.
-        display_.fillRect(8, 143, w - 16, 67, color_(dark));
+        display_.fillRect(8, 143, w - 16, h - 146, color_(dark));
 
         // Keep long translated labels within 320 px without clipping midword.
         const auto drawBounded = [&](const char* label, int16_t x, int16_t baseline,
@@ -1284,33 +1290,33 @@ void TFTModuleS3::renderUpdate_(const FirmwareUpdateDisplaySnapshot& u,
         if (updateCompletedStage_[0] && !error) {
             const tft_update::Text completed = tft_update::steps(
                 nextion, updateCompletedStage_, english);
-            display_.drawLine(12, 151, 16, 156, color_(green));
-            display_.drawLine(16, 156, 25, 146, color_(green));
-            drawBounded(completed.current, 32, 159,
+            display_.drawLine(12, 154, 16, 159, color_(green));
+            display_.drawLine(16, 159, 25, 149, color_(green));
+            drawBounded(completed.current, 32, 162,
                         &FreeSans9pt7b, nullptr, green);
         }
 
         // A dark tinted focus strip makes the actual operation unambiguous.
         const uint16_t activeColor = error ? red : cyan;
-        display_.fillRoundRect(8, 164, w - 16, 29, 5,
+        display_.fillRoundRect(8, 169, w - 16, 34, 5,
             color_(error ? rgb565_(45, 15, 24) : rgb565_(5, 30, 43)));
-        display_.fillRect(11, 169, 3, 18, color_(activeColor));
+        display_.fillRect(11, 176, 3, 20, color_(activeColor));
         drawBounded(done ? (english ? "Update completed" : "Mise a jour terminee") :
                     rebooting ? (english ? "Restarting..." : "Redemarrage...") :
                     stage.current,
-                    23, 184, &FreeSansBold9pt7b, &FreeSansBold8pt7b, activeColor);
+                    23, 192, &FreeSansBold9pt7b, &FreeSansBold8pt7b, activeColor);
 
         const char* detail = error ? tft_update::failureReason(u.message, english) :
                              done ? (english ? "Ready for restart" : "Pret pour redemarrage") :
                              stage.next ? stage.next :
                              (english ? "Finalizing..." : "Finalisation...");
         if (error) {
-            display_.drawFastVLine(16, 198, 6, color_(red));
-            display_.drawPixel(16, 206, color_(red));
+            display_.drawFastVLine(16, 218, 6, color_(red));
+            display_.drawPixel(16, 227, color_(red));
         } else {
-            display_.drawCircle(16, 201, 3, color_(faded));
+            display_.drawCircle(16, 222, 3, color_(faded));
         }
-        drawBounded(detail, 30, 209, &FreeSans9pt7b, nullptr,
+        drawBounded(detail, 30, 229, &FreeSans9pt7b, nullptr,
                     error ? red : faded);
     }
 }

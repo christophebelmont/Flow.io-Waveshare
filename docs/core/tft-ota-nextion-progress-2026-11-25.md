@@ -101,3 +101,13 @@ next boot/splash, and backlight wake behavior.
   320px boundary, rather than overflowing visibly to the next area.
 - No change to actual OTA/Nextion state machine, PSRAM staging, partition
   writes, Modbus TCP or logging.
+
+## Follow-up: safety warning moved to top
+
+- The two-line "NE PAS / ETEINDRE" or "DO NOT / POWER OFF"
+  reminder is now placed at the top left beside the compact logo.
+  The brand bitmap is not covered; the TFT still only redraws the
+  warning when the title/language/state changes.
+- The obsolete bottom footer and separator are removed. Freed vertical
+  space increases spacing between the completed, active and next step
+  rows (the next step moves to baseline y=229).
