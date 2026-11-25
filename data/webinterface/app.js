@@ -4209,7 +4209,10 @@
       const receiptResult = receiptMatches ? String(receipt.result || '') : '';
 
       if (receiptResult === 'succeeded') {
-        const completedTarget = String(receipt.target || target);
+        // Do not turn the ZIP's 15-step journey into remote OTA steps during
+        // post-reboot receipt confirmation.
+        const completedTarget = upgradeIsZipTarget(current && current.target)
+          ? 'release' : String(receipt.target || target);
         markUpgradeUiCompletedAfterReceipt(completedTarget);
         scheduleUpgradeReloadAfterSuccess(currentOperationId, completedTarget);
         return;
@@ -4218,7 +4221,8 @@
         stopUpgradeReconnectFlow();
         updateUpgradeUiSession({
           phase: 'error',
-          target: String(receipt.target || target),
+          target: upgradeIsZipTarget(current && current.target)
+            ? 'release' : String(receipt.target || target),
           detail: receiptResult === 'interrupted'
             ? tr('updates.err.interrupted', 'La mise à jour a été interrompue avant sa finalisation.')
             : normalizeUpgradeHttpErrorMessage(msg, tr('updates.err.updateGeneric', 'Erreur de mise à jour.')),
@@ -4246,9 +4250,15 @@
           && (state === 'queued' || state === 'downloading' || state === 'flashing' || state === 'done')) {
         stopUpgradeReconnectFlow();
         updateUpgradeUiSession({
-          phase: state === 'queued' ? 'target' : 'flash',
+          phase: state === 'queued' ? (current.phase || 'target')
+            : state === 'downloading' ? 'download' : 'flash',
           target: 'release',
-          backendProgress: localReleaseOverallProgress(current, target, progress),
+          // ZIP backend progress is now global (Flash-committed byte count),
+          // not a per-image percentage to weight a second time.
+          backendProgress: Math.max(Number(current.backendProgress) || 0, progress),
+          otaBackendStage: current.otaBackendStage ||
+            (otaBackendStage.startsWith('zip_') ? otaBackendStage : ''),
+          otaBackendStepProgress: Number(current.otaBackendStepProgress) || 0,
           awaitingReconnect: false,
           reconnectShown: false,
           reconnectProgress: 0,
@@ -4256,6 +4266,24 @@
           bootId: bootId,
           failedStep: ''
         });
+        return;
+      }
+      if (isLocalRelease && state === 'rebooting') {
+        if (current.awaitingReconnect) return;
+        updateUpgradeUiSession({
+          phase: 'reboot',
+          target: 'release',
+          otaBackendStage: 'zip_activate',
+          otaBackendStepProgress: 100,
+          detail: tr('updates.zipStage.reboot', 'Redémarrage Flow.IO'),
+          backendProgress: 100,
+          awaitingReconnect: true,
+          reconnectShown: false,
+          reconnectProgress: 0,
+          operationId: operationId || currentOperationId,
+          bootId: bootId
+        });
+        scheduleUpgradeReconnectPhase(900);
         return;
       }
 
