@@ -363,7 +363,17 @@ private:
                           MODBUS_RESULT_NOT_READY, nowMs);
             return;
         }
-        if (previouslyBusy) ++stats_[port].resolverBusyRecovered;
+        if (previouslyBusy) {
+            ++stats_[port].resolverBusyRecovered;
+            // Log the first successful lock recovery once per port and boot.
+            if (stats_[port].resolverBusyRecovered == 1U) {
+                ::Log::info((LogModuleId)LogModuleIdValue::ModbusTcpServerModule,
+                    "[MODBUS-RESOLVE-RECOVER] port=%u recovered=%lu busy_attempts=%lu",
+                    (unsigned)kPorts[port],
+                    (unsigned long)stats_[port].resolverBusyRecovered,
+                    (unsigned long)stats_[port].resolverBusyAttempts);
+            }
+        }
         // Shared ModbusMasterService remains the sole RS485 scheduler.
         if (!bridge.submit(*service_, request, line, configs_[port].errorMode,
                            configs_[port].transactionTimeoutMs, nowMs, targetUnitId)) {
