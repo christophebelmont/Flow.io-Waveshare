@@ -15,6 +15,7 @@
 #include "Core/Services/Services.h"
 #include "Domain/Pool/PoolIds.h"
 #include "Modules/Network/MQTTModule/MqttConfigRouteProducer.h"
+#include "Modules/TFTModuleS3/TftUpdateRenderPlan.h"
 
 struct BoardSpec;
 
@@ -132,7 +133,11 @@ private:
     void startSplash_(uint32_t holdMs);
     void drawBootLogo_();
     bool readUpdateSnapshot_(FirmwareUpdateDisplaySnapshot& out);
-    void renderUpdate_(const FirmwareUpdateDisplaySnapshot& update, bool english, bool full);
+    void renderUpdate_(const FirmwareUpdateDisplaySnapshot& update, bool english,
+                       uint8_t percent, const tft_update::RenderDirty& dirty);
+    void drawUpdateBrandBitmap_(const uint16_t* bitmap, int16_t sourceW, int16_t sourceH,
+                                int16_t x, int16_t y, int16_t w, int16_t h,
+                                bool wordmark);
     void drawStaticLayout_(Page page);
     void drawHeader_(const char* timeText, uint8_t wifiBars, bool apMode);
     void drawOverviewPage_();
