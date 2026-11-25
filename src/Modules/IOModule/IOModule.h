@@ -187,6 +187,7 @@ private:
     IoStatus ioReadDigital_(IoId id, uint8_t* outOn, uint32_t* outTsMs, IoSeq* outSeq) const;
     IoStatus ioWriteDigital_(IoId id, uint8_t on, uint32_t tsMs, uint8_t owner);
     IoStatus ioReadAnalog_(IoId id, float* outValue, uint32_t* outTsMs, IoSeq* outSeq) const;
+    IoStatus ioReadAnalogRaw_(IoId id, float* outValue, uint32_t* outTsMs, IoSeq* outSeq) const;
     IoStatus ioTick_(uint32_t nowMs);
     IoStatus ioLastCycle_(IoCycleInfo* outCycle) const;
     IoStatus ioSensorStatus_(IoId id, IoSensorStatus* outStatus) const;
@@ -484,7 +485,8 @@ private:
         ServiceBinding::bind<&IOModule::setOutputControlState_>,
         ServiceBinding::bind<&IOModule::resetCounter_>,
         ServiceBinding::bind<&IOModule::saveCounters_>,
-        ServiceBinding::bind<&IOModule::outputBootPolicy_>
+        ServiceBinding::bind<&IOModule::outputBootPolicy_>,
+        ServiceBinding::bind<&IOModule::ioReadAnalogRaw_>
     };
     IoCycleInfo* lastCycle_ = nullptr;
 
