@@ -2507,6 +2507,174 @@ bool FirmwareUpdateModule::localTransactionMatches_(uint32_t transactionId) cons
     return localRelease_.active && transactionId != 0U && localRelease_.id == transactionId;
 }
 
+// The browser polls this tiny, lock-copied snapshot while the fwupdate task
+// erases/programs Flash. HTTP requests never wait for the full Flash operation.
+bool FirmwareUpdateModule::localImageProgressSnapshot_(
+    uint32_t transactionId, FirmwareUpdateTarget target,
+    FirmwareLocalImageProgress* out)
+{
+    if (!out || !transactionId) return false;
+    portENTER_CRITICAL(&lock_);
+    const bool match = localImageProgress_.transactionId == transactionId &&
+                       localImageProgress_.target == target;
+    if (match) *out = localImageProgress_;
+    portEXIT_CRITICAL(&lock_);
+    return match;
+}
+
+void FirmwareUpdateModule::setLocalImageProgress_(
+    uint32_t transactionId, FirmwareUpdateTarget target,
+    FirmwareLocalImagePhase phase, uint8_t percent,
+    uint32_t received, uint32_t total, const char* reason)
+{
+    portENTER_CRITICAL(&lock_);
+    localImageProgress_.transactionId = transactionId;
+    localImageProgress_.target = target;
+    localImageProgress_.phase = phase;
+    localImageProgress_.percent = percent > 100U ? 100U : percent;
+    localImageProgress_.receivedBytes = received;
+    localImageProgress_.totalBytes = total;
+    snprintf(localImageProgress_.reason, sizeof(localImageProgress_.reason),
+             "%s", reason ? reason : "");
+    portEXIT_CRITICAL(&lock_);
+}
+
+// Runs ONLY from fwupdate::loop(), after endLocalImage_ has already checked
+// the complete PSRAM image against the signed manifest SHA-256 and returned
+// HTTP 202. No HTTP-owned buffer is referenced here; no callback blocks on
+// Flash erase/write/validation. Never flash the active A/B partition.
+bool FirmwareUpdateModule::flashStagedLocalImage_()
+{
+    SemaphoreGuard guard(localReleaseMutex_);
+    if (!guard.acquired()) return false;
+    if (!localRelease_.active || !localRelease_.stagedImage ||
+        !localRelease_.writePartition || localRelease_.shaActive ||
+        (localRelease_.stage != LocalReleaseStage::WritingFilesystem &&
+         localRelease_.stage != LocalReleaseStage::WritingFirmware)) {
+        LOGE("[OTA-ZIP-PSRAM] invalid queued image for flashing");
+        if (localRelease_.active) failLocalRelease_("ZIP staging lost before Flash");
+        return false;
+    }
+    const bool fs = localRelease_.stage == LocalReleaseStage::WritingFilesystem;
+    const FirmwareUpdateTarget target = fs ? FirmwareUpdateTarget::Spiffs
+                                           : FirmwareUpdateTarget::Waveshare;
+    const size_t total = localRelease_.stagedBytes;
+    const uint32_t txn = localRelease_.id;
+    const uint32_t op = localRelease_.operationId;
+    const uint32_t startedMs = millis();
+    LOGI("[OTA-ZIP-PSRAM] flash_begin txn=%lu target=%u bytes=%lu psram_free=%lu stack=%u",
+         (unsigned long)txn, (unsigned)target, (unsigned long)total,
+         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+         (unsigned)uxTaskGetStackHighWaterMark(nullptr));
+    setLocalImageProgress_(txn, target, FirmwareLocalImagePhase::Flashing,
+                           0U, (uint32_t)total, (uint32_t)total);
+    setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare,
+               fs ? 0U : 35U, fs ? "ZIP: writing verified SPIFFS"
+                                    : "ZIP: writing verified firmware", op);
+    setOtaStage_(fs ? "zip_spiffs_flash" : "zip_firmware_flash", 0U);
+
+    esp_err_t err = ESP_OK;
+    if (fs) {
+        constexpr size_t kEraseBytes = 64U * 1024U;
+        const size_t partitionSize = localRelease_.writePartition->size;
+        if (partitionSize % kEraseBytes != 0U) {
+            failLocalRelease_("ZIP SPIFFS erase alignment invalid");
+            return false;
+        }
+        for (size_t off = 0; off < partitionSize; off += kEraseBytes) {
+            err = esp_partition_erase_range(localRelease_.writePartition, off, kEraseBytes);
+            if (err != ESP_OK) break;
+            localRelease_.lastActivityMs = millis();
+            vTaskDelay(1);
+        }
+    } else {
+        err = esp_ota_begin(localRelease_.writePartition,
+                            static_cast<size_t>(OTA_WITH_SEQUENTIAL_WRITES),
+                            &localRelease_.otaHandle);
+    }
+    if (err != ESP_OK) {
+        LOGE("[OTA-ZIP-PSRAM] flash_prepare_failed txn=%lu err=%d",
+             (unsigned long)txn, (int)err);
+        failLocalRelease_("ZIP verified image flash preparation failed");
+        return false;
+    }
+
+    // Use an INTERNAL stack copy because PSRAM is inaccessible during some
+    // Flash-cache stalls; no allocations or TCP receive buffers on this path.
+    uint8_t chunk[1024]{};
+    size_t written = 0U;
+    size_t lastLogged = 0U;
+    while (written < total) {
+        const size_t amount = total - written < sizeof(chunk)
+                                ? total - written : sizeof(chunk);
+        memcpy(chunk, localRelease_.stagedImage + written, amount);
+        err = fs
+            ? esp_partition_write(localRelease_.writePartition, written, chunk, amount)
+            : esp_ota_write(localRelease_.otaHandle, chunk, amount);
+        if (err != ESP_OK) break;
+        written += amount;
+        localRelease_.lastActivityMs = millis();
+        const uint8_t pct = (uint8_t)(((uint64_t)written * 100U) / total);
+        setLocalImageProgress_(txn, target, FirmwareLocalImagePhase::Flashing,
+                               pct, (uint32_t)written, (uint32_t)total);
+        setOtaStage_(nullptr, pct);
+        if (written == total || written - lastLogged >= 256U * 1024U) {
+            LOGI("[OTA-ZIP-PSRAM] flash_progress txn=%lu target=%u written=%lu/%lu",
+                 (unsigned long)txn, (unsigned)target,
+                 (unsigned long)written, (unsigned long)total);
+            lastLogged = written;
+        }
+        vTaskDelay(1);
+    }
+    if (err != ESP_OK) {
+        LOGE("[OTA-ZIP-PSRAM] flash_write_failed txn=%lu target=%u offset=%lu err=%d",
+             (unsigned long)txn, (unsigned)target, (unsigned long)written, (int)err);
+        failLocalRelease_("ZIP verified image Flash write failed");
+        return false;
+    }
+    if (fs) {
+        if (!candidateFilesystemIsValid_(
+                ReleaseStorage::filesystemLabel(localRelease_.targetSlot),
+                localRelease_.version, hardwareName_)) {
+            failLocalRelease_("ZIP candidate filesystem validation failed");
+            return false;
+        }
+        localRelease_.stage = LocalReleaseStage::FilesystemVerified;
+    } else {
+        err = esp_ota_end(localRelease_.otaHandle);
+        localRelease_.otaHandle = 0;
+        if (err != ESP_OK) {
+            LOGE("[OTA-ZIP-PSRAM] firmware_validation_failed txn=%lu err=%d",
+                 (unsigned long)txn, (int)err);
+            failLocalRelease_("ZIP verified firmware candidate rejected");
+            return false;
+        }
+        localRelease_.stage = LocalReleaseStage::FirmwareVerified;
+    }
+    // Free before the browser is permitted to begin uploading the next image.
+    heap_caps_free(localRelease_.stagedImage);
+    localRelease_.stagedImage = nullptr;
+    localRelease_.stagedBytes = 0U;
+    localRelease_.writePartition = nullptr;
+    localRelease_.received = 0U;
+    localRelease_.lastActivityMs = millis();
+    const uint8_t overall = fs
+        ? (uint8_t)(((uint64_t)localRelease_.filesystem.size * 100U) /
+            ((uint64_t)localRelease_.filesystem.size + localRelease_.firmware.size))
+        : 99U;
+    setStatus_(UpdateState::Flashing, FirmwareUpdateTarget::Waveshare,
+               overall, fs ? "ZIP SPIFFS verified; firmware next"
+                           : "ZIP firmware verified; joint commit next", op);
+    setOtaStage_(fs ? "zip_spiffs_verified" : "zip_firmware_verified", 100U);
+    setLocalImageProgress_(txn, target, FirmwareLocalImagePhase::Verified,
+                           100U, (uint32_t)total, (uint32_t)total);
+    LOGI("[OTA-ZIP-PSRAM] flash_verified txn=%lu target=%u elapsed_ms=%lu psram_free=%lu",
+         (unsigned long)txn, (unsigned)target,
+         (unsigned long)(millis() - startedMs),
+         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    return true;
+}
+
 void FirmwareUpdateModule::resetLocalRelease_()
 {
     LOGI("[OTA-ZIP-CLEAN] reset_begin op=%lu txn=%lu stage=%u active=%u received=%lu sha=%u handle=%u",
@@ -2522,10 +2690,16 @@ void FirmwareUpdateModule::resetLocalRelease_()
     if (localRelease_.otaHandle != 0) {
         (void)esp_ota_abort(localRelease_.otaHandle);
     }
+    if (localRelease_.stagedImage) {
+        heap_caps_free(localRelease_.stagedImage);
+        localRelease_.stagedImage = nullptr;
+    }
     localRelease_ = LocalReleaseTransaction{};
     localReleaseLastIdleDiagMs_ = 0U;
     portENTER_CRITICAL(&lock_);
     localReleaseActive_ = false;
+    localFlashQueued_ = false;
+    localImageProgress_ = FirmwareLocalImageProgress{};
     activeTotalBytes_ = 0U;
     activeSentBytes_ = 0U;
     portEXIT_CRITICAL(&lock_);
@@ -2552,6 +2726,11 @@ void FirmwareUpdateModule::failLocalRelease_(const char* reason)
         (void)esp_ota_abort(localRelease_.otaHandle);
         localRelease_.otaHandle = 0;
     }
+    if (localRelease_.stagedImage) {
+        heap_caps_free(localRelease_.stagedImage);
+        localRelease_.stagedImage = nullptr;
+        localRelease_.stagedBytes = 0U;
+    }
     const FirmwareUpdateTarget target =
         localRelease_.stage == LocalReleaseStage::WritingFirmware ||
                 localRelease_.stage == LocalReleaseStage::FirmwareVerified ||
@@ -2563,6 +2742,14 @@ void FirmwareUpdateModule::failLocalRelease_(const char* reason)
              "%s",
              reason ? reason : "local release failed");
     localRelease_.stage = LocalReleaseStage::Error;
+    portENTER_CRITICAL(&lock_);
+    localFlashQueued_ = false;
+    portEXIT_CRITICAL(&lock_);
+    setLocalImageProgress_(localRelease_.id, target, FirmwareLocalImagePhase::Error,
+                           0U, (uint32_t)localRelease_.received,
+                           target == FirmwareUpdateTarget::Spiffs
+                               ? localRelease_.filesystem.size : localRelease_.firmware.size,
+                           localRelease_.failureReason);
     setError_(target, localRelease_.failureReason, localRelease_.operationId);
 }
 
@@ -2984,10 +3171,41 @@ bool FirmwareUpdateModule::beginLocalImage_(uint32_t transactionId,
     LOGI("[OTA-ZIP-PHASE] image_prepare txn=%lu target=%u bytes=%lu partition=%s",
          (unsigned long)transactionId, (unsigned)target,
          (unsigned long)totalSize, label);
-    esp_err_t flashError = ESP_OK;
     const bool remotePaired = remoteReleaseWorker_ != nullptr &&
                               remoteReleaseWorker_ == xTaskGetCurrentTaskHandle();
-    if (filesystemTarget) {
+    // Local ZIP: allocate one complete image, preserve a 2MiB PSRAM reserve.
+    // Do not erase or even start writing the inactive Flash before the full
+    // image hash has been authenticated against manifest.json.
+    if (!remotePaired) {
+        const size_t freeBytes = heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        const size_t largestBlock = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!OtaPsramPolicy::canStageImage(totalSize, freeBytes, largestBlock)) {
+            LOGE("[OTA-ZIP-PSRAM] admission_denied txn=%lu target=%u bytes=%lu free=%lu largest=%lu reserve=%lu",
+                 (unsigned long)transactionId, (unsigned)target,
+                 (unsigned long)totalSize, (unsigned long)freeBytes,
+                 (unsigned long)largestBlock,
+                 (unsigned long)OtaPsramPolicy::kReserveBytes);
+            failLocalRelease_("ZIP PSRAM insufficient (2 MiB reserve)");
+            return writeSimpleError_(errOut, errOutLen, "ZIP PSRAM insufficient (2 MiB reserve)");
+        }
+        localRelease_.stagedImage = static_cast<uint8_t*>(
+            heap_caps_malloc(totalSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (!localRelease_.stagedImage) {
+            failLocalRelease_("ZIP PSRAM allocation failed");
+            return writeSimpleError_(errOut, errOutLen, "ZIP PSRAM allocation failed");
+        }
+        localRelease_.stagedBytes = totalSize;
+        LOGI("[OTA-ZIP-PSRAM] stage_allocated txn=%lu target=%u size=%lu free_before=%lu largest=%lu after=%lu",
+             (unsigned long)transactionId, (unsigned)target,
+             (unsigned long)totalSize, (unsigned long)freeBytes,
+             (unsigned long)largestBlock,
+             (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    }
+
+    esp_err_t flashError = ESP_OK;
+    if (!remotePaired) {
+        // Intentionally no Flash erase/write in ZIP upload callbacks.
+    } else if (filesystemTarget) {
         // Erase the inactive SPIFFS in bounded chunks. This path serves both
         // local and remote paired releases, so never monopolize the Wi-Fi CPU.
         constexpr size_t kEraseBytes = 64U * 1024U;
@@ -3031,6 +3249,10 @@ bool FirmwareUpdateModule::beginLocalImage_(uint32_t transactionId,
     localRelease_.lastActivityMs = millis();
     localRelease_.stage = filesystemTarget ? LocalReleaseStage::WritingFilesystem
                                            : LocalReleaseStage::WritingFirmware;
+    if (!remotePaired) {
+        setLocalImageProgress_(transactionId, target, FirmwareLocalImagePhase::Receiving,
+                               0U, 0U, (uint32_t)totalSize);
+    }
     portENTER_CRITICAL(&lock_);
     if (remotePaired) {
         activeTotalBytes_ = localRelease_.filesystem.size + localRelease_.firmware.size;
@@ -3115,9 +3337,19 @@ bool FirmwareUpdateModule::writeLocalImage_(uint32_t transactionId,
              (unsigned)expectedSize);
     }
 
-    const esp_err_t writeError = filesystemTarget
-                                     ? esp_partition_write(localRelease_.writePartition, offset, data, len)
-                                     : esp_ota_write(localRelease_.otaHandle, data, len);
+    esp_err_t writeError = ESP_OK;
+    if (localRelease_.stagedImage) {
+        if (offset > localRelease_.stagedBytes ||
+            len > localRelease_.stagedBytes - offset) {
+            failLocalRelease_("ZIP PSRAM bounds check failed");
+            return writeSimpleError_(errOut, errOutLen, "ZIP PSRAM bounds check failed");
+        }
+        memcpy(localRelease_.stagedImage + offset, data, len);
+    } else {
+        writeError = filesystemTarget
+                         ? esp_partition_write(localRelease_.writePartition, offset, data, len)
+                         : esp_ota_write(localRelease_.otaHandle, data, len);
+    }
     if (writeError != ESP_OK || mbedtls_sha256_update(&localRelease_.shaContext, data, len) != 0) {
         failLocalRelease_("release image write failed");
         return writeSimpleError_(errOut, errOutLen, "release image write failed");
@@ -3125,6 +3357,14 @@ bool FirmwareUpdateModule::writeLocalImage_(uint32_t transactionId,
     const size_t previousReceived = localRelease_.received;
     localRelease_.received += len;
     localRelease_.lastActivityMs = millis();
+    // Local ZIP chunks only populate the PSRAM staging buffer. Never touch
+    // the inactive A/B partition while AsyncTCP is delivering the image.
+    if (localRelease_.stagedImage) {
+        const uint8_t pct = (uint8_t)(((uint64_t)localRelease_.received * 100U) / expectedSize);
+        setLocalImageProgress_(transactionId, target, FirmwareLocalImagePhase::Receiving,
+                               pct, (uint32_t)localRelease_.received, (uint32_t)expectedSize);
+        setOtaStage_(nullptr, pct);
+    }
     // Large local ZIP images are streamed in ~1436-byte TCP callbacks.
     // Sparse progress checkpoints distinguish transport stalls from Flash
     // failures without overwhelming the logger or the AsyncTCP queue.
@@ -3220,6 +3460,22 @@ bool FirmwareUpdateModule::endLocalImage_(uint32_t transactionId,
     if (shaError != 0 || !sha256Matches_(digest, image.sha256)) {
         failLocalRelease_("release image sha256 mismatch");
         return writeSimpleError_(errOut, errOutLen, "release image sha256 mismatch");
+    }
+
+    if (localRelease_.stagedImage) {
+        // SHA completed BEFORE Flash; a browser HTTP 202 response can now be
+        // returned immediately. fwupdate::loop() later flashes this verified
+        // PSRAM image and publishes the result via localImageProgress().
+        LOGI("[OTA-ZIP-PSRAM] preverify_ok txn=%lu target=%u bytes=%lu flash_touched=0",
+             (unsigned long)transactionId, (unsigned)target,
+             (unsigned long)localRelease_.stagedBytes);
+        setLocalImageProgress_(transactionId, target, FirmwareLocalImagePhase::Queued,
+                               0U, (uint32_t)localRelease_.stagedBytes,
+                               (uint32_t)localRelease_.stagedBytes);
+        portENTER_CRITICAL(&lock_);
+        localFlashQueued_ = true;
+        portEXIT_CRITICAL(&lock_);
+        return true;
     }
 
     if (filesystemTarget) {
@@ -3896,6 +4152,18 @@ void FirmwareUpdateModule::loop()
 {
     if (!localCallOwner_) localCallOwner_ = xTaskGetCurrentTaskHandle();
     if (handleQueuedLocalCall_()) {
+        delayNextCycle(pdMS_TO_TICKS(1));
+        return;
+    }
+    bool flashPending = false;
+    portENTER_CRITICAL(&lock_);
+    if (localFlashQueued_) {
+        localFlashQueued_ = false;
+        flashPending = true;
+    }
+    portEXIT_CRITICAL(&lock_);
+    if (flashPending) {
+        (void)flashStagedLocalImage_();
         delayNextCycle(pdMS_TO_TICKS(1));
         return;
     }

@@ -8334,14 +8334,17 @@ void WebInterfaceModule::startServer_()
                     request->send(409, "application/json", response);
                     return;
                 }
-                LOGI("[OTA-ZIP-HTTP] image_verified target=%u txn=%lu bytes=%lu/%lu chunks=%lu slow=%lu elapsed_ms=%lu verify_ms=%lu max_write_ms=%lu",
+                // ZIP is only staged + SHA-verified at this point. The HTTP
+                // callback must not wait for Flash erase/write/validation:
+                // the dedicated fwupdate loop completes it asynchronously.
+                LOGI("[OTA-ZIP-HTTP] image_staged target=%u txn=%lu bytes=%lu/%lu chunks=%lu slow=%lu elapsed_ms=%lu verify_ms=%lu max_write_ms=%lu",
                      (unsigned)requestTarget, (unsigned long)transactionId,
                      (unsigned long)received, (unsigned long)total,
                      (unsigned long)chunks, (unsigned long)slowChunks,
                      (unsigned long)(millis() - startedAtMs),
                      (unsigned long)(millis() - verifyStartMs),
                      (unsigned long)maxWriteMs);
-                request->send(200, "application/json", "{\"ok\":true,\"verified\":true}");
+                request->send(202, "application/json", "{\"ok\":true,\"staged\":true}");
             },
             nullptr,
             [this, readLocalTransactionId, target](AsyncWebServerRequest* request,
@@ -8447,6 +8450,64 @@ void WebInterfaceModule::startServer_()
     };
     registerLocalImageRoute("/api/upgrade/filesystem", FirmwareUpdateTarget::Spiffs);
     registerLocalImageRoute("/api/upgrade/firmware", FirmwareUpdateTarget::Waveshare);
+
+    // Lightweight state: do NOT call statusJson(), which also probes the
+    // filesystem and could compete with an ongoing inactive-slot Flash write.
+    server_.on("/api/upgrade/image/status", HTTP_GET,
+        [this, readLocalTransactionId](AsyncWebServerRequest* request) {
+            uint32_t transactionId = 0U;
+            char targetValue[16]{};
+            if (!readLocalTransactionId(request, transactionId) ||
+                !copyRequestParamValue_(request, "target", false,
+                                        targetValue, sizeof(targetValue), "")) {
+                request->send(400, "application/json",
+                              "{\"ok\":false,\"error\":\"invalid image status parameters\"}");
+                return;
+            }
+            FirmwareUpdateTarget target = FirmwareUpdateTarget::Waveshare;
+            if (strcmp(targetValue, "spiffs") == 0) {
+                target = FirmwareUpdateTarget::Spiffs;
+            } else if (strcmp(targetValue, "firmware") != 0) {
+                request->send(400, "application/json",
+                              "{\"ok\":false,\"error\":\"unknown image target\"}");
+                return;
+            }
+            if (!fwUpdateSvc_ && services_) {
+                fwUpdateSvc_ = services_->get<FirmwareUpdateService>(ServiceId::FirmwareUpdate);
+            }
+            if (!fwUpdateSvc_ || !fwUpdateSvc_->localImageProgress) {
+                request->send(503, "application/json",
+                              "{\"ok\":false,\"error\":\"updater not ready\"}");
+                return;
+            }
+            FirmwareLocalImageProgress progress{};
+            if (!fwUpdateSvc_->localImageProgress(fwUpdateSvc_->ctx,
+                                                   transactionId, target, &progress)) {
+                request->send(409, "application/json",
+                              "{\"ok\":false,\"error\":\"stale image transaction\"}");
+                return;
+            }
+            const char* phase = "idle";
+            switch (progress.phase) {
+                case FirmwareLocalImagePhase::Receiving: phase = "receiving"; break;
+                case FirmwareLocalImagePhase::Queued: phase = "queued"; break;
+                case FirmwareLocalImagePhase::Flashing: phase = "flashing"; break;
+                case FirmwareLocalImagePhase::Verified: phase = "verified"; break;
+                case FirmwareLocalImagePhase::Error: phase = "error"; break;
+                default: break;
+            }
+            char reason[sizeof(progress.reason)]{};
+            snprintf(reason, sizeof(reason), "%s", progress.reason);
+            sanitizeJsonString_(reason);
+            char reply[340]{};
+            snprintf(reply, sizeof(reply),
+                     "{\"ok\":true,\"transaction_id\":%lu,\"target\":\"%s\",\"phase\":\"%s\",\"progress\":%u,\"bytes\":%lu,\"total\":%lu,\"reason\":\"%s\"}",
+                     (unsigned long)transactionId, targetValue, phase,
+                     (unsigned)progress.percent,
+                     (unsigned long)progress.receivedBytes,
+                     (unsigned long)progress.totalBytes, reason);
+            request->send(200, "application/json", reply);
+        });
 
     server_.on("/api/upgrade/commit", HTTP_POST, [this, readLocalTransactionId](AsyncWebServerRequest* request) {
         const uint32_t startMs = millis();

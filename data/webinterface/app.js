@@ -5158,12 +5158,50 @@
             reject(new Error('HTTP ' + request.status + ' : ' + (detail || 'upload refusé')));
             return;
           }
-          console.info('[OTA-ZIP-BROWSER] image_verified_response', url,
+          console.info('[OTA-ZIP-BROWSER] image_staged_response', url,
                        'http=' + request.status, 'elapsed_ms=' + (Date.now() - startedAt));
           resolve(payload || { ok: true });
         };
         request.send(blob);
       });
+    }
+
+    async function waitForZipImageFlash(transactionId, target) {
+      // HTTP 202 means staged + preverified; the fwupdate task completes
+      // erasing/writing/validation asynchronously, without blocking AsyncTCP.
+      const started = Date.now();
+      const timeoutMs = 240000;
+      let lastPercent = -1;
+      let lastPhase = '';
+      while (Date.now() - started < timeoutMs) {
+        const query = '?transaction_id=' + encodeURIComponent(String(transactionId)) +
+                      '&target=' + encodeURIComponent(target);
+        const progress = await fetchOkJson('/api/upgrade/image/status' + query,
+                                           { method: 'GET', cache: 'no-store' },
+                                           'échec de consultation de la programmation ZIP');
+        if (Number(progress.transaction_id) !== transactionId || progress.target !== target) {
+          throw new Error('identifiant de transaction ZIP incorrect pendant la programmation');
+        }
+        if (progress.phase !== lastPhase || progress.progress !== lastPercent) {
+          lastPhase = progress.phase;
+          lastPercent = progress.progress;
+          console.info('[OTA-ZIP-BROWSER] flash_state', target,
+                       progress.phase, progress.progress + '%',
+                       'elapsed_ms=' + (Date.now() - started));
+          setUpgradeDetail('Programmation ' + (target === 'spiffs' ? 'SPIFFS' : 'firmware') +
+                           ' depuis la PSRAM : ' + progress.progress + '%');
+        }
+        if (progress.phase === 'verified') {
+          console.info('[OTA-ZIP-BROWSER] flash_verified', target,
+                       'elapsed_ms=' + (Date.now() - started));
+          return;
+        }
+        if (progress.phase === 'error') {
+          throw new Error(progress.reason || 'échec programmation ZIP');
+        }
+        await new Promise(resolve => setTimeout(resolve, 750));
+      }
+      throw new Error('délai de programmation ZIP dépassé après 240 s');
     }
 
     async function installLocalRelease(file) {
@@ -5210,12 +5248,14 @@
         const query = '?transaction_id=' + encodeURIComponent(String(transactionId));
         console.info('[OTA-ZIP-BROWSER] transaction_started', transactionId);
         await uploadReleaseBlob('/api/upgrade/filesystem' + query, filesystem, (progress) => {
-          setUpgradeDetail('Installation du filesystem : ' + progress + '%');
+          setUpgradeDetail('Réception SPIFFS en PSRAM : ' + progress + '%');
         });
+        await waitForZipImageFlash(transactionId, 'spiffs');
         console.info('[OTA-ZIP-BROWSER] filesystem_verified', transactionId);
         await uploadReleaseBlob('/api/upgrade/firmware' + query, firmware, (progress) => {
-          setUpgradeDetail('Installation du firmware : ' + progress + '%');
+          setUpgradeDetail('Réception firmware en PSRAM : ' + progress + '%');
         });
+        await waitForZipImageFlash(transactionId, 'firmware');
         console.info('[OTA-ZIP-BROWSER] firmware_verified', transactionId);
         await fetchOkJson('/api/upgrade/commit' + query,
                           { method: 'POST', cache: 'no-store' },
