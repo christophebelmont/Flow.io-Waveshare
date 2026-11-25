@@ -501,6 +501,26 @@ bool PoolDeviceModule::configureRuntime_()
         }
     }
 
+    // The RS485 line selected by each driver is fixed for this runtime.
+    // Publish immutable, per-device snapshots once all driver setup has
+    // finished, so external Modbus TCP requests do not contend with direct
+    // Polytropic/AquaGem polling or runtime MQTT JSON snapshots.
+    // Configuration changes to driver serial settings take effect on reboot.
+    if (serialProfileSnapshots_) {
+        for (uint8_t i = 0; i < POOL_DEVICE_MAX; ++i) {
+            const PoolDeviceSlot& s = slots_[i];
+            SerialProfileSnapshot& snap = serialProfileSnapshots_[i];
+            const bool valid = s.used && s.def.enabled && s.driverReady &&
+                s.driverConfig.capabilities.kind == PoolControlKind::Rs485;
+            if (valid) {
+                snap.line = s.driverConfig.serial.line;
+                snap.slaveAddress = s.driverConfig.serial.address;
+            }
+            // Publish last: readers never observe a partially copied profile.
+            __atomic_store_n(&snap.state, valid ? uint8_t(1U) : uint8_t(2U),
+                             __ATOMIC_RELEASE);
+        }
+    }
     runtimeReady_ = true;
     return true;
 }

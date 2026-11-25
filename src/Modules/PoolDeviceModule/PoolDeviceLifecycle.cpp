@@ -61,7 +61,7 @@ bool PoolDeviceModule::ensureStorage_()
         stateMutex_ = xSemaphoreCreateRecursiveMutexStatic(&stateMutexBuf_);
     }
 
-    if (runtimePersistBuf_ && slots_ && cfgDriverVar_ && cfgEnabledVar_ && cfgDependsVar_ && cfgFlowVar_ &&
+    if (runtimePersistBuf_ && slots_ && serialProfileSnapshots_ && cfgDriverVar_ && cfgEnabledVar_ && cfgDependsVar_ && cfgFlowVar_ &&
         cfgTankCapVar_ && cfgTankInitVar_ && cfgMaxUptimeVar_ && cfgRequestedRpmVar_) {
         return stateMutex_ != nullptr;
     }
@@ -70,6 +70,7 @@ bool PoolDeviceModule::ensureStorage_()
         runtimePersistBuf_ = allocPsramCharTable_<RUNTIME_PERSIST_BUF_LEN>(POOL_DEVICE_MAX);
     }
     if (!slots_) slots_ = allocPsramArray_<PoolDeviceSlot>(POOL_DEVICE_MAX);
+    if (!serialProfileSnapshots_) serialProfileSnapshots_ = allocPsramArray_<SerialProfileSnapshot>(POOL_DEVICE_MAX);
     if (!cfgDriverVar_) cfgDriverVar_ = allocPsramArray_<ConfigVariable<char,0>>(POOL_DEVICE_MAX);
     if (!cfgRequestedRpmVar_) cfgRequestedRpmVar_ = allocPsramArray_<ConfigVariable<float,0>>(POOL_DEVICE_MAX);
     if (!cfgEnabledVar_) cfgEnabledVar_ = allocPsramArray_<ConfigVariable<bool,0>>(POOL_DEVICE_MAX);
@@ -79,7 +80,7 @@ bool PoolDeviceModule::ensureStorage_()
     if (!cfgTankInitVar_) cfgTankInitVar_ = allocPsramArray_<ConfigVariable<float,0>>(POOL_DEVICE_MAX);
     if (!cfgMaxUptimeVar_) cfgMaxUptimeVar_ = allocPsramArray_<ConfigVariable<int32_t,0>>(POOL_DEVICE_MAX);
 
-    const bool ok = stateMutex_ && runtimePersistBuf_ && slots_ && cfgDriverVar_ && cfgEnabledVar_ && cfgDependsVar_ && cfgFlowVar_ &&
+    const bool ok = stateMutex_ && runtimePersistBuf_ && slots_ && serialProfileSnapshots_ && cfgDriverVar_ && cfgEnabledVar_ && cfgDependsVar_ && cfgFlowVar_ &&
                     cfgTankCapVar_ && cfgTankInitVar_ && cfgMaxUptimeVar_ && cfgRequestedRpmVar_;
     if (ok) {
         LOGI("PoolDevice scalable storage ready slots=%u slot_bytes=%u slots_psram=%u persist_bytes=%u",
@@ -514,18 +515,21 @@ bool PoolDeviceModule::serialDeviceInfo(uint16_t deviceId, SerialLineProfile& ou
 PoolDeviceModule::SerialLookupStatus PoolDeviceModule::trySerialDeviceInfo(
     uint16_t deviceId, SerialLineProfile& out, uint8_t& slaveAddress) const
 {
-    if (deviceId >= POOL_DEVICE_MAX || !slots_)
+    if (deviceId >= POOL_DEVICE_MAX) return SerialLookupStatus::Invalid;
+    if (!serialProfileSnapshots_) return SerialLookupStatus::Busy;
+
+    // The serial profile is written once after configureRuntime_() finishes.
+    // Publication with release, read with acquire: no shared PoolDevice lock,
+    // no UART access, and no stale fallback profile from another device.
+    const SerialProfileSnapshot& snap = serialProfileSnapshots_[deviceId];
+    const uint8_t state = __atomic_load_n(&snap.state, __ATOMIC_ACQUIRE);
+    if (state == 0U) return SerialLookupStatus::Busy;
+    if (state != 1U) return SerialLookupStatus::Invalid;
+    // The enabled bit is a live ConfigStore variable. Never keep routing
+    // requests to a device disabled after the boot-time snapshot was made.
+    if (!slots_ || !__atomic_load_n(&slots_[deviceId].def.enabled, __ATOMIC_ACQUIRE))
         return SerialLookupStatus::Invalid;
-    // Never wait for a potentially expensive MQTT/JSON snapshot.
-    if (!lockState_(0)) return SerialLookupStatus::Busy;
-    const PoolDeviceSlot& slot = slots_[deviceId];
-    const bool valid = slot.used && slot.def.enabled &&
-        slot.driverReady &&
-        slot.driverConfig.capabilities.kind == PoolControlKind::Rs485;
-    if (valid) {
-        out = slot.driverConfig.serial.line;
-        slaveAddress = slot.driverConfig.serial.address;
-    }
-    unlockState_();
-    return valid ? SerialLookupStatus::Ready : SerialLookupStatus::Invalid;
+    out = snap.line;
+    slaveAddress = snap.slaveAddress;
+    return SerialLookupStatus::Ready;
 }
