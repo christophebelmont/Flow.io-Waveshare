@@ -1290,7 +1290,7 @@ bool FirmwareUpdateModule::startUpdate_(FirmwareUpdateTarget target,
         const bool running = busy_;
         const unsigned readers = manifestCopyReaders_;
         portEXIT_CRITICAL(&lock_);
-        LOGW("[OTA-ADMIT] rejected target=%u busy=%u local=%u stage=%u state=%u rpc=%u queued=%u manifest=%u active=%u nextion=%u pending=%u readers=%u",
+        LOGW("[OTA-ADMIT] tgt=%u busy=%u local=%u stage=%u state=%u rpc=%u job=%u man=%u act=%u nex=%u pend=%u read=%u",
              (unsigned)target, running ? 1U : 0U, local ? 1U : 0U,
              localStage, state, rpc ? 1U : 0U, queued ? 1U : 0U,
              manifest ? 1U : 0U, manifestActive ? 1U : 0U,
@@ -2568,10 +2568,7 @@ bool FirmwareUpdateModule::dispatchLocalCall_(const LocalCall& call,
     }
     portEXIT_CRITICAL(&lock_);
     if (otherJob) {
-        LOGW("[OTA-ZIP] handoff rejected action=%u busy=%u queued=%u rpc=%u",
-             (unsigned)call.kind, busy_ ? 1U : 0U,
-             queuedJob_.pending ? 1U : 0U,
-             localCallInFlight_ ? 1U : 0U);
+        LOGW("[OTA-ZIP] handoff rejected action=%u", (unsigned)call.kind);
         return writeSimpleError_(errOut, errLen, "updater busy");
     }
 
