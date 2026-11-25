@@ -240,6 +240,38 @@ def _write_release_package(version):
     print(f"[export_binaries] release package -> {package.relative_to(_project_dir())}")
 
 
+
+def _assert_complete_release(version):
+    """Fail the *firmware build* if its OTA artifacts are incomplete."""
+    out_dir = _binary_dir()
+    required = (
+        f"flowios3-{version}.bin",
+        f"flowios3-spiffs-{version}.bin",
+        f"flowio-{version}.zip",
+        f"flowio-release-{version}.json",
+        "release.json",
+    )
+    missing = [name for name in required if not (out_dir / name).is_file()]
+    if missing:
+        raise RuntimeError(
+            "[export_binaries] INCOMPLETE OTA RELEASE: missing " +
+            ", ".join(missing) +
+            "; firmware + SPIFFS and both remote manifests are required"
+        )
+    for name in (f"flowio-release-{version}.json", "release.json"):
+        manifest = json.loads((out_dir / name).read_text(encoding="utf-8"))
+        if manifest.get("version") != version or (
+            manifest.get("firmware", {}).get("file") != required[0]
+        ) or (
+            manifest.get("filesystem", {}).get("file") != required[1]
+        ):
+            raise RuntimeError(
+                f"[export_binaries] invalid remote OTA release manifest: {name}"
+            )
+    print(f"[export_binaries] complete paired OTA release verified: {version}")
+
+
+
 def _classify_artifact(software, ext, filename):
     software_name = str(software or "").strip()
     norm = software_name.lower()
@@ -385,6 +417,7 @@ def _export_program_bin(source, target, env):
     if env_name == _WAVESHARE_ENV:
         _copy_if_exists(build_dir / "firmware.bin", f"flowios3-{fw_version}.bin")
         _write_release_package(fw_version)
+        _assert_complete_release(fw_version)
         _export_nextion_release()
 
 
