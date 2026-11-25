@@ -88,6 +88,11 @@ public:
     bool serialDeviceInfo(uint16_t deviceId, SerialLineProfile& out,
                           char* label, size_t labelCapacity,
                           uint8_t* slaveAddress = nullptr) const;
+    // Nonblocking lookup for TCP: mutex contention is not an invalid profile.
+    enum class SerialLookupStatus : uint8_t { Ready, Busy, Invalid };
+    SerialLookupStatus trySerialDeviceInfo(uint16_t deviceId,
+                                           SerialLineProfile& out,
+                                           uint8_t& slaveAddress) const;
     uint16_t runtimeSnapshotCount() const override;
     const char* runtimeSnapshotSuffix(uint16_t idx) const override;
     RuntimeRouteClass runtimeSnapshotClass(uint16_t idx) const override;

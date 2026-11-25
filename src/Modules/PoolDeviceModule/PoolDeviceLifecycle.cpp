@@ -510,3 +510,22 @@ bool PoolDeviceModule::serialDeviceInfo(uint16_t deviceId, SerialLineProfile& ou
     unlockState_();
     return valid;
 }
+
+PoolDeviceModule::SerialLookupStatus PoolDeviceModule::trySerialDeviceInfo(
+    uint16_t deviceId, SerialLineProfile& out, uint8_t& slaveAddress) const
+{
+    if (deviceId >= POOL_DEVICE_MAX || !slots_)
+        return SerialLookupStatus::Invalid;
+    // Never wait for a potentially expensive MQTT/JSON snapshot.
+    if (!lockState_(0)) return SerialLookupStatus::Busy;
+    const PoolDeviceSlot& slot = slots_[deviceId];
+    const bool valid = slot.used && slot.def.enabled &&
+        slot.driverReady &&
+        slot.driverConfig.capabilities.kind == PoolControlKind::Rs485;
+    if (valid) {
+        out = slot.driverConfig.serial.line;
+        slaveAddress = slot.driverConfig.serial.address;
+    }
+    unlockState_();
+    return valid ? SerialLookupStatus::Ready : SerialLookupStatus::Invalid;
+}

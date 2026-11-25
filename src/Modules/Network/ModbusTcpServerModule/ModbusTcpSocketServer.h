@@ -17,6 +17,7 @@
 #include "ModbusTcpBridge.h"
 #include "ModbusTcpSocketHealth.h"
 #include "ModbusTcpSessions.h"
+#include "ModbusTcpResolverRetry.h"
 
 namespace ModbusTcpServer {
 class SocketServer {
@@ -30,6 +31,8 @@ public:
     using ResolveLine = bool (*)(void* context, uint8_t portIndex,
                                 uint8_t unitId, SerialLineProfile& out,
                                 uint8_t& rtuUnitId);
+    using ResolveLineDetailed = ResolveStatus (*)(void*, uint8_t, uint8_t,
+                                                  SerialLineProfile&, uint8_t&);
 
     SocketServer()
         : servers_{WiFiServer(kPorts[0]), WiFiServer(kPorts[1]), WiFiServer(kPorts[2])},
@@ -70,10 +73,20 @@ public:
         }
         service_ = &service;
         resolver_ = resolver;
+        resolverDetailed_ = nullptr;
         resolverContext_ = resolverContext;
         for (uint8_t port = 0; port < kPortCount; ++port)
             if (configs_[port].enabled) servers_[port].begin();
         started_ = true;
+        return true;
+    }
+
+    bool beginDetailed(const ModbusMasterService& service,
+                       ResolveLineDetailed resolver, void* resolverContext) {
+        if (!resolver) return false;
+        if (!begin(service, static_cast<ResolveLine>(nullptr), resolverContext))
+            return false;
+        resolverDetailed_ = resolver;
         return true;
     }
 
@@ -225,6 +238,18 @@ public:
                 writing_[slot] = false;
             }
             if (bridge.state() != BridgeSlot::State::Idle) continue;
+            if (resolverRetry_[slot].pending()) {
+                // Leave the exact Modbus TCP ADU buffered until resolved.
+                // Only the first receipt counts as a TCP request.
+                if (!resolverRetry_[slot].due(nowMs)) continue;
+                ModbusTcpAdu::Request pending{};
+                if (!sessions_.request(slot, pending)) {
+                    close_(slot);
+                    continue;
+                }
+                dispatchRequest_(slot, pending, nowMs);
+                continue;
+            }
             // Preserve the reply for a half-closed TCP peer, then release
             // immediately after the in-flight Modbus transaction finishes.
             if (canReleaseAfterReadClose(peerReadClosed_[slot], true, writing_[slot])) {
@@ -289,27 +314,8 @@ public:
             traceFc_[slot] = request.function;
             traceAddr_[slot] = request.address;
             traceQty_[slot] = request.count;
-            SerialLineProfile line{};
-            uint8_t targetUnitId = request.unitId;
-            if (!resolver_ || !resolver_(resolverContext_, port, request.unitId,
-                                          line, targetUnitId)) {
-                ++stats_[port].resolverFailures;
-                stats_[port].lastResolverAtMs = nowMs;
-                stats_[port].lastResolverUnitId = request.unitId;
-                stats_[port].lastResolverFunction = request.function;
-                stats_[port].lastResolverAddress = request.address;
-                trace_(slot, "resolver_failed", nowMs);
-                bridge.reject(request, configs_[port].errorMode,
-                              MODBUS_RESULT_NOT_READY, nowMs);
-                continue;
-            }
-            if (!bridge.submit(*service_, request, line, configs_[port].errorMode,
-                               configs_[port].transactionTimeoutMs, nowMs, targetUnitId)) {
-                ++stats_[port].queueRejected;
-                trace_(slot, "scheduler_submit_failed", nowMs);
-                bridge.reject(request, configs_[port].errorMode,
-                              MODBUS_RESULT_INVALID_ARGUMENT, nowMs);
-            }
+            resolverRetry_[slot].begin(nowMs);
+            dispatchRequest_(slot, request, nowMs);
             // One outstanding request per connection; the next pipelined
             // ADU remains buffered by lwIP until its predecessor is answered.
         }
@@ -322,6 +328,52 @@ public:
     size_t psramFrameBytes() const { return frameStorage_ ? sizeof(FrameStorage) : 0U; }
     bool frameStorageReady() const { return frameStorage_ != nullptr; }
 private:
+    void dispatchRequest_(uint8_t slot, const ModbusTcpAdu::Request& request,
+                          uint32_t nowMs) {
+        const uint8_t port = slot / kClientsPerPort;
+        BridgeSlot& bridge = bridges_[slot];
+        const bool previouslyBusy = resolverRetry_[slot].pending();
+        SerialLineProfile line{};
+        uint8_t targetUnitId = request.unitId;
+        const ResolveStatus status = resolverDetailed_
+            ? resolverDetailed_(resolverContext_, port, request.unitId, line, targetUnitId)
+            : (resolver_ && resolver_(resolverContext_, port, request.unitId, line, targetUnitId)
+                ? ResolveStatus::Ready : ResolveStatus::Invalid);
+        if (status == ResolveStatus::Busy) ++stats_[port].resolverBusyAttempts;
+        const ResolveDecision decision = resolverRetry_[slot].consider(status, nowMs);
+        if (decision == ResolveDecision::Retry) return;
+        if (decision != ResolveDecision::Ready) {
+            ++stats_[port].resolverFailures;
+            stats_[port].lastResolverAtMs = nowMs;
+            stats_[port].lastResolverUnitId = request.unitId;
+            stats_[port].lastResolverFunction = request.function;
+            stats_[port].lastResolverAddress = request.address;
+            if (decision == ResolveDecision::BusyTimeout) {
+                ++stats_[port].resolverBusyTimeouts;
+                stats_[port].lastResolverCause = 1U;
+                trace_(slot, "resolver_lock_timeout", nowMs);
+            } else {
+                ++stats_[port].resolverInvalidFailures;
+                stats_[port].lastResolverCause = 2U;
+                trace_(slot, "resolver_invalid_profile", nowMs);
+            }
+            // A failed lookup is never forwarded to the RS485 scheduler.
+            // In Silent mode the bridge emits no response.
+            bridge.reject(request, configs_[port].errorMode,
+                          MODBUS_RESULT_NOT_READY, nowMs);
+            return;
+        }
+        if (previouslyBusy) ++stats_[port].resolverBusyRecovered;
+        // Shared ModbusMasterService remains the sole RS485 scheduler.
+        if (!bridge.submit(*service_, request, line, configs_[port].errorMode,
+                           configs_[port].transactionTimeoutMs, nowMs, targetUnitId)) {
+            ++stats_[port].queueRejected;
+            trace_(slot, "scheduler_submit_failed", nowMs);
+            bridge.reject(request, configs_[port].errorMode,
+                          MODBUS_RESULT_INVALID_ARGUMENT, nowMs);
+        }
+    }
+
     void accountOutcome_(uint8_t port, const BridgeSlot& bridge, bool replied) {
         if (bridge.hasSerialTiming()) {
             const uint32_t queueMs = bridge.queueWaitMs();
@@ -407,7 +459,8 @@ private:
             } else if (state == SocketPeerHealth::ReadClosed) {
                 peerReadClosed_[slot] = true;
                 if (canReleaseAfterReadClose(peerReadClosed_[slot],
-                        bridges_[slot].state() == BridgeSlot::State::Idle,
+                        bridges_[slot].state() == BridgeSlot::State::Idle &&
+                            !resolverRetry_[slot].pending(),
                         writing_[slot]))
                     closePeer_(slot);
             }
@@ -436,6 +489,7 @@ private:
         return true;
     }
     void close_(uint8_t slot) {
+        resolverRetry_[slot].reset();
         if (traceActive_[slot]) trace_(slot, "socket_closed", millis());
         traceActive_[slot] = false;
         bridges_[slot].reset();
@@ -465,6 +519,7 @@ private:
     bool peerReadClosed_[kMaxClients]{};
     bool writing_[kMaxClients]{};
     bool traceActive_[kMaxClients]{};
+    ResolverRetryPolicy resolverRetry_[kMaxClients]{};
     uint32_t traceStarted_[kMaxClients]{};
     uint16_t traceTid_[kMaxClients]{};
     uint16_t traceAddr_[kMaxClients]{};
@@ -473,6 +528,7 @@ private:
     uint8_t traceFc_[kMaxClients]{};
     const ModbusMasterService* service_ = nullptr;
     ResolveLine resolver_ = nullptr;
+    ResolveLineDetailed resolverDetailed_ = nullptr;
     void* resolverContext_ = nullptr;
     bool started_ = false;
     FrameStorage* frameStorage_ = nullptr;

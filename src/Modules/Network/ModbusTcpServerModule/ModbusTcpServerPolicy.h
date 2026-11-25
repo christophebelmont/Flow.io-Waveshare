@@ -41,6 +41,11 @@ struct PortStats {
     uint32_t crcErrors = 0U;
     uint32_t queueRejected = 0U;
     uint32_t resolverFailures = 0U;
+    uint32_t resolverBusyAttempts = 0U;   // transient lock contention (not errors)
+    uint32_t resolverBusyRecovered = 0U;  // subsequently resolved
+    uint32_t resolverBusyTimeouts = 0U;   // bounded retry exhausted
+    uint32_t resolverInvalidFailures = 0U;
+    uint8_t lastResolverCause = 0U;       // 1=lock timeout; 2=invalid profile
     // Last failed resolution (not a per-frame log); the owner publishes a
     // bounded Web summary once per minute to diagnose wrong port mapping.
     uint32_t lastResolverAtMs = 0U;
