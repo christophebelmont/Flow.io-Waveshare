@@ -8263,6 +8263,10 @@ void WebInterfaceModule::startServer_()
                 }
                 auto* context = static_cast<LocalUpgradeImageContext*>(request->_tempObject);
                 if (!context || !context->ok) {
+                    LOGW("[OTA-ZIP-HTTP] image failed target=%u txn=%lu reason=%s",
+                         context ? (unsigned)context->target : 0U,
+                         context ? (unsigned long)context->transactionId : 0UL,
+                         context && context->error[0] ? context->error : "upload context missing");
                     char escaped[144] = {0};
                     snprintf(escaped,
                              sizeof(escaped),
@@ -8288,6 +8292,9 @@ void WebInterfaceModule::startServer_()
                 char err[144] = {0};
                 if (!fwUpdateSvc_->endLocalImage(
                         fwUpdateSvc_->ctx, transactionId, requestTarget, err, sizeof(err))) {
+                    LOGW("[OTA-ZIP-HTTP] end refused target=%u txn=%lu reason=%s",
+                         (unsigned)requestTarget, (unsigned long)transactionId,
+                         err[0] ? err : "verification failed");
                     sanitizeJsonString_(err);
                     char response[240] = {0};
                     snprintf(response,
@@ -8336,6 +8343,12 @@ void WebInterfaceModule::startServer_()
                         total,
                         context->error,
                         sizeof(context->error));
+                    if (!context->ok) {
+                        LOGW("[OTA-ZIP-HTTP] begin refused target=%u txn=%lu total=%lu reason=%s",
+                             (unsigned)target, (unsigned long)context->transactionId,
+                             (unsigned long)total,
+                             context->error[0] ? context->error : "begin failed");
+                    }
                 }
                 if (!context->ok) return;
                 context->ok = fwUpdateSvc_->writeLocalImage(
@@ -8347,6 +8360,12 @@ void WebInterfaceModule::startServer_()
                     index,
                     context->error,
                     sizeof(context->error));
+                if (!context->ok) {
+                    LOGW("[OTA-ZIP-HTTP] chunk refused target=%u txn=%lu offset=%lu len=%lu total=%lu reason=%s",
+                         (unsigned)target, (unsigned long)context->transactionId,
+                         (unsigned long)index, (unsigned long)len, (unsigned long)total,
+                         context->error[0] ? context->error : "write failed");
+                }
             });
     };
     registerLocalImageRoute("/api/upgrade/filesystem", FirmwareUpdateTarget::Spiffs);
