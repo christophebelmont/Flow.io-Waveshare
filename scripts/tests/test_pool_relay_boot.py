@@ -86,7 +86,7 @@ class PoolRelayBootTests(unittest.TestCase):
     assert(device.slots_[0].desired.running);
     assert(device.setTarget_(0, &off, true) == POOLDEV_SVC_OK);
     allowed = false;
-    // Controller writes remain valid in Auto/Hivers; only direct manual writes are gated.
+    // Controller writes remain valid in Auto/Hiver; only direct manual writes are gated.
     assert(device.setTarget_(0, &on, false) == POOLDEV_SVC_OK);
     assert(device.slots_[0].desired.running);
 }

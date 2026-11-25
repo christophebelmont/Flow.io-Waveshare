@@ -1,6 +1,6 @@
 # Documentation technique de flow.io
 
-Voir [Modes PoolLogic : Auto / Manu / Hivers](integration/poollogic-operating-modes.md).
+Voir [Modes PoolLogic : Auto / Manu / Hiver](integration/poollogic-operating-modes.md).
 
 Cette documentation s'adresse aux personnes qui installent le matériel, compilent le firmware, adaptent les raccordements ou interviennent sur le logiciel. La présentation fonctionnelle destinée aux utilisateurs reste disponible dans le [README principal](../README.md).
 

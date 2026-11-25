@@ -3,7 +3,7 @@
 Ce document résume la logique métier compilée dans l'environnement `Flowio-waveshare-esp32-s3`, avec la carte `WaveshareESP32S3` et le domaine `Pool`.
 Il complète la documentation module par module avec une vue orientée fonctionnement du bassin : filtration, hivernage, injection pH/ORP, électrolyse, chauffage, robot et remplissage.
 
-Le [guide utilisateur Auto / Manu / Hivers](poollogic-operating-modes.md) détaille
+Le [guide utilisateur Auto / Manu / Hiver](poollogic-operating-modes.md) détaille
 le sélecteur unique, les traitements et la migration des installations.
 
 ## 1) Contexte de compilation
@@ -93,7 +93,7 @@ Responsabilités:
 - écrit les sorties digitales physiques
 - maintient la config des bindings (`binding_port`) + calibration analogique (`c0`,`c1`,`precision`) + logique d’entrée digitale (actif haut, pull, edge/counter)
 
-## 4) Modes métier : Auto / Manu / Hivers
+## 4) Modes métier : Auto / Manu / Hiver
 
 PoolLogic reste toujours actif. `poollogic/modes/operating_mode` est la seule
 source du mode :
@@ -102,15 +102,15 @@ source du mode :
 |---|---|---|
 | `0` | Manu | Commandes directes, aucune filtration ni régulation automatiques |
 | `1` | Auto | Filtration calculée, correction pH et traitement configurés, chauffage/robot/remplissage automatiques |
-| `2` | Hivers | Filtration calculée et antigel ; autres automatismes suspendus |
+| `2` | Hiver | Filtration calculée et antigel ; autres automatismes suspendus |
 
-Hivers ajoute une demande lorsque `air_temp < winter_start_t`. Si la filtration
+Hiver ajoute une demande lorsque `air_temp < winter_start_t`. Si la filtration
 tourne déjà, elle reste maintenue jusqu'à dépasser `freeze_hold_t`. L'antigel
 ne déclenche aucune demande en Manu ou Auto. Les protections pression et
 PoolDevice restent actives dans les trois modes.
 
 Passer en Manu conserve la demande de filtration courante ; les autres demandes
-automatiques sont arrêtées. Les interventions temporaires en Auto ou Hivers
+automatiques sont arrêtées. Les interventions temporaires en Auto ou Hiver
 passent par les [forçages](../modules/TimedActuatorOverrides.md). Elles ne
 modifient pas le mode ni les types de produits.
 
@@ -198,7 +198,7 @@ En auto:
 
 ## 5.7 Remplissage
 
-Automatique uniquement en Auto. En Manu, commande directe ; en Hivers, demande guidée arrêtée.
+Automatique uniquement en Auto. En Manu, commande directe ; en Hiver, demande guidée arrêtée.
 
 - basé sur le capteur de niveau bassin (`i02` par défaut)
 - si le niveau bas est actif : marche
@@ -222,7 +222,7 @@ Si le service alarme n’est pas disponible, `PoolLogic` utilise un fallback loc
 
 ### `poollogic/modes`
 
-- `operating_mode` (`0` Manu, `1` Auto, `2` Hivers)
+- `operating_mode` (`0` Manu, `1` Auto, `2` Hiver)
 - `disinfection_type`
 
 ### `poollogic/ph`
@@ -348,7 +348,7 @@ Runtime persistant par slot, stocké en blob NVS interne `pdNrt`:
 - `poollogic.filtration.recalc`:
   - demande recalcul de la fenêtre de filtration
 - `poollogic.operating_mode.set`:
-  - sélectionne `0` Manu, `1` Auto ou `2` Hivers
+  - sélectionne `0` Manu, `1` Auto ou `2` Hiver
 - `pooldevice.write`:
   - commande directe d’un slot appareil
 - `pool.refill`:
