@@ -1,0 +1,72 @@
+# Local TFT — OTA / Nextion update progress (25 November 2026)
+
+Implementation branch: `feature/tft-ota-nextion-progress-20261125`
+(base: `stephdust/Flow.io-Waveshare:dev` at `1382ffc2`).
+
+## Rendering and priorities
+
+- The local Waveshare ESP32-S3 **ST7789 320×240 landscape TFT** shows a
+  dedicated update screen while an operation is queued, downloading,
+  writing, rebooting or in its 20-second failure/result window.
+- Reuses the **existing 181×86 Flow.io RGB565 logo and 92×26 splash wordmark**
+  on their original white background. A dark lower panel provides the
+  horizontal cyan progress bar and the primary current-stage text.
+- The **active step is prominent**; a green "OK" appears only for a step
+  the TFT actually observed transitioning away from, never for an assumed
+  PSRAM stage that may be skipped. The next expected step is muted.
+- The percentage is **stage-specific** when `otaStage` is available,
+  otherwise the already published overall percentage. Thus downloading
+  into PSRAM does not look frozen at 0% while bytes are received.
+- Messages are selected using `LocaleService::language()` (FR / EN).
+  Embedded text is ASCII-only because the deployed Adafruit GFX fonts do not
+  provide reliable UTF-8 accent rendering on this screen.
+- The TFT wakes its backlight even if PIR auto-sleep was active, and does not
+  rotate dashboards while an update is in progress. The previous dashboard
+  is fully invalidated and restored once update mode is exited.
+- Redraws are capped at **4 Hz** and only made when operation, state,
+  stage, phase percentage or language changes; the logo is drawn only
+  once on entry. All SPI drawing runs in the existing TFT task on core 1.
+
+## Data architecture
+
+`FirmwareUpdateService::displaySnapshot()` performs a short,
+allocation-free copy under the firmware module's existing spinlock.
+Unlike the Web status endpoint it does **not** serialize JSON, allocate
+an ArduinoJson document, perform an HTTP request, or drive the OTA worker.
+
+Source of stage IDs remains exclusively the existing
+`FirmwareUpdateModule::setOtaStage_()` calls:
+
+- **OTA:** manifest, SPIFFS download / SHA verification / prepare /
+  flash write / verification, firmware download / SHA verification /
+  prepare / write / verification, A/B activation and reboot.
+- **Nextion:** download to PSRAM, SHA-256 verification, UART preparation,
+  UART transfer, final Nextion ACK, reboot.
+
+The implementation also recognizes OTA direct streaming
+(`spiffs_stream`, `firmware_stream`) and local ZIP installation paths.
+It reuses the persisted `lastFailure_` stage after an error so the
+screen can identify the failing step. Error reasons are classified and
+translated for the TFT; exact error messages are preserved unchanged
+in existing firmware logs and Web status.
+
+## Non-regression conditions
+
+- No modification to the OTA A/B partitioning, SHA-256 validation,
+  PSRAM staging, HTTP retries, Nextion UART transfer, shared RS485
+  scheduling, Modbus TCP pause/resume or reboot admission.
+- A failed update displays a red failure state for about 20 seconds;
+  it does **not** reset the device or attempt an automatic retry.
+- A planned firmware reboot may occur too quickly for the final TFT
+  "Restarting" frame to be physically visible. Firmware safety is
+  intentionally not delayed merely to display an animation.
+- Existing disabled TFT configuration is respected.
+- Host label tests:
+  `g++ -std=c++17 -Wall -Wextra -Werror -pedantic -Isrc test/host/tft_update_stages.cpp -o /tmp/tft_steps && /tmp/tft_steps`.
+- Static source regression:
+  `node scripts/tests/check_tft_update_progress.mjs`.
+
+**Validation to perform on the ESP32-S3:** PlatformIO build, OTA on
+ports 502/503 listening, Nextion transfer with the TFT awake and asleep,
+English/FR switching, bad HTTP/SHA/ACK, recovery after failure,
+next boot/splash, and backlight wake behavior.

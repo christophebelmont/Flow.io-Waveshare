@@ -40,6 +40,22 @@ struct FirmwareManifestCheckSnapshot {
     uint32_t nextionArtifactSize = 0U;
 };
 
+// Lightweight, lock-copied progress snapshot for local TFT rendering.
+// Unlike statusJson(), this callback allocates no JSON document or String.
+enum class FirmwareUpdateDisplayState : uint8_t {
+    Idle = 0, Queued, Downloading, Flashing, Rebooting, Done, Error
+};
+
+struct FirmwareUpdateDisplaySnapshot {
+    FirmwareUpdateDisplayState state = FirmwareUpdateDisplayState::Idle;
+    FirmwareUpdateTarget target = FirmwareUpdateTarget::Waveshare;
+    uint32_t operationId = 0U;
+    uint8_t progress = 0U;        // Global progress; may stay at zero during PSRAM download.
+    uint8_t stageProgress = 0U;   // Accurate percentage for the current OTA phase.
+    char stage[28] = {0};         // Stable machine-readable stage, never translated.
+    char message[120] = {0};      // Existing diagnostic message.
+};
+
 struct FirmwareUpdateService {
     bool (*start)(void* ctx,
                   FirmwareUpdateTarget target,
@@ -96,4 +112,6 @@ struct FirmwareUpdateService {
                               char* errOut,
                               size_t errOutLen);
     void* ctx;
+    // Optional: no heap use, suitable for low-frequency display polling.
+    bool (*displaySnapshot)(void* ctx, FirmwareUpdateDisplaySnapshot* out);
 };

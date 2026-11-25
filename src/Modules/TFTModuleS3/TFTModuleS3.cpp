@@ -37,6 +37,7 @@
 #include "Modules/PoolDeviceModule/PoolDeviceRuntime.h"
 #include "Modules/TFTModuleS3/FlowIoLogoBitmap.h"
 #include "Modules/TFTModuleS3/FlowIoWordmarkBitmaps.h"
+#include "Modules/TFTModuleS3/TftUpdateStages.h"
 #include <WiFi.h>
 
 #define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::HMIModule)
@@ -54,6 +55,8 @@ constexpr uint32_t kFlowMeterTftRefreshMs = 5000U; // Display only; acquisition 
 constexpr uint32_t kBacklightTimeoutMs = 60000U;
 constexpr uint32_t kStartupSplashHoldMs = 5000U;
 constexpr uint32_t kWakeSplashHoldMs = 1000U;
+constexpr uint32_t kUpdateRenderMinMs = 250U;  // Keep OTA/network load low.
+constexpr uint32_t kUpdateResultHoldMs = 20000U; // Show errors for 20 s.
 constexpr uint32_t kPageRotateMs = 10000U;
 
 constexpr uint16_t rgb565_(uint8_t r, uint8_t g, uint8_t b)
@@ -542,6 +545,7 @@ void TFTModuleS3::init(ConfigStore& cfg, ServiceRegistry& services)
     if (!allocateUiStorage_()) return;
 
     cfgStore_ = &cfg;
+    serviceRegistry_ = &services;
     constexpr uint8_t module = (uint8_t)ConfigModuleId::TftS3;
     cfg.registerVar(enabledVar_, module, kCfgBranch);
     cfg.registerVar(autoOffVar_, module, kCfgBranch);
@@ -579,6 +583,8 @@ void TFTModuleS3::init(ConfigStore& cfg, ServiceRegistry& services)
 void TFTModuleS3::onConfigLoaded(ConfigStore&, ServiceRegistry& services)
 {
     poolConfigurationSvc_ = services.get<PoolConfigurationService>(ServiceId::PoolConfiguration);
+    firmwareUpdateSvc_ = services.get<FirmwareUpdateService>(ServiceId::FirmwareUpdate);
+    localeSvc_ = services.get<LocaleService>(ServiceId::Locale);
     if (!uiStorage_) return;
 
     if (!ioSvc_) ioSvc_ = services.get<IOServiceV2>(ServiceId::Io);
@@ -613,8 +619,74 @@ void TFTModuleS3::loop()
     }
 
     applyOrientation_();
-    updateBacklight_();
     const uint32_t now = millis();
+    FirmwareUpdateDisplaySnapshot update{};
+    bool updateVisible = readUpdateSnapshot_(update);
+    if (updateVisible) {
+        const bool terminal = update.state == FirmwareUpdateDisplayState::Error ||
+                              update.state == FirmwareUpdateDisplayState::Done;
+        if (terminal) {
+            if (updateTerminalAtMs_ == 0U ||
+                update.operationId != updateLastOperation_) updateTerminalAtMs_ = now;
+            if (uint32_t(now - updateTerminalAtMs_) >= kUpdateResultHoldMs) {
+                updateVisible = false;
+            }
+        } else {
+            updateTerminalAtMs_ = 0U;
+        }
+    }
+    if (updateVisible) {
+        // Override the PIR timeout during a critical update: always show the
+        // state even when the TFT was previously in power-saving mode.
+        applyBacklight_(true);
+        const bool newOperation = !updateScreenActive_ ||
+                                  update.operationId != updateLastOperation_ ||
+                                  update.target != updateLastTarget_;
+        if (newOperation) {
+            updateCompletedStage_[0] = '\0';
+            updateLastStage_[0] = '\0';
+            updateLastPercent_ = 255U;
+        }
+        const bool english = localeSvc_ && localeSvc_->language &&
+            tft_update::isEnglish(localeSvc_->language(localeSvc_->ctx));
+        const bool changedStage = strcmp(updateLastStage_, update.stage) != 0;
+        if (!newOperation && changedStage && updateLastStage_[0] &&
+            updateLastState_ != FirmwareUpdateDisplayState::Error &&
+            update.state != FirmwareUpdateDisplayState::Error) {
+            // Only mark a step complete if it was ACTUALLY observed.
+            // Some OTA paths skip PSRAM verification or use direct streaming.
+            snprintf(updateCompletedStage_, sizeof(updateCompletedStage_), "%s",
+                     updateLastStage_);
+        }
+        const uint8_t phasePercent = update.stage[0] ? update.stageProgress : update.progress;
+        const bool changed = newOperation || changedStage ||
+                             update.state != updateLastState_ ||
+                             english != updateLastEnglish_ ||
+                             phasePercent != updateLastPercent_;
+        if (changed && (newOperation || uint32_t(now - updateLastRenderMs_) >= kUpdateRenderMinMs)) {
+            renderUpdate_(update, english, newOperation);
+            updateLastRenderMs_ = now;
+            updateLastPercent_ = phasePercent;
+            updateLastState_ = update.state;
+            updateLastTarget_ = update.target;
+            updateLastOperation_ = update.operationId;
+            updateLastEnglish_ = english;
+            snprintf(updateLastStage_, sizeof(updateLastStage_), "%s", update.stage);
+        }
+        updateScreenActive_ = true;
+        delayNextCycle(pdMS_TO_TICKS(80));
+        return;
+    }
+    if (updateScreenActive_) {
+        updateScreenActive_ = false;
+        updateTerminalAtMs_ = 0U;
+        splashHeld_ = true;
+        pageCycleStartMs_ = now;
+        lastRenderedPageCycle_ = 0xFFFFFFFFU;
+        invalidateRenderCache_();
+        redrawRequested_ = true;
+    }
+    updateBacklight_();
     if (!splashHeld_) {
         if ((int32_t)(now - splashHoldUntilMs_) < 0) {
             delayNextCycle(pdMS_TO_TICKS(30));
@@ -980,6 +1052,130 @@ void TFTModuleS3::startSplash_(uint32_t holdMs)
     lastRenderedPageCycle_ = 0xFFFFFFFFU;
     drawBootLogo_();
     splashHoldUntilMs_ = millis() + holdMs;
+}
+
+bool TFTModuleS3::readUpdateSnapshot_(FirmwareUpdateDisplaySnapshot& out)
+{
+    // Resolve lazily because TFT and firmware modules have independent startup
+    // tasks. Never parse status JSON or lock an OTA worker from TFT code.
+    if (!firmwareUpdateSvc_ && serviceRegistry_) {
+        firmwareUpdateSvc_ = serviceRegistry_->get<FirmwareUpdateService>(ServiceId::FirmwareUpdate);
+    }
+    if (!localeSvc_ && serviceRegistry_) {
+        localeSvc_ = serviceRegistry_->get<LocaleService>(ServiceId::Locale);
+    }
+    if (!firmwareUpdateSvc_ || !firmwareUpdateSvc_->displaySnapshot ||
+        !firmwareUpdateSvc_->displaySnapshot(firmwareUpdateSvc_->ctx, &out) ||
+        out.operationId == 0U) return false;
+    switch (out.state) {
+        case FirmwareUpdateDisplayState::Queued:
+        case FirmwareUpdateDisplayState::Downloading:
+        case FirmwareUpdateDisplayState::Flashing:
+        case FirmwareUpdateDisplayState::Rebooting:
+        case FirmwareUpdateDisplayState::Done:
+        case FirmwareUpdateDisplayState::Error:
+            return true;
+        default: return false;
+    }
+}
+
+void TFTModuleS3::renderUpdate_(const FirmwareUpdateDisplaySnapshot& u,
+                                bool english, bool full)
+{
+    const int16_t w = display_.width();
+    const int16_t h = display_.height();
+    const uint16_t dark = rgb565_(5, 13, 27);
+    const uint16_t faded = rgb565_(113, 137, 164);
+    const uint16_t cyan = rgb565_(0, 201, 233);
+    const uint16_t green = rgb565_(51, 221, 124);
+    const uint16_t red = rgb565_(255, 106, 113);
+    const uint16_t white = rgb565_(241, 248, 255);
+    const bool nextion = u.target == FirmwareUpdateTarget::Nextion;
+    const bool error = u.state == FirmwareUpdateDisplayState::Error;
+    const bool done = u.state == FirmwareUpdateDisplayState::Done;
+    const bool queued = u.state == FirmwareUpdateDisplayState::Queued;
+    const bool rebooting = u.state == FirmwareUpdateDisplayState::Rebooting;
+    const tft_update::Text stage = tft_update::steps(nextion, u.stage, english,
+                                                    queued, rebooting);
+    if (full) {
+        display_.fillScreen(color_(dark));
+        // Reuse the exact boot/wakeup Flow.io logo and anti-aliased wordmark.
+        // These assets were built for a WHITE background; retain their original
+        // rendering rather than inverting their RGB565 pixels on every frame.
+        display_.fillRect(0, 0, w, 111, color_(kColorBg));
+        const int16_t logoX = (int16_t)((w - (int16_t)kFlowIoLogoWidth) / 2);
+        display_.drawRGBBitmap(logoX, 0, kFlowIoLogoBitmap,
+                               kFlowIoLogoWidth, kFlowIoLogoHeight);
+        drawBrandWordmark_(0, 83, w, 26, kFlowIoWordmarkSplashBitmap,
+                           kFlowIoWordmarkSplashWidth, kFlowIoWordmarkSplashHeight);
+    }
+    // No full-screen redraw after entry: only the lower update panel is touched.
+    // This is a TFT task and never writes to UART, Modbus, OTA flash or SPIFFS.
+    display_.fillRect(0, 111, w, h - 111, color_(dark));
+    const char* title = error ?
+        (english ? "UPDATE FAILED" : "ECHEC DE LA MAJ") :
+        done ? (english ? "UPDATE COMPLETE" : "MISE A JOUR OK") :
+        nextion ? (english ? "NEXTION UPDATE" : "MISE A JOUR NEXTION") :
+                  (english ? "FIRMWARE + SPIFFS" : "MISE A JOUR OTA");
+    setGfxFont_(&FreeSansBold9pt7b, error ? red : cyan, dark);
+    const int16_t titleW = gfxTextWidth_(title);
+    display_.setCursor((int16_t)((w - titleW) / 2), 130);
+    display_.print(title);
+
+    uint8_t pct = u.stage[0] ? u.stageProgress : u.progress;
+    if (error && !full && updateLastPercent_ <= 100U) pct = updateLastPercent_;
+    if (done || rebooting) pct = 100U;
+    if (pct > 100U) pct = 100U;
+    const int16_t bx = 12, by = 140, bw = (int16_t)(w - 24), bh = 13;
+    display_.fillRoundRect(bx, by, bw, bh, 6, color_(rgb565_(31, 48, 68)));
+    const int16_t fill = (int16_t)(((int32_t)(bw - 4) * pct) / 100);
+    if (fill > 0) display_.fillRoundRect(bx + 2, by + 2, fill, bh - 4,
+                                        4, color_(error ? red : cyan));
+    char pctText[24];
+    snprintf(pctText, sizeof(pctText), english ? "STEP %u%%" : "ETAPE %u%%",
+             (unsigned)pct);
+    display_.setFont(nullptr);
+    display_.setTextSize(1);
+    display_.setTextColor(color_(white), color_(dark));
+    display_.setCursor((int16_t)(w - 12 - strlen(pctText) * 6), 157);
+    display_.print(pctText);
+
+    // The active step is the visual priority, even while its percentage is 0.
+    const char* active = done ? (english ? "Update completed" : "Mise a jour terminee") :
+                         rebooting ? (english ? "Restarting..." : "Redemarrage...") :
+                         stage.current;
+    setGfxFont_(&FreeSansBold9pt7b, error ? red : cyan, dark);
+    display_.setCursor(12, 182);
+    display_.print("> ");
+    display_.print(active);
+
+    if (updateCompletedStage_[0] && !error) {
+        const tft_update::Text completed = tft_update::steps(nextion,
+                                                            updateCompletedStage_,
+                                                            english);
+        setGfxFont_(&FreeSans9pt7b, green, dark);
+        display_.setCursor(12, 202);
+        display_.print("OK ");
+        display_.print(completed.current);
+    }
+    // Future/diagnostic line. On error, give a TRANSLATED reason rather than
+    // presenting a misleading green checkmark for the failed step.
+    const char* detail = error ? tft_update::failureReason(u.message, english) :
+                         done ? (english ? "Ready for restart" : "Pret pour redemarrage") :
+                         stage.next ? stage.next :
+                         (english ? "Finalizing..." : "Finalisation...");
+    setGfxFont_(&FreeSans9pt7b, error ? red : faded, dark);
+    display_.setCursor(12, 218);
+    display_.print(error ? "! " : "+ ");
+    display_.print(detail);
+
+    display_.drawFastHLine(12, 223, w - 24, color_(rgb565_(24, 52, 73)));
+    display_.setFont(nullptr);
+    display_.setTextSize(1);
+    display_.setTextColor(color_(faded), color_(dark));
+    display_.setCursor(30, 229);
+    display_.print(english ? "Do not switch off the device" :
+                            "Ne pas eteindre l'appareil");
 }
 
 void TFTModuleS3::drawBootLogo_()

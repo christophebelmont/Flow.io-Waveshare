@@ -811,6 +811,29 @@ bool FirmwareUpdateModule::parseUrlArg_(const CommandRequest& req, char* out, si
     return false;
 }
 
+bool FirmwareUpdateModule::displaySnapshot_(FirmwareUpdateDisplaySnapshot* out)
+{
+    if (!out) return false;
+    // Copy bounded, already published fields under the existing status lock.
+    // No JSON parsing, SPI operations or update-worker callbacks are involved.
+    portENTER_CRITICAL(&lock_);
+    out->state = static_cast<FirmwareUpdateDisplayState>(status_.state);
+    out->target = status_.target;
+    out->operationId = status_.operationId;
+    out->progress = status_.progress;
+    out->stageProgress = status_.otaStageProgress;
+    snprintf(out->stage, sizeof(out->stage), "%s", status_.otaStage);
+    snprintf(out->message, sizeof(out->message), "%s", status_.msg);
+    // setError_ clears the current OTA stage; the persisted last-failure
+    // record preserves the actual step so the TFT can report it after failure.
+    if (status_.state == UpdateState::Error && hasLastFailure_ &&
+        lastFailure_.operationId == status_.operationId) {
+        snprintf(out->stage, sizeof(out->stage), "%s", lastFailure_.stage);
+    }
+    portEXIT_CRITICAL(&lock_);
+    return true;
+}
+
 bool FirmwareUpdateModule::statusJson_(char* out, size_t outLen)
 {
     if (!out || outLen == 0) return false;
