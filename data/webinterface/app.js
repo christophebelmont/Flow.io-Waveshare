@@ -5201,6 +5201,9 @@
         if (Number(progress.transaction_id) !== transactionId || progress.target !== target) {
           throw new Error('identifiant de transaction ZIP incorrect pendant la programmation');
         }
+        if (!['queued', 'flashing', 'verified', 'error'].includes(progress.phase)) {
+          throw new Error('état de programmation ZIP incohérent : ' + progress.phase);
+        }
         if (progress.phase !== lastPhase || progress.progress !== lastPercent) {
           lastPhase = progress.phase;
           lastPercent = progress.progress;
