@@ -111,3 +111,27 @@ next boot/splash, and backlight wake behavior.
 - The obsolete bottom footer and separator are removed. Freed vertical
   space increases spacing between the completed, active and next step
   rows (the next step moves to baseline y=229).
+
+## Local ZIP upload hardening (same date)
+
+- Local ZIP injection differs from OTA via remote HTTP manifest: the browser
+  streams `spiffs.bin`, then `firmware.bin`, from ZIP Blob slices. The local
+  HTTP handler does **not** predownload the ZIP to ESP32 PSRAM.
+- Previously the AsyncTCP callback directly erased/wrote partitions, mounted
+  and validated the inactive filesystem, and committed NVS/OTA receipts.
+  Since the remote OTA and Nextion use the separate fwupdate task, this
+  callback-only path was susceptible to network-task stalls and stack pressure.
+- Introduced a **single-slot, static-semaphore handoff**: six original
+  begin/image/write/end/commit/abort service methods dispatch to the existing
+  fwupdate task when called from another task. Remote OTA calls on that task
+  continue directly, unchanged. A blocked HTTP request keeps its input
+  buffer valid until the worker has finished.
+- The admission gate stays closed while a ZIP worker call is pending. A
+  30-second wait catches a task that never accepts work; calls already running
+  are not abandoned with dangling HTTP data pointers. Logging identifies
+  `[OTA-ZIP]` worker start/end and stack watermark.
+- The local safety reminder uses an actual bold FreeSans 8pt font; the longest
+  string `ETEINDRE` has 84px advance and remains within its 93px text area.
+- Test all three paths: remote paired A/B OTA, Nextion PSRAM/UART, and
+  locally injected ZIP. On a device crash, capture the boot/reset reason,
+  `[OTA-ZIP]`, `[UPGRADE]`, and `[OTA-LASTFAIL]` lines to confirm phase.

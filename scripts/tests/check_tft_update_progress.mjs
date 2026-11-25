@@ -65,7 +65,8 @@ assert.ok(fw.includes('setOtaStage_("activate"'));
 console.log("PASS: TFT OTA/Nextion stage labels, bilingual display, bounded redraw, no worker-side drawing");
 
 assert.ok(renderer.includes('display_.print(english ? "DO NOT" : "NE PAS")'),"warning at top FR/EN");
-assert.ok(renderer.includes('display_.print(english ? "POWER OFF" : "ETEINDRE")'),"two-line safety reminder");
-assert.ok(renderer.includes("display_.fillRect(6, 3, 98, 29"),"warning confined to free left header");
+assert.ok(renderer.includes('display_.print(english ? "TURN OFF" : "ETEINDRE")'),"two-line safety reminder");
+assert.ok(renderer.includes("display_.fillRect(2, 3, 108, 38"),"warning confined to free left header");
+assert.ok(renderer.includes("setGfxFont_(&FreeSansBold8pt7b, warning, dark)"),"bold 8pt TFT safety warning");
 assert.ok(renderer.includes("drawBounded(detail, 30, 229"),"bottom space reused for next stage");
 assert.ok(!renderer.includes('"Ne pas eteindre l\'appareil"'),"bottom footer removed");

@@ -84,4 +84,36 @@ has(spiffsBuild, 'staging_dir / "ota-paired-v1.marker"', "paired release marker"
 for (const name of ["app0", "app1", "spiffs0", "spiffs1"]) {
   assert.ok(partitions.split("\n").some(line => line.startsWith(name + ",")), "partition " + name);
 }
+
+// Local ZIP browser callbacks run in AsyncTCP, but every Flash/FS operation
+// must run on the existing fwupdate task with a larger internal stack.
+const header = read("src/Modules/Network/FirmwareUpdateModule/FirmwareUpdateModule.h");
+const localCalls = ["beginLocalRelease_", "beginLocalImage_", "writeLocalImage_",
+                    "endLocalImage_", "commitLocalRelease_", "abortLocalRelease_"];
+for (const name of localCalls) {
+    const start = updater.indexOf("bool FirmwareUpdateModule::" + name + "(");
+    assert.ok(start > 0, "missing " + name);
+    const opening = updater.indexOf("{", start);
+    const beginning = updater.slice(opening, opening + 820);
+    has(beginning, "xTaskGetCurrentTaskHandle() != localCallOwner_", name + " routes other tasks");
+    has(beginning, "dispatchLocalCall_(", name + " dispatch");
+    assert.ok(beginning.indexOf("dispatchLocalCall_(") <
+              beginning.indexOf("SemaphoreGuard transactionGuard(localReleaseMutex_)"),
+              name + " must dispatch before the flash transaction lock");
+}
+has(header, "LocalCallKind", "worker API");
+has(header, "localCallPending_", "one-at-a-time local RPC");
+has(header, "localCallInFlight_", "remote admission gate");
+has(updater, "xSemaphoreCreateBinaryStatic(&localCallDoneStorage_)", "static completion semaphore");
+has(updater, "handleQueuedLocalCall_()", "firmware worker processing");
+has(updater, "xSemaphoreGive(localCallDone_)", "worker completion");
+has(updater, "const bool foreignLocalRpc = localCallInFlight_", "pending ZIP excludes other update requests");
+has(updater, "if (localCallPending_) {", "timeout cancellation before worker takes request");
+has(updater, "xSemaphoreTake(localCallDone_, portMAX_DELAY)", "never free request buffer while worker uses it");
+const loopIndex = updater.indexOf("void FirmwareUpdateModule::loop()");
+const loopHead = updater.slice(loopIndex, loopIndex + 420);
+has(loopHead, "handleQueuedLocalCall_()", "fwupdate task handles local ZIP");
+assert.ok(loopHead.indexOf("handleQueuedLocalCall_()") <
+          loopHead.indexOf("if (!manifestMetadata_)"), "worker callbacks before updater idle returns");
+
 console.log("PASS: ZIP upload uses inactive paired app/SPIFFS A/B slots; no premature Done before commit");
