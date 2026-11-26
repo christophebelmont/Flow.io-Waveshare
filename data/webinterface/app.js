@@ -3508,14 +3508,42 @@
 
     function upgradeUsesReconnect(target) {
       const key = String(target || '').trim().toLowerCase();
-      return key === 'flowios3' || key === 'esp32s3' || key === 'waveshare' || key === 'spiffs' || key === 'nextion';
+      return key === 'flowios3' || key === 'esp32s3' || key === 'waveshare' || key === 'spiffs' || key === 'nextion' || key === 'release';
     }
 
     function upgradeIsPairedTarget(target) {
       return ['flowios3', 'waveshare', 'esp32s3'].includes(String(target || '').trim().toLowerCase());
     }
 
+    function upgradeIsZipTarget(target) {
+      return String(target || '').trim().toLowerCase() === 'release';
+    }
+    function upgradeHasDetailedStages(target) {
+      return upgradeIsPairedTarget(target) || upgradeIsZipTarget(target);
+    }
+
     function upgradeStepDefinitions(target) {
+      if (upgradeIsZipTarget(target)) {
+        // The browser opens ZIP; each image is staged and SHA-verified in
+        // PSRAM BEFORE inactive Flash erase/write/readback.
+        return [
+          { id: 'zip-0', label: tr('updates.zipStage.prepare', 'Préparation du ZIP') },
+          { id: 'zip-1', label: tr('updates.zipStage.manifest', 'Lecture du manifeste ZIP') },
+          { id: 'zip-2', label: tr('updates.zipStage.receiveSpiffs', 'Réception SPIFFS en PSRAM') },
+          { id: 'zip-3', label: tr('updates.zipStage.verifyRamSpiffs', 'SHA-256 SPIFFS en PSRAM') },
+          { id: 'zip-4', label: tr('updates.zipStage.prepareSpiffs', 'Préparation Flash SPIFFS') },
+          { id: 'zip-5', label: tr('updates.zipStage.writeSpiffs', 'Écriture SPIFFS en Flash') },
+          { id: 'zip-6', label: tr('updates.zipStage.verifySpiffs', 'Relecture et SHA-256 SPIFFS en Flash') },
+          { id: 'zip-7', label: tr('updates.zipStage.receiveFirmware', 'Réception firmware en PSRAM') },
+          { id: 'zip-8', label: tr('updates.zipStage.verifyRamFirmware', 'SHA-256 firmware en PSRAM') },
+          { id: 'zip-9', label: tr('updates.zipStage.prepareFirmware', 'Préparation Flash firmware') },
+          { id: 'zip-10', label: tr('updates.zipStage.writeFirmware', 'Écriture firmware en Flash') },
+          { id: 'zip-11', label: tr('updates.zipStage.verifyFirmware', 'Relecture et SHA-256 firmware en Flash') },
+          { id: 'zip-12', label: tr('updates.zipStage.activate', 'Activation des partitions A/B') },
+          { id: 'zip-13', label: tr('updates.zipStage.reboot', 'Redémarrage Flow.IO') },
+          { id: 'zip-14', label: tr('updates.zipStage.reconnect', 'Reconnexion et validation') }
+        ];
+      }
       if (upgradeIsPairedTarget(target)) {
         // PSRAM OTA downloads and flash writes are distinct, independently
         // measured phases for each image. The low-memory streaming fallback
@@ -3548,13 +3576,28 @@
     }
 
     function upgradePairedOtaStageIndex(session) {
-      if (!upgradeIsPairedTarget(session && session.target)) return null;
+      const isZip = String(session && session.target || '').trim().toLowerCase() === 'release';
+      if (!isZip && !upgradeIsPairedTarget(session && session.target)) return null;
       const phase = String(session && session.phase || 'idle');
       const stage = String(session && session.otaBackendStage || '').trim().toLowerCase();
       const msg = String(session && session.backendMessage || '').trim().toLowerCase();
       if (phase === 'target') return 0;
       if (phase === 'reboot') return 13;
       if (phase === 'reconnect' || phase === 'done') return 14;
+      if (isZip) {
+        const zipStages = {
+          zip_prepare: 0, zip_manifest: 1,
+          zip_spiffs_receive: 2, zip_spiffs_ram_verify: 3,
+          zip_spiffs_prepare: 4, zip_spiffs_flash: 5,
+          zip_spiffs_readback: 6, zip_spiffs_verified: 6,
+          zip_firmware_receive: 7, zip_firmware_ram_verify: 8,
+          zip_firmware_prepare: 9, zip_firmware_flash: 10,
+          zip_firmware_readback: 11, zip_firmware_verified: 11,
+          zip_activate: 12
+        };
+        if (Object.prototype.hasOwnProperty.call(zipStages, stage)) return zipStages[stage];
+        return phase === 'download' || phase === 'flash' ? 1 : null;
+      }
       // Prefer the explicit firmware stage, not the generic HTTPClient state:
       // an image may download and then flash in the same paired OTA operation.
       const stages = {
@@ -3599,7 +3642,9 @@
       if (index === null || !defs[index]) return tr('updates.otaStage.generic', 'Transfert OTA en cours');
       const label = defs[index].label;
       const progressKeys = ['spiffs_download', 'spiffs_write', 'spiffs_stream',
-        'firmware_download', 'firmware_write', 'firmware_stream'];
+        'firmware_download', 'firmware_write', 'firmware_stream',
+        'zip_spiffs_receive', 'zip_spiffs_flash', 'zip_spiffs_readback',
+        'zip_firmware_receive', 'zip_firmware_flash', 'zip_firmware_readback'];
       const text = progressKeys.includes(stage)
         ? label + ' · ' + Math.max(0, Math.min(100, Number(stageProgress) || 0)) + '%'
         : label;
@@ -3610,7 +3655,7 @@
     }
 
     function upgradePairedOtaStageText(session) {
-      if (!upgradeIsPairedTarget(session && session.target)) return '';
+      if (!upgradeHasDetailedStages(session && session.target)) return '';
       const phase = String(session && session.phase || 'idle');
       if (phase === 'idle' || phase === 'error') return '';
       const index = upgradePairedOtaStageIndex(session);
@@ -3637,7 +3682,7 @@
     function upgradePhaseTitle(session) {
       const phase = String(session && session.phase ? session.phase : 'idle');
       if (phase === 'target') return tr('updates.title.target', 'Préparation de la mise à jour');
-      if (upgradeIsPairedTarget(session && session.target) &&
+      if (upgradeHasDetailedStages(session && session.target) &&
           (phase === 'download' || phase === 'flash')) {
         const index = upgradePairedOtaStageIndex(session);
         const stages = upgradeStepDefinitions(session.target);
@@ -3658,7 +3703,7 @@
 
     function upgradeProgressHintText(session, targetLabel) {
       const phase = String(session && session.phase ? session.phase : 'idle');
-      if (upgradeIsPairedTarget(session && session.target)) {
+      if (upgradeHasDetailedStages(session && session.target)) {
         if (phase === 'flash' || phase === 'reboot') return tr('updates.hint.flash', 'Ne coupez pas l’alimentation.');
         if (phase === 'reconnect') return tr('updates.hint.reconnect', 'Cette page se rafraîchit automatiquement.');
         return '';
@@ -3707,7 +3752,7 @@
           (phase === 'download' || phase === 'flash')) {
         return Math.max(0, Math.min(96, progress));
       }
-      if (upgradeIsPairedTarget(session && session.target) &&
+      if (upgradeHasDetailedStages(session && session.target) &&
           (phase === 'download' || phase === 'flash')) {
         const index = upgradePairedOtaStageIndex(session);
         if (index !== null) {
@@ -3715,7 +3760,9 @@
           // or flash-write phase advances by its OWN byte percentage.
           const key = String(session && session.otaBackendStage || '');
           const moving = ['spiffs_download', 'spiffs_write', 'spiffs_stream',
-            'firmware_download', 'firmware_write', 'firmware_stream'].includes(key);
+            'firmware_download', 'firmware_write', 'firmware_stream',
+            'zip_spiffs_receive', 'zip_spiffs_flash', 'zip_spiffs_readback',
+            'zip_firmware_receive', 'zip_firmware_flash', 'zip_firmware_readback'].includes(key);
           const phaseProgress = moving
             ? Math.max(0, Math.min(100, Number(session.otaBackendStepProgress) || 0)) / 100
             : 0;
@@ -3742,11 +3789,14 @@
     function upgradeStepProgress(stepId, state, session) {
       if (state === 'done') return 100;
       // Paired OTA dots display the image-local HTTP / flash percentage.
-      if (String(stepId || '').startsWith('ota-')) {
+      if (String(stepId || '').startsWith('ota-') ||
+          String(stepId || '').startsWith('zip-')) {
         if (state !== 'active') return null;
         const stage = String(session && session.otaBackendStage || '');
         if (['spiffs_download', 'spiffs_write', 'spiffs_stream',
-             'firmware_download', 'firmware_write', 'firmware_stream'].includes(stage)) {
+             'firmware_download', 'firmware_write', 'firmware_stream',
+             'zip_spiffs_receive', 'zip_spiffs_flash', 'zip_spiffs_readback',
+             'zip_firmware_receive', 'zip_firmware_flash', 'zip_firmware_readback'].includes(stage)) {
           return Math.max(0, Math.min(100, Number(session.otaBackendStepProgress) || 0));
         }
         return null;
@@ -3785,7 +3835,9 @@
 
     function upgradeStepState(stepId, session) {
       const phase = String(session && session.phase ? session.phase : 'idle');
-      if (String(stepId || '').startsWith('ota-') && upgradeIsPairedTarget(session && session.target)) {
+      if ((String(stepId || '').startsWith('ota-') ||
+           String(stepId || '').startsWith('zip-')) &&
+          upgradeHasDetailedStages(session && session.target)) {
         if (phase === 'idle') return 'pending';
         if (phase === 'done') return 'done';
         const stepIndex = Number(stepId.slice(4));
@@ -3870,7 +3922,7 @@
         upgradeStageDetail.hidden = !stageText;
       }
       if (upgradeProgressPanel) {
-        upgradeProgressPanel.classList.toggle('is-paired', upgradeIsPairedTarget(safeSession.target));
+        upgradeProgressPanel.classList.toggle('is-paired', upgradeHasDetailedStages(safeSession.target));
         const progressVisible = phase === 'target' || phase === 'download' || phase === 'flash'
           || phase === 'reboot' || phase === 'reconnect' || phase === 'error';
         upgradeProgressPanel.hidden = !progressVisible;
@@ -4157,7 +4209,10 @@
       const receiptResult = receiptMatches ? String(receipt.result || '') : '';
 
       if (receiptResult === 'succeeded') {
-        const completedTarget = String(receipt.target || target);
+        // Do not turn the ZIP's 15-step journey into remote OTA steps during
+        // post-reboot receipt confirmation.
+        const completedTarget = upgradeIsZipTarget(current && current.target)
+          ? 'release' : String(receipt.target || target);
         markUpgradeUiCompletedAfterReceipt(completedTarget);
         scheduleUpgradeReloadAfterSuccess(currentOperationId, completedTarget);
         return;
@@ -4166,7 +4221,8 @@
         stopUpgradeReconnectFlow();
         updateUpgradeUiSession({
           phase: 'error',
-          target: String(receipt.target || target),
+          target: upgradeIsZipTarget(current && current.target)
+            ? 'release' : String(receipt.target || target),
           detail: receiptResult === 'interrupted'
             ? tr('updates.err.interrupted', 'La mise à jour a été interrompue avant sa finalisation.')
             : normalizeUpgradeHttpErrorMessage(msg, tr('updates.err.updateGeneric', 'Erreur de mise à jour.')),
@@ -4194,9 +4250,15 @@
           && (state === 'queued' || state === 'downloading' || state === 'flashing' || state === 'done')) {
         stopUpgradeReconnectFlow();
         updateUpgradeUiSession({
-          phase: state === 'queued' ? 'target' : 'flash',
+          phase: state === 'queued' ? (current.phase || 'target')
+            : state === 'downloading' ? 'download' : 'flash',
           target: 'release',
-          backendProgress: localReleaseOverallProgress(current, target, progress),
+          // ZIP backend progress is now global (Flash-committed byte count),
+          // not a per-image percentage to weight a second time.
+          backendProgress: Math.max(Number(current.backendProgress) || 0, progress),
+          otaBackendStage: current.otaBackendStage ||
+            (otaBackendStage.startsWith('zip_') ? otaBackendStage : ''),
+          otaBackendStepProgress: Number(current.otaBackendStepProgress) || 0,
           awaitingReconnect: false,
           reconnectShown: false,
           reconnectProgress: 0,
@@ -4204,6 +4266,24 @@
           bootId: bootId,
           failedStep: ''
         });
+        return;
+      }
+      if (isLocalRelease && state === 'rebooting') {
+        if (current.awaitingReconnect) return;
+        updateUpgradeUiSession({
+          phase: 'reboot',
+          target: 'release',
+          otaBackendStage: 'zip_activate',
+          otaBackendStepProgress: 100,
+          detail: tr('updates.zipStage.reboot', 'Redémarrage Flow.IO'),
+          backendProgress: 100,
+          awaitingReconnect: true,
+          reconnectShown: false,
+          reconnectProgress: 0,
+          operationId: operationId || currentOperationId,
+          bootId: bootId
+        });
+        scheduleUpgradeReconnectPhase(900);
         return;
       }
 
@@ -4808,7 +4888,7 @@
       icon.textContent = 'system_update_alt';
       const label = document.createElement('span');
       label.textContent = row && row.key === 'flowio'
-        ? 'Mettre à jour Flow.io (Firmware + SPIFFS)'
+        ? tr('updates.updateFlowioButton', 'Mettre à jour Flow.io')
         : tr('updates.updateButton', 'Mettre à jour');
       button.appendChild(icon);
       button.appendChild(label);
@@ -5111,26 +5191,152 @@
     function uploadReleaseBlob(url, blob, onProgress) {
       return new Promise((resolve, reject) => {
         const request = new XMLHttpRequest();
+        const startedAt = Date.now();
+        let sentBytes = 0;
+        let nextCheckpoint = 25;
+        console.info('[OTA-ZIP-BROWSER] image_start', url, 'bytes=' + blob.size);
         request.open('POST', url, true);
         request.setRequestHeader('Content-Type', 'application/octet-stream');
         request.upload.onprogress = (event) => {
-          if (event.lengthComputable && typeof onProgress === 'function') {
-            onProgress(Math.round((event.loaded * 100) / event.total));
+          sentBytes = event.loaded;
+          if (event.lengthComputable && event.total > 0) {
+            const percent = Math.round((event.loaded * 100) / event.total);
+            if (percent >= nextCheckpoint || percent === 100) {
+              console.info('[OTA-ZIP-BROWSER] upload_progress', url,
+                           percent + '%', event.loaded + '/' + event.total,
+                           'elapsed_ms=' + (Date.now() - startedAt));
+              nextCheckpoint = (Math.floor(percent / 25) + 1) * 25;
+            }
+            if (typeof onProgress === 'function') onProgress(percent);
           }
         };
-        request.onerror = () => reject(new Error('connexion interrompue pendant l’upload'));
+        request.onerror = () => {
+          const detail = 'connexion interrompue pendant l’upload (HTTP ' +
+            request.status + ', état ' + request.readyState +
+            ', envoyés ' + sentBytes + '/' + blob.size +
+            ', durée ' + (Date.now() - startedAt) + ' ms)';
+          console.error('[OTA-ZIP-HTTP] ' + detail, url);
+          reject(new Error(detail));
+        };
+        request.onabort = () => {
+          console.error('[OTA-ZIP-BROWSER] xhr_abort', url,
+                        'sent=' + sentBytes, 'elapsed_ms=' + (Date.now() - startedAt));
+          reject(new Error('upload annulé par le navigateur après ' + sentBytes + ' octets'));
+        };
+        request.onloadend = () => {
+          console.info('[OTA-ZIP-BROWSER] image_end', url, 'http=' + request.status,
+                       'sent=' + sentBytes + '/' + blob.size,
+                       'elapsed_ms=' + (Date.now() - startedAt));
+        };
         request.onload = () => {
           let payload = null;
           try { payload = request.responseText ? JSON.parse(request.responseText) : null; } catch (_) {}
           if (request.status < 200 || request.status >= 300 || (payload && payload.ok === false)) {
             const detail = payload && payload.err ? (payload.err.msg || payload.err.code) : request.responseText;
-            reject(new Error(detail || 'upload refusé'));
+            console.error('[OTA-ZIP-HTTP] refus du serveur', url,
+                          'HTTP ' + request.status, detail);
+            reject(new Error('HTTP ' + request.status + ' : ' + (detail || 'upload refusé')));
             return;
           }
+          console.info('[OTA-ZIP-BROWSER] image_staged_response', url,
+                       'http=' + request.status, 'elapsed_ms=' + (Date.now() - startedAt));
           resolve(payload || { ok: true });
         };
         request.send(blob);
       });
+    }
+
+    function setZipUiStage(stage, percent = 0) {
+      // One 15-step journey for the ZIP only. Throttle browser writes to
+      // 5% buckets: avoid loading AsyncTCP indirectly through WebSocket/UI.
+      const clamped = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+      const current = readUpgradeUiSession();
+      const index = upgradePairedOtaStageIndex({
+        target: 'release', phase: 'flash', otaBackendStage: stage
+      });
+      if (index === null) return;
+      const previousIndex = Number(current && current.otaStageIndex) || 0;
+      if (index < previousIndex) return; // never regress between two images
+      const sameStage = current && current.otaBackendStage === stage;
+      const previous = Math.max(0, Math.min(100, Number(current && current.otaBackendStepProgress) || 0));
+      if (sameStage && Math.floor(previous / 5) === Math.floor(clamped / 5) &&
+          (clamped !== 100 || previous === 100)) return;
+      const definitions = upgradeStepDefinitions('release');
+      const stageLabel = definitions[index].label;
+      const moving = ['zip_spiffs_receive', 'zip_spiffs_flash', 'zip_spiffs_readback',
+                      'zip_firmware_receive', 'zip_firmware_flash',
+                      'zip_firmware_readback'].includes(stage);
+      const detail = moving ? stageLabel + ' · ' + clamped + '%' : stageLabel;
+      updateUpgradeUiSession({
+        phase: stage.endsWith('_receive') || stage.includes('ram_verify') ? 'download' : 'flash',
+        target: 'release',
+        otaBackendStage: stage,
+        otaBackendStepProgress: clamped,
+        detail: detail
+      });
+    }
+
+    async function waitForZipImageFlash(transactionId, target) {
+      // HTTP 202 means staged + preverified; the fwupdate task completes
+      // erasing/writing/validation asynchronously, without blocking AsyncTCP.
+      const started = Date.now();
+      const timeoutMs = 240000;
+      let lastPercent = -1;
+      let lastPhase = '';
+      let consecutivePollErrors = 0;
+      while (Date.now() - started < timeoutMs) {
+        const query = '?transaction_id=' + encodeURIComponent(String(transactionId)) +
+                      '&target=' + encodeURIComponent(target);
+        let progress;
+        try {
+          progress = await fetchOkJson('/api/upgrade/image/status' + query,
+                                        { method: 'GET', cache: 'no-store' },
+                                        'échec de consultation de la programmation ZIP');
+        } catch (err) {
+          // A short Wi-Fi/HTTP interruption while Flash is busy is NOT an
+          // indication that the image failed. Keep polling rather than
+          // prematurely aborting a healthy asynchronous Flash operation.
+          consecutivePollErrors++;
+          if (consecutivePollErrors === 1 || consecutivePollErrors % 5 === 0) {
+            console.warn('[OTA-ZIP-BROWSER] flash_poll_retry', target,
+                         consecutivePollErrors, String(err));
+          }
+          if (consecutivePollErrors >= 20) {
+            throw new Error('suivi de programmation ZIP indisponible après 20 essais : ' + err);
+          }
+          await new Promise(resolve => setTimeout(resolve, 750));
+          continue;
+        }
+        consecutivePollErrors = 0;
+        if (Number(progress.transaction_id) !== transactionId || progress.target !== target) {
+          throw new Error('identifiant de transaction ZIP incorrect pendant la programmation');
+        }
+        if (!['queued', 'flashing', 'verifying', 'verified', 'error'].includes(progress.phase)) {
+          throw new Error('état de programmation ZIP incohérent : ' + progress.phase);
+        }
+        if (progress.phase !== lastPhase || progress.progress !== lastPercent) {
+          lastPhase = progress.phase;
+          lastPercent = progress.progress;
+          console.info('[OTA-ZIP-BROWSER] flash_state', target,
+                       progress.phase, progress.progress + '%',
+                       'elapsed_ms=' + (Date.now() - started));
+        }
+        const stem = target === 'spiffs' ? 'zip_spiffs_' : 'zip_firmware_';
+        if (progress.phase === 'queued') setZipUiStage(stem + 'prepare', 0);
+        if (progress.phase === 'flashing') setZipUiStage(stem + 'flash', progress.progress);
+        if (progress.phase === 'verifying') setZipUiStage(stem + 'readback', progress.progress);
+        if (progress.phase === 'verified') {
+          setZipUiStage(stem + 'readback', 100);
+          console.info('[OTA-ZIP-BROWSER] flash_verified', target,
+                       'elapsed_ms=' + (Date.now() - started));
+          return;
+        }
+        if (progress.phase === 'error') {
+          throw new Error(progress.reason || 'échec programmation ZIP');
+        }
+        await new Promise(resolve => setTimeout(resolve, 750));
+      }
+      throw new Error('délai de programmation ZIP dépassé après 240 s');
     }
 
     async function installLocalRelease(file) {
@@ -5154,13 +5360,17 @@
           ' octets\nFilesystem : ' + filesystem.size + ' octets';
         if (localReleaseSummary) localReleaseSummary.textContent = description.replace(/\n/g, ' · ');
         if (!confirm(description + '\n\nInstaller cette release puis redémarrer ?')) return;
+        console.info('[OTA-ZIP-BROWSER] manifest_accepted',
+                     manifest.version, 'firmware=' + firmware.size,
+                     'spiffs=' + filesystem.size);
 
         startUpgradeUiSession('release');
+        setZipUiStage('zip_prepare', 100);
         updateUpgradeUiSession({
           releaseFilesystemTotal: Number(manifest.filesystem && manifest.filesystem.size) || 0,
           releaseFirmwareTotal: Number(manifest.firmware && manifest.firmware.size) || 0
         });
-        setUpgradeDetail('Préparation de la release ' + manifest.version + '…');
+        setZipUiStage('zip_manifest', 0);
         const started = await fetchOkJson('/api/upgrade/begin', {
           method: 'POST',
           cache: 'no-store',
@@ -5172,15 +5382,45 @@
           throw new Error('identifiant de transaction invalide');
         }
         const query = '?transaction_id=' + encodeURIComponent(String(transactionId));
+        console.info('[OTA-ZIP-BROWSER] transaction_started', transactionId);
+        // The ZIP transaction ID is not the persisted OTA operation ID.
+        // Save the latter before the first image upload so the post-reboot
+        // success receipt can be matched, including after a page reload.
+        const beginStatus = await fetchUpgradeReconnectHeartbeat();
+        const zipOperationId = Number(beginStatus && beginStatus.operation_id);
+        if (!Number.isSafeInteger(zipOperationId) || zipOperationId <= 0 ||
+            beginStatus.ok !== true || !beginStatus.busy) {
+          throw new Error('identifiant de suivi OTA ZIP indisponible');
+        }
+        updateUpgradeUiSession({
+          operationId: zipOperationId,
+          bootId: Number(beginStatus.boot_id) || 0
+        });
+        console.info('[OTA-ZIP-BROWSER] operation_linked',
+                     'txn=' + transactionId, 'op=' + zipOperationId);
+        setZipUiStage('zip_manifest', 100);
+        setZipUiStage('zip_spiffs_receive', 0);
         await uploadReleaseBlob('/api/upgrade/filesystem' + query, filesystem, (progress) => {
-          setUpgradeDetail('Installation du filesystem : ' + progress + '%');
+          if (progress < 100) setZipUiStage('zip_spiffs_receive', progress);
+          else setZipUiStage('zip_spiffs_ram_verify', 0);
         });
+        setZipUiStage('zip_spiffs_ram_verify', 100);
+        await waitForZipImageFlash(transactionId, 'spiffs');
+        console.info('[OTA-ZIP-BROWSER] filesystem_verified', transactionId);
+        setZipUiStage('zip_firmware_receive', 0);
         await uploadReleaseBlob('/api/upgrade/firmware' + query, firmware, (progress) => {
-          setUpgradeDetail('Installation du firmware : ' + progress + '%');
+          if (progress < 100) setZipUiStage('zip_firmware_receive', progress);
+          else setZipUiStage('zip_firmware_ram_verify', 0);
         });
+        setZipUiStage('zip_firmware_ram_verify', 100);
+        await waitForZipImageFlash(transactionId, 'firmware');
+        console.info('[OTA-ZIP-BROWSER] firmware_verified', transactionId);
+        setZipUiStage('zip_activate', 0);
         await fetchOkJson('/api/upgrade/commit' + query,
                           { method: 'POST', cache: 'no-store' },
                           'échec de validation de la release');
+        console.info('[OTA-ZIP-BROWSER] commit_accepted', transactionId);
+        setZipUiStage('zip_activate', 100);
         transactionId = 0;
         updateUpgradeUiSession({
           phase: 'reboot',
@@ -5192,12 +5432,24 @@
         setUpgradeMessage('Release installée. Flow.IO redémarre…');
         enterUpgradeReconnectPhase();
       } catch (err) {
+        console.error('[OTA-ZIP-HTTP] échec package local, transaction=' +
+                      transactionId, err);
         if (transactionId > 0) {
-          await fetch('/api/upgrade/abort?transaction_id=' + encodeURIComponent(String(transactionId)), {
-            method: 'POST', cache: 'no-store'
-          }).catch(() => {});
+          const abortStartedAt = Date.now();
+          try {
+            const abortReply = await fetch('/api/upgrade/abort?transaction_id=' +
+                                           encodeURIComponent(String(transactionId)), {
+              method: 'POST', cache: 'no-store'
+            });
+            console.warn('[OTA-ZIP-BROWSER] abort_response', transactionId,
+                         'http=' + abortReply.status,
+                         'elapsed_ms=' + (Date.now() - abortStartedAt));
+          } catch (abortError) {
+            console.error('[OTA-ZIP-BROWSER] abort_network_failure',
+                          transactionId, abortError);
+          }
         }
-        updateUpgradeUiSession({ phase: 'error', target: 'release', detail: String(err), backendProgress: 0 });
+        updateUpgradeUiSession({ phase: 'error', target: 'release', detail: String(err) });
         setUpgradeMessage('Échec du package local : ' + err);
       } finally {
         if (localReleaseSelectBtn) localReleaseSelectBtn.disabled = false;

@@ -40,6 +40,37 @@ struct FirmwareManifestCheckSnapshot {
     uint32_t nextionArtifactSize = 0U;
 };
 
+// Lightweight, lock-copied progress snapshot for local TFT rendering.
+// Unlike statusJson(), this callback allocates no JSON document or String.
+enum class FirmwareUpdateDisplayState : uint8_t {
+    Idle = 0, Queued, Downloading, Flashing, Rebooting, Done, Error
+};
+
+struct FirmwareUpdateDisplaySnapshot {
+    FirmwareUpdateDisplayState state = FirmwareUpdateDisplayState::Idle;
+    FirmwareUpdateTarget target = FirmwareUpdateTarget::Waveshare;
+    uint32_t operationId = 0U;
+    uint8_t progress = 0U;        // Global progress; may stay at zero during PSRAM download.
+    uint8_t stageProgress = 0U;   // Accurate percentage for the current OTA phase.
+    char stage[28] = {0};         // Stable machine-readable stage, never translated.
+    char message[120] = {0};      // Existing diagnostic message.
+};
+
+// ZIP upload staging / flash progress. Readable without blocking AsyncTCP
+// on the Flash mutex. Transaction ID prevents stale browser polling.
+enum class FirmwareLocalImagePhase : uint8_t {
+    Idle = 0, Receiving, Queued, Flashing, Verifying, Verified, Error
+};
+struct FirmwareLocalImageProgress {
+    uint32_t transactionId = 0U;
+    FirmwareUpdateTarget target = FirmwareUpdateTarget::Waveshare;
+    FirmwareLocalImagePhase phase = FirmwareLocalImagePhase::Idle;
+    uint8_t percent = 0U;
+    uint32_t receivedBytes = 0U;
+    uint32_t totalBytes = 0U;
+    char reason[120]{};
+};
+
 struct FirmwareUpdateService {
     bool (*start)(void* ctx,
                   FirmwareUpdateTarget target,
@@ -96,4 +127,11 @@ struct FirmwareUpdateService {
                               char* errOut,
                               size_t errOutLen);
     void* ctx;
+    // Optional: no heap use, suitable for low-frequency display polling.
+    bool (*displaySnapshot)(void* ctx, FirmwareUpdateDisplaySnapshot* out);
+    // Optional lock-copied snapshot for the asynchronously flashed ZIP image.
+    bool (*localImageProgress)(void* ctx,
+                               uint32_t transactionId,
+                               FirmwareUpdateTarget target,
+                               FirmwareLocalImageProgress* out);
 };

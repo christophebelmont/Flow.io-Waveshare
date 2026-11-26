@@ -97,6 +97,8 @@ private:
         const esp_partition_t* writePartition = nullptr;
         esp_ota_handle_t otaHandle = 0;
         size_t received = 0U;
+        uint8_t* stagedImage = nullptr; // one local ZIP artifact in PSRAM
+        size_t stagedBytes = 0U;
         mbedtls_sha256_context shaContext{};
     };
 
@@ -202,6 +204,62 @@ private:
     uint32_t activeTotalBytes_ = 0;
     uint32_t activeSentBytes_ = 0;
     const char* hardwareName_ = nullptr;
+    // ZIP requests arrive from AsyncTCP, whose stack is not intended for
+    // SPIFFS mounting, flash erase, OTA validation or NVS checkpointing.
+    // Only the fwupdate task executes these operations. The submitter waits,
+    // keeping request-owned buffers valid until the call has returned.
+    enum class LocalCallKind : uint8_t {
+        BeginRelease, BeginImage, WriteImage, EndImage, Commit, Abort
+    };
+    struct LocalCall {
+        LocalCallKind kind = LocalCallKind::BeginRelease;
+        uint32_t transactionId = 0U;
+        uint32_t* transactionIdOut = nullptr;
+        FirmwareUpdateTarget target = FirmwareUpdateTarget::Waveshare;
+        const char* manifest = nullptr;
+        size_t manifestLen = 0U;
+        const uint8_t* data = nullptr;
+        size_t imageSize = 0U;
+        size_t offset = 0U;
+        char* error = nullptr;
+        size_t errorLen = 0U;
+    };
+    bool dispatchLocalCall_(const LocalCall& call, char* errOut, size_t errLen);
+    bool executeLocalCall_(const LocalCall& call);
+    bool handleQueuedLocalCall_();
+    StaticSemaphore_t localCallMutexStorage_{};
+    StaticSemaphore_t localCallDoneStorage_{};
+    SemaphoreHandle_t localCallMutex_ = nullptr;
+    SemaphoreHandle_t localCallDone_ = nullptr;
+    LocalCall localCall_{};
+    TaskHandle_t localCallOwner_ = nullptr;
+    bool localCallPending_ = false; // protected by lock_
+    bool localCallInFlight_ = false; // protected by lock_
+    bool localCallResult_ = false;
+    // Protected by lock_: work is picked up on fwupdate after the HTTP
+    // callback acknowledges SHA-256 preverification. Never flash on AsyncTCP.
+    bool localFlashQueued_ = false;
+    bool localFlashStarted_ = false; // block duplicate queueing during handshake
+    uint32_t localFlashStartAfterMs_ = 0U; // ACK grace period
+    FirmwareLocalImageProgress localImageProgress_{};
+    bool localImageProgressSnapshot_(uint32_t transactionId,
+                                     FirmwareUpdateTarget target,
+                                     FirmwareLocalImageProgress* out);
+    void setLocalImageProgress_(uint32_t transactionId,
+                                FirmwareUpdateTarget target,
+                                FirmwareLocalImagePhase phase,
+                                uint8_t percent,
+                                uint32_t received,
+                                uint32_t total,
+                                const char* reason = nullptr);
+    bool flashStagedLocalImage_();
+    // fwupdate-task-only rate limit for idle ZIP transaction warnings.
+    uint32_t localReleaseLastIdleDiagMs_ = 0U;
+    // Rate limits for anomalously slow WriteImage callbacks. Ordinary chunks
+    // are still summarized every 256 KiB, without one log per TCP segment.
+    uint32_t localSlowRpcLastLogMs_ = 0U;    // submitter task, localCallMutex_
+    uint32_t localSlowWorkerLastLogMs_ = 0U; // fwupdate worker only
+
     StaticSemaphore_t localReleaseMutexStorage_{};
     SemaphoreHandle_t localReleaseMutex_ = nullptr;
     // Mirrored under lock_ so legacy and local update admission checks share
@@ -226,6 +284,7 @@ private:
                       size_t errOutLen);
     bool queueNextionReboot_(char* errOut, size_t errOutLen);
     bool statusJson_(char* out, size_t outLen);
+    bool displaySnapshot_(FirmwareUpdateDisplaySnapshot* out);
     bool isBusy_();
     // Must be called while lock_ is held. Shares the one admission barrier
     // between Nextion, paired firmware+SPIFFS OTA and local release upload.
@@ -327,6 +386,8 @@ private:
         ServiceBinding::bind<&FirmwareUpdateModule::endLocalImage_>,
         ServiceBinding::bind<&FirmwareUpdateModule::commitLocalRelease_>,
         ServiceBinding::bind<&FirmwareUpdateModule::abortLocalRelease_>,
-        this
+        this,
+        ServiceBinding::bind<&FirmwareUpdateModule::displaySnapshot_>,
+        ServiceBinding::bind<&FirmwareUpdateModule::localImageProgressSnapshot_>
     };
 };

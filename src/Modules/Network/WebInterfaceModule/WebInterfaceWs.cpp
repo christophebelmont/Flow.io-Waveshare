@@ -178,7 +178,7 @@ void WebInterfaceModule::onWsLogEvent_(AsyncWebSocket*,
         if (wsLog_.count() == 0U) {
             setWsActiveSource_(0U);
         }
-        LOGW("wslog disconnect id=%lu clients=%u disconnects=%lu enqueued=%lu dropped=%lu partial=%lu discarded=%lu coalesced=%lu heap=%lu",
+        LOGI("wslog disconnect id=%lu clients=%u disconnects=%lu enqueued=%lu dropped=%lu partial=%lu discarded=%lu coalesced=%lu heap=%lu",
              (unsigned long)(client ? client->id() : 0U),
              (unsigned)wsLog_.count(),
              (unsigned long)wsLogDisconnectCount_,

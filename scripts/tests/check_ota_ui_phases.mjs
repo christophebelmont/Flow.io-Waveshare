@@ -18,6 +18,8 @@ const header = load("src/Modules/Network/FirmwareUpdateModule/FirmwareUpdateModu
 const server = load("src/Modules/Network/WebInterfaceModule/WebInterfaceServer.cpp");
 const names = [
   "upgradeIsPairedTarget",
+  "upgradeIsZipTarget",
+  "upgradeHasDetailedStages",
   "upgradeStepDefinitions",
   "upgradePairedOtaStageIndex",
   "upgradePairedPhaseDetail",
@@ -110,7 +112,8 @@ assert.match(js, /next\.lastPercent = Math\.max\(/,
 const legacy = { target: "waveshare", phase: "flash", backendMessage: "writing release filesystem" };
 assert.equal(api.upgradePairedOtaStageIndex(legacy), 5, "compatibility with older status JSON");
 
-// Backend emits exact stage names, with per-image percent. ZIP path is unchanged.
+// Backend emits exact stage names, with per-image percent. ZIP has its own
+// PSRAM → Flash → readback stages; remote OTA stages remain unchanged.
 assert.match(header, /char otaStage\[28\]/);
 assert.match(header, /uint8_t otaStageProgress = 0U/);
 assert.match(cpp, /doc\["ota_stage"\] = snap\.otaStage/);
@@ -144,7 +147,8 @@ const wiringSource = [
   "function readUpgradeUiSession() { return session; }",
   "function updateUpgradeUiSession(patch) { session = { ...session, ...patch }; return session; }",
   "function stopUpgradeReconnectFlow() {}",
-  ...["upgradeIsPairedTarget", "upgradeStepDefinitions", "upgradePairedOtaStageIndex",
+  ...["upgradeIsPairedTarget", "upgradeIsZipTarget", "upgradeHasDetailedStages",
+    "upgradeStepDefinitions", "upgradePairedOtaStageIndex",
     "upgradePairedPhaseDetail", "updateUpgradeView"].map(extract),
   "return { send: data => { updateUpgradeView(data); return { ...session }; } };"
 ].join("\n");

@@ -50,6 +50,10 @@ has(server, 'registerLocalImageRoute("/api/upgrade/filesystem", FirmwareUpdateTa
 has(server, 'registerLocalImageRoute("/api/upgrade/firmware", FirmwareUpdateTarget::Waveshare)', "firmware route");
 has(server, "fwUpdateSvc_->writeLocalImage(", "stream write service binding");
 has(server, "fwUpdateSvc_->endLocalImage(", "image SHA validation binding");
+has(server, '"/api/upgrade/image/status"', "asynchronous Flash progress route");
+has(server, 'request->send(202, "application/json"', "upload callback must not wait for Flash");
+has(zip, "await waitForZipImageFlash(transactionId, 'spiffs');", "wait for SPIFFS Flash before firmware");
+has(zip, "await waitForZipImageFlash(transactionId, 'firmware');", "wait for firmware Flash before commit");
 has(server, "fwUpdateSvc_->commitLocalRelease(", "commit binding");
 
 has(release, "gRunningSlot = slotFromPartition(running);", "running slot from running app");
@@ -65,6 +69,19 @@ has(updater, 'failLocalRelease_("release image sha256 mismatch")', "both image S
 has(updater, "candidateFilesystemIsValid_(", "candidate SPIFFS validation");
 has(updater, "localRelease_.stage != LocalReleaseStage::FirmwareVerified", "require both images verified");
 has(updater, "esp_ota_set_boot_partition(target)", "activate new boot partition");
+has(updater, "OTA_WITH_SEQUENTIAL_WRITES", "ZIP defers firmware erase until write");
+has(updater, "esp_ota_begin(localRelease_.writePartition,\n                            static_cast<size_t>(OTA_WITH_SEQUENTIAL_WRITES)", "local ZIP uses incremental erase in background");
+has(updater, "[OTA-ZIP-PSRAM] flash_readback_sha256", "post-flash SHA-256 integrity check");
+const beginImageStart = updater.indexOf("bool FirmwareUpdateModule::beginLocalImage_(");
+const beginImageEnd = updater.indexOf("bool FirmwareUpdateModule::writeLocalImage_(", beginImageStart);
+const beginImageCode = updater.slice(beginImageStart, beginImageEnd);
+has(beginImageCode, "const bool remotePaired = remoteReleaseWorker_ != nullptr", "remote paired OTA stays distinct");
+has(beginImageCode, "flashError = esp_ota_begin(localRelease_.writePartition,", "SDK OTA initialization retained");
+has(beginImageCode, "totalSize, &localRelease_.otaHandle)", "remote OTA retains original upfront erase");
+has(beginImageCode, "OtaPsramPolicy::canStageImage(totalSize, freeBytes, largestBlock)", "ZIP PSRAM 2MiB safety reserve");
+assert.ok(!beginImageCode.includes("esp_ota_begin(localRelease_.writePartition, totalSize, &localRelease_.otaHandle)"),
+          "local ZIP no longer triggers a full synchronous erase");
+
 has(updater, "localRelease_.rebootPending = true;", "schedule single reboot");
 has(release, "esp_ota_mark_app_invalid_rollback_and_reboot()", "post-boot rollback");
 has(bootstrap, "ReleaseStorage::confirmPendingApplication()", "confirm only after module startup");
@@ -84,4 +101,62 @@ has(spiffsBuild, 'staging_dir / "ota-paired-v1.marker"', "paired release marker"
 for (const name of ["app0", "app1", "spiffs0", "spiffs1"]) {
   assert.ok(partitions.split("\n").some(line => line.startsWith(name + ",")), "partition " + name);
 }
+
+// Local ZIP browser callbacks run in AsyncTCP, but every Flash/FS operation
+// must run on the existing fwupdate task with a larger internal stack.
+const header = read("src/Modules/Network/FirmwareUpdateModule/FirmwareUpdateModule.h");
+const localCalls = ["beginLocalRelease_", "beginLocalImage_", "writeLocalImage_",
+                    "endLocalImage_", "commitLocalRelease_", "abortLocalRelease_"];
+for (const name of localCalls) {
+    const start = updater.indexOf("bool FirmwareUpdateModule::" + name + "(");
+    assert.ok(start > 0, "missing " + name);
+    const opening = updater.indexOf("{", start);
+    const beginning = updater.slice(opening, opening + 820);
+    has(beginning, "xTaskGetCurrentTaskHandle() != localCallOwner_", name + " routes other tasks");
+    has(beginning, "dispatchLocalCall_(", name + " dispatch");
+    assert.ok(beginning.indexOf("dispatchLocalCall_(") <
+              beginning.indexOf("SemaphoreGuard transactionGuard(localReleaseMutex_)"),
+              name + " must dispatch before the flash transaction lock");
+}
+has(header, "LocalCallKind", "worker API");
+has(header, "localCallPending_", "one-at-a-time local RPC");
+has(header, "localCallInFlight_", "remote admission gate");
+has(updater, "xSemaphoreCreateBinaryStatic(&localCallDoneStorage_)", "static completion semaphore");
+has(updater, "handleQueuedLocalCall_()", "firmware worker processing");
+has(updater, "xSemaphoreGive(localCallDone_)", "worker completion");
+has(updater, "const bool foreignLocalRpc = localCallInFlight_", "pending ZIP excludes other update requests");
+has(updater, "if (localCallPending_) {", "timeout cancellation before worker takes request");
+has(updater, "xSemaphoreTake(localCallDone_, portMAX_DELAY)", "never free request buffer while worker uses it");
+const loopIndex = updater.indexOf("void FirmwareUpdateModule::loop()");
+const loopHead = updater.slice(loopIndex, loopIndex + 1200);
+has(loopHead, "handleQueuedLocalCall_()", "fwupdate task handles local ZIP");
+assert.ok(loopHead.indexOf("handleQueuedLocalCall_()") <
+          loopHead.indexOf("if (!manifestMetadata_)"), "worker callbacks before updater idle returns");
+
+// Post-abort observability: a failed ZIP must be distinguishable from an OTA
+// admission rejection and from a TCP transport error after cleanup.
+const jsPos = js.indexOf("function uploadReleaseBlob(");
+const jsEnd = js.indexOf("async function installLocalRelease(", jsPos);
+const uploadClient = js.slice(jsPos, jsEnd);
+const serverZipPos = server.indexOf("const auto registerLocalImageRoute");
+const serverZip = server.slice(serverZipPos,
+  server.indexOf('registerLocalImageRoute("/api/upgrade/filesystem"', serverZipPos));
+has(updater, "[OTA-ADMIT] tgt=%u", "new remote OTA admission diagnostics");
+has(updater, "[OTA-ZIP] abort cleanup op=", "local abort cleanup diagnostics");
+has(updater, "[OTA-ZIP] progress target=", "bounded image upload progress");
+has(serverZip, "[OTA-ZIP-HTTP] image_failed", "HTTP response failure");
+has(serverZip, "[OTA-ZIP-HTTP] begin refused", "image begin failure");
+has(serverZip, "[OTA-ZIP-HTTP] chunk refused", "image chunk error");
+has(serverZip, "[OTA-ZIP-HTTP] verification_failed", "image verification error");
+has(uploadClient, "[OTA-ZIP-HTTP] refus du serveur", "browser HTTP error details");
+has(uploadClient, "request.onabort", "browser abort marker");
+const startUpdatePos = updater.indexOf("bool FirmwareUpdateModule::startUpdate_(");
+const startUpdateEnd = updater.indexOf("bool FirmwareUpdateModule::", startUpdatePos + 30);
+const startUpdate = updater.slice(startUpdatePos, startUpdateEnd);
+const snapshot = startUpdate.indexOf("const unsigned state = (unsigned)status_.state;");
+const unlock = startUpdate.indexOf("portEXIT_CRITICAL(&lock_);", snapshot);
+const warn = startUpdate.indexOf("LOGW(\"[OTA-ADMIT]", unlock);
+assert.ok(snapshot >= 0 && unlock > snapshot && warn > unlock,
+          "log after releasing OTA admission spinlock");
+
 console.log("PASS: ZIP upload uses inactive paired app/SPIFFS A/B slots; no premature Done before commit");

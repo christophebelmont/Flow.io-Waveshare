@@ -37,6 +37,7 @@
 #include "Modules/PoolDeviceModule/PoolDeviceRuntime.h"
 #include "Modules/TFTModuleS3/FlowIoLogoBitmap.h"
 #include "Modules/TFTModuleS3/FlowIoWordmarkBitmaps.h"
+#include "Modules/TFTModuleS3/TftUpdateStages.h"
 #include <WiFi.h>
 
 #define LOG_MODULE_ID ((LogModuleId)LogModuleIdValue::HMIModule)
@@ -54,6 +55,8 @@ constexpr uint32_t kFlowMeterTftRefreshMs = 5000U; // Display only; acquisition 
 constexpr uint32_t kBacklightTimeoutMs = 60000U;
 constexpr uint32_t kStartupSplashHoldMs = 5000U;
 constexpr uint32_t kWakeSplashHoldMs = 1000U;
+constexpr uint32_t kUpdateRenderMinMs = 250U;  // Keep OTA/network load low.
+constexpr uint32_t kUpdateResultHoldMs = 20000U; // Show errors for 20 s.
 constexpr uint32_t kPageRotateMs = 10000U;
 
 constexpr uint16_t rgb565_(uint8_t r, uint8_t g, uint8_t b)
@@ -542,6 +545,7 @@ void TFTModuleS3::init(ConfigStore& cfg, ServiceRegistry& services)
     if (!allocateUiStorage_()) return;
 
     cfgStore_ = &cfg;
+    serviceRegistry_ = &services;
     constexpr uint8_t module = (uint8_t)ConfigModuleId::TftS3;
     cfg.registerVar(enabledVar_, module, kCfgBranch);
     cfg.registerVar(autoOffVar_, module, kCfgBranch);
@@ -579,6 +583,8 @@ void TFTModuleS3::init(ConfigStore& cfg, ServiceRegistry& services)
 void TFTModuleS3::onConfigLoaded(ConfigStore&, ServiceRegistry& services)
 {
     poolConfigurationSvc_ = services.get<PoolConfigurationService>(ServiceId::PoolConfiguration);
+    firmwareUpdateSvc_ = services.get<FirmwareUpdateService>(ServiceId::FirmwareUpdate);
+    localeSvc_ = services.get<LocaleService>(ServiceId::Locale);
     if (!uiStorage_) return;
 
     if (!ioSvc_) ioSvc_ = services.get<IOServiceV2>(ServiceId::Io);
@@ -613,8 +619,98 @@ void TFTModuleS3::loop()
     }
 
     applyOrientation_();
-    updateBacklight_();
     const uint32_t now = millis();
+    FirmwareUpdateDisplaySnapshot update{};
+    bool updateVisible = readUpdateSnapshot_(update);
+    if (updateVisible) {
+        // Persistent terminal states must not re-enter the update screen
+        // every 20 seconds after the user returns to the dashboard.
+        if (update.operationId == updateDismissedOperation_) {
+            updateVisible = false;
+        } else {
+            const bool terminal = update.state == FirmwareUpdateDisplayState::Error ||
+                                  update.state == FirmwareUpdateDisplayState::Done;
+            if (terminal) {
+                if (updateTerminalAtMs_ == 0U ||
+                    update.operationId != updateLastOperation_) updateTerminalAtMs_ = now;
+                if (uint32_t(now - updateTerminalAtMs_) >= kUpdateResultHoldMs) {
+                    updateDismissedOperation_ = update.operationId;
+                    updateVisible = false;
+                }
+            } else {
+                updateTerminalAtMs_ = 0U;
+            }
+        }
+    }
+    if (updateVisible) {
+        // Override the PIR timeout during a critical update: always show the
+        // state even when the TFT was previously in power-saving mode.
+        applyBacklight_(true);
+        const bool newOperation = !updateScreenActive_ ||
+                                  update.operationId != updateLastOperation_ ||
+                                  update.target != updateLastTarget_;
+        if (newOperation) {
+            updateLastWasZip_ = false;
+            updateCompletedStage_[0] = '\0';
+            updateLastStage_[0] = '\0';
+            updateLastPercent_ = 255U;
+        }
+        if (strncmp(update.stage, "zip_", 4U) == 0) {
+            updateLastWasZip_ = true;
+        }
+        const bool english = localeSvc_ && localeSvc_->language &&
+            tft_update::isEnglish(localeSvc_->language(localeSvc_->ctx));
+        const bool changedStage = strcmp(updateLastStage_, update.stage) != 0;
+        if (!newOperation && changedStage && updateLastStage_[0] &&
+            updateLastState_ != FirmwareUpdateDisplayState::Error &&
+            update.state != FirmwareUpdateDisplayState::Error) {
+            // Only mark a step complete if it was ACTUALLY observed.
+            // Some OTA paths skip PSRAM verification or use direct streaming.
+            snprintf(updateCompletedStage_, sizeof(updateCompletedStage_), "%s",
+                     updateLastStage_);
+        }
+        const bool stateChanged = update.state != updateLastState_;
+        const bool targetChanged = update.target != updateLastTarget_;
+        const bool languageChanged = english != updateLastEnglish_;
+        uint8_t phasePercent = update.stage[0] ? update.stageProgress : update.progress;
+        if (update.state == FirmwareUpdateDisplayState::Done ||
+            update.state == FirmwareUpdateDisplayState::Rebooting) {
+            phasePercent = 100U;
+        } else if (update.state == FirmwareUpdateDisplayState::Error &&
+                   !newOperation && updateLastPercent_ <= 100U) {
+            phasePercent = updateLastPercent_;
+        }
+        if (phasePercent > 100U) phasePercent = 100U;
+        const tft_update::RenderDirty dirty = tft_update::renderDirty(
+            newOperation, changedStage, stateChanged, targetChanged,
+            languageChanged, phasePercent, updateLastPercent_);
+        const bool changed = dirty.title || dirty.progress || dirty.details;
+        const bool urgent = newOperation || changedStage || stateChanged ||
+                            targetChanged || languageChanged;
+        if (changed && (urgent || uint32_t(now - updateLastRenderMs_) >= kUpdateRenderMinMs)) {
+            renderUpdate_(update, english, phasePercent, dirty);
+            updateLastRenderMs_ = now;
+            updateLastPercent_ = phasePercent;
+            updateLastState_ = update.state;
+            updateLastTarget_ = update.target;
+            updateLastOperation_ = update.operationId;
+            updateLastEnglish_ = english;
+            snprintf(updateLastStage_, sizeof(updateLastStage_), "%s", update.stage);
+        }
+        updateScreenActive_ = true;
+        delayNextCycle(pdMS_TO_TICKS(80));
+        return;
+    }
+    if (updateScreenActive_) {
+        updateScreenActive_ = false;
+        updateTerminalAtMs_ = 0U;
+        splashHeld_ = true;
+        pageCycleStartMs_ = now;
+        lastRenderedPageCycle_ = 0xFFFFFFFFU;
+        invalidateRenderCache_();
+        redrawRequested_ = true;
+    }
+    updateBacklight_();
     if (!splashHeld_) {
         if ((int32_t)(now - splashHoldUntilMs_) < 0) {
             delayNextCycle(pdMS_TO_TICKS(30));
@@ -980,6 +1076,258 @@ void TFTModuleS3::startSplash_(uint32_t holdMs)
     lastRenderedPageCycle_ = 0xFFFFFFFFU;
     drawBootLogo_();
     splashHoldUntilMs_ = millis() + holdMs;
+}
+
+bool TFTModuleS3::readUpdateSnapshot_(FirmwareUpdateDisplaySnapshot& out)
+{
+    // Resolve lazily because TFT and firmware modules have independent startup
+    // tasks. Never parse status JSON or lock an OTA worker from TFT code.
+    if (!firmwareUpdateSvc_ && serviceRegistry_) {
+        firmwareUpdateSvc_ = serviceRegistry_->get<FirmwareUpdateService>(ServiceId::FirmwareUpdate);
+    }
+    if (!localeSvc_ && serviceRegistry_) {
+        localeSvc_ = serviceRegistry_->get<LocaleService>(ServiceId::Locale);
+    }
+    if (!firmwareUpdateSvc_ || !firmwareUpdateSvc_->displaySnapshot ||
+        !firmwareUpdateSvc_->displaySnapshot(firmwareUpdateSvc_->ctx, &out) ||
+        out.operationId == 0U) return false;
+    switch (out.state) {
+        case FirmwareUpdateDisplayState::Queued:
+        case FirmwareUpdateDisplayState::Downloading:
+        case FirmwareUpdateDisplayState::Flashing:
+        case FirmwareUpdateDisplayState::Rebooting:
+        case FirmwareUpdateDisplayState::Done:
+        case FirmwareUpdateDisplayState::Error:
+            return true;
+        default: return false;
+    }
+}
+
+
+void TFTModuleS3::drawUpdateBrandBitmap_(const uint16_t* bitmap,
+                                         int16_t sourceW, int16_t sourceH,
+                                         int16_t x, int16_t y, int16_t w, int16_t h,
+                                         bool wordmark)
+{
+    // Original RGB565 assets are white-matted. Downsample and unmatte them
+    // directly on the black TFT background; no allocation or extra assets.
+    // The logo and wordmark are drawn once per update operation.
+    display_.startWrite();
+    for (int16_t row = 0; row < h; ++row) {
+        const int32_t srcRow = int32_t(row) * sourceH / h;
+        for (int16_t col = 0; col < w; ++col) {
+            const int32_t srcCol = int32_t(col) * sourceW / w;
+            const uint16_t pixel = pgm_read_word(bitmap + srcRow * sourceW + srcCol);
+            if (pixel == 0xFFFFU) continue;
+            const uint8_t r = uint8_t(((pixel >> 11) & 0x1FU) * 255U / 31U);
+            const uint8_t g = uint8_t(((pixel >> 5) & 0x3FU) * 255U / 63U);
+            const uint8_t b = uint8_t((pixel & 0x1FU) * 255U / 31U);
+            uint16_t ink;
+            if (wordmark) {
+                const uint8_t luminance = uint8_t(
+                    (uint32_t(r) * 54U + uint32_t(g) * 183U + uint32_t(b) * 19U) / 256U);
+                const uint8_t brightness = uint8_t(255U - luminance);
+                ink = rgb565_(brightness, brightness, brightness);
+            } else {
+                // Approximate inverse of the white anti-aliasing matte for
+                // the blue pictogram: no residual bright rectangle.
+                ink = rgb565_(0U, g > r ? uint8_t(g - r) : 0U,
+                              b > r ? uint8_t(b - r) : 0U);
+            }
+            if (ink) display_.writePixel(x + col, y + row, color_(ink));
+        }
+    }
+    display_.endWrite();
+}
+
+void TFTModuleS3::renderUpdate_(const FirmwareUpdateDisplaySnapshot& u,
+                                bool english, uint8_t pct,
+                                const tft_update::RenderDirty& dirty)
+{
+    const int16_t w = display_.width();
+    const int16_t h = display_.height();
+    const uint16_t dark = rgb565_(0, 0, 0);
+    const uint16_t faded = rgb565_(143, 164, 183);
+    const uint16_t cyan = rgb565_(0, 201, 233);
+    const uint16_t green = rgb565_(51, 221, 124);
+    const uint16_t red = rgb565_(255, 106, 113);
+    const uint16_t white = rgb565_(241, 248, 255);
+    const uint16_t track = rgb565_(26, 43, 61);
+    const bool nextion = u.target == FirmwareUpdateTarget::Nextion;
+    const bool zipUpdate = !nextion && updateLastWasZip_;
+    const bool error = u.state == FirmwareUpdateDisplayState::Error;
+    const bool done = u.state == FirmwareUpdateDisplayState::Done;
+    const bool queued = u.state == FirmwareUpdateDisplayState::Queued;
+    const bool rebooting = u.state == FirmwareUpdateDisplayState::Rebooting;
+    const tft_update::Text stage = tft_update::steps(nextion, u.stage, english,
+                                                    queued, rebooting, zipUpdate);
+    constexpr int16_t bx = 12, by = 103, bh = 17;
+    const int16_t bw = w - 24;
+
+    if (dirty.full) {
+        // Compact black brand (drawn once, never touched by progress ticks).
+        display_.fillScreen(color_(dark));
+        drawUpdateBrandBitmap_(kFlowIoLogoBitmap,
+                               kFlowIoLogoWidth, kFlowIoLogoHeight,
+                               (w - 96) / 2, 3, 96, 46, false);
+        drawUpdateBrandBitmap_(kFlowIoWordmarkSplashBitmap,
+                               kFlowIoWordmarkSplashWidth, kFlowIoWordmarkSplashHeight,
+                               (w - 69) / 2, 48, 69, 19, true);
+
+        // Stationary bevel + drop shadow: no animated glare or full redraw.
+        display_.fillRoundRect(bx + 1, by + 3, bw, bh, 7,
+                               color_(rgb565_(5, 12, 22)));
+        display_.fillRoundRect(bx, by, bw, bh, 7,
+                               color_(rgb565_(42, 66, 88)));
+        display_.drawRoundRect(bx, by, bw, bh, 7,
+                               color_(rgb565_(73, 105, 124)));
+        display_.drawFastHLine(bx + 9, by + 1, bw - 18,
+                               color_(rgb565_(89, 121, 145)));
+        display_.drawFastHLine(bx + 9, by + bh - 2, bw - 18,
+                               color_(rgb565_(13, 25, 42)));
+    }
+
+    if (dirty.title) {
+        display_.fillRect(8, 69, w - 16, 29, color_(dark));
+        const char* title = error ?
+            (english ? "UPDATE FAILED" : "ECHEC DE LA MAJ") :
+            done ? (english ? "UPDATE COMPLETE" : "MISE A JOUR OK") :
+            nextion ? (english ? "NEXTION UPDATE" : "MISE A JOUR NEXTION") :
+            zipUpdate ? "ZIP FIRMWARE + SPIFFS" :
+                        (english ? "FIRMWARE + SPIFFS" : "MISE A JOUR OTA");
+        setGfxFont_(&FreeSansBold9pt7b, error ? red : cyan, dark);
+        const int16_t titleW = gfxTextWidth_(title);
+        display_.setCursor((w - titleW) / 2, 91);
+        display_.print(title);
+        // Bolder 8pt warning next to the logo, within x=2..109.
+        // The compact icon starts at x=112 and remains untouched.
+        display_.fillRect(2, 3, 108, 38, color_(dark));
+        const uint16_t warning = rgb565_(255, 206, 87);
+        display_.drawCircle(9, 20, 5, color_(warning));
+        display_.drawFastVLine(9, 17, 4, color_(warning));
+        display_.drawPixel(9, 23, color_(warning));
+        setGfxFont_(&FreeSansBold8pt7b, warning, dark);
+        display_.setCursor(19, 18);
+        display_.print(english ? "DO NOT" : "NE PAS");
+        display_.setCursor(19, 35);
+        display_.print(english ? "TURN OFF" : "ETEINDRE");
+    }
+
+    if (dirty.progress) {
+        // Simple 3D gradient, refreshed only inside the original progress track.
+        // No scrolling shine: preserves the anti-flicker partial redraw design.
+        const int16_t x = bx + 3, y = by + 4;
+        const int16_t interior = bw - 6;
+        constexpr int16_t barH = 9;
+        display_.fillRect(x, y, interior, barH, color_(track));
+        display_.drawFastHLine(x, y, interior, color_(rgb565_(44, 67, 88)));
+
+        // Keep a 4px breathing room at the rounded left end of the track.
+        // Reduce the fill width by the same amount so 100% still ends at
+        // the original right edge (and the outer bevel stays untouched).
+        constexpr int16_t fillLeftInset = 4;
+        const int16_t fillX = x + fillLeftInset;
+        const int16_t fillMaxWidth = interior - fillLeftInset;
+        const int16_t filled = int16_t(int32_t(fillMaxWidth) * pct / 100);
+        if (filled > 0) {
+            const uint16_t glow = error ? rgb565_(255, 176, 174) :
+                                  done ? rgb565_(138, 255, 186) :
+                                         rgb565_(116, 244, 255);
+            const uint16_t upper = error ? rgb565_(255, 116, 123) :
+                                   done ? rgb565_(54, 220, 132) :
+                                          rgb565_(30, 215, 247);
+            const uint16_t middle = error ? rgb565_(222, 62, 78) :
+                                    done ? rgb565_(36, 163, 94) :
+                                           rgb565_(0, 152, 211);
+            const uint16_t lower = error ? rgb565_(107, 27, 51) :
+                                   done ? rgb565_(11, 85, 56) :
+                                          rgb565_(3, 64, 124);
+            display_.fillRect(fillX, y, filled, 2, color_(glow));
+            display_.fillRect(fillX, y + 2, filled, 3, color_(upper));
+            display_.fillRect(fillX, y + 5, filled, 2, color_(middle));
+            display_.fillRect(fillX, y + 7, filled, 2, color_(lower));
+            display_.drawFastVLine(fillX + filled - 1, y + 1, barH - 2, color_(glow));
+        }
+
+        // Display the raw percentage only, without the confusing STEP/ETAPE.
+        display_.fillRect(w - 76, 124, 64, 17, color_(dark));
+        char pctText[8];
+        snprintf(pctText, sizeof(pctText), "%u%%", unsigned(pct));
+        display_.setFont(nullptr);
+        display_.setTextSize(2);
+        display_.setTextColor(color_(white), color_(dark));
+        display_.setCursor(w - 12 - int16_t(strlen(pctText) * 12), 124);
+        display_.print(pctText);
+        display_.setTextSize(1);
+    }
+
+    if (dirty.details) {
+        // Chronological view: finished step at TOP, active step in the
+        // CENTER and next step at BOTTOM. No disconnected "OK" in between.
+        // Three bounded rows are cleared only when step/state/locale changes.
+        display_.fillRect(8, 143, w - 16, h - 146, color_(dark));
+
+        // Keep long translated labels within 320 px without clipping midword.
+        const auto drawBounded = [&](const char* label, int16_t x, int16_t baseline,
+                                     const GFXfont* mainFont, const GFXfont* smallFont,
+                                     uint16_t ink) {
+            char bounded[80];
+            snprintf(bounded, sizeof(bounded), "%s", label ? label : "");
+            setGfxFont_(mainFont, ink, dark);
+            const int16_t maxWidth = w - x - 12;
+            if (smallFont && gfxTextWidth_(bounded) > maxWidth) {
+                setGfxFont_(smallFont, ink, dark);
+            }
+            if (gfxTextWidth_(bounded) > maxWidth) {
+                // Keep the line readable: shorten at a character boundary and
+                // show an ellipsis instead of letting the TFT crop the text.
+                for (size_t len = strlen(bounded); len > 4U; --len) {
+                    bounded[len - 1U] = '\0';
+                    char shortened[80];
+                    snprintf(shortened, sizeof(shortened), "%s...", bounded);
+                    if (gfxTextWidth_(shortened) <= maxWidth) {
+                        snprintf(bounded, sizeof(bounded), "%s", shortened);
+                        break;
+                    }
+                }
+            }
+            display_.setCursor(x, baseline);
+            display_.print(bounded);
+        };
+
+        // Previous completed stage; the green tick means VERIFIED transition.
+        if (updateCompletedStage_[0] && !error) {
+            const tft_update::Text completed = tft_update::steps(
+                nextion, updateCompletedStage_, english, false, false, zipUpdate);
+            display_.drawLine(12, 154, 16, 159, color_(green));
+            display_.drawLine(16, 159, 25, 149, color_(green));
+            drawBounded(completed.current, 32, 162,
+                        &FreeSans9pt7b, nullptr, green);
+        }
+
+        // A dark tinted focus strip makes the actual operation unambiguous.
+        const uint16_t activeColor = error ? red : cyan;
+        display_.fillRoundRect(8, 169, w - 16, 34, 5,
+            color_(error ? rgb565_(45, 15, 24) : rgb565_(5, 30, 43)));
+        display_.fillRect(11, 176, 3, 20, color_(activeColor));
+        drawBounded(done ? (english ? "Update completed" : "Mise a jour terminee") :
+                    rebooting ? (english ? "Restarting..." : "Redemarrage...") :
+                    stage.current,
+                    23, 192, &FreeSansBold9pt7b, &FreeSansBold8pt7b, activeColor);
+
+        const char* detail = error ? tft_update::failureReason(u.message, english) :
+                             done ? (english ? "Ready for restart" : "Pret pour redemarrage") :
+                             stage.next ? stage.next :
+                             (english ? "Finalizing..." : "Finalisation...");
+        if (error) {
+            display_.drawFastVLine(16, 218, 6, color_(red));
+            display_.drawPixel(16, 227, color_(red));
+        } else {
+            display_.drawCircle(16, 222, 3, color_(faded));
+        }
+        drawBounded(detail, 30, 229, &FreeSans9pt7b, nullptr,
+                    error ? red : faded);
+    }
 }
 
 void TFTModuleS3::drawBootLogo_()
