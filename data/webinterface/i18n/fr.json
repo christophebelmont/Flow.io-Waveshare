@@ -307,6 +307,7 @@
     "updates.nextion.selectModelRequired": "Sélectionnez le modèle Nextion avant de continuer.",
     "updates.nextion.confirmRecovery": "Écran non détecté. Confirmer la mise à jour du modèle {model} vers la version {version} ? Vérifiez soigneusement le modèle sélectionné.",
     "updates.updateButton": "Mettre à jour",
+    "updates.updateFlowioButton": "Mettre à jour Flow.io",
     "updates.checkRequired": "Vérifiez les mises à jour avant de lancer cette action.",
     "updates.empty": "Cliquez sur « Vérifier les mises à jour ».",
     "updates.checking": "Vérification du manifest...",
