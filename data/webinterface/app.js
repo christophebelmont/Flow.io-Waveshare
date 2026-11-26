@@ -4888,7 +4888,7 @@
       icon.textContent = 'system_update_alt';
       const label = document.createElement('span');
       label.textContent = row && row.key === 'flowio'
-        ? 'Mettre à jour Flow.io (Firmware + SPIFFS)'
+        ? tr('updates.updateFlowioButton', 'Mettre à jour Flow.io')
         : tr('updates.updateButton', 'Mettre à jour');
       button.appendChild(icon);
       button.appendChild(label);
