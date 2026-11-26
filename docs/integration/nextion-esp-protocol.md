@@ -98,7 +98,7 @@ Bits actuellement utilisés :
 - bit `0` : filtration ON
 - bit `1` : pompe pH ON
 - bit `2` : pompe ORP ON
-- bit `3` : filtration automatique autorisée (Auto ou Hivers)
+- bit `3` : filtration automatique autorisée (Auto ou Hiver)
 - bit `4` : régulation pH autorisée (Auto et correction active)
 - bit `5` : régulation ORP autorisée (Auto et Chlore/Brome)
 - bit `6` : mode hiver
@@ -479,8 +479,8 @@ Les toggles utilisent `HOME_ACTION` (`0x60`) avec `value=01` (valeur ignorée
 pour les toggles, conservée pour homogénéité de trame).
 
 - Filtration toggle : `printh 23 03 60 09 01`
-- Cycle Manu → Auto → Hivers : `printh 23 03 60 0A 01`
-- Sélection Hivers : `printh 23 03 60 0D 01`
+- Cycle Manu → Auto → Hiver : `printh 23 03 60 0A 01`
+- Sélection Hiver : `printh 23 03 60 0D 01`
 - Eclairage toggle : `printh 23 03 60 0E 01`
 - Robot toggle : `printh 23 03 60 0F 01`
 - Pompe pH toggle : `printh 23 03 60 07 01`
@@ -510,7 +510,7 @@ Les actions Home sont routées via `CommandService` :
 
 - `OPERATING_MODE_SET`
   - commande : `poollogic.operating_mode.set`
-  - payload : `{"value":0}` Manu, `{"value":1}` Auto, `{"value":2}` Hivers
+  - payload : `{"value":0}` Manu, `{"value":1}` Auto, `{"value":2}` Hiver
 
 - `SYNC_REQUEST`
   - ne passe pas par `CommandService`
@@ -522,13 +522,13 @@ Les actions Home sont routées via `CommandService` :
     `printh 23 02 50 0A`
 - `PH_PUMP_SET`, `ORP_PUMP_SET`, `PH_PUMP_TOGGLE`, `ORP_PUMP_TOGGLE`, `FILTRATION_TOGGLE`
   - commandes directes autorisées en Manu ; aucune modification des types de produit
-  - en Auto/Hivers, utiliser les forçages temporaires via une interface compatible
+  - en Auto/Hiver, utiliser les forçages temporaires via une interface compatible
 - `OPERATING_MODE_CYCLE`
-  - fait défiler Manu → Auto → Hivers → Manu
+  - fait défiler Manu → Auto → Hiver → Manu
 - anciennes actions `ORP_AUTO_MODE_TOGGLE` et `PH_AUTO_MODE_TOGGLE`
   - retirées, aucune mutation de configuration
 - `WINTER_MODE_SELECT`
-  - sélectionne Hivers
+  - sélectionne Hiver
 - `LIGHTS_TOGGLE`
   - inverse l'état runtime du device éclairage (`pooldevice.write`)
 - `ROBOT_TOGGLE`

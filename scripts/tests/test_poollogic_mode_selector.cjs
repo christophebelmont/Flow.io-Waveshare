@@ -12,7 +12,7 @@ const manifest = JSON.parse(fs.readFileSync(path.join(root, 'src/Modules/PoolLog
 assert.equal(manifest.values.length, 1);
 const entry = { ...manifest.values[0], id: 2401 };
 assert.equal(entry.key, 'pool.operating_mode');
-assert.deepEqual(entry.enum, { 0: 'Manu', 1: 'Auto', 2: 'Hivers' });
+assert.deepEqual(entry.enum, { 0: 'Manu', 1: 'Auto', 2: 'Hiver' });
 const buttons = ['auto', 'manual', 'winter'].map(mode => ({
   dataset: { mode }, attributes: {}, selected: false,
   classList: { toggle(_name, selected) { buttons.find(button => button.dataset.mode === mode).selected = selected; } },

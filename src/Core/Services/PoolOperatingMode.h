@@ -17,7 +17,7 @@ constexpr const char* poolOperatingModeName(PoolOperatingMode mode) {
     switch (mode) {
         case PoolOperatingMode::Manual: return "Manu";
         case PoolOperatingMode::Automatic: return "Auto";
-        case PoolOperatingMode::Winter: return "Hivers";
+        case PoolOperatingMode::Winter: return "Hiver";
     }
     return "Manu";
 }

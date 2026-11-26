@@ -6,9 +6,9 @@ L'architecture, les paramètres de pilotes, les nouvelles clés NVS et les exemp
 
 Le service `PoolDeviceService` expose `meta`, `setRunning`, `setTarget`, `readState`, `readActualOn`, `setWritesEnabled`, `writesEnabled` et `refillTank`. Les commandes passent toutes par les dépendances, l'activation et les limites journalières. Un acquittement de commande ne constitue pas une mesure physique.
 
-Les [modes Auto / Manu / Hivers](../integration/poollogic-operating-modes.md)
+Les [modes Auto / Manu / Hiver](../integration/poollogic-operating-modes.md)
 sont définis par PoolLogic. Les commandes directes des appareils affectés à un
-rôle PoolLogic nécessitent Manu ; en Auto/Hivers, utiliser un forçage temporaire
+rôle PoolLogic nécessitent Manu ; en Auto/Hiver, utiliser un forçage temporaire
 compatible. Cette autorisation est vérifiée dans `setTarget_` pour toutes les
 sources de commande. Les consignes restent éditables et les types de traitement
 ne sont jamais modifiés par une commande directe.

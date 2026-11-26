@@ -2,7 +2,7 @@
   <img src="docs/pictures/Logo_flowio.png" alt="Logo flow.io" width="600">
 </p>
 
-Voir [Fonctionnement des modes Auto / Manu / Hivers](docs/integration/poollogic-operating-modes.md).
+Voir [Fonctionnement des modes Auto / Manu / Hiver](docs/integration/poollogic-operating-modes.md).
 
 Pour suivre les dernières informations et en discuter au fil de l'eau, rejoignez le [fil de discussion sur le forum Arduino](https://forum.arduino.cc/t/poolmaster-gestion-et-domotisation-de-ma-piscine/563058/2260). Les échanges se font principalement en français, mais l'anglais est également bienvenu — mostly French, but English is welcome.
 

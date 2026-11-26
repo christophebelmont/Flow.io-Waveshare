@@ -22,7 +22,7 @@ views:
           - type: custom:mushroom-legacy-template-card
             entity: binary_sensor.fio_alm_any_active
             primary: |-
-              {% if not has_value(entity) %}Piscine indisponible{% elif is_state(entity, 'on') %}Intervention requise{% elif is_state('select.fio_pl_operating_mode', 'Hivers') %}Mode hivernage{% else %}Piscine · aucune alarme{% endif %}
+              {% if not has_value(entity) %}Piscine indisponible{% elif is_state(entity, 'on') %}Intervention requise{% elif is_state('select.fio_pl_operating_mode', 'Hiver') %}Mode hivernage{% else %}Piscine · aucune alarme{% endif %}
             secondary: |-
               {% if has_value('select.fio_pl_operating_mode') %}{{ states('select.fio_pl_operating_mode') }}{% else %}Mode indisponible{% endif %} · {% if is_number(states('sensor.fio_pl_flt_start')) and is_number(states('sensor.fio_pl_flt_stop')) %}filtration {{ states('sensor.fio_pl_flt_start') }}h–{{ states('sensor.fio_pl_flt_stop') }}h{% else %}horaires indisponibles{% endif %} · {{ states('select.fio_pl_modes_dis') }}
             icon: mdi:pool

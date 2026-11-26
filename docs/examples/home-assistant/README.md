@@ -1,6 +1,6 @@
 # Forçage temporaire commun avec MQTT Discovery
 
-Voir [Modes Auto / Manu / Hivers et migration Home Assistant](../../integration/poollogic-operating-modes.md).
+Voir [Modes Auto / Manu / Hiver et migration Home Assistant](../../integration/poollogic-operating-modes.md).
 
 Utiliser désormais **actuateurs-forcage-card.yaml**. La carte est repliable, utilise
 la couleur normale du thème et devient rouge clair lorsqu'au moins un équipement

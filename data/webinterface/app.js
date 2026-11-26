@@ -2664,7 +2664,7 @@
     let poolAiPreviewPollTimer = null;
     let poolAiReady = false;
     const poolConfigModuleDefs = Object.freeze([
-      Object.freeze({ module: 'poollogic/modes', titleKey: 'pool.card.modes.title', title: 'Pilotage général', icon: 'tune', noteKey: 'pool.card.modes.note', note: 'Choisir Auto, Manu ou Hivers et le type de désinfection.' }),
+      Object.freeze({ module: 'poollogic/modes', titleKey: 'pool.card.modes.title', title: 'Pilotage général', icon: 'tune', noteKey: 'pool.card.modes.note', note: 'Choisir Auto, Manu ou Hiver et le type de désinfection.' }),
       Object.freeze({ module: 'poollogic/filtration', titleKey: 'pool.card.filtration.title', title: 'Filtration', icon: 'waves', noteKey: 'pool.card.filtration.note', note: 'La plage de filtration combine contraintes horaires et température d’eau pour protéger le bassin.' }),
       Object.freeze({ module: 'poollogic/ph', titleKey: 'pool.card.ph.title', title: 'Correction pH', icon: 'science', noteKey: 'pool.card.ph.note', note: 'Choisir Désactivée, pH− ou pH+. La régulation fonctionne uniquement en Auto.' }),
       Object.freeze({ module: 'poollogic/heater', titleKey: 'pool.card.heater.title', title: 'Chauffage', icon: 'thermostat', noteKey: 'pool.card.heater.note', note: 'Le chauffage suit sa consigne seulement quand le mode automatique le permet.' }),
@@ -10330,7 +10330,7 @@
         return tr('pool.summary.manual', 'Manu : commandes manuelles, sans filtration ni régulation automatiques. Les protections restent actives.');
       }
       if (mode === poolOperatingModes.winter) {
-        return tr('pool.summary.autoWinter', 'Hivers : filtration {start}-{stop} et antigel. Dosages, chauffage, robot et remplissage automatiques suspendus.')
+        return tr('pool.summary.autoWinter', 'Hiver : filtration {start}-{stop} et antigel. Dosages, chauffage, robot et remplissage automatiques suspendus.')
           .replace('{start}', start).replace('{stop}', stop);
       }
       return tr('pool.summary.auto', 'Mode automatique : filtration {start}-{stop}, traitement {treatment}, chauffage {heater}.')

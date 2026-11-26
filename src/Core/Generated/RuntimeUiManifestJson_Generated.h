@@ -772,7 +772,7 @@ inline constexpr const char kRuntimeUiManifestJson[] = R"RUI(
       "enum": {
         "0": "Manu",
         "1": "Auto",
-        "2": "Hivers"
+        "2": "Hiver"
       },
       "flags": null,
       "display": "badge",

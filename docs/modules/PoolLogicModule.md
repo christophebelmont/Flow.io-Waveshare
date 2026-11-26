@@ -1,6 +1,6 @@
 # PoolLogicModule (`moduleId: poollogic`)
 
-Le [guide Auto / Manu / Hivers](../integration/poollogic-operating-modes.md) présente
+Le [guide Auto / Manu / Hiver](../integration/poollogic-operating-modes.md) présente
 les modes, la correction pH, les commandes et la migration.
 
 ## Rôle
@@ -23,7 +23,7 @@ Le popup « Gérer les équipements » commande les slots via
 `poollogic.device.write` (`slot`, `value`). Cette commande route vers les
 commandes métier existantes selon les rôles configurés dans `poollogic/devices`,
 indépendamment de leur visibilité sur le tableau de bord. Les commandes directes
-des rôles PoolLogic nécessitent Manu ; Auto et Hivers utilisent les forçages
+des rôles PoolLogic nécessitent Manu ; Auto et Hiver utilisent les forçages
 temporaires des équipements compatibles.
 Les équipements sans rôle PoolLogic utilisent la commande `pooldevice.write`.
 Les switches d'équipement Home Assistant Waveshare utilisent le même point
@@ -144,13 +144,13 @@ La pompe démarre 5 minutes avant l'échéance. Ainsi, un intervalle calculé de
 
 2. Eau proche de la consigne (pompe arrêtée): sondage 5 min, mesure au-dessus du seuil bas, pas de chauffe, retour en attente jusqu'au prochain sondage.
 
-3. Passage en manuel: en Manu ou Hivers, `heat_assist` n'orchestre plus la chauffe automatique et la raison affichée passe à `MANUAL_MODE` ou `WINTER_MODE`.
+3. Passage en manuel: en Manu ou Hiver, `heat_assist` n'orchestre plus la chauffe automatique et la raison affichée passe à `MANUAL_MODE` ou `WINTER_MODE`.
 
 ### Lecture des motifs (`reason`) pour comprendre le comportement
 
 - `DISABLED`: mode auto chauffage désactivé.
 - `MANUAL_MODE`: mode Manu.
-- `WINTER_MODE`: mode Hivers.
+- `WINTER_MODE`: mode Hiver.
 - `PSI_BLOCKED`: chauffage bloqué par la sécurité pression.
 - `SETPOINT_INVALID`: consigne chauffage invalide.
 - `TEMP_UNAVAILABLE`: température indisponible au moment de la décision.
@@ -378,7 +378,7 @@ Persistance: `ConfigStore` + `NvsKeys::PoolLogic::*`
 
 ### Paramètres modes et stratégie
 
-- `operating_mode` : `0` Manu, `1` Auto, `2` Hivers
+- `operating_mode` : `0` Manu, `1` Auto, `2` Hiver
 - `disinfection_type`
   - `0`: `Chlore/Brome`
   - `1`: `Electrolyse`
@@ -499,7 +499,7 @@ Transport MQTT (`<base>/<device>/cmd`) :
 - payload attendu: `{"cmd":"<nom_commande>","args":{...}}`
 
 Commande de mode :
-- `poollogic.operating_mode.set`, args `{"value":0|1|2}` : Manu, Auto, Hivers.
+- `poollogic.operating_mode.set`, args `{"value":0|1|2}` : Manu, Auto, Hiver.
 - Le mode utilise une valeur numérique validée ; une valeur hors domaine est refusée.
 - Les anciennes commandes booléennes Auto/Hiver/pH/ORP sont retirées.
 - `poollogic.heater_auto_mode.set` / `.toggle` restent des réglages du chauffage,
@@ -516,7 +516,7 @@ Commandes actionneurs :
 - `poollogic.lights.write` / `.toggle` (alias `light`)
 
 Les écritures prennent `{"value":true|false}` et les toggles inversent l'état
-réel. Les rôles PoolLogic nécessitent Manu. En Auto et Hivers, une commande
+réel. Les rôles PoolLogic nécessitent Manu. En Auto et Hiver, une commande
 directe est refusée avec `InterlockBlocked` ; utiliser un forçage temporaire
 compatible ou choisir Manu. Les paramètres de correction et de traitement ne
 sont jamais modifiés par une commande manuelle.
@@ -568,7 +568,7 @@ Ordre de décision appliqué à chaque cycle (`200 ms`):
 4. sinon:
    - mode Manu (`operating_mode=0`): consigne manuelle conservée
    - Auto : fenêtre calculée, demandes chauffage/O₂ éventuelles
-   - Hivers : fenêtre calculée et antigel
+   - Hiver : fenêtre calculée et antigel
 5. actionnement via `PoolDeviceService::writeDesired` (avec interlocks `PoolDeviceModule`)
 
 ### Pilotage filtration / robot / SWG / remplissage
@@ -576,7 +576,7 @@ Ordre de décision appliqué à chaque cycle (`200 ms`):
 Logique principale:
 - filtration:
   - sécurité PSI prioritaire: coupe sur erreur PSI (auto **et** manuel)
-  - Auto : fenêtre calculée ; Hivers : fenêtre calculée et maintien antigel
+  - Auto : fenêtre calculée ; Hiver : fenêtre calculée et maintien antigel
   - en Manu (`operating_mode=0`): `PoolLogic` n'impose pas de demande auto hors sécurité PSI
 - robot (Auto uniquement):
   - démarre après `robot_delay_min` de filtration
@@ -782,7 +782,7 @@ Le mapping `ConfigChanged -> messageId -> topic` est local au module.
 
 Entités enregistrées par `PoolLogicModule`:
 - selects :
-  - `pl_operating_mode` : Auto / Manu / Hivers
+  - `pl_operating_mode` : Auto / Manu / Hiver
   - `pl_ph_correction` : Désactivée / pH− / pH+
   - type de désinfection et paramètres spécifiques existants
 - switch : chauffage automatique (autorisé seulement en Auto)
