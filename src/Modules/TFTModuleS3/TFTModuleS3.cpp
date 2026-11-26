@@ -1222,7 +1222,13 @@ void TFTModuleS3::renderUpdate_(const FirmwareUpdateDisplaySnapshot& u,
         display_.fillRect(x, y, interior, barH, color_(track));
         display_.drawFastHLine(x, y, interior, color_(rgb565_(44, 67, 88)));
 
-        const int16_t filled = int16_t(int32_t(interior) * pct / 100);
+        // Keep a 4px breathing room at the rounded left end of the track.
+        // Reduce the fill width by the same amount so 100% still ends at
+        // the original right edge (and the outer bevel stays untouched).
+        constexpr int16_t fillLeftInset = 4;
+        const int16_t fillX = x + fillLeftInset;
+        const int16_t fillMaxWidth = interior - fillLeftInset;
+        const int16_t filled = int16_t(int32_t(fillMaxWidth) * pct / 100);
         if (filled > 0) {
             const uint16_t glow = error ? rgb565_(255, 176, 174) :
                                   done ? rgb565_(138, 255, 186) :
@@ -1236,11 +1242,11 @@ void TFTModuleS3::renderUpdate_(const FirmwareUpdateDisplaySnapshot& u,
             const uint16_t lower = error ? rgb565_(107, 27, 51) :
                                    done ? rgb565_(11, 85, 56) :
                                           rgb565_(3, 64, 124);
-            display_.fillRect(x, y, filled, 2, color_(glow));
-            display_.fillRect(x, y + 2, filled, 3, color_(upper));
-            display_.fillRect(x, y + 5, filled, 2, color_(middle));
-            display_.fillRect(x, y + 7, filled, 2, color_(lower));
-            display_.drawFastVLine(x + filled - 1, y + 1, barH - 2, color_(glow));
+            display_.fillRect(fillX, y, filled, 2, color_(glow));
+            display_.fillRect(fillX, y + 2, filled, 3, color_(upper));
+            display_.fillRect(fillX, y + 5, filled, 2, color_(middle));
+            display_.fillRect(fillX, y + 7, filled, 2, color_(lower));
+            display_.drawFastVLine(fillX + filled - 1, y + 1, barH - 2, color_(glow));
         }
 
         // Display the raw percentage only, without the confusing STEP/ETAPE.
