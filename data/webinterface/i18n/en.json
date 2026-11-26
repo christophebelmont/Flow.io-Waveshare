@@ -307,6 +307,7 @@
     "updates.nextion.selectModelRequired": "Select the Nextion model before continuing.",
     "updates.nextion.confirmRecovery": "Display not detected. Confirm the {model} update to version {version}? Carefully check the selected model.",
     "updates.updateButton": "Update",
+    "updates.updateFlowioButton": "Update Flow.io",
     "updates.checkRequired": "Check for updates before starting this action.",
     "updates.empty": "Click “Check for updates”.",
     "updates.checking": "Checking the manifest...",
