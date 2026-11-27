@@ -37,6 +37,7 @@
 #include "Modules/PoolDeviceModule/PoolDeviceRuntime.h"
 #include "Modules/TFTModuleS3/FlowIoLogoBitmap.h"
 #include "Modules/TFTModuleS3/FlowIoWordmarkBitmaps.h"
+#include "Modules/TFTModuleS3/FlowIoWaveDarkBitmap.h"
 #include "Modules/TFTModuleS3/TftUpdateStages.h"
 #include <WiFi.h>
 
@@ -64,26 +65,46 @@ constexpr uint16_t rgb565_(uint8_t r, uint8_t g, uint8_t b)
     return (uint16_t)(((r & 0xF8U) << 8) | ((g & 0xFCU) << 3) | (b >> 3));
 }
 
-constexpr uint16_t kColorBg = rgb565_(255, 255, 255);
-constexpr uint16_t kColorHeader = rgb565_(255, 255, 255);
-constexpr uint16_t kColorText = rgb565_(17, 24, 39);
-constexpr uint16_t kColorMuted = rgb565_(108, 122, 141);
-constexpr uint16_t kColorWifiOff = rgb565_(226, 235, 246);
-constexpr uint16_t kColorOn = rgb565_(44, 204, 116);
-constexpr uint16_t kColorOff = rgb565_(148, 163, 184);
-constexpr uint16_t kColorAlarmAct = rgb565_(224, 72, 72);
-constexpr uint16_t kColorAlarmAck = rgb565_(240, 178, 85);
-constexpr uint16_t kColorGaugeOk = rgb565_(47, 158, 104);
-constexpr uint16_t kColorCardBg = rgb565_(255, 255, 255);
-constexpr uint16_t kColorCardBorder = rgb565_(217, 227, 239);
-constexpr uint16_t kColorValue = rgb565_(14, 23, 43);
+// Only the three rotating dashboard pages use this dark palette.
+// OTA/Nextion progress uses its own explicit palette; boot splash stays white.
+constexpr uint16_t kColorBg = rgb565_(4, 17, 32);
+constexpr uint16_t kColorHeader = rgb565_(5, 20, 37);
+constexpr uint16_t kColorText = rgb565_(237, 248, 255);
+constexpr uint16_t kColorMuted = rgb565_(135, 160, 181);
+constexpr uint16_t kColorWifiOff = rgb565_(41, 65, 87);
+constexpr uint16_t kColorOn = rgb565_(27, 205, 127);
+constexpr uint16_t kColorOff = rgb565_(111, 130, 148);
+constexpr uint16_t kColorAlarmAct = rgb565_(240, 75, 82);
+constexpr uint16_t kColorAlarmAck = rgb565_(242, 173, 64);
+constexpr uint16_t kColorGaugeOk = rgb565_(32, 196, 101);
+constexpr uint16_t kColorCardBg = rgb565_(10, 36, 59);
+constexpr uint16_t kColorCardBorder = rgb565_(17, 198, 237);
+constexpr uint16_t kColorValue = rgb565_(255, 248, 217);
 constexpr uint16_t kColorCheckMark = rgb565_(255, 255, 255);
-constexpr int16_t kHeaderH = 48;
-constexpr int16_t kSidePad = 8;
+constexpr int16_t kHeaderH = 32; // Compact shared header for all three rotating pages.
+constexpr int16_t kSidePad = 8; // Header underline inset, not card margin.
+constexpr int16_t kCardEdge = 1; // Approved TFT left/right/bottom margins.
+constexpr int16_t kCardGap = 2;  // Approved gap between columns and rows.
 constexpr uint8_t kAlarmSlotCount = 8U;
-constexpr uint16_t kColorSelected = rgb565_(18, 102, 207);
+constexpr uint16_t kColorSelected = rgb565_(60, 208, 250);
 constexpr uint8_t kOverviewSelectorRows = 3U;
-constexpr int16_t kOverviewSelectorGap = 6;
+constexpr int16_t kOverviewSelectorGap = kCardGap;
+constexpr int16_t kUiCardRadius = 6;
+constexpr uint16_t kColorOverviewModeBg = rgb565_(11, 42, 69);
+constexpr uint16_t kColorOverviewPhBg = rgb565_(10, 46, 55);
+constexpr uint16_t kColorOverviewTreatmentBg = rgb565_(9, 44, 65);
+
+// Keep the user's configurable card color IDs meaningful under dark mode:
+// the existing pastel hue contributes a subtle tint over a navy card.
+uint16_t dashboardDarkTint_(uint16_t preset)
+{
+    const uint8_t r = (uint8_t)((preset >> 11U) & 31U);
+    const uint8_t g = (uint8_t)((preset >> 5U) & 63U);
+    const uint8_t b = (uint8_t)(preset & 31U);
+    return rgb565_((uint8_t)(6U + r * 9U / 31U),
+                   (uint8_t)(23U + g * 17U / 63U),
+                   (uint8_t)(41U + b * 22U / 31U));
+}
 
 constexpr const char* kSensorModuleNames[TFTModuleS3::DashboardSlotCount] = {
     "tft/s3/sensors/slot00",
@@ -345,47 +366,50 @@ struct Rect {
 
 Rect overviewTopCardRect_(int16_t w, uint8_t column)
 {
-    const int16_t gap = 6;
-    const int16_t cardW = (int16_t)((w - (2 * kSidePad) - gap) / 2);
+    // Native 320x240: x=1..158 and x=161..318, 2px between columns.
+    const int16_t cardW = (int16_t)((w - 2 * kCardEdge - kCardGap) / 2);
     return Rect{
-        (int16_t)(kSidePad + ((column > 0U) ? (cardW + gap) : 0)),
-        (int16_t)(kHeaderH + 8),
+        (int16_t)(kCardEdge + (column > 0U ? cardW + kCardGap : 0)),
+        (int16_t)(kHeaderH + 1),
         cardW,
-        34
+        41
     };
 }
 
-Rect overviewSelectorButtonRect_(int16_t w, int16_t h, uint8_t row, uint8_t count, uint8_t column)
+Rect overviewStatusCardRect_(int16_t w, int16_t h, uint8_t row)
 {
-    // The header and address cards keep their existing geometry. Only the
-    // area below them is divided into three rows and equally spaced choices.
+    // Cards: 76..128, 131..183, 186..238 on a 320x240 panel.
+    // Header 32px, 41px IP/URL tiles, 2px inter-row gap, 1px bottom.
     const Rect topCard = overviewTopCardRect_(w, 0U);
-    const int16_t top = (int16_t)(topCard.y + topCard.h + 8);
-    const int16_t rowSpace = (int16_t)(h - top - kSidePad + kOverviewSelectorGap);
-    const int16_t columnSpace = (int16_t)(w - 2 * kSidePad + kOverviewSelectorGap);
-    const int16_t y = (int16_t)(top + row * rowSpace / kOverviewSelectorRows);
-    const int16_t nextY = (int16_t)(top + (row + 1) * rowSpace / kOverviewSelectorRows);
-    const int16_t x = (int16_t)(kSidePad + column * columnSpace / count);
-    const int16_t nextX = (int16_t)(kSidePad + (column + 1) * columnSpace / count);
-    return Rect{x, y, (int16_t)(nextX - x - kOverviewSelectorGap),
-                (int16_t)(nextY - y - kOverviewSelectorGap)};
+    const int16_t firstY = (int16_t)(topCard.y + topCard.h + kCardGap);
+    const int16_t cardH = (int16_t)((h - firstY - kCardEdge -
+                                      (kOverviewSelectorRows - 1) * kOverviewSelectorGap) /
+                                      kOverviewSelectorRows);
+    return Rect{
+        kCardEdge,
+        (int16_t)(firstY + row * (cardH + kOverviewSelectorGap)),
+        (int16_t)(w - 2 * kCardEdge),
+        cardH
+    };
 }
 
 Rect metricCardRect_(int16_t w, int16_t h, uint8_t index, bool dense = false)
 {
-    // Preserve original two-column/four-row layout for up to eight measurements
-    // and alarms; enable five rows only for nine or ten active measurements.
-    const int16_t gap = dense ? 4 : 6;
+    // Page 2: 5x2 (y=35,76,117,158,199). Page 3: 4x2
+    // (y=33,85,137,189). Remainder pixels go to last row.
     const int16_t rows = dense ? 5 : 4;
-    const int16_t cardW = (int16_t)((w - (2 * kSidePad) - gap) / 2);
-    const int16_t cardH = (int16_t)((h - (2 * kSidePad) - ((rows - 1) * gap)) / rows);
+    const int16_t firstY = (int16_t)(kHeaderH + (dense ? 3 : 1));
+    const int16_t cardW = (int16_t)((w - 2 * kCardEdge - kCardGap) / 2);
+    const int16_t available = (int16_t)(h - firstY - kCardEdge -
+                                        (rows - 1) * kCardGap);
+    const int16_t cardH = (int16_t)(available / rows);
     const int16_t row = (int16_t)(index / 2U);
     const int16_t col = (int16_t)(index % 2U);
     return Rect{
-        (int16_t)(kSidePad + (col * (cardW + gap))),
-        (int16_t)(kSidePad + (row * (cardH + gap))),
+        (int16_t)(kCardEdge + col * (cardW + kCardGap)),
+        (int16_t)(firstY + row * (cardH + kCardGap)),
         cardW,
-        cardH
+        (int16_t)(cardH + (row == rows - 1 ? available % rows : 0))
     };
 }
 
@@ -394,6 +418,47 @@ bool isDegreeCUnit_(const char* unit)
     if (!unit || unit[0] == '\0') return false;
     if ((uint8_t)unit[0] == 0xB0 && unit[1] == 'C' && unit[2] == '\0') return true;
     return (uint8_t)unit[0] == 0xC2 && (uint8_t)unit[1] == 0xB0 && unit[2] == 'C' && unit[3] == '\0';
+}
+
+// Icons are inferred from the live unit/alarm ID, not hardcoded to a TFT
+// slot: the ten metrics and eight alarm slots remain user-configurable.
+uint8_t metricGlyphKind_(const char* label, const char* unit)
+{
+    // Prioritise named measuring devices before the generic unit glyph.
+    // These are only icon hints; they never change data binding or units.
+    if (label && strncmp(label, "BME", 3) == 0) return 17U; // Sensor chip
+    if (label && strncmp(label, "Volum", 5) == 0) return 18U; // Tank/volume
+    if (label && (strncmp(label, "pH", 2) == 0 ||
+                  strncmp(label, "PH", 2) == 0)) return 5U;
+    if (isDegreeCUnit_(unit)) {
+        if (label && (strncmp(label, "Air", 3) == 0)) return 14U;
+        return 1U;
+    }
+    if (unit) {
+        if (strcmp(unit, "mV") == 0) return 6U;
+        if (strcmp(unit, "V") == 0) return 19U; // Voltage indicator
+        if (strcmp(unit, "rpm") == 0) return 7U;
+        if (strcmp(unit, "L") == 0) return 4U;
+        if (strstr(unit, "/min") || strstr(unit, "/h")) return 2U;
+        if (strcmp(unit, "hPa") == 0) return 13U;
+        if (strcmp(unit, "PSI") == 0 || strcmp(unit, "bar") == 0) return 3U;
+        if (strcmp(unit, "%") == 0) return 8U;
+    }
+    return 10U; // Unspecified metric: neutral information symbol.
+}
+
+uint8_t alarmGlyphKind_(uint16_t alarmId)
+{
+    switch ((AlarmId)alarmId) {
+        case AlarmId::PoolPsiLow: return 11U;
+        case AlarmId::PoolPsiHigh: return 12U;
+        case AlarmId::PoolPhTankLow: return 5U;   // Flask
+        case AlarmId::PoolChlorineTankLow: return 16U; // Canister
+        case AlarmId::PoolPhPumpMaxUptime: return 9U; // Clock
+        case AlarmId::PoolChlorinePumpMaxUptime: return 6U; // ORP lightning
+        case AlarmId::PoolWaterLevelLow: return 15U; // Water level waves
+        default: return 10U;
+    }
 }
 
 void trimTrailingZeros_(char* text)
@@ -869,16 +934,12 @@ void TFTModuleS3::render_(bool force)
     // A change in enabled sensors changes their screen positions. Force
     // one complete repaint so old cards cannot remain in vacated cells.
     uint16_t enabledMask = 0U;
-    uint8_t visibleCount = 0U;
     if (page == Page::Metrics) {
-        for (uint8_t i = 0U; i < DashboardSlotCount; ++i) {
-            if (uiStorage_->dashboardCfg[i].enabled) {
+        for (uint8_t i = 0U; i < DashboardSlotCount; ++i)
+            if (uiStorage_->dashboardCfg[i].enabled)
                 enabledMask |= (uint16_t)(1U << i);
-                ++visibleCount;
-            }
-        }
     }
-    const bool denseMetrics = visibleCount > 8U;
+    const bool denseMetrics = true; // Always preserve the approved 5x2 screen-2 grid.
     const bool sensorLayoutChanged = page == Page::Metrics &&
                                      enabledMask != lastSensorEnabledMask_;
     const bool fullRedraw = force || !layoutDrawn_ || lastPage_ != pageId ||
@@ -895,35 +956,38 @@ void TFTModuleS3::render_(bool force)
         }
     }
 
-    if (page == Page::Overview) {
-        char timeBuf[16] = "--:--";
-        time_t t = time(nullptr);
-        if (t > 1600000000) {
-            struct tm tmv{};
-            localtime_r(&t, &tmv);
-            (void)strftime(timeBuf, sizeof(timeBuf), "%H:%M", &tmv);
-        }
-        const bool apMode = (WiFi.getMode() & WIFI_MODE_AP) != 0 && !WiFi.isConnected();
-        const uint8_t bars = WiFi.isConnected() ? barsFromPct_(pctFromRssi_(WiFi.RSSI())) : 0U;
+    // Identical live header on pages 1, 2 and 3, refreshed only when needed.
+    char timeBuf[16] = "--:--";
+    time_t t = time(nullptr);
+    if (t > 1600000000) {
+        struct tm tmv{};
+        localtime_r(&t, &tmv);
+        (void)strftime(timeBuf, sizeof(timeBuf), "%H:%M", &tmv);
+    }
+    const bool apMode = (WiFi.getMode() & WIFI_MODE_AP) != 0 && !WiFi.isConnected();
+    const uint8_t bars = WiFi.isConnected() ? barsFromPct_(pctFromRssi_(WiFi.RSSI())) : 0U;
+    const bool headerChanged = fullRedraw || !overviewCache_.valid ||
+                               overviewCache_.apMode != apMode ||
+                               overviewCache_.wifiBars != bars ||
+                               strncmp(overviewCache_.timeText, timeBuf,
+                                       sizeof(overviewCache_.timeText)) != 0;
+    if (headerChanged) drawHeader_(timeBuf, bars, apMode, (uint8_t)pageCycle,
+                                   fullRedraw || !overviewCache_.valid);
+    snprintf(overviewCache_.timeText, sizeof(overviewCache_.timeText), "%s", timeBuf);
+    overviewCache_.apMode = apMode;
+    overviewCache_.wifiBars = bars;
 
+    if (page == Page::Overview) {
         char ip[20] = {0};
         formatIp_(ip, sizeof(ip));
         OverviewStatusRenderState status{};
         readOverviewStatus_(status);
 
-        const bool headerChanged = !overviewCache_.valid ||
-                                   overviewCache_.apMode != apMode ||
-                                   overviewCache_.wifiBars != bars ||
-                                   strncmp(overviewCache_.timeText, timeBuf, sizeof(overviewCache_.timeText)) != 0;
-        if (fullRedraw || headerChanged) {
-            drawHeader_(timeBuf, bars, apMode);
-        }
-
         const int16_t w = display_.width();
         const Rect leftTop = overviewTopCardRect_(w, 0U);
         const Rect rightTop = overviewTopCardRect_(w, 1U);
         if (fullRedraw || !overviewCache_.valid || strncmp(overviewCache_.ip, ip, sizeof(overviewCache_.ip)) != 0) {
-            drawCenteredTextCard_(leftTop.x, leftTop.y, leftTop.w, leftTop.h, ip, true);
+            drawCenteredTextCard_(leftTop.x, leftTop.y, leftTop.w, leftTop.h, ip, false);
         }
         if (fullRedraw || !overviewCache_.valid) {
             drawCenteredTextCard_(rightTop.x, rightTop.y, rightTop.w, rightTop.h, "http://flowio.local", false);
@@ -932,12 +996,8 @@ void TFTModuleS3::render_(bool force)
             drawOverviewSelectors_(status);
         }
 
-        snprintf(overviewCache_.timeText, sizeof(overviewCache_.timeText), "%s", timeBuf);
         snprintf(overviewCache_.ip, sizeof(overviewCache_.ip), "%s", ip);
-        overviewCache_.apMode = apMode;
-        overviewCache_.wifiBars = bars;
         overviewCache_.status = status;
-        overviewCache_.valid = true;
     } else if (page == Page::Metrics) {
         const int16_t w = display_.width();
         const int16_t h = display_.height();
@@ -971,7 +1031,10 @@ void TFTModuleS3::render_(bool force)
             if (!flowThrottle &&
                 (fullRedraw || !dashboardSlotStateEquals_(previous, state))) {
                 const Rect r = metricCardRect_(w, h, visibleIndex, denseMetrics);
-                drawDashboardSlot_(i, r.x, r.y, r.w, r.h, state, denseMetrics);
+                // Update only text on a live value change. Leave the border,
+                // icon and static separator untouched to prevent ST7789 flicker.
+                drawDashboardSlot_(i, r.x, r.y, r.w, r.h, state, denseMetrics,
+                                   !fullRedraw && valueOnlyChanged);
                 uiStorage_->dashboardSlotCache[i] = state;
                 if (flowCard) {
                     lastFlowRenderMs_[i] = now;
@@ -988,14 +1051,32 @@ void TFTModuleS3::render_(bool force)
         for (uint8_t i = 0U; i < AlarmDashboardSlotCount; ++i) {
             AlarmSlotRenderState state{};
             readAlarmSlotState_(i, state);
-            if (fullRedraw || !alarmSlotStateEquals_(uiStorage_->alarmSlotCache[i], state)) {
+            const AlarmSlotRenderState& previous = uiStorage_->alarmSlotCache[i];
+            if (fullRedraw || !alarmSlotStateEquals_(previous, state)) {
                 const Rect r = metricCardRect_(w, h, i);
-                drawAlarmDashboardSlot_(i, r.x, r.y, r.w, r.h, state);
+                // Only the two 14px indicator circles need an update when
+                // the alarm runtime changes but its card layout stays fixed.
+                const bool indicatorsOnly = !fullRedraw && previous.valid &&
+                    previous.enabled && state.enabled &&
+                    previous.alarmId == state.alarmId &&
+                    previous.cardBg == state.cardBg &&
+                    strncmp(previous.label, state.label, sizeof(state.label)) == 0;
+                if (indicatorsOnly) {
+                    const int16_t stateX = (int16_t)(r.x + r.w - 13);
+                    drawAlarmStateIcon_(stateX, (int16_t)(r.y + 13), "L",
+                                        state.latched, state.available);
+                    drawAlarmStateIcon_(stateX, (int16_t)(r.y + r.h - 13), "C",
+                                        state.conditionTrue,
+                                        state.available && state.conditionKnown);
+                } else {
+                    drawAlarmDashboardSlot_(i, r.x, r.y, r.w, r.h, state);
+                }
                 uiStorage_->alarmSlotCache[i] = state;
             }
         }
     }
 
+    overviewCache_.valid = true;
     layoutDrawn_ = true;
     lastPage_ = pageId;
     lastRenderMs_ = now;
@@ -1334,7 +1415,8 @@ void TFTModuleS3::drawBootLogo_()
 {
     const int16_t w = display_.width();
     const int16_t h = display_.height();
-    display_.fillScreen(color_(kColorHeader));
+    // Original splash artwork has a white background; do not darken it.
+    display_.fillScreen(color_(rgb565_(255, 255, 255)));
     int16_t x = (int16_t)((w - (int16_t)kFlowIoLogoWidth) / 2);
     int16_t y = (int16_t)(((h - (int16_t)kFlowIoLogoHeight) / 2) - 30);
     if (x < 0) x = 0;
@@ -1348,29 +1430,30 @@ void TFTModuleS3::drawBootLogo_()
 
 void TFTModuleS3::drawStaticLayout_(Page page)
 {
-    display_.fillScreen(color_(kColorBg));
-    if (page == Page::Overview) {
-        display_.fillRect(0, 0, display_.width(), kHeaderH, color_(kColorHeader));
+    (void)page;
+    if (!layoutDrawn_) {
+        // Cold start only. Page rotations do not blank the 32px header.
+        display_.fillScreen(color_(kColorBg));
+    } else {
+        display_.fillRect(0, kHeaderH, display_.width(),
+                          (int16_t)(display_.height() - kHeaderH), color_(kColorBg));
     }
 }
 
 void TFTModuleS3::drawWifiBars_(int16_t x, int16_t y, uint8_t bars)
 {
+    // Five enlarged 4px columns, red/orange/yellow/lime/green.
+    // Unavailable bars remain dark; neither bitmap nor PSRAM is needed.
     static constexpr uint16_t kWifiColors[] = {
-        rgb565_(92, 147, 255),
-        rgb565_(78, 135, 252),
-        rgb565_(62, 122, 247),
-        rgb565_(40, 201, 171),
-        rgb565_(30, 181, 136),
+        rgb565_(246, 78, 82), rgb565_(255, 155, 49),
+        rgb565_(250, 221, 52), rgb565_(121, 227, 70),
+        rgb565_(32, 217, 115)
     };
-    static constexpr int16_t kBarW = 7;
-    static constexpr int16_t kStep = 10;
-    static constexpr int16_t kUnitH = 5;
-    for (uint8_t i = 1U; i <= 5U; ++i) {
-        const int16_t h = (int16_t)(i * kUnitH);
-        const int16_t yi = (int16_t)(y + (5 * kUnitH) - h);
-        const uint16_t c = (i <= bars) ? kWifiColors[i - 1U] : kColorWifiOff;
-        display_.fillRoundRect((int16_t)(x + ((i - 1U) * kStep)), yi, kBarW, h, 2, color_(c));
+    for (uint8_t i = 0U; i < 5U; ++i) {
+        const int16_t bh = (int16_t)(5 + i * 3);
+        display_.fillRoundRect((int16_t)(x + i * 6),
+                               (int16_t)(y + 17 - bh), 4, bh, 1,
+                               color_(i < bars ? kWifiColors[i] : kColorWifiOff));
     }
 }
 
@@ -1395,43 +1478,127 @@ void TFTModuleS3::drawBrandWordmark_(int16_t x, int16_t y, int16_t w, int16_t h,
     display_.endWrite();
 }
 
-void TFTModuleS3::drawHeader_(const char* timeText, uint8_t wifiBars, bool apMode)
+void TFTModuleS3::drawHeader_(const char* timeText, uint8_t wifiBars,
+                              bool apMode, uint8_t activePage, bool full)
 {
     const int16_t w = display_.width();
-    display_.fillRect(0, 0, w, kHeaderH, color_(kColorHeader));
-    if (apMode) {
-        drawGfxTextCenteredY_(&FreeSansBold12pt7b, kColorOn, kColorHeader, 9, 0, kHeaderH, "AP");
-    } else {
-        drawWifiBars_(8, 12, wifiBars);
+    if (full) {
+        // Only first display initialization paints the brand. At each page
+        // change redraw just the three navigation dots, not the whole bar.
+        if (!layoutDrawn_) {
+            display_.fillRect(0, 0, w, kHeaderH, color_(kColorHeader));
+            if (!displayCfg_.swapColorBytes) {
+                display_.drawRGBBitmap(8, 6, kFlowIoWaveDarkBitmap,
+                                       kFlowIoWaveDarkWidth, kFlowIoWaveDarkHeight);
+            } else {
+                display_.startWrite();
+                for (int16_t yy = 0; yy < kFlowIoWaveDarkHeight; ++yy)
+                    for (int16_t xx = 0; xx < kFlowIoWaveDarkWidth; ++xx)
+                        display_.writePixel(8 + xx, 6 + yy,
+                            color_(pgm_read_word(kFlowIoWaveDarkBitmap +
+                                                 yy * kFlowIoWaveDarkWidth + xx)));
+                display_.endWrite();
+            }
+            drawGfxText_(&FreeSansBold12pt7b, kColorText, kColorHeader, 48, 25, "flow.io");
+            display_.drawFastHLine(8, kHeaderH - 1, w - 16, color_(kColorCardBorder));
+        }
+        display_.fillRect(142, 8, 36, 16, color_(kColorHeader));
+        const uint8_t selected = activePage % 3U;
+        for (uint8_t i = 0U; i < 3U; ++i)
+            display_.fillCircle((int16_t)(148 + i * 11U), 16, 3,
+                color_(i == selected ? kColorSelected : kColorOff));
     }
-    drawBrandWordmark_(0, 7, w, 34, kFlowIoWordmarkHeaderBitmap,
-                       kFlowIoWordmarkHeaderWidth, kFlowIoWordmarkHeaderHeight);
-    setGfxFont_(&FreeSansBold12pt7b, kColorText, kColorHeader);
+    // Flicker reduction: Wi-Fi RSSI varies much more often than the clock.
+    // Redraw each dirty segment independently; never erase the other one.
+    const bool wifiDirty = full || overviewCache_.apMode != apMode ||
+                           overviewCache_.wifiBars != wifiBars;
+    const bool clockDirty = full ||
+        strncmp(overviewCache_.timeText, timeText ? timeText : "--:--",
+                sizeof(overviewCache_.timeText)) != 0;
+    if (wifiDirty) {
+        display_.fillRect(w - 96, 1, 38, kHeaderH - 3, color_(kColorHeader));
+        if (apMode) {
+            drawGfxText_(&FreeSans9pt7b, kColorOn, kColorHeader,
+                         (int16_t)(w - 91), 23, "AP");
+        } else {
+            drawWifiBars_((int16_t)(w - 90), 7, wifiBars);
+        }
+    }
+    if (!clockDirty) return;
+    display_.fillRect(w - 58, 1, 58, kHeaderH - 3, color_(kColorHeader));
+    // Regular weight clock, +2 pixels vertically and right-aligned.
+    setGfxFont_(&FreeSans9pt7b, kColorText, kColorHeader);
     const char* cleanTime = (timeText && timeText[0] != '\0') ? timeText : "--:--";
     const int16_t tw = gfxTextWidth_(cleanTime);
-    display_.setCursor((int16_t)(w - tw - 12), 31);
-    display_.print(cleanTime);
+    const GFXfont* clockFont = &FreeSans9pt7b;
+    const GFXglyph* glyphs = clockFont->glyph;
+    const uint8_t* bitmap = clockFont->bitmap;
+    int16_t glyphX = (int16_t)(w - tw - 8);
+    constexpr int16_t kClockBaseline = 22;
+    for (const char* cp = cleanTime; *cp; ++cp) {
+        const uint8_t c = (uint8_t)*cp;
+        if (c < clockFont->first || c > clockFont->last) continue;
+        const GFXglyph* glyph = &glyphs[c - clockFont->first];
+        const uint16_t offset = pgm_read_word(&glyph->bitmapOffset);
+        const uint8_t gw = pgm_read_byte(&glyph->width);
+        const uint8_t gh = pgm_read_byte(&glyph->height);
+        const int8_t xo = (int8_t)pgm_read_byte(&glyph->xOffset);
+        const int8_t yo = (int8_t)pgm_read_byte(&glyph->yOffset);
+        const uint8_t advance = pgm_read_byte(&glyph->xAdvance);
+        if (gh > 0U && gw > 0U) {
+            for (uint8_t dy = 0U; dy < (uint8_t)(gh + 2U); ++dy) {
+                const uint8_t srcY = (uint8_t)((uint16_t)dy * gh / (gh + 2U));
+                for (uint8_t dx = 0U; dx < gw; ++dx) {
+                    const uint16_t bit = (uint16_t)srcY * gw + dx;
+                    const uint8_t bits = pgm_read_byte(bitmap + offset + (bit >> 3U));
+                    if (bits & (uint8_t)(0x80U >> (bit & 7U)))
+                        display_.drawPixel((int16_t)(glyphX + xo + dx),
+                                           (int16_t)(kClockBaseline + yo - 1 + dy),
+                                           color_(kColorText));
+                }
+            }
+        }
+        glyphX = (int16_t)(glyphX + advance);
+    }
 }
 
-void TFTModuleS3::drawCenteredTextCard_(int16_t x, int16_t y, int16_t w, int16_t h, const char* text, bool alignLeft)
+void TFTModuleS3::drawCenteredTextCard_(int16_t x, int16_t y, int16_t w, int16_t h,
+                                         const char* text, bool alignLeft)
 {
-    display_.fillRoundRect(x, y, w, h, 12, color_(kColorCardBg));
-    display_.drawRoundRect(x, y, w, h, 12, color_(kColorCardBorder));
+    display_.fillRoundRect(x, y, w, h, kUiCardRadius, color_(kColorCardBg));
+    display_.drawRoundRect(x, y, w, h, kUiCardRadius, color_(kColorCardBorder));
     const char* value = (text && text[0] != '\0') ? text : "--";
-    setGfxFont_(&FreeSans9pt7b, kColorValue, kColorCardBg);
+
+    // IP and URL are BOTH centered horizontally and vertically inside their
+    // own 158x41 cards. Use the largest font that fits the real 320px panel.
+    const GFXfont* font = &FreeSans9pt7b;
+    setGfxFont_(font, kColorText, kColorCardBg);
     int16_t tw = gfxTextWidth_(value);
-    if (tw > (int16_t)(w - 12)) {
-        display_.setFont(nullptr);
-        display_.setTextSize(1);
-        display_.setTextColor(color_(kColorValue), color_(kColorCardBg));
-        tw = (int16_t)(strlen(value) * 6U);
-        display_.setCursor(alignLeft ? (int16_t)(x + 8) : (int16_t)(x + ((w - tw) / 2)), (int16_t)(y + ((h - 8) / 2) + 5));
-        display_.print(value);
+    if (tw > w - 8) {
+        font = &FreeSansBold8pt7b;
+        setGfxFont_(font, kColorText, kColorCardBg);
+        tw = gfxTextWidth_(value);
+    }
+    if (tw <= w - 8) {
+        const int16_t textX = alignLeft ? (int16_t)(x + 5)
+                                        : (int16_t)(x + (w - tw) / 2);
+        drawGfxText_(font, kColorText, kColorCardBg, textX,
+                     gfxBaselineCenteredInBox_(value, y, h), value);
         return;
     }
-    const int16_t textX = alignLeft ? (int16_t)(x + 8) : (int16_t)(x + ((w - tw) / 2));
-    display_.setCursor(textX, (int16_t)(gfxBaselineCenteredInBox_(value, (int16_t)(y - 2), (int16_t)(h - 8)) + 7));
-    display_.print(value);
+    // Safe fallback for unusually long hostnames; bounded within the frame.
+    char shortText[44]{};
+    snprintf(shortText, sizeof(shortText), "%s", value);
+    const size_t maxChars = (size_t)((w - 8) / 6);
+    if (maxChars < sizeof(shortText)) shortText[maxChars] = '\0';
+    const int16_t width = (int16_t)(strlen(shortText) * 6U);
+    display_.setFont(nullptr);
+    display_.setTextSize(1);
+    display_.setTextColor(color_(kColorText), color_(kColorCardBg));
+    display_.setCursor(alignLeft ? (int16_t)(x + 5)
+                                 : (int16_t)(x + (w - width) / 2),
+                       (int16_t)(y + (h - 8) / 2));
+    display_.print(shortText);
 }
 
 void TFTModuleS3::drawAlarmIndicator_(int16_t cx, int16_t cy, uint16_t fill, bool active)
@@ -1449,26 +1616,209 @@ void TFTModuleS3::drawAlarmIndicator_(int16_t cx, int16_t cy, uint16_t fill, boo
     display_.fillCircle(cx, (int16_t)(cy + 6), 2, markColor);
 }
 
+void TFTModuleS3::drawMiniIcon_(int16_t cx, int16_t cy, uint8_t kind, uint16_t bg)
+{
+    // 16x16, vivid vector pictograms; no new images, fonts or heap allocations.
+    // The full icon stays inside +/-8 pixels for dense 5x2 cards.
+    const uint16_t azure = color_(rgb565_(30, 180, 246));
+    const uint16_t light = color_(rgb565_(128, 237, 255));
+    const uint16_t yellow = color_(rgb565_(255, 213, 36));
+    const uint16_t green = color_(rgb565_(38, 223, 128));
+    const uint16_t violet = color_(rgb565_(190, 133, 255));
+    const uint16_t red = color_(rgb565_(254, 100, 63));
+    const uint16_t background = color_(bg);
+    switch (kind) {
+        case 0U: // Mode: blue gear
+            display_.drawCircle(cx, cy, 6, light);
+            display_.fillCircle(cx, cy, 2, azure);
+            display_.drawFastVLine(cx, cy - 8, 3, light);
+            display_.drawFastVLine(cx, cy + 6, 3, light);
+            display_.drawFastHLine(cx - 8, cy, 3, light);
+            display_.drawFastHLine(cx + 6, cy, 3, light);
+            break;
+        case 1U: // Water temperature thermometer: orange/red
+        case 14U: // Air temperature thermometer: ice blue
+        {
+            const uint16_t inner = kind == 14U ? azure : red;
+            display_.drawRoundRect(cx - 3, cy - 8, 7, 13, 3, light);
+            display_.fillCircle(cx, cy + 5, 3, inner);
+            display_.drawFastVLine(cx, cy - 4, 8, inner);
+            break;
+        }
+        case 2U: // Waterfall: crest and two free-flowing cyan streams
+            display_.drawFastHLine(cx - 7, cy - 7, 12, green);
+            display_.drawLine(cx - 5, cy - 6, cx - 4, cy + 4, azure);
+            display_.drawLine(cx - 4, cy - 6, cx - 2, cy + 5, light);
+            display_.drawLine(cx, cy - 6, cx + 1, cy + 5, azure);
+            display_.drawLine(cx + 3, cy - 6, cx + 5, cy + 4, light);
+            display_.drawFastHLine(cx - 7, cy + 7, 15, light);
+            break;
+        case 3U:  // PSI/barometer value
+        case 11U: // Low pressure, needle at start (left)
+        case 12U: // High pressure, needle at end (right)
+        case 13U: // Ambient pressure
+        {
+            display_.drawCircle(cx, cy + 1, 7, light);
+            display_.drawLine(cx - 6, cy - 2, cx - 4, cy - 5, green);
+            display_.drawLine(cx - 1, cy - 6, cx + 2, cy - 6, yellow);
+            display_.drawLine(cx + 5, cy - 4, cx + 7, cy - 1, red);
+            const int16_t tx = kind == 11U ? cx - 5 : cx + 5;
+            const int16_t ty = kind == 13U ? cy - 5 : cy - 3;
+            display_.drawLine(cx, cy + 2, tx, ty, kind == 13U ? violet : azure);
+            display_.fillCircle(cx, cy + 2, 2, light);
+            break;
+        }
+        case 4U: // Water meter
+            display_.fillRoundRect(cx - 7, cy - 6, 14, 12, 3, light);
+            display_.fillRect(cx - 5, cy - 3, 10, 5, background);
+            display_.drawFastHLine(cx - 4, cy + 4, 8, azure);
+            break;
+        case 5U: // pH lab flask: bright green liquid
+            display_.drawFastHLine(cx - 3, cy - 8, 7, light);
+            display_.fillRect(cx - 2, cy - 7, 4, 6, light);
+            display_.fillTriangle(cx - 2, cy - 1, cx - 8, cy + 7, cx + 8, cy + 7, green);
+            display_.drawFastHLine(cx - 8, cy + 7, 17, light);
+            break;
+        case 6U: // ORP lightning
+            display_.fillTriangle(cx + 2, cy - 8, cx - 6, cy + 1, cx + 1, cy + 1, yellow);
+            display_.fillTriangle(cx - 1, cy - 1, cx + 7, cy - 1, cx - 3, cy + 8, yellow);
+            break;
+        case 7U: // Pump / impeller
+            display_.drawCircle(cx, cy, 7, violet);
+            display_.fillCircle(cx, cy, 2, light);
+            display_.fillTriangle(cx, cy - 2, cx - 4, cy - 7, cx + 4, cy - 6, violet);
+            display_.fillTriangle(cx + 2, cy, cx + 7, cy + 3, cx + 2, cy + 6, violet);
+            display_.fillTriangle(cx - 2, cy + 2, cx - 7, cy + 4, cx - 6, cy - 4, violet);
+            break;
+        case 8U: // Water/chemical level droplet
+            display_.fillTriangle(cx, cy - 8, cx - 6, cy + 2, cx + 6, cy + 2, azure);
+            display_.fillCircle(cx, cy + 2, 6, azure);
+            display_.fillCircle(cx - 2, cy + 2, 1, light);
+            break;
+        case 9U: // Uptime clock
+            display_.drawCircle(cx, cy, 7, violet);
+            display_.drawFastVLine(cx, cy - 5, 6, light);
+            display_.drawFastHLine(cx, cy, 5, yellow);
+            break;
+        case 15U: // Low water level: waves, not the flow-rate waterfall
+            for (int16_t yy = -3; yy <= 4; yy += 6) {
+                display_.drawLine(cx - 8, cy + yy, cx - 4, cy + yy - 1, azure);
+                display_.drawLine(cx - 4, cy + yy - 1, cx, cy + yy + 1, light);
+                display_.drawLine(cx, cy + yy + 1, cx + 4, cy + yy - 1, azure);
+                display_.drawLine(cx + 4, cy + yy - 1, cx + 8, cy + yy, light);
+            }
+            break;
+        case 16U: // Chlorine canister with blue tank/body
+            display_.fillRoundRect(cx - 6, cy - 5, 12, 12, 2, azure);
+            display_.drawFastHLine(cx - 2, cy - 8, 6, light);
+            display_.drawFastVLine(cx - 2, cy - 7, 3, light);
+            display_.drawFastVLine(cx + 3, cy - 7, 3, light);
+            display_.drawFastHLine(cx - 3, cy + 2, 6, light);
+            break;
+        case 17U: // BME sensor IC: lime pins / cyan silicon
+            display_.fillRoundRect(cx - 5, cy - 5, 10, 10, 2, green);
+            display_.fillRoundRect(cx - 3, cy - 3, 6, 6, 1, background);
+            display_.fillCircle(cx, cy, 1, light);
+            for (int16_t q = -4; q <= 4; q += 4) {
+                display_.drawFastHLine(cx - 8, cy + q, 3, green);
+                display_.drawFastHLine(cx + 6, cy + q, 3, green);
+                display_.drawFastVLine(cx + q, cy - 8, 3, green);
+                display_.drawFastVLine(cx + q, cy + 6, 3, green);
+            }
+            break;
+        case 18U: // Water volume tank: turquoise waves
+            display_.drawRoundRect(cx - 7, cy - 7, 14, 15, 3, light);
+            display_.fillRoundRect(cx - 6, cy + 1, 12, 6, 2, azure);
+            display_.drawFastHLine(cx - 4, cy + 3, 8, light);
+            break;
+        case 19U: // Electrical voltage: green badge + yellow bolt
+            display_.fillCircle(cx, cy, 7, green);
+            display_.fillTriangle(cx + 1, cy - 6, cx - 4, cy + 1,
+                                  cx + 1, cy + 1, yellow);
+            display_.fillTriangle(cx - 1, cy - 1, cx + 4, cy - 1,
+                                  cx - 2, cy + 6, yellow);
+            break;
+        default: // Neutral information
+            display_.fillCircle(cx, cy, 7, azure);
+            display_.fillCircle(cx, cy - 3, 1, light);
+            display_.fillRoundRect(cx - 1, cy - 1, 2, 6, 0, light);
+            break;
+    }
+}
+
 void TFTModuleS3::drawOverviewSelectorRow_(uint8_t row, const OverviewChoice* choices,
                                            uint8_t count, uint8_t selected, bool available)
 {
-    setGfxFont_(&FreeSans9pt7b, kColorSelected, kColorCardBg);
-    for (uint8_t column = 0U; column < count; ++column) {
-        const Rect rect = overviewSelectorButtonRect_(display_.width(), display_.height(), row, count, column);
-        const bool active = available && choices[column].value == selected;
-        const uint16_t background = active ? kColorSelected : kColorCardBg;
-        const uint16_t foreground = !available ? kColorMuted : (active ? kColorBg : kColorSelected);
-        const uint16_t border = active ? kColorSelected : kColorCardBorder;
-        display_.fillRoundRect(rect.x, rect.y, rect.w, rect.h, 6, color_(background));
-        display_.drawRoundRect(rect.x, rect.y, rect.w, rect.h, 6, color_(border));
+    static constexpr const char* kRowCaptions[] = {"Mode", "Correction pH", "Traitement"};
+    static constexpr uint16_t kRowColors[] = {
+        kColorOverviewModeBg, kColorOverviewPhBg, kColorOverviewTreatmentBg
+    };
+    if (!choices || !count || row >= kOverviewSelectorRows) return;
+    const Rect rect = overviewStatusCardRect_(display_.width(), display_.height(), row);
+    const uint16_t bg = kRowColors[row];
+    display_.fillRoundRect(rect.x, rect.y, rect.w, rect.h, kUiCardRadius, color_(bg));
+    display_.drawRoundRect(rect.x, rect.y, rect.w, rect.h, kUiCardRadius,
+                           color_(kColorCardBorder));
 
-        int16_t x1 = 0, y1 = 0;
-        uint16_t textW = 0, textH = 0;
-        display_.getTextBounds(choices[column].label, 0, 0, &x1, &y1, &textW, &textH);
-        const int16_t textX = (int16_t)(rect.x + (rect.w - (int16_t)textW) / 2 - x1);
-        const int16_t baselineY = (int16_t)(rect.y + (rect.h - (int16_t)textH) / 2 - y1);
-        drawGfxText_(&FreeSans9pt7b, foreground, background, textX, baselineY, choices[column].label);
+    // A summary, not a row of controls: show only the saved, selected value.
+    const char* current = "--";
+    if (available) {
+        for (uint8_t i = 0U; i < count; ++i) {
+            if (choices[i].value == selected) {
+                current = choices[i].label;
+                break;
+            }
+        }
     }
+    const int16_t centerY = (int16_t)(rect.y + rect.h / 2);
+    const int16_t iconX = (int16_t)(rect.x + 24);
+    // More colourful and larger icons for the 53px-high overview cards:
+    // blue gear/yellow axle, green chemistry flask, turquoise water droplet.
+    if (row == 0U) {
+        const uint16_t sky = color_(rgb565_(45, 193, 252));
+        const uint16_t yellow = color_(rgb565_(255, 215, 83));
+        for (int16_t dx = -1; dx <= 1; ++dx) {
+            display_.drawFastVLine((int16_t)(iconX + dx), (int16_t)(centerY - 12), 4, sky);
+            display_.drawFastVLine((int16_t)(iconX + dx), (int16_t)(centerY + 9), 4, sky);
+            display_.drawFastHLine((int16_t)(iconX - 12), (int16_t)(centerY + dx), 4, sky);
+            display_.drawFastHLine((int16_t)(iconX + 9), (int16_t)(centerY + dx), 4, sky);
+        }
+        display_.drawCircle(iconX, centerY, 9, sky);
+        display_.drawCircle(iconX, centerY, 8, sky);
+        display_.fillCircle(iconX, centerY, 3, yellow);
+    } else if (row == 1U) {
+        const uint16_t glass = color_(rgb565_(204, 246, 255));
+        const uint16_t fluid = color_(rgb565_(18, 211, 110));
+        display_.drawFastHLine((int16_t)(iconX - 4), (int16_t)(centerY - 11), 9, glass);
+        display_.drawLine(iconX - 3, centerY - 10, iconX - 3, centerY - 2, glass);
+        display_.drawLine(iconX + 3, centerY - 10, iconX + 3, centerY - 2, glass);
+        display_.fillTriangle(iconX - 3, centerY - 2,
+                              iconX - 11, centerY + 11,
+                              iconX + 11, centerY + 11, fluid);
+        display_.drawLine(iconX + 3, centerY - 2, iconX + 11, centerY + 11, glass);
+        display_.drawFastHLine(iconX - 11, centerY + 11, 23, glass);
+        display_.fillCircle(iconX - 2, centerY + 5, 2, color_(rgb565_(148, 255, 229)));
+        display_.fillCircle(iconX + 4, centerY + 7, 1, color_(rgb565_(255, 223, 82)));
+    } else {
+        const uint16_t blue = color_(rgb565_(13, 160, 248));
+        const uint16_t cyan = color_(rgb565_(26, 229, 217));
+        display_.fillTriangle(iconX, centerY - 13, iconX - 10, centerY + 3,
+                              iconX + 10, centerY + 3, blue);
+        display_.fillCircle(iconX, centerY + 5, 10, cyan);
+        display_.fillCircle(iconX - 3, centerY + 5, 2, color_(rgb565_(220, 253, 255)));
+    }
+    const int16_t titleX = (int16_t)(rect.x + 47);
+    drawGfxText_(&FreeSans9pt7b, kColorText, bg,
+                 titleX, (int16_t)(centerY + 6), kRowCaptions[row]);
+
+    const uint16_t valueColor = available ? kColorText : kColorMuted;
+    // Compact regular 9pt for the selected mode: consistent with card labels.
+    const GFXfont* valueFont = &FreeSans9pt7b;
+    setGfxFont_(valueFont, valueColor, bg);
+    const int16_t valueW = gfxTextWidth_(current);
+    const int16_t valueX = (int16_t)(rect.x + rect.w - valueW - 12);
+    drawGfxText_(valueFont, valueColor, bg, valueX,
+                 (int16_t)(centerY + 6), current);
 }
 
 void TFTModuleS3::drawOverviewSelectors_(const OverviewStatusRenderState& state)
@@ -1513,8 +1863,8 @@ void TFTModuleS3::drawAlarmCard_(int16_t x, int16_t y, int16_t w, int16_t h, uin
     loadAlarmMasks_(activeMask, resettableMask, conditionMask);
     (void)resettableMask;
 
-    display_.fillRoundRect(x, y, w, h, 12, color_(kColorCardBg));
-    display_.drawRoundRect(x, y, w, h, 12, color_(kColorCardBorder));
+    display_.fillRoundRect(x, y, w, h, kUiCardRadius, color_(kColorCardBg));
+    display_.drawRoundRect(x, y, w, h, kUiCardRadius, color_(kColorCardBorder));
 
     const int16_t iconCx = (int16_t)(x + w - 22);
     const int16_t labelX = (int16_t)(x + 12);
@@ -1547,7 +1897,7 @@ void TFTModuleS3::drawOverviewPage_()
     const Rect rightTop = overviewTopCardRect_(w, 1U);
     OverviewStatusRenderState status{};
     readOverviewStatus_(status);
-    drawCenteredTextCard_(leftTop.x, leftTop.y, leftTop.w, leftTop.h, ip, true);
+    drawCenteredTextCard_(leftTop.x, leftTop.y, leftTop.w, leftTop.h, ip, false);
     drawCenteredTextCard_(rightTop.x, rightTop.y, rightTop.w, rightTop.h, "http://flowio.local", false);
     drawOverviewSelectors_(status);
 }
@@ -1557,11 +1907,7 @@ void TFTModuleS3::drawMetricsPage_()
     const int16_t w = display_.width();
     const int16_t h = display_.height();
     uint8_t visibleIndex = 0U;
-    uint8_t visibleCount = 0U;
-    for (uint8_t i = 0; i < DashboardSlotCount; ++i) {
-        if (uiStorage_->dashboardCfg[i].enabled) ++visibleCount;
-    }
-    const bool denseMetrics = visibleCount > 8U;
+    const bool denseMetrics = true; // Always preserve the approved 5x2 screen-2 grid.
     for (uint8_t i = 0; i < DashboardSlotCount; ++i) {
         if (!uiStorage_->dashboardCfg[i].enabled) continue;
         const Rect r = metricCardRect_(w, h, visibleIndex++, denseMetrics);
@@ -1586,43 +1932,127 @@ void TFTModuleS3::drawDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t
     drawDashboardSlot_(slot, x, y, w, h, state, dense);
 }
 
-void TFTModuleS3::drawDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t w, int16_t h, const DashboardSlotRenderState& state, bool dense)
+void TFTModuleS3::drawDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t w, int16_t h,
+                                      const DashboardSlotRenderState& state,
+                                      bool dense, bool textOnly)
 {
     (void)slot;
+    (void)dense;
     const uint16_t bg = color_(state.cardBg);
-    display_.fillRoundRect(x, y, w, h, 10, bg);
-    display_.drawRoundRect(x, y, w, h, 10, color_(kColorCardBorder));
+    if (!textOnly) {
+        display_.fillRoundRect(x, y, w, h, kUiCardRadius, bg);
+        display_.drawRoundRect(x, y, w, h, kUiCardRadius, color_(kColorCardBorder));
+        if (state.enabled) {
+            // No decorative divider: use the space for larger labels.
+            drawMiniIcon_((int16_t)(x + 13), (int16_t)(y + h / 2),
+                          metricGlyphKind_(state.label, state.unit), state.cardBg);
+        }
+    } else {
+        // Anti-flicker: erase only changed text, keeping icon and frame.
+        display_.fillRect((int16_t)(x + 26), (int16_t)(y + 3),
+                          (int16_t)(w - 30), (int16_t)(h - 6), bg);
+    }
+    if (!state.enabled) return;
 
-    const uint16_t labelColor = state.enabled ? kColorMuted : kColorOff;
-    const uint16_t valueColor = (state.enabled && state.available) ? kColorValue : kColorMuted;
-    // Original four-row dashboard keeps its fonts and spacing.
-    const int16_t textPad = dense ? 9 : 12;
-    if (state.enabled && state.label[0] != '\0') {
-        drawGfxText_(&FreeSans9pt7b, labelColor, state.cardBg,
-                     (int16_t)(x + textPad), (int16_t)(y + (dense ? 15 : 18)), state.label);
+    const uint16_t valueColor = state.available ? kColorValue : kColorMuted;
+    const char* value = state.value[0] ? state.value : "--";
+    const bool hasUnit = state.unit[0] != '\0';
+    const bool degreeC = hasUnit && isDegreeCUnit_(state.unit);
+    const char* unitText = degreeC ? "C" : state.unit;
+    const int16_t unitWidth = hasUnit ? (int16_t)(strlen(unitText) * 6 + (degreeC ? 6 : 0)) : 0;
+
+    // Right-align value immediately before the unit. This grants the label
+    // all remaining horizontal space and preserves the 5x2 native layout.
+    const int16_t rightEdge = (int16_t)(x + w - 6);
+    const int16_t unitX = (int16_t)(rightEdge - unitWidth);
+    const int16_t valueRight = (int16_t)(unitX - (hasUnit ? 5 : 0));
+    setGfxFont_(&FreeSans9pt7b, valueColor, state.cardBg);
+    int16_t valueWidth = gfxTextWidth_(value);
+    const int16_t labelX = (int16_t)(x + 27);
+    const int16_t maxValueSpan = (int16_t)(valueRight - labelX - 18);
+    const bool compactValue = valueWidth > maxValueSpan;
+    if (compactValue) valueWidth = (int16_t)(strlen(value) * 6U);
+    const int16_t valueX = (int16_t)(valueRight - valueWidth);
+
+    // Label receives the space left of the numeric value. If it contains a
+    // space, split once, then clip each segment to avoid printing over the
+    // value/units. Never mutate the configured label stored in NVS.
+    char labelBuf[sizeof(state.label)]{};
+    snprintf(labelBuf, sizeof(labelBuf), "%s", state.label);
+    int16_t labelMaxW = (int16_t)(valueX - labelX - 4);
+    if (labelMaxW < 12) labelMaxW = 12;
+    const int16_t midY = (int16_t)(y + h / 2);
+    setGfxFont_(&FreeSans9pt7b, kColorText, state.cardBg);
+    if (gfxTextWidth_(labelBuf) <= labelMaxW) {
+        drawGfxText_(&FreeSans9pt7b, kColorText, state.cardBg,
+                     labelX, (int16_t)(midY + 6), labelBuf);
+    } else {
+        char* space = strchr(labelBuf, ' ');
+        // Keep 8pt GFX when possible; fall back to compact 6x8 only
+        // for longer user-defined names (never overwrite stored labels).
+        if (space) {
+            *space++ = '\0';
+            char second[sizeof(state.label)]{};
+            snprintf(second, sizeof(second), "%s", space);
+            setGfxFont_(&FreeSansBold8pt7b, kColorText, state.cardBg);
+            if (gfxTextWidth_(labelBuf) <= labelMaxW &&
+                gfxTextWidth_(second) <= labelMaxW) {
+                drawGfxText_(&FreeSansBold8pt7b, kColorText, state.cardBg,
+                             labelX, (int16_t)(midY - 2), labelBuf);
+                drawGfxText_(&FreeSansBold8pt7b, kColorText, state.cardBg,
+                             labelX, (int16_t)(midY + 12), second);
+            } else {
+                display_.setFont(nullptr);
+                display_.setTextSize(1);
+                display_.setTextColor(color_(kColorText), bg);
+                const size_t maxChars = (size_t)(labelMaxW / 6);
+                if (maxChars < sizeof(labelBuf)) labelBuf[maxChars] = '\0';
+                if (maxChars < sizeof(second)) second[maxChars] = '\0';
+                display_.setCursor(labelX, (int16_t)(midY - 9));
+                display_.print(labelBuf);
+                display_.setCursor(labelX, (int16_t)(midY + 2));
+                display_.print(second);
+            }
+        } else {
+            setGfxFont_(&FreeSansBold8pt7b, kColorText, state.cardBg);
+            if (gfxTextWidth_(labelBuf) <= labelMaxW) {
+                drawGfxText_(&FreeSansBold8pt7b, kColorText, state.cardBg,
+                             labelX, (int16_t)(midY + 5), labelBuf);
+            } else {
+                display_.setFont(nullptr);
+                display_.setTextSize(1);
+                display_.setTextColor(color_(kColorText), bg);
+                const size_t maxChars = (size_t)(labelMaxW / 6);
+                if (maxChars < sizeof(labelBuf)) labelBuf[maxChars] = '\0';
+                display_.setCursor(labelX, (int16_t)(midY - 4));
+                display_.print(labelBuf);
+            }
+        }
     }
 
-    const int16_t valueBaseY = (int16_t)(y + h - (dense ? 5 : 11));
-    if (state.value[0] != '\0') {
-        // Slightly smaller values in five-row mode only; four-row remains unchanged.
-        setGfxFont_(dense ? &FreeSansBold8pt7b : &FreeSansBold12pt7b, valueColor, state.cardBg);
-        display_.setCursor((int16_t)(x + textPad), valueBaseY);
-        display_.print(state.value);
+    // Value and unit remain right-aligned on the same baseline.
+    if (!compactValue) {
+        setGfxFont_(&FreeSans9pt7b, valueColor, state.cardBg);
+        display_.setCursor(valueX, (int16_t)(midY + 6));
+    } else {
+        display_.setFont(nullptr);
+        display_.setTextSize(1);
+        display_.setTextColor(color_(valueColor), bg);
+        display_.setCursor(valueX, (int16_t)(midY - 4));
     }
-
-    if (state.value[0] != '\0' && state.unit[0] != '\0') {
-        setGfxFont_(&FreeSans9pt7b, kColorMuted, state.cardBg);
-        if (isDegreeCUnit_(state.unit)) {
-            const int16_t cw = gfxTextWidth_("C");
-            const int16_t unitX = (int16_t)(x + w - cw - (dense ? 12 : 18));
-            display_.drawCircle((int16_t)(unitX - 6), (int16_t)(valueBaseY - 11), 2, color_(kColorMuted));
-            display_.setCursor(unitX, valueBaseY);
+    display_.print(value);
+    if (hasUnit) {
+        display_.setFont(nullptr);
+        display_.setTextSize(1);
+        display_.setTextColor(color_(kColorSelected), bg);
+        if (degreeC) {
+            display_.drawCircle((int16_t)(unitX + 2), (int16_t)(midY - 4),
+                                2, color_(kColorSelected));
+            display_.setCursor((int16_t)(unitX + 6), (int16_t)(midY - 4));
             display_.print("C");
         } else {
-            const int16_t unitW = gfxTextWidth_(state.unit);
-            const int16_t unitX = (int16_t)(x + w - unitW - (dense ? 9 : 12));
-            display_.setCursor(unitX, valueBaseY);
-            display_.print(state.unit);
+            display_.setCursor(unitX, (int16_t)(midY - 4));
+            display_.print(unitText);
         }
     }
 }
@@ -1654,35 +2084,90 @@ void TFTModuleS3::drawAlarmDashboardSlot_(uint8_t slot, int16_t x, int16_t y, in
     drawAlarmDashboardSlot_(slot, x, y, w, h, state);
 }
 
-void TFTModuleS3::drawAlarmDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t w, int16_t h, const AlarmSlotRenderState& state)
+void TFTModuleS3::drawAlarmDashboardSlot_(uint8_t slot, int16_t x, int16_t y,
+                                           int16_t w, int16_t h,
+                                           const AlarmSlotRenderState& state)
 {
     (void)slot;
     if (!state.enabled) {
         display_.fillRect(x, y, w, h, color_(kColorBg));
         return;
     }
-
     const uint16_t bg = color_(state.cardBg);
-    display_.fillRoundRect(x, y, w, h, 10, bg);
-    display_.drawRoundRect(x, y, w, h, 10, color_(kColorCardBorder));
+    display_.fillRoundRect(x, y, w, h, kUiCardRadius, bg);
+    display_.drawRoundRect(x, y, w, h, kUiCardRadius, color_(kColorCardBorder));
+    // Keep only one narrow indicator column: L above C on the right.
+    // No divider: colorful icon and label sit directly in the card.
+    drawMiniIcon_((int16_t)(x + 16), (int16_t)(y + h / 2),
+                  alarmGlyphKind_(state.alarmId), state.cardBg);
 
-    const uint16_t labelColor = kColorValue;
-    const char* label = state.label[0] != '\0' ? state.label : "Alarme";
-    drawGfxText_(&FreeSans9pt7b, labelColor, state.cardBg, (int16_t)(x + 12), (int16_t)(y + 18), label);
+    const int16_t labelX = (int16_t)(x + 32);
+    const int16_t labelW = (int16_t)(w - 58);
+    const char* text = state.label[0] != '\0' ? state.label : "Alarme";
+    setGfxFont_(&FreeSans9pt7b, kColorText, state.cardBg);
+    if (gfxTextWidth_(text) <= labelW) {
+        drawGfxText_(&FreeSans9pt7b, kColorText, state.cardBg,
+                     labelX, (int16_t)(y + h / 2 + 6), text);
+    } else {
+        char labelBuf[sizeof(state.label)]{};
+        snprintf(labelBuf, sizeof(labelBuf), "%s", text);
+        char* space = strchr(labelBuf, ' ');
+        // Prefer visible 8pt GFX text on long names, splitting only at
+        // a real word boundary; use 6x8 only for extreme custom captions.
+        if (space) {
+            *space++ = '\0';
+            char second[sizeof(state.label)]{};
+            snprintf(second, sizeof(second), "%s", space);
+            setGfxFont_(&FreeSansBold8pt7b, kColorText, state.cardBg);
+            if (gfxTextWidth_(labelBuf) <= labelW &&
+                gfxTextWidth_(second) <= labelW) {
+                drawGfxText_(&FreeSansBold8pt7b, kColorText, state.cardBg,
+                             labelX, (int16_t)(y + h / 2 - 2), labelBuf);
+                drawGfxText_(&FreeSansBold8pt7b, kColorText, state.cardBg,
+                             labelX, (int16_t)(y + h / 2 + 12), second);
+            } else {
+                display_.setFont(nullptr);
+                display_.setTextSize(1);
+                display_.setTextColor(color_(kColorText), bg);
+                const size_t maxChars = (size_t)(labelW / 6);
+                if (maxChars < sizeof(labelBuf)) labelBuf[maxChars] = '\0';
+                if (maxChars < sizeof(second)) second[maxChars] = '\0';
+                display_.setCursor(labelX, (int16_t)(y + h / 2 - 9));
+                display_.print(labelBuf);
+                display_.setCursor(labelX, (int16_t)(y + h / 2 + 2));
+                display_.print(second);
+            }
+        } else {
+            setGfxFont_(&FreeSansBold8pt7b, kColorText, state.cardBg);
+            if (gfxTextWidth_(labelBuf) <= labelW) {
+                drawGfxText_(&FreeSansBold8pt7b, kColorText, state.cardBg,
+                             labelX, (int16_t)(y + h / 2 + 5), labelBuf);
+            } else {
+                display_.setFont(nullptr);
+                display_.setTextSize(1);
+                display_.setTextColor(color_(kColorText), bg);
+                const size_t maxChars = (size_t)(labelW / 6);
+                if (maxChars < sizeof(labelBuf)) labelBuf[maxChars] = '\0';
+                display_.setCursor(labelX, (int16_t)(y + h / 2 - 4));
+                display_.print(labelBuf);
+            }
+        }
+    }
 
-    const int16_t iconY = (int16_t)(y + h - 18);
-    const int16_t condX = (int16_t)(x + w - 19);
-    const int16_t latchX = (int16_t)(condX - 28);
-    drawAlarmStateIcon_(latchX, iconY, "L", state.latched, state.available);
-    drawAlarmStateIcon_(condX, iconY, "C", state.conditionTrue, state.available && state.conditionKnown);
+    const int16_t stateX = (int16_t)(x + w - 13);
+    drawAlarmStateIcon_(stateX, (int16_t)(y + 13), "L",
+                        state.latched, state.available);
+    drawAlarmStateIcon_(stateX, (int16_t)(y + h - 13), "C",
+                        state.conditionTrue, state.available && state.conditionKnown);
 }
 
-void TFTModuleS3::drawAlarmStateIcon_(int16_t cx, int16_t cy, const char* text, bool on, bool known)
+void TFTModuleS3::drawAlarmStateIcon_(int16_t cx, int16_t cy, const char* text,
+                                      bool on, bool known)
 {
     const uint16_t fill = !known ? kColorOff : (on ? kColorAlarmAct : kColorGaugeOk);
-    display_.fillCircle(cx, cy, 10, color_(fill));
-    display_.drawCircle(cx, cy, 10, color_(kColorCardBorder));
-
+    // 14px circles, each redrawn independently without repainting the card.
+    display_.fillCircle(cx, cy, 7, color_(fill));
+    display_.drawCircle(cx, cy, 7, color_(kColorText));
     display_.setFont(nullptr);
     display_.setTextSize(1);
     display_.setTextColor(color_(kColorCheckMark), color_(fill));
@@ -2145,15 +2630,15 @@ void TFTModuleS3::slotLabel_(uint8_t slot, char* out, size_t outLen) const
 uint16_t TFTModuleS3::dashboardColor_(uint8_t colorId, uint8_t slot) const
 {
     for (size_t i = 0; i < (sizeof(kDashboardColorPresets) / sizeof(kDashboardColorPresets[0])); ++i) {
-        if (kDashboardColorPresets[i].id == colorId) return kDashboardColorPresets[i].rgb565;
+        if (kDashboardColorPresets[i].id == colorId) return dashboardDarkTint_(kDashboardColorPresets[i].rgb565);
     }
     if (slot < DashboardSlotCount) {
         const uint8_t fallbackId = kDashboardDefaultColorIds[slot];
         for (size_t i = 0; i < (sizeof(kDashboardColorPresets) / sizeof(kDashboardColorPresets[0])); ++i) {
-            if (kDashboardColorPresets[i].id == fallbackId) return kDashboardColorPresets[i].rgb565;
+            if (kDashboardColorPresets[i].id == fallbackId) return dashboardDarkTint_(kDashboardColorPresets[i].rgb565);
         }
     }
-    return rgb565_(238, 247, 255);
+    return kColorCardBg;
 }
 
 const char* TFTModuleS3::alarmIdLabel_(uint16_t alarmId) const

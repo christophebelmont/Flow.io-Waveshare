@@ -139,7 +139,8 @@ private:
                                 int16_t x, int16_t y, int16_t w, int16_t h,
                                 bool wordmark);
     void drawStaticLayout_(Page page);
-    void drawHeader_(const char* timeText, uint8_t wifiBars, bool apMode);
+    void drawHeader_(const char* timeText, uint8_t wifiBars, bool apMode,
+                     uint8_t activePage, bool full);
     void drawOverviewPage_();
     void drawOverviewSelectors_(const OverviewStatusRenderState& state);
     void drawOverviewSelectorRow_(uint8_t row, const OverviewChoice* choices, uint8_t count,
@@ -158,10 +159,13 @@ private:
     void drawGfxText_(const GFXfont* font, uint16_t fg, uint16_t bg, int16_t x, int16_t baselineY, const char* text);
     void drawGfxTextCenteredY_(const GFXfont* font, uint16_t fg, uint16_t bg, int16_t x, int16_t boxY, int16_t boxH, const char* text);
     void drawWifiBars_(int16_t x, int16_t y, uint8_t bars);
+    void drawMiniIcon_(int16_t cx, int16_t cy, uint8_t kind, uint16_t bg);
     void drawBrandWordmark_(int16_t x, int16_t y, int16_t w, int16_t h,
                             const uint16_t* bitmap, int16_t bitmapW, int16_t bitmapH);
     void drawDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t w, int16_t h, bool dense = false);
-    void drawDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t w, int16_t h, const DashboardSlotRenderState& state, bool dense = false);
+    void drawDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t w, int16_t h,
+                            const DashboardSlotRenderState& state, bool dense = false,
+                            bool textOnly = false);
     void readDashboardSlotState_(uint8_t slot, DashboardSlotRenderState& state) const;
     void drawAlarmDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t w, int16_t h);
     void drawAlarmDashboardSlot_(uint8_t slot, int16_t x, int16_t y, int16_t w, int16_t h, const AlarmSlotRenderState& state);
