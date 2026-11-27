@@ -18,7 +18,19 @@ struct FakeDisplay {
     struct Text { std::string value; Rect ink; const GFXfont* font; uint16_t foreground, background; };
     std::vector<Paint> fills, outlines;
     std::vector<Text> texts;
+    std::vector<std::string> captions;
     const GFXfont* font = nullptr;
+    void setFont(const GFXfont* f) { font = f; }
+    void setTextSize(int) {}
+    void setTextColor(uint16_t, uint16_t) {}
+    void setCursor(int16_t, int16_t) {}
+    void drawFastVLine(int16_t, int16_t, int16_t, uint16_t) {}
+    void drawFastHLine(int16_t, int16_t, int16_t, uint16_t) {}
+    void drawCircle(int16_t, int16_t, int16_t, uint16_t) {}
+    void fillCircle(int16_t, int16_t, int16_t, uint16_t) {}
+    void drawLine(int16_t, int16_t, int16_t, int16_t, uint16_t) {}
+    void fillTriangle(int16_t, int16_t, int16_t, int16_t, int16_t, int16_t, uint16_t) {}
+    void print(const char* label) { captions.emplace_back(label ? label : ""); }
     int16_t width() const { return 320; }
     int16_t height() const { return 240; }
     void fillRoundRect(int16_t x,int16_t y,int16_t w,int16_t h,int16_t,uint16_t color) { fills.push_back({{x,y,w,h},color}); }
@@ -53,6 +65,7 @@ public:
         display_.getTextBounds(text,x,baseline,&x1,&y1,&w,&h);
         display_.texts.push_back({text,{x1,y1,int16_t(w),int16_t(h)},font,fg,bg});
     }
+    void drawMiniIcon_(int16_t, int16_t, uint8_t, uint16_t) {}
     void drawOverviewSelectorRow_(uint8_t,const OverviewChoice*,uint8_t,uint8_t,bool);
     void drawOverviewSelectors_(const OverviewStatusRenderState&);
     static bool overviewStatusEquals_(const OverviewStatusRenderState&,const OverviewStatusRenderState&);
@@ -66,54 +79,64 @@ static bool sameRect(const Rect& a, const Rect& b) {
 
 static void nativeGeometryAndFont()
 {
-    // Upper-area contract: header 48 px; IP and URL stay exactly at their existing positions.
-    assert(kHeaderH == 48);
-    assert(sameRect(overviewTopCardRect_(320,0),{8,56,149,34}));
-    assert(sameRect(overviewTopCardRect_(320,1),{163,56,149,34}));
-    for (uint8_t mode = 0; mode < 3; ++mode) for (uint8_t ph = 0; ph < 3; ++ph) for (uint8_t treatment = 0; treatment < 4; ++treatment) {
+    // Approved native 1px edges, 2px gaps, 32px common header.
+    assert(kHeaderH == 32 && kCardEdge == 1 && kCardGap == 2);
+    assert(sameRect(overviewTopCardRect_(320,0),{1,33,158,41}));
+    assert(sameRect(overviewTopCardRect_(320,1),{161,33,158,41}));
+    assert(sameRect(overviewStatusCardRect_(320,240,0U),{1,76,318,53}));
+    assert(sameRect(overviewStatusCardRect_(320,240,1U),{1,131,318,53}));
+    assert(sameRect(overviewStatusCardRect_(320,240,2U),{1,186,318,53}));
+
+    static constexpr const char* modes[] = {"Manuel","Auto","Hiver"};
+    static constexpr const char* ph[] = {"pH+","pH-","Off"};
+    static constexpr const char* treatments[] = {"Chlore","Electro","O2","Off"};
+    static constexpr const char* labels[] = {"Mode","Correction pH","Traitement"};
+    static constexpr uint16_t colors[] = {
+        kColorOverviewModeBg, kColorOverviewPhBg, kColorOverviewTreatmentBg
+    };
+
+    for (uint8_t mode = 0; mode < 3; ++mode)
+    for (uint8_t correction = 0; correction < 3; ++correction)
+    for (uint8_t treatment = 0; treatment < 4; ++treatment) {
         TFTModuleS3 module;
         TFTModuleS3::OverviewStatusRenderState state;
         state.operatingAvailable = state.treatmentAvailable = true;
         state.operatingMode = PoolOperatingMode(mode);
-        state.phCorrection = PoolPhCorrection(ph);
+        state.phCorrection = PoolPhCorrection(correction);
         state.treatment = PoolDisinfectionMethod(treatment);
         module.drawOverviewSelectors_(state);
-        const auto& display = module.display_;
-        assert(display.fills.size() == 10 && display.outlines.size() == 10 && display.texts.size() == 10);
-        const std::vector<std::string> expected = {"Manuel","Auto","Hiver","pH+","pH-","Off","Chlore","Electro","O2","Off"};
-        unsigned activeByRow[3]{};
-        for (unsigned i = 0; i < display.texts.size(); ++i) {
-            const auto& rect = display.fills[i].rect;
-            const auto& text = display.texts[i];
-            const unsigned row = i < 3 ? 0 : i < 6 ? 1 : 2;
-            assert(text.value == expected[i]);
-            assert(text.font == &FreeSans9pt7b);
-            assert(rect.x >= 8 && rect.x + rect.w <= 312);
-            assert(rect.y >= 98 && rect.y + rect.h <= 232);
-            assert(rect.h >= 40);
-            assert(sameRect(rect,display.outlines[i].rect));
-            assert(text.ink.x >= rect.x + 6 && text.ink.x + text.ink.w <= rect.x + rect.w - 6);
-            assert(text.ink.y >= rect.y + 6 && text.ink.y + text.ink.h <= rect.y + rect.h - 6);
-            const int centerErrorX = 2*(text.ink.x - rect.x) + text.ink.w - rect.w;
-            const int centerErrorY = 2*(text.ink.y - rect.y) + text.ink.h - rect.h;
-            assert(centerErrorX >= -1 && centerErrorX <= 0);
-            assert(centerErrorY >= -1 && centerErrorY <= 0);
-            if (display.fills[i].color == kColorSelected) {
-                ++activeByRow[row];
-                assert(text.foreground == kColorBg && text.background == kColorSelected);
-            } else assert(text.foreground == kColorSelected && text.background == kColorCardBg);
-            for (unsigned j = i+1; j < display.fills.size(); ++j) {
-                const auto& other = display.fills[j].rect;
-                assert(rect.x + rect.w <= other.x || other.x + other.w <= rect.x ||
-                       rect.y + rect.h <= other.y || other.y + other.h <= rect.y);
-            }
+        const auto& d = module.display_;
+        assert(d.fills.size() == 3 && d.outlines.size() == 3);
+        assert(d.texts.size() == 6); // One label + selected value, not all options.
+        const char* values[] = {modes[mode], ph[correction], treatments[treatment]};
+        for (unsigned row = 0; row < 3; ++row) {
+            assert(sameRect(d.fills[row].rect, overviewStatusCardRect_(320,240,(uint8_t)row)));
+            assert(sameRect(d.fills[row].rect, d.outlines[row].rect));
+            assert(d.fills[row].color == colors[row]);
+            const auto& label = d.texts[row * 2U];
+            const auto& selected = d.texts[row * 2U + 1U];
+            assert(label.value == labels[row]);
+            assert(label.font == &FreeSans9pt7b);
+            assert(label.foreground == kColorText);
+            assert(selected.value == values[row]);
+            assert(selected.font == &FreeSans9pt7b);
+            assert(selected.foreground == kColorText);
+            const Rect card = d.fills[row].rect;
+            assert(label.ink.x >= card.x && label.ink.x + label.ink.w < card.x + card.w);
+            assert(selected.ink.x > label.ink.x + label.ink.w);
+            assert(selected.ink.x + selected.ink.w <= card.x + card.w);
+            assert(selected.ink.y >= card.y && selected.ink.y + selected.ink.h <= card.y + card.h);
         }
-        assert(activeByRow[0] == 1 && activeByRow[1] == 1 && activeByRow[2] == 1);
     }
+
     TFTModuleS3 unknown;
     unknown.drawOverviewSelectors_({});
-    for (const auto& fill : unknown.display_.fills) assert(fill.color != kColorSelected);
-    for (const auto& text : unknown.display_.texts) assert(text.foreground == kColorMuted);
+    assert(unknown.display_.fills.size() == 3);
+    assert(unknown.display_.texts.size() == 6);
+    for (unsigned row = 0; row < 3; ++row) {
+        const auto& v = unknown.display_.texts[row * 2U + 1U];
+        assert(v.value == "--" && v.foreground == kColorMuted);
+    }
 }
 
 struct PoolSource {
@@ -173,8 +196,34 @@ static void configuredValuesAndCacheInvalidation()
     assert(!second.operatingAvailable && !second.treatmentAvailable);
 }
 
+static void metricsAndAlarmsGridBounds()
+{
+    // Page 2: 10 live metrics in 5x2 (39px, last 40px).
+    // Page 3: 8 alarm slots in 4x2 (50px); 8th may be disabled.
+    for (const bool dense : {false, true}) {
+        const unsigned total = dense ? 10U : 8U;
+        std::vector<Rect> cards;
+        for (unsigned i = 0; i < total; ++i) {
+            const Rect r = metricCardRect_(320, 240, static_cast<uint8_t>(i), dense);
+            assert(r.x >= 1 && r.x + r.w <= 319);
+            assert(r.y >= 33 && r.y + r.h <= 239);
+            assert(r.w == 158 && r.h >= (dense ? 39 : 50));
+            for (const Rect& prior : cards) {
+                assert(r.x + r.w <= prior.x || prior.x + prior.w <= r.x ||
+                       r.y + r.h <= prior.y || prior.y + prior.h <= r.y);
+            }
+            cards.push_back(r);
+        }
+        assert(cards[0].y == cards[1].y && cards[0].x == 1 && cards[1].x == 161);
+        assert(cards[total - 2].y == cards[total - 1].y);
+        assert(cards[total - 1].y + cards[total - 1].h == 239);
+        assert(cards[0].y == (dense ? 35 : 33));
+    }
+}
+
 int main() {
     nativeGeometryAndFont();
     configuredValuesAndCacheInvalidation();
-    puts("TFT overview: 36 configurations, native 320x240 bounds, actual FreeSans9pt glyphs, configured states and repaint invalidation OK");
+    metricsAndAlarmsGridBounds();
+    puts("TFT dark: 36 selected-only modes, native 5x2 measurements, 4x2 alarms and 320x240 bounds OK");
 }
